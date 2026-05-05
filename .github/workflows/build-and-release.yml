@@ -67,7 +67,7 @@ jobs:
           Version: ${{ github.sha }}
           Env: prod
           Replicas.Min: 1
-          Replicas.Max: 1
+          Replicas.Max: 4
           Image: ${{ env.REGISTRY }}/${{ steps.repository_string.outputs.lowercase }}:${{ github.sha }}
           Requests.Memory: 192Mi
           Requests.CPU: 150m
