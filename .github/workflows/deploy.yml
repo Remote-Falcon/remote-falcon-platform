@@ -29,6 +29,11 @@ on:
           - external-api
           - mongo-backup
           - account-archive
+      dry_run:
+        description: "Dry run: build + push images, skip cluster apply"
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -235,8 +240,10 @@ jobs:
 
       # -----------------------------------------------------------
       # Token-replace manifest, apply, monitor rollout
+      # All cluster-side steps below are skipped when dry_run=true.
       # -----------------------------------------------------------
       - name: Replace tokens in manifest
+        if: ${{ inputs.dry_run != true }}
         uses: cschleiden/replace-tokens@v1
         with:
           files: ${{ steps.cfg.outputs.manifest }}
@@ -257,15 +264,27 @@ jobs:
           Limits.CPU: ${{ steps.cfg.outputs.lim_cpu }}
 
       - name: Install doctl
+        if: ${{ inputs.dry_run != true }}
         uses: digitalocean/action-doctl@v2
         with:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
 
       - name: Save kubeconfig
+        if: ${{ inputs.dry_run != true }}
         run: doctl kubernetes cluster kubeconfig save --expiry-seconds 600 ${{ env.CLUSTER_ID }}
 
       - name: kubectl apply
+        if: ${{ inputs.dry_run != true }}
         run: kubectl apply -f ${{ steps.cfg.outputs.manifest }}
 
       - name: Wait for rollout
+        if: ${{ inputs.dry_run != true }}
         run: kubectl rollout status deployment/${{ steps.cfg.outputs.deployment }} --namespace ${{ env.NAMESPACE }} --timeout=5m
+
+      - name: Dry-run summary
+        if: ${{ inputs.dry_run == true }}
+        env:
+          SERVICE: ${{ matrix.service }}
+          IMAGE: ${{ steps.cfg.outputs.image }}
+        run: |
+          echo "::notice::Dry run for $SERVICE — image built and pushed to $IMAGE; cluster apply skipped."
