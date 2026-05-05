@@ -83,6 +83,10 @@ metadata:
     nginx.ingress.kubernetes.io/rewrite-target: /$2
 spec:
   ingressClassName: nginx
+  tls:
+  - hosts:
+    - #{Host}#
+    secretName: remote-falcon-tls
   rules:
   - host: #{Host}#
     http:
@@ -101,3 +105,23 @@ spec:
             name: #{Application}#
             port:
               number: 8080
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: #{Application}#
+  namespace: #{Namespace}#
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: #{Application}#
+  minReplicas: 2
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
