@@ -12,10 +12,10 @@ Everything here maps 1:1 to the token files in `src/design-system/tokens/`. **If
 
 ## Principles
 
-1. **Modernize the brand, don't replace it.** Remote Falcon's identity is the falcon mark, the brand blue (`#2196f3`), and the brand purple (`#7c4dff`/`#673ab7`). All of those carry forward. v2 changes the *surfaces* around them — typography, spacing, shadows, radius, density — not the brand itself.
+1. **Modernize the brand, don't replace it.** Remote Falcon's identity is **navy + amber + red** (the deployed `theme3` preset, which `src/config.jsx` sets as the default). All of those carry forward. v2 changes the *surfaces* around them — typography, spacing, shadows, radius, density — not the brand itself.
 2. **Tokens, not magic numbers.** Every spacing, color, radius, and shadow comes from a named token. Hardcoded `#hex` values, `borderRadius: 4`, or `boxShadow: '0 2px 8px ...'` are review blockers.
 3. **Less is more visual weight.** Borders, shadows, and dividers each cost attention. Pick one to delineate a surface, not all three.
-4. **Restraint scales.** A page with three accent colors looks designed; a page with seven looks frantic. Brand blue is the primary CTA color. Brand purple is the secondary accent. Amber is *only* for live-state UI ("now playing", focused row, "live" badges). Nothing else gets to be loud.
+4. **Restraint scales.** A page with three accent colors looks designed; a page with seven looks frantic. **Amber** is the warm primary CTA — "press here to start the show." **Navy** is the cool brand foundation — surfaces, supporting buttons, brand emphasis. **Red** is the live-state highlight — "show is live", "now playing", festive accents. Nothing else gets to be loud.
 5. **Motion is communication, not decoration.** Animate what the user changed (a sequence reordered, a panel opened). Don't animate decoration.
 6. **Dark default, light first-class.** Dark mode is the default — the product is used at night, looking at lights. But the theme toggle is a top-level affordance on every surface, and the user's choice persists across reloads. Light mode must look polished, not like a dark-mode afterthought.
 7. **Power users deserve speed.** Keyboard navigation, command palette, dense data views, bulk actions. The control panel is operated, not browsed.
@@ -37,7 +37,7 @@ These ship in `apps/ui/src/assets/images/` today and stay. **Do not rebrand or r
 | "WL" mascot mark | `assets/images/WL.png` | Community / Winter Lights references |
 
 **Rules**:
-- Always pair the falcon mark with a brand-blue→brand-purple gradient backdrop when displayed at small sizes (sidebar, nav). Don't put it on a flat amber background — that breaks brand.
+- Always pair the falcon mark with a navy→amber gradient backdrop when displayed at small sizes (sidebar, nav). Don't put it on a flat red background — that's reserved for live-state UI.
 - The hero jukebox image is preserved through the migration. Phase 4 of [`MIGRATION.md`](./MIGRATION.md) replaces the `transform: scale(1.7)` hack with proper responsive sizing — the asset itself stays.
 - Favicon (`public/favicon.svg` + `public/rf-icon.png`) is unchanged.
 - When you need a new branded asset, derive it from the falcon mark or the existing color pair.
@@ -46,34 +46,40 @@ These ship in `apps/ui/src/assets/images/` today and stay. **Do not rebrand or r
 
 ## Tokens
 
-### Brand colors — preserved from the existing palette
+### Brand colors — drawn from theme3 (the deployed default)
 
-| Token | Hex | Usage |
-|---|---|---|
-| `brand.500` | `#2196f3` | **Primary CTA**, links, brand anchor (existing primary blue) |
-| `brand.700` | `#1565c0` | Hover state for primary CTA (existing $primary800) |
-| `secondary.500` (dark) | `#7c4dff` | Secondary CTA, brand purple in dark mode (existing $darkSecondaryMain) |
-| `secondary` (light)    | `#673ab7` | Same role in light mode (existing $secondaryMain) |
-| `accent.500` | `#f5a524` | **Live-state only** — now-playing badge, focused row marker, "live" indicators |
-| `cyan.400` | `#22d3ee` | Charts (secondary series), info badges |
-| `pink.400` | `#f472b6` | Brand gradients only |
+The hex values match `apps/ui/src/assets/scss/_theme3.module.scss`, which is what `src/config.jsx` sets as `presetColor: 'theme3'`. Red is new in v2.
 
-**Rule:**
-- Primary CTAs are always `brand` (blue). Secondary CTAs are `secondary` (purple). These are the historic Remote Falcon colors and they stay.
-- `accent` (amber) is the "lights are on" highlight — reserve for things that should evoke a stage light. The "Now playing" art, the upcoming-vote winner row, the "live" pill on the marketing eyebrow. **Never** a generic primary CTA.
-- `cyan`/`pink` show up only inside data viz or branded gradients.
-
-### Dark surfaces — preserved from the existing navy/indigo family
-
-| Token | Hex | Maps to legacy | Usage |
+| Token | Hex | MUI role | Usage |
 |---|---|---|---|
-| `bg0` | `#0b1029` | (deeper variant) | Page background |
-| `bg1` | `#111936` | `$darkPaper` | App shell, sidebar |
-| `bg2` | `#1a223f` | `$darkBackground` | Cards, default surface |
-| `bg3` | `#29314f` | `$darkLevel1` | Elevated cards, popovers, inputs |
-| `text1` | `#f5f7fb` | — | Primary text |
+| `navy.500` | `#16595a` | `primary.main` (light) | Brand anchor — outline buttons, supporting fills, brand text accents |
+| `navy.600` | `#1f7778` | `primary.main` (dark) | Same role in dark mode (slightly brighter so navy reads on near-black) |
+| `navy.700` | `#135152` | `primary.dark` | Hover state for primary buttons |
+| `amber.500` | `#c77e23` | `secondary.main` | **Primary CTA** — "Start free", "Save changes", "Show is live" |
+| `amber.700` | `#c1761f` | `secondary.dark` | Hover state for primary CTA |
+| `amber.200` | `#e3bf91` | `secondary.light` | Tinted backgrounds, eyebrow pills |
+| `red.500` | `#d4332e` | `palette.brand.red.main` | **Live-state only** — "now playing", "live" pills, festive accents |
+| `red.700` | `#a02520` | `palette.brand.red.dark` | Hover/pressed state for red badges |
+
+**Rules:**
+- **Amber is the primary CTA.** Use `<Button color="secondary">` for the warm "go" buttons across both surfaces. This is the historical Remote Falcon CTA color from `theme3.$secondaryMain` and it stays.
+- **Navy is the brand foundation.** Use `<Button color="primary">` for cooler/secondary buttons (Sign in, Cancel, supporting actions). Use `theme.palette.primary.main` for brand emphasis text (the `control` accent in the hero copy is `primary.main` today — that pattern continues).
+- **Red is for live state.** The "Show is live" dot, the "Now playing" art glow, the upcoming-vote winner highlight, the eyebrow pulse. **Distinct from `error`** — error is for destructive actions and validation; red is for warmth + presence.
+- **No additional accent colors.** Resist adding teal, purple, blue. The brand is three colors. If you need to differentiate something, use surface tier (`bg2` vs `bg3`) or weight (text-1 vs text-3) — not a new hue.
+
+### Dark surfaces — preserved from theme3
+
+The dark mode surfaces match `_theme3.module.scss` exactly, which gives the product its signature near-black "night sky" feel. The brand colors pop against this in a way they wouldn't against pure black.
+
+| Token | Hex | Maps to theme3 | Usage |
+|---|---|---|---|
+| `bg0` | `#01080d` | (slightly lifted from `$darkBackground` `#010606`) | Page background |
+| `bg1` | `#010f17` | `$darkPaper` | App shell, sidebar |
+| `bg2` | `#02131d` | `$darkLevel1` | Cards, default surface |
+| `bg3` | `#0a1828` | (slightly lighter for elevation) | Elevated cards, popovers, inputs |
+| `text1` | `#ffffff` | `$darkTextPrimary` | Primary text |
 | `text2` | `#c2c8d4` | — | Secondary text |
-| `text3` | `#8590ad` | — | Muted, labels, captions (tuned for navy bg) |
+| `text3` | `#8492c4` | `$darkTextSecondary` | Muted, labels, captions (note: the navy-cast is intentional — preserves theme3) |
 | `text4` | `#525a6e` | — | Hints, placeholders, disabled |
 | `line` | `rgba(255,255,255,0.07)` | — | Default divider |
 | `lineStrong` | `rgba(255,255,255,0.14)` | — | Hover/focused divider, prominent borders |
@@ -189,15 +195,26 @@ This was the `MainCard` pattern under the old theme — three layers of visual w
 
 ✅ **Do**
 ```jsx
-<Button variant="contained" color="secondary">Create your show →</Button>  {/* primary CTA */}
-<Button variant="outlined">Cancel</Button>                                  {/* ghost */}
-<Button color="error">Delete sequence</Button>                              {/* destructive */}
+<Button variant="contained" color="secondary">Start free →</Button>     {/* primary CTA — amber */}
+<Button variant="contained" color="primary">Save</Button>                {/* supporting CTA — navy */}
+<Button variant="outlined">Cancel</Button>                                {/* ghost */}
+<Button color="error">Delete sequence</Button>                            {/* destructive — red, with confirm */}
+```
+
+`color="secondary"` (amber) is the warm primary CTA across the product. `color="primary"` (navy) is the cooler, supporting button — sign in, cancel, save in less prominent spots. **Don't get this backward** — calling MUI's `color="primary"` "the primary CTA" is intuitive but wrong here, because the brand designates amber as the warm "go" color and amber maps to `secondary` in the MUI theme.
+
+For "live" badges and live-state UI, use the `red` brand role:
+```jsx
+<Box sx={{ bgcolor: 'brand.red.main', borderRadius: 'pill', px: 1.5, py: 0.5 }}>
+  ● Live
+</Box>
 ```
 
 ❌ **Don't**
 - Use `variant="text"` as a primary CTA — too easy to miss.
 - Mix size variants in one row (`size="large"` + `size="small"` together is the `RFSplitButton` mistake).
 - Manually override `background` and `&:hover` on every button — change the theme instead.
+- Use `color="error"` for "live" or "active" badges — that's brand red, not error red.
 
 ### Focus states
 

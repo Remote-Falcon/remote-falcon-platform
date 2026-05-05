@@ -56,15 +56,16 @@ const buildComponentOverrides = (theme) => {
           transition: `transform ${t}, background-color ${t}, box-shadow ${t}`,
           '&:hover': { transform: 'translateY(-1px)' }
         },
-        // Primary CTA — brand blue with a subtle blue glow.
-        containedPrimary: {
-          boxShadow: '0 6px 20px rgba(33,150,243,0.28)',
-          '&:hover': { boxShadow: '0 8px 28px rgba(33,150,243,0.40)' }
-        },
-        // Secondary CTA — brand purple, slightly softer glow.
+        // Secondary CTA — brand amber, the warm primary action color.
+        // Use color="secondary" for "Start free", "Show is live", etc.
         containedSecondary: {
-          boxShadow: '0 6px 20px rgba(124,77,255,0.25)',
-          '&:hover': { boxShadow: '0 8px 28px rgba(124,77,255,0.35)' }
+          boxShadow: '0 6px 20px rgba(199,126,35,0.30)',
+          '&:hover': { boxShadow: '0 8px 28px rgba(199,126,35,0.45)' }
+        },
+        // Primary CTA — navy, the cooler/cooler-supporting button color.
+        containedPrimary: {
+          boxShadow: '0 6px 20px rgba(31,119,120,0.28)',
+          '&:hover': { boxShadow: '0 8px 28px rgba(31,119,120,0.42)' }
         },
         contained: {
           boxShadow: 'none',
@@ -189,11 +190,11 @@ const buildComponentOverrides = (theme) => {
             backgroundColor: theme.palette.action.hover,
             color: theme.palette.text.primary
           },
-          // Selected state uses brand blue tint (the existing CTA color).
+          // Selected state uses brand amber tint (the brand CTA color).
           '&.Mui-selected': {
-            backgroundColor: 'rgba(33,150,243,0.10)',
+            backgroundColor: 'rgba(199,126,35,0.12)',
             color: theme.palette.text.primary,
-            '&:hover': { backgroundColor: 'rgba(33,150,243,0.16)' }
+            '&:hover': { backgroundColor: 'rgba(199,126,35,0.18)' }
           }
         }
       }

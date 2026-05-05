@@ -22,7 +22,7 @@ apps/ui/
     ├── components/
     │   └── ThemeToggle.jsx                ← light/dark switcher (uses useConfig)
     ├── tokens/
-    │   ├── colors.js                      ← preserves brand blue + purple
+    │   ├── colors.js                      ← navy + amber + red, drawn from theme3
     │   ├── radius.js
     │   ├── shadows.js
     │   ├── typography.js

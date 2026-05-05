@@ -1,85 +1,86 @@
 /**
  * Color tokens — framework-agnostic source of truth.
  *
- * Honors the existing Remote Falcon brand identity:
- *   - Primary blue   → kept from legacy `_themes-vars.module.scss` ($primaryMain).
- *   - Secondary purple → kept (uses dark-mode-friendly variant by default).
- *   - Dark surfaces  → kept from legacy navy/indigo family ($darkPaper / $darkBackground / $darkLevel1).
+ * Honors the actual Remote Falcon brand identity (navy, amber, red),
+ * derived from the deployed theme3 preset (apps/ui/src/assets/scss/
+ * _theme3.module.scss is the canonical default per src/config.jsx).
  *
- * What's new in v2:
- *   - `accent` (warm amber) — TERTIARY highlight, used for live-state UI:
- *     "now playing", active sequence indicator, focused row marker.
- *     NOT the primary CTA color. Primary CTA stays brand blue.
- *   - Three-level shadow scale (see shadows.js) instead of the legacy z1..z24 ladder.
- *   - One typeface (Inter) instead of the per-config Roboto/Poppins/Inter switch.
+ *   - Primary navy   → preserves theme3 primary (#16595a / #1f7778).
+ *                      Used as a deep brand surface accent and outline color.
+ *   - Secondary amber → preserves theme3 secondary (#c77e23).
+ *                       The warm primary CTA color — "press here to start the show."
+ *   - Tertiary red    → new brand color, Christmas-warm. Used for live-state UI
+ *                       ("show is live", urgent actions). NOT the same as `error`.
+ *   - Dark surfaces   → preserve theme3's near-black blue-cast family
+ *                       (#010606 / #010f17 / #02131d).
+ *
+ * What's new in v2 (vs. legacy theme3):
+ *   - Three-level shadow scale (see shadows.js) instead of the legacy z1..z24.
+ *   - One typeface (Inter) instead of the per-config Roboto/Poppins switch.
+ *   - Brand red as a first-class token (today red is only `error`).
  *
  * Token tiers:
- *   1. Brand        — accent colors that carry the Remote Falcon identity.
+ *   1. Brand        — navy (primary), amber (secondary), red (tertiary).
  *   2. Neutrals     — surfaces and text. Different ramps for light & dark.
- *   3. Semantic     — success / warning / danger / info. Same in both modes.
+ *   3. Semantic     — success / warning / danger / info. Independent from brand.
  */
 
 // 1. Brand --------------------------------------------------------------------
 
 /**
- * Primary brand color — Remote Falcon blue.
- * Hex values match the legacy `_themes-vars.module.scss` $primaryLight..800.
+ * Primary brand color — Remote Falcon navy.
+ * Preserves theme3's primary (#16595a) and dark variant (#1f7778). The hex
+ * leans deep blue-green and reads as "midnight" — fits the night-sky theme.
  */
-export const brand = {
-  50:  '#e3f2fd',
-  100: '#bbdefb',
-  200: '#90caf9',
-  300: '#64b5f6',
-  500: '#2196f3', // primary CTA / brand anchor
-  700: '#1565c0',
-  900: '#0d47a1'
+export const navy = {
+  50:  '#e3ebeb',  // theme3 $primaryLight
+  200: '#8bacad',  // theme3 $primary200
+  500: '#16595a',  // theme3 $primaryMain — the brand anchor
+  600: '#1f7778',  // theme3 $darkPrimaryMain — used in dark mode
+  700: '#135152',  // theme3 $primaryDark
+  800: '#0c3e3f'   // theme3 $primary800
 };
 
 /**
- * Secondary brand color — Remote Falcon purple.
- * Uses the legacy dark-mode-friendly $darkSecondaryMain (#7c4dff) so the
- * default mode (dark) gets a vivid purple. Light mode adjusts via theme.
+ * Secondary brand color — Remote Falcon amber.
+ * Preserves theme3's secondary (#c77e23) exactly. The warm primary CTA color.
  */
-export const secondary = {
-  50:  '#ede7f6',
-  100: '#d1c4e9',
-  200: '#b39ddb',
-  300: '#9575cd',
-  500: '#7c4dff', // dark-mode-friendly vivid purple
-  700: '#5e35b1',
-  900: '#4527a0'
+export const amber = {
+  100: '#f8f0e5',  // theme3 $secondaryLight
+  200: '#e3bf91',  // theme3 $secondary200
+  500: '#c77e23',  // theme3 $secondaryMain — the brand CTA color
+  700: '#c1761f',  // theme3 $secondaryDark
+  800: '#b36115'   // theme3 $secondary800
 };
 
 /**
- * Tertiary highlight — warm amber. Reserved for live-state UI (now playing,
- * focused row, "show is live" badges) so it reads like a stage light. NEVER
- * the primary CTA — that's brand blue.
+ * Tertiary brand color — Christmas-warm red. New in v2.
+ * Used for: live-state indicators, "show is live" badges, festive accents.
+ * Distinct from semantic.danger — that's for destructive actions and errors.
  */
-export const accent = {
-  300: '#ffd28a',
-  500: '#f5a524',
-  700: '#c47a08'
+export const red = {
+  300: '#fca5a5',
+  500: '#d4332e', // brand red — warm, not pure error red
+  700: '#a02520',
+  900: '#7a1a16'
 };
-
-/** Cyan + pink used in chart series and brand gradients only. */
-export const cyan = { 400: '#22d3ee' };
-export const pink = { 400: '#f472b6' };
 
 // 2. Neutrals — dark mode (default) -------------------------------------------
 
 /**
- * Dark surfaces follow the existing Remote Falcon navy/indigo family.
- * Maps onto the legacy $darkPaper / $darkBackground / $darkLevel1 / $darkLevel2.
+ * Dark surfaces preserve theme3's near-black blue-cast family. The page
+ * background is so dark that brand colors pop against it — exactly the
+ * "night sky with warm lights" feel of the product.
  */
 export const dark = {
-  bg0: '#0b1029', // page background — deeper variant of darkPaper
-  bg1: '#111936', // app shell, sidebar — legacy $darkPaper
-  bg2: '#1a223f', // cards, default surface — legacy $darkBackground
-  bg3: '#29314f', // elevated cards, popovers, inputs — legacy $darkLevel1
+  bg0: '#01080d', // page — slightly lifted from #010606 for breathing room
+  bg1: '#010f17', // shell, sidebar — theme3 $darkPaper / $darkLevel2
+  bg2: '#02131d', // cards — theme3 $darkLevel1
+  bg3: '#0a1828', // elevated cards, popovers, inputs — slightly lighter
 
-  text1: '#f5f7fb',
+  text1: '#ffffff',  // theme3 $darkTextPrimary
   text2: '#c2c8d4',
-  text3: '#8590ad', // tuned for navy bg — slightly brighter than my v1 attempt
+  text3: '#8492c4',  // theme3 $darkTextSecondary — has a subtle navy cast
   text4: '#525a6e',
 
   line:        'rgba(255,255,255,0.07)',
@@ -105,6 +106,13 @@ export const light = {
 
 // 3. Semantic -----------------------------------------------------------------
 
+/**
+ * Semantic colors are independent from brand. Specifically:
+ *   - `danger` is for destructive actions / errors. It's a true red, slightly
+ *     different from brand `red.500` so the two don't collide visually.
+ *   - Brand `red.500` carries warmth + holiday meaning. Semantic `danger`
+ *     carries warning + caution.
+ */
 export const semantic = {
   success: '#22c55e',
   warning: '#f59e0b',
@@ -116,5 +124,5 @@ export const semantic = {
 
 export const neutralsFor = (mode) => (mode === 'light' ? light : dark);
 
-const colors = { brand, secondary, accent, cyan, pink, dark, light, semantic, neutralsFor };
+const colors = { navy, amber, red, dark, light, semantic, neutralsFor };
 export default colors;

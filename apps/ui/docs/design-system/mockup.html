@@ -9,38 +9,43 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
 <style>
   /* ============================================================
-     DESIGN TOKENS — preserves the existing Remote Falcon brand:
-       primary blue (#2196f3), secondary purple (#7c4dff in dark),
-       deep navy/indigo dark surfaces.
-     Amber is demoted to a "live state" highlight only.
+     DESIGN TOKENS — Remote Falcon brand: navy + amber + red.
+     Derived from theme3 (the deployed default per src/config.jsx):
+       - primary navy   #16595a / #1f7778 (theme3 primary)
+       - secondary amber #c77e23           (theme3 secondary, the warm CTA)
+       - tertiary red   #d4332e            (new — Christmas/live-state)
+       - dark surfaces  #010606 family     (theme3 darkPaper/darkLevel1)
      ============================================================ */
   :root, [data-theme="dark"] {
-    /* Brand — kept from the existing palette */
-    --brand-100: #bbdefb;
-    --brand-300: #64b5f6;
-    --brand-500: #2196f3;     /* primary CTA / brand anchor (existing) */
-    --brand-700: #1565c0;
-    --secondary-300: #b39ddb;
-    --secondary-500: #7c4dff; /* dark-mode-friendly purple (existing) */
-    --secondary-700: #5e35b1;
+    /* Primary brand — navy */
+    --navy-200: #8bacad;
+    --navy-500: #16595a;      /* theme3 $primaryMain */
+    --navy-600: #1f7778;      /* theme3 $darkPrimaryMain — used in dark mode */
+    --navy-700: #135152;
+    --navy-800: #0c3e3f;
 
-    /* Tertiary highlights — used sparingly */
-    --accent-300: #ffd28a;
-    --accent-500: #f5a524;    /* live state / now-playing only */
-    --cyan-400:  #22d3ee;
-    --pink-400:  #f472b6;
+    /* Secondary brand — amber (the warm CTA color) */
+    --amber-200: #e3bf91;
+    --amber-500: #c77e23;     /* theme3 $secondaryMain */
+    --amber-700: #c1761f;
+    --amber-800: #b36115;
 
-    /* Dark neutrals — match the existing Remote Falcon navy family */
-    --bg-0: #0b1029;          /* page */
-    --bg-1: #111936;          /* shell / sidebar (legacy darkPaper) */
-    --bg-2: #1a223f;          /* cards (legacy darkBackground) */
-    --bg-3: #29314f;          /* elevated (legacy darkLevel1) */
+    /* Tertiary brand — Christmas-warm red (new in v2) */
+    --red-300: #fca5a5;
+    --red-500: #d4332e;       /* live-state, festive accents */
+    --red-700: #a02520;
+
+    /* Dark neutrals — theme3 near-black blue-cast family */
+    --bg-0: #01080d;          /* page (slightly lifted from theme3 #010606) */
+    --bg-1: #010f17;          /* shell / sidebar (theme3 $darkPaper) */
+    --bg-2: #02131d;          /* cards (theme3 $darkLevel1) */
+    --bg-3: #0a1828;          /* elevated cards / popovers / inputs */
     --line: rgba(255,255,255,0.07);
     --line-strong: rgba(255,255,255,0.14);
 
-    --text-1: #f5f7fb;
+    --text-1: #ffffff;        /* theme3 $darkTextPrimary */
     --text-2: #c2c8d4;
-    --text-3: #8590ad;
+    --text-3: #8492c4;        /* theme3 $darkTextSecondary — has a navy cast */
     --text-4: #525a6e;
 
     /* Semantic */
@@ -49,13 +54,13 @@
     --danger:  #ef4444;
 
     /* Glow */
-    --cta-glow:    0 6px 20px rgba(33,150,243,0.28);
-    --cta-glow-hi: 0 8px 28px rgba(33,150,243,0.40);
-    --live-glow:   0 0 0 1px rgba(245,165,36,0.4), 0 10px 40px rgba(245,165,36,0.25);
+    --cta-glow:    0 6px 20px rgba(199,126,35,0.30);   /* amber CTA glow */
+    --cta-glow-hi: 0 8px 28px rgba(199,126,35,0.45);
+    --live-glow:   0 0 0 1px rgba(212,51,46,0.45), 0 10px 40px rgba(212,51,46,0.25); /* red */
 
-    --shadow-subtle:   0 1px 2px rgba(0,0,0,0.25), 0 1px 0 rgba(255,255,255,0.02) inset;
-    --shadow-medium:   0 6px 18px rgba(0,0,0,0.35);
-    --shadow-elevated: 0 20px 50px rgba(0,0,0,0.5);
+    --shadow-subtle:   0 1px 2px rgba(0,0,0,0.30), 0 1px 0 rgba(255,255,255,0.02) inset;
+    --shadow-medium:   0 6px 18px rgba(0,0,0,0.40);
+    --shadow-elevated: 0 20px 50px rgba(0,0,0,0.55);
   }
 
   [data-theme="light"] {
@@ -71,8 +76,8 @@
     --text-3: #64748b;
     --text-4: #94a3b8;
 
-    /* Light-mode purple is the legacy #673ab7 — slightly muted */
-    --secondary-500: #673ab7;
+    /* Light mode primary is the slightly deeper #16595a (theme3 light-mode primary) */
+    --navy-600: #16595a;
 
     --shadow-subtle:   0 1px 2px rgba(15,23,42,0.06);
     --shadow-medium:   0 4px 12px rgba(15,23,42,0.10);
@@ -111,9 +116,9 @@
   .rf-mark {
     width: 28px; height: 28px;
     border-radius: var(--r-sm);
-    background: linear-gradient(135deg, var(--brand-500), var(--secondary-500));
+    background: linear-gradient(135deg, var(--navy-600), var(--amber-500));
     display: grid; place-items: center;
-    box-shadow: 0 6px 20px rgba(33,150,243,0.20);
+    box-shadow: 0 6px 20px rgba(31,119,120,0.20);
     flex-shrink: 0;
   }
   .rf-mark svg { width: 18px; height: 18px; fill: #fff; }
@@ -157,8 +162,8 @@
   }
   .switcher button:hover { color: var(--text-1); }
   .switcher button.active {
-    background: var(--brand-500);
-    color: #ffffff;
+    background: var(--amber-500);
+    color: #1a1100;
   }
   .theme-toggle-fab {
     width: 44px; height: 44px;
@@ -242,40 +247,42 @@
     pointer-events: none;
     z-index: -1;
     background:
-      radial-gradient(circle at 30% 50%, rgba(33,150,243,0.22), transparent 50%),
-      radial-gradient(circle at 70% 40%, rgba(124,77,255,0.20), transparent 55%),
-      radial-gradient(circle at 50% 80%, rgba(245,165,36,0.10), transparent 60%);
+      radial-gradient(circle at 30% 50%, rgba(31,119,120,0.22), transparent 50%),
+      radial-gradient(circle at 70% 40%, rgba(199,126,35,0.20), transparent 55%),
+      radial-gradient(circle at 50% 80%, rgba(212,51,46,0.10), transparent 60%);
     filter: blur(40px);
     animation: drift 14s ease-in-out infinite alternate;
   }
   [data-theme="light"] .hero-orb {
     background:
-      radial-gradient(circle at 30% 50%, rgba(33,150,243,0.18), transparent 50%),
-      radial-gradient(circle at 70% 40%, rgba(124,77,255,0.16), transparent 55%);
+      radial-gradient(circle at 30% 50%, rgba(31,119,120,0.18), transparent 50%),
+      radial-gradient(circle at 70% 40%, rgba(199,126,35,0.16), transparent 55%);
   }
   @keyframes drift {
     from { transform: translate(-2%, -2%) scale(1); }
     to   { transform: translate(3%, 4%) scale(1.05); }
   }
   .eyebrow {
+    /* Festive warm-light tint — amber on dark, deeper amber on light */
     display: inline-flex;
     align-items: center;
     gap: 8px;
     padding: 6px 14px;
     border-radius: var(--r-pill);
-    background: color-mix(in srgb, var(--brand-500) 12%, transparent);
-    color: var(--brand-300);
+    background: color-mix(in srgb, var(--amber-500) 14%, transparent);
+    color: var(--amber-200);
     font-size: 12px;
     font-weight: 600;
     letter-spacing: 0.04em;
     text-transform: uppercase;
-    border: 1px solid color-mix(in srgb, var(--brand-500) 25%, transparent);
+    border: 1px solid color-mix(in srgb, var(--amber-500) 28%, transparent);
   }
-  [data-theme="light"] .eyebrow { color: var(--brand-700); }
+  [data-theme="light"] .eyebrow { color: var(--amber-800); }
   .eyebrow .dot {
+    /* Red status dot — "live" / "incoming" */
     width: 6px; height: 6px; border-radius: 50%;
-    background: var(--brand-500);
-    box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand-500) 20%, transparent);
+    background: var(--red-500);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--red-500) 25%, transparent);
   }
   h1.display {
     font-size: clamp(42px, 6vw, 72px);
@@ -287,8 +294,8 @@
     color: var(--text-1);
   }
   h1.display .accent {
-    /* Brand gradient — blue to purple, not amber to pink */
-    background: linear-gradient(135deg, var(--brand-500), var(--secondary-500));
+    /* Brand gradient — amber to red. Warm, festive, "lights are on". */
+    background: linear-gradient(135deg, var(--amber-500), var(--red-500));
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
@@ -322,20 +329,20 @@
     gap: 8px;
   }
   .btn:hover { transform: translateY(-1px); }
-  /* Primary CTA — brand blue */
+  /* Primary CTA — brand amber. The warm "go" button. */
   .btn-primary {
-    background: var(--brand-500);
-    color: #ffffff;
+    background: var(--amber-500);
+    color: #1a1100;
     box-shadow: var(--cta-glow);
   }
-  .btn-primary:hover { background: var(--brand-700); box-shadow: var(--cta-glow-hi); }
-  /* Secondary CTA — brand purple */
+  .btn-primary:hover { background: var(--amber-700); box-shadow: var(--cta-glow-hi); }
+  /* Secondary CTA — navy fill, used sparingly. */
   .btn-secondary {
-    background: var(--secondary-500);
+    background: var(--navy-600);
     color: #ffffff;
-    box-shadow: 0 6px 20px rgba(124,77,255,0.25);
+    box-shadow: 0 6px 20px rgba(31,119,120,0.25);
   }
-  .btn-secondary:hover { background: var(--secondary-700); }
+  .btn-secondary:hover { background: var(--navy-700); }
   .btn-ghost {
     background: transparent;
     color: var(--text-1);
@@ -360,8 +367,8 @@
     position: absolute;
     inset: 0;
     background:
-      linear-gradient(135deg, rgba(33,150,243,0.10), transparent 40%),
-      radial-gradient(circle at 80% 80%, rgba(124,77,255,0.08), transparent 50%);
+      linear-gradient(135deg, rgba(31,119,120,0.10), transparent 40%),
+      radial-gradient(circle at 80% 80%, rgba(199,126,35,0.08), transparent 50%);
   }
   .device-chrome {
     height: 36px;
@@ -396,8 +403,8 @@
     background: color-mix(in srgb, var(--text-1) 4%, transparent);
   }
   .dfc-side-item:nth-child(2) {
-    background: color-mix(in srgb, var(--brand-500) 14%, transparent);
-    border: 1px solid color-mix(in srgb, var(--brand-500) 28%, transparent);
+    background: color-mix(in srgb, var(--navy-600) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--navy-600) 28%, transparent);
   }
   .dfc-main { padding: 20px; display: grid; gap: 14px; grid-template-rows: auto 1fr; }
   .dfc-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
@@ -413,7 +420,7 @@
     border: 1px solid var(--line);
     border-radius: var(--r-md);
     background-image:
-      linear-gradient(180deg, transparent 60%, rgba(33,150,243,0.18) 100%),
+      linear-gradient(180deg, transparent 60%, rgba(31,119,120,0.18) 100%),
       repeating-linear-gradient(90deg, transparent 0 40px, rgba(255,255,255,0.02) 40px 41px);
     position: relative;
   }
@@ -422,7 +429,7 @@
     position: absolute;
     inset: auto 12px 12px 12px;
     height: 60%;
-    background: linear-gradient(180deg, transparent, rgba(33,150,243,0.4));
+    background: linear-gradient(180deg, transparent, rgba(31,119,120,0.4));
     clip-path: polygon(0 80%, 12% 60%, 25% 70%, 38% 35%, 52% 50%, 65% 25%, 78% 40%, 92% 15%, 100% 30%, 100% 100%, 0 100%);
   }
 
@@ -433,14 +440,14 @@
     padding: 80px 32px;
   }
   .section-eyebrow {
-    color: var(--brand-300);
+    color: var(--navy-200);
     font-size: 13px;
     font-weight: 600;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     margin-bottom: 12px;
   }
-  [data-theme="light"] .section-eyebrow { color: var(--brand-700); }
+  [data-theme="light"] .section-eyebrow { color: var(--navy-700); }
   h2.section-title {
     font-size: clamp(28px, 3.5vw, 44px);
     line-height: 1.1;
@@ -469,12 +476,12 @@
     width: 44px; height: 44px;
     border-radius: var(--r-md);
     display: grid; place-items: center;
-    background: color-mix(in srgb, var(--brand-500) 12%, transparent);
-    color: var(--brand-300);
+    background: color-mix(in srgb, var(--navy-600) 12%, transparent);
+    color: var(--navy-200);
     margin-bottom: 18px;
     font-size: 22px;
   }
-  [data-theme="light"] .feature-block .fb-icon { color: var(--brand-700); }
+  [data-theme="light"] .feature-block .fb-icon { color: var(--navy-700); }
   .feature-block h3 {
     font-size: 28px;
     margin: 0 0 14px;
@@ -496,7 +503,7 @@
   }
   .fb-bullets li::before {
     content: '✓';
-    color: var(--brand-500);
+    color: var(--navy-600);
     font-weight: 700;
     margin-top: 1px;
   }
@@ -511,8 +518,8 @@
   }
   .fb-visual.viz-jukebox {
     background:
-      radial-gradient(circle at 30% 30%, rgba(245,165,36,0.20), transparent 50%),
-      radial-gradient(circle at 70% 70%, rgba(124,77,255,0.20), transparent 55%),
+      radial-gradient(circle at 30% 30%, rgba(212,51,46,0.20), transparent 50%),
+      radial-gradient(circle at 70% 70%, rgba(199,126,35,0.20), transparent 55%),
       var(--bg-2);
   }
   .fb-visual.viz-jukebox::after {
@@ -520,7 +527,7 @@
     position: absolute;
     inset: 20% 20% 20% 20%;
     border-radius: 50%;
-    background: conic-gradient(from 0deg, var(--accent-500), var(--secondary-500), var(--brand-500), var(--accent-500));
+    background: conic-gradient(from 0deg, var(--red-500), var(--amber-500), var(--navy-600), var(--red-500));
     opacity: 0.4;
     filter: blur(10px);
     animation: spin 8s linear infinite;
@@ -530,7 +537,7 @@
   .vote-bars { display: flex; gap: 14px; align-items: flex-end; height: 60%; }
   .vote-bar {
     width: 48px;
-    background: linear-gradient(180deg, var(--brand-500), var(--brand-700));
+    background: linear-gradient(180deg, var(--navy-600), var(--navy-700));
     border-radius: var(--r-sm) var(--r-sm) 0 0;
     position: relative;
   }
@@ -545,9 +552,9 @@
   }
   .fb-visual.viz-map {
     background:
-      radial-gradient(circle at 25% 40%, rgba(33,150,243,0.18), transparent 30%),
-      radial-gradient(circle at 65% 60%, rgba(33,150,243,0.18), transparent 30%),
-      radial-gradient(circle at 80% 30%, rgba(245,165,36,0.18), transparent 25%),
+      radial-gradient(circle at 25% 40%, rgba(31,119,120,0.18), transparent 30%),
+      radial-gradient(circle at 65% 60%, rgba(31,119,120,0.18), transparent 30%),
+      radial-gradient(circle at 80% 30%, rgba(212,51,46,0.18), transparent 25%),
       var(--bg-2);
   }
   .fb-visual.viz-map::before {
@@ -650,8 +657,8 @@
   .rail-item:hover { color: var(--text-1); background: color-mix(in srgb, var(--text-1) 3%, transparent); }
   .rail-item.active {
     color: var(--text-1);
-    border-left-color: var(--brand-500);
-    background: linear-gradient(90deg, rgba(33,150,243,0.10), transparent 80%);
+    border-left-color: var(--amber-500);
+    background: linear-gradient(90deg, rgba(199,126,35,0.12), transparent 80%);
   }
   .rail-item .ri-ico {
     width: 22px; height: 22px;
@@ -659,7 +666,7 @@
     flex-shrink: 0;
     color: var(--text-2);
   }
-  .rail-item.active .ri-ico { color: var(--brand-500); }
+  .rail-item.active .ri-ico { color: var(--amber-500); }
   .rail-item .ri-label { display: none; }
   .app.expanded .rail-item .ri-label { display: inline; }
 
@@ -741,7 +748,7 @@
   .avatar {
     width: 32px; height: 32px;
     border-radius: 50%;
-    background: linear-gradient(135deg, var(--brand-500), var(--secondary-500));
+    background: linear-gradient(135deg, var(--navy-600), var(--amber-500));
     display: grid;
     place-items: center;
     font-size: 12px;
@@ -845,13 +852,13 @@
     align-items: center;
     padding: 14px;
     border-radius: var(--r-md);
-    background: linear-gradient(135deg, rgba(245,165,36,0.10), rgba(124,77,255,0.06));
-    border: 1px solid rgba(245,165,36,0.18);
+    background: linear-gradient(135deg, rgba(212,51,46,0.10), rgba(199,126,35,0.06));
+    border: 1px solid rgba(212,51,46,0.18);
   }
   .np-art {
     width: 56px; height: 56px;
     border-radius: var(--r-sm);
-    background: linear-gradient(135deg, var(--accent-500), var(--secondary-500));
+    background: linear-gradient(135deg, var(--red-500), var(--amber-500));
     display: grid; place-items: center;
     color: #fff;
     font-size: 22px;
@@ -864,7 +871,7 @@
   .np-eq { display: flex; gap: 3px; align-items: flex-end; height: 18px; }
   .np-eq span {
     width: 3px;
-    background: var(--accent-500);
+    background: var(--red-500);
     border-radius: 2px;
     animation: eq 0.8s ease-in-out infinite alternate;
   }
@@ -894,7 +901,7 @@
     flex-shrink: 0;
   }
   /* "Up next" — amber for live highlight */
-  .queue-item.next .queue-pos { background: var(--accent-500); color: #1a1100; }
+  .queue-item.next .queue-pos { background: var(--red-500); color: #1a1100; }
   .queue-name { flex: 1; }
   .queue-votes { color: var(--text-3); font-size: 12px; }
 
@@ -911,11 +918,11 @@
     cursor: pointer;
   }
   .chip.active {
-    background: color-mix(in srgb, var(--brand-500) 14%, transparent);
-    border-color: color-mix(in srgb, var(--brand-500) 30%, transparent);
-    color: var(--brand-300);
+    background: color-mix(in srgb, var(--navy-600) 14%, transparent);
+    border-color: color-mix(in srgb, var(--navy-600) 30%, transparent);
+    color: var(--navy-200);
   }
-  [data-theme="light"] .chip.active { color: var(--brand-700); }
+  [data-theme="light"] .chip.active { color: var(--navy-700); }
   .seq-table { width: 100%; border-collapse: collapse; font-size: 14px; }
   .seq-table th {
     text-align: left;
@@ -934,7 +941,7 @@
   .seq-art {
     width: 32px; height: 32px;
     border-radius: var(--r-sm);
-    background: linear-gradient(135deg, var(--brand-500), var(--secondary-500));
+    background: linear-gradient(135deg, var(--navy-600), var(--amber-500));
     display: grid; place-items: center;
     font-size: 12px; font-weight: 700;
     color: #fff;
@@ -970,9 +977,9 @@
     width: 64px; height: 64px;
     margin: 0 auto 16px;
     border-radius: 50%;
-    background: color-mix(in srgb, var(--brand-500) 10%, transparent);
+    background: color-mix(in srgb, var(--navy-600) 10%, transparent);
     display: grid; place-items: center;
-    color: var(--brand-500);
+    color: var(--navy-600);
     font-size: 28px;
   }
 
@@ -1028,11 +1035,11 @@
     font-size: 14px;
   }
   .cmd-item:hover, .cmd-item.focused {
-    background: color-mix(in srgb, var(--brand-500) 12%, transparent);
+    background: color-mix(in srgb, var(--navy-600) 12%, transparent);
     color: var(--text-1);
   }
   .cmd-item .ci-ico { color: var(--text-3); }
-  .cmd-item.focused .ci-ico { color: var(--brand-500); }
+  .cmd-item.focused .ci-ico { color: var(--navy-600); }
   .cmd-foot {
     border-top: 1px solid var(--line);
     padding: 10px 18px;
@@ -1333,7 +1340,10 @@
           </div>
           <div class="page-head-actions">
             <button class="btn btn-ghost" style="font-size:13px;padding:8px 14px">Share viewer page</button>
-            <button class="btn btn-primary" style="font-size:13px;padding:8px 14px">▶ Show is live</button>
+            <button class="btn btn-primary" style="font-size:13px;padding:8px 14px">
+              <span style="width:7px;height:7px;border-radius:50%;background:var(--red-500);box-shadow:0 0 0 3px rgba(212,51,46,0.30);display:inline-block"></span>
+              Show is live
+            </button>
           </div>
         </div>
 
@@ -1351,7 +1361,7 @@
             <div class="stat-value">7</div>
             <div class="stat-trend">▲ 3 in last 5m</div>
             <svg class="spark" viewBox="0 0 80 32" preserveAspectRatio="none">
-              <polyline fill="none" stroke="#2196f3" stroke-width="1.5" points="0,18 12,22 24,16 36,18 48,12 60,14 72,9 80,11"/>
+              <polyline fill="none" stroke="#1f7778" stroke-width="1.5" points="0,18 12,22 24,16 36,18 48,12 60,14 72,9 80,11"/>
             </svg>
           </div>
           <div class="stat">
@@ -1359,7 +1369,7 @@
             <div class="stat-value">312</div>
             <div class="stat-trend">▲ 18% vs. last show</div>
             <svg class="spark" viewBox="0 0 80 32" preserveAspectRatio="none">
-              <polyline fill="none" stroke="#7c4dff" stroke-width="1.5" points="0,28 12,22 24,24 36,15 48,18 60,10 72,12 80,4"/>
+              <polyline fill="none" stroke="#c77e23" stroke-width="1.5" points="0,28 12,22 24,24 36,15 48,18 60,10 72,12 80,4"/>
             </svg>
           </div>
           <div class="stat">
@@ -1383,14 +1393,14 @@
                 <svg viewBox="0 0 600 200" preserveAspectRatio="none">
                   <defs>
                     <linearGradient id="g" x1="0" x2="0" y1="0" y2="1">
-                      <stop offset="0" stop-color="#2196f3" stop-opacity="0.45"/>
-                      <stop offset="1" stop-color="#2196f3" stop-opacity="0"/>
+                      <stop offset="0" stop-color="#1f7778" stop-opacity="0.45"/>
+                      <stop offset="1" stop-color="#1f7778" stop-opacity="0"/>
                     </linearGradient>
                   </defs>
                   <path d="M0,160 L80,140 L160,150 L240,90 L320,110 L400,60 L480,80 L600,30 L600,200 L0,200 Z" fill="url(#g)"/>
-                  <polyline fill="none" stroke="#2196f3" stroke-width="2" points="0,160 80,140 160,150 240,90 320,110 400,60 480,80 600,30"/>
-                  <path d="M0,180 L80,175 L160,170 L240,140 L320,150 L400,120 L480,135 L600,100 L600,200 L0,200 Z" fill="rgba(124,77,255,0.15)"/>
-                  <polyline fill="none" stroke="#7c4dff" stroke-width="2" stroke-dasharray="4,4" points="0,180 80,175 160,170 240,140 320,150 400,120 480,135 600,100"/>
+                  <polyline fill="none" stroke="#1f7778" stroke-width="2" points="0,160 80,140 160,150 240,90 320,110 400,60 480,80 600,30"/>
+                  <path d="M0,180 L80,175 L160,170 L240,140 L320,150 L400,120 L480,135 L600,100 L600,200 L0,200 Z" fill="rgba(199,126,35,0.15)"/>
+                  <polyline fill="none" stroke="#c77e23" stroke-width="2" stroke-dasharray="4,4" points="0,180 80,175 160,170 240,140 320,150 400,120 480,135 600,100"/>
                 </svg>
               </div>
             </div>
@@ -1534,29 +1544,30 @@
 <div class="screen" data-screen="tokens">
   <div class="tokens">
     <h1>Design tokens</h1>
-    <p class="lede">Brand-aligned tokens that preserve Remote Falcon's existing identity (blue + purple) while modernizing the surfaces, type, and interactions. Replace the existing <code style="font-family:var(--font-mono);background:var(--bg-2);padding:2px 6px;border-radius:4px;font-size:13px">themes/</code> contents with these and 80% of the visual upgrade lands automatically.</p>
+    <p class="lede">Brand-aligned tokens drawn from theme3 (the deployed default per <code style="font-family:var(--font-mono);background:var(--bg-2);padding:2px 6px;border-radius:4px;font-size:13px">src/config.jsx</code>): <strong>navy + amber + red</strong>. Replace the existing <code style="font-family:var(--font-mono);background:var(--bg-2);padding:2px 6px;border-radius:4px;font-size:13px">themes/</code> contents with these and 80% of the visual upgrade lands automatically.</p>
 
     <div class="token-section">
-      <h2>Brand — kept from the existing palette</h2>
+      <h2>Brand — drawn from theme3, the deployed default</h2>
       <div class="swatches">
-        <div class="swatch"><div class="swatch-color" style="background:#2196f3"></div><div class="swatch-meta"><div class="name">brand.500</div><div class="hex">#2196f3</div></div></div>
-        <div class="swatch"><div class="swatch-color" style="background:#1565c0"></div><div class="swatch-meta"><div class="name">brand.700</div><div class="hex">#1565c0</div></div></div>
-        <div class="swatch"><div class="swatch-color" style="background:#7c4dff"></div><div class="swatch-meta"><div class="name">secondary.500</div><div class="hex">#7c4dff</div></div></div>
-        <div class="swatch"><div class="swatch-color" style="background:#673ab7"></div><div class="swatch-meta"><div class="name">secondary (light)</div><div class="hex">#673ab7</div></div></div>
-        <div class="swatch"><div class="swatch-color" style="background:#f5a524"></div><div class="swatch-meta"><div class="name">accent.500</div><div class="hex">#f5a524</div></div></div>
-        <div class="swatch"><div class="swatch-color" style="background:#22d3ee"></div><div class="swatch-meta"><div class="name">cyan.400</div><div class="hex">#22d3ee</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#16595a"></div><div class="swatch-meta"><div class="name">navy.500</div><div class="hex">#16595a · light primary</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#1f7778"></div><div class="swatch-meta"><div class="name">navy.600</div><div class="hex">#1f7778 · dark primary</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#0c3e3f"></div><div class="swatch-meta"><div class="name">navy.800</div><div class="hex">#0c3e3f</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#c77e23"></div><div class="swatch-meta"><div class="name">amber.500</div><div class="hex">#c77e23 · CTA</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#e3bf91"></div><div class="swatch-meta"><div class="name">amber.200</div><div class="hex">#e3bf91</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#d4332e"></div><div class="swatch-meta"><div class="name">red.500</div><div class="hex">#d4332e · live</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#a02520"></div><div class="swatch-meta"><div class="name">red.700</div><div class="hex">#a02520</div></div></div>
       </div>
     </div>
 
     <div class="token-section">
-      <h2>Dark surfaces — kept from the legacy navy/indigo family</h2>
+      <h2>Dark surfaces — preserved from theme3 (near-black with blue cast)</h2>
       <div class="swatches">
-        <div class="swatch"><div class="swatch-color" style="background:#0b1029"></div><div class="swatch-meta"><div class="name">bg-0</div><div class="hex">#0b1029</div></div></div>
-        <div class="swatch"><div class="swatch-color" style="background:#111936"></div><div class="swatch-meta"><div class="name">bg-1 (legacy darkPaper)</div><div class="hex">#111936</div></div></div>
-        <div class="swatch"><div class="swatch-color" style="background:#1a223f"></div><div class="swatch-meta"><div class="name">bg-2 (legacy darkBackground)</div><div class="hex">#1a223f</div></div></div>
-        <div class="swatch"><div class="swatch-color" style="background:#29314f"></div><div class="swatch-meta"><div class="name">bg-3 (legacy darkLevel1)</div><div class="hex">#29314f</div></div></div>
-        <div class="swatch"><div class="swatch-color" style="background:#f5f7fb"></div><div class="swatch-meta"><div class="name">text-1</div><div class="hex">#f5f7fb</div></div></div>
-        <div class="swatch"><div class="swatch-color" style="background:#8590ad"></div><div class="swatch-meta"><div class="name">text-3</div><div class="hex">#8590ad</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#01080d"></div><div class="swatch-meta"><div class="name">bg-0</div><div class="hex">#01080d · page</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#010f17"></div><div class="swatch-meta"><div class="name">bg-1 (theme3 darkPaper)</div><div class="hex">#010f17</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#02131d"></div><div class="swatch-meta"><div class="name">bg-2 (theme3 darkLevel1)</div><div class="hex">#02131d</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#0a1828"></div><div class="swatch-meta"><div class="name">bg-3</div><div class="hex">#0a1828 · elevated</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#ffffff"></div><div class="swatch-meta"><div class="name">text-1</div><div class="hex">#ffffff</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#8492c4"></div><div class="swatch-meta"><div class="name">text-3</div><div class="hex">#8492c4 · navy cast</div></div></div>
       </div>
     </div>
 
@@ -1594,9 +1605,10 @@
     <div class="token-section">
       <h2>Buttons</h2>
       <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
-        <button class="btn btn-primary">Primary CTA →</button>
-        <button class="btn btn-secondary">Secondary CTA</button>
+        <button class="btn btn-primary">Primary CTA · amber →</button>
+        <button class="btn btn-secondary">Secondary CTA · navy</button>
         <button class="btn btn-ghost">Ghost / tertiary</button>
+        <button class="btn" style="background:rgba(212,51,46,0.14);color:#fca5a5;border:1px solid rgba(212,51,46,0.30)">● Live · brand red</button>
         <button class="btn" style="background:rgba(239,68,68,0.12);color:#fca5a5;border:1px solid rgba(239,68,68,0.25)">Destructive</button>
       </div>
     </div>

@@ -16,7 +16,7 @@ design-system/
 ├── components/          ← shared v2 components
 │   └── ThemeToggle.jsx  ← light/dark switcher (uses existing useConfig)
 ├── tokens/              ← framework-agnostic source of truth
-│   ├── colors.js        ← brand blue + purple preserved from legacy palette
+│   ├── colors.js        ← navy + amber + red, drawn from the deployed theme3
 │   ├── radius.js
 │   ├── shadows.js
 │   ├── typography.js
