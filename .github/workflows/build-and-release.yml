@@ -63,7 +63,7 @@ jobs:
           Application: remote-falcon-control-panel
           Version: ${{ github.sha }}
           Env: prod
-          Replicas: 1
+          Replicas: 2
           Image: ${{ env.REGISTRY }}/${{ steps.repository_string.outputs.lowercase }}:${{ github.sha }}
           Requests.Memory: 256Mi
           Requests.CPU: 100m

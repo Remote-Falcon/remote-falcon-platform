@@ -52,8 +52,8 @@ public class GraphQLMutationService {
         if (basicAuthCredentials != null) {
             String email = basicAuthCredentials[0];
             String password = basicAuthCredentials[1];
-            Optional<Show> show = this.showRepository.findByEmailOrShowSubdomain(email, showSubdomain);
-            if (show.isPresent()) {
+            if (this.showRepository.findByEmailCollation(email).isPresent()
+                    || this.showRepository.findByShowSubdomain(showSubdomain).isPresent()) {
                 throw new RuntimeException(StatusResponse.SHOW_EXISTS.name());
             }
             String showToken = this.validateShowToken(RandomUtil.generateToken(25));
@@ -156,7 +156,7 @@ public class GraphQLMutationService {
     }
 
     public Boolean forgotPassword(String email) {
-        Optional<Show> show = this.showRepository.findByEmailIgnoreCase(email);
+        Optional<Show> show = this.showRepository.findByEmailCollation(email);
         if(show.isPresent()) {
             String passwordResetLink = RandomUtil.generateToken(25);
             show.get().setPasswordResetLink(passwordResetLink);
@@ -437,17 +437,33 @@ public class GraphQLMutationService {
     public Boolean purgeStats() {
         Optional<Show> show = this.showRepository.findByShowToken(authUtil.getTokenDTO().getShowToken());
         if(show.isPresent()) {
-            LocalDateTime purgeStatsDate = LocalDateTime.now().minusMonths(18);
-
-            show.get().getStats().getPage().removeIf(stat -> stat.getDateTime().isBefore(purgeStatsDate));
-            show.get().getStats().getJukebox().removeIf(stat -> stat.getDateTime().isBefore(purgeStatsDate));
-            show.get().getStats().getVoting().removeIf(stat -> stat.getDateTime().isBefore(purgeStatsDate));
-            show.get().getStats().getVotingWin().removeIf(stat -> stat.getDateTime().isBefore(purgeStatsDate));
-
-            this.showRepository.save(show.get());
+            this.purgeStatsForShow(show.get());
             return true;
         }
         throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());
+    }
+
+    public void purgeStatsForShow(Show show) {
+        if(show.getStats() == null) {
+            return;
+        }
+        LocalDateTime purgeStatsDate = LocalDateTime.now().minusMonths(18);
+        boolean changed = false;
+        if(show.getStats().getPage() != null) {
+            changed |= show.getStats().getPage().removeIf(stat -> stat.getDateTime().isBefore(purgeStatsDate));
+        }
+        if(show.getStats().getJukebox() != null) {
+            changed |= show.getStats().getJukebox().removeIf(stat -> stat.getDateTime().isBefore(purgeStatsDate));
+        }
+        if(show.getStats().getVoting() != null) {
+            changed |= show.getStats().getVoting().removeIf(stat -> stat.getDateTime().isBefore(purgeStatsDate));
+        }
+        if(show.getStats().getVotingWin() != null) {
+            changed |= show.getStats().getVotingWin().removeIf(stat -> stat.getDateTime().isBefore(purgeStatsDate));
+        }
+        if(changed) {
+            this.showRepository.save(show);
+        }
     }
 
     public Boolean deleteStatsWithinRange(Long startDate, Long endDate, String timezone) {

@@ -150,6 +150,10 @@ metadata:
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/proxy-body-size: "3m"
 spec:
+  tls:
+  - hosts:
+    - #{Host}#
+    secretName: remote-falcon-tls
   rules:
   - host: #{Host}#
     http:
@@ -161,3 +165,23 @@ spec:
             name: #{Application}#
             port:
               number: 8080
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: #{Application}#
+  namespace: #{Namespace}#
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: #{Application}#
+  minReplicas: 2
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
