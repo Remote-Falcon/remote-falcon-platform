@@ -53,7 +53,7 @@ jobs:
     outputs:
       services: ${{ steps.compute.outputs.services }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - id: changed
         if: github.event_name == 'push'
@@ -103,7 +103,7 @@ jobs:
         service: ${{ fromJSON(needs.detect.outputs.services) }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # -----------------------------------------------------------
       # Resolve per-service config (build context, dockerfile path,
@@ -171,7 +171,7 @@ jobs:
       # Build + push (per-pattern variants gated by service name)
       # -----------------------------------------------------------
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -184,7 +184,7 @@ jobs:
 
       - name: Build and push (ui)
         if: matrix.service == 'ui'
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: ${{ steps.cfg.outputs.context }}
           file: ${{ steps.cfg.outputs.context }}/${{ steps.cfg.outputs.dockerfile }}
@@ -208,7 +208,7 @@ jobs:
 
       - name: Build and push (gateway)
         if: matrix.service == 'gateway'
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: ${{ steps.cfg.outputs.context }}
           file: ${{ steps.cfg.outputs.context }}/${{ steps.cfg.outputs.dockerfile }}
@@ -219,7 +219,7 @@ jobs:
 
       - name: Build and push (Quarkus services with Mongo + OTEL build-args)
         if: contains(fromJSON('["viewer","plugins-api","mongo-backup","account-archive"]'), matrix.service)
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: ${{ steps.cfg.outputs.context }}
           file: ${{ steps.cfg.outputs.context }}/${{ steps.cfg.outputs.dockerfile }}
@@ -231,7 +231,7 @@ jobs:
 
       - name: Build and push (Spring native services without build-args)
         if: contains(fromJSON('["control-panel","external-api"]'), matrix.service)
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: ${{ steps.cfg.outputs.context }}
           file: ${{ steps.cfg.outputs.context }}/${{ steps.cfg.outputs.dockerfile }}
