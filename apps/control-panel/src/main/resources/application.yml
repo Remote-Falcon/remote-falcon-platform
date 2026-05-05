@@ -29,6 +29,9 @@ management:
         allowed-origins: "*"
         allowed-methods: "OPTIONS, GET, POST, PUT, DELETE"
         allowed-headers: "*"
+  health:
+    mongo:
+      timeout: 3s
 
 sendgrid:
   mail-from: "noreply@remotefalcon.com"
@@ -41,9 +44,9 @@ mailersend:
 
 images:
   s3:
-    bucket: ${IMAGES_S3_BUCKET:remote-falcon-images}
+    bucket: ${IMAGES_S3_BUCKET:remote-falcon-uploads}
   cdn:
-    endpoint: ${IMAGES_CDN_ENDPOINT:https://remote-falcon-images.nyc3.cdn.digitaloceanspaces.com}
+    endpoint: ${IMAGES_CDN_ENDPOINT:https://remote-falcon-uploads.nyc3.cdn.digitaloceanspaces.com}
 
 logging:
   level:

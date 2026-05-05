@@ -69,7 +69,7 @@ public class GraphQLQueryService {
             String ipAddress = this.clientUtil.getClientIp(request);
             String email = basicAuthCredentials[0];
             String password = basicAuthCredentials[1];
-            Optional<Show> optionalShow = this.showRepository.findByEmailIgnoreCase(email);
+            Optional<Show> optionalShow = this.showRepository.findByEmailCollation(email);
             if (optionalShow.isEmpty()) {
                 throw new RuntimeException(StatusResponse.SHOW_NOT_FOUND.name());
             }
