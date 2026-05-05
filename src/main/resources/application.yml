@@ -25,6 +25,9 @@ management:
         allowed-origins: "*"
         allowed-methods: "OPTIONS, GET, POST, PUT, DELETE"
         allowed-headers: "*"
+  health:
+    mongo:
+      timeout: 3s
 
 logging:
   level:
