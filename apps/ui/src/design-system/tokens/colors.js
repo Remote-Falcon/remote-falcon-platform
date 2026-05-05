@@ -54,15 +54,28 @@ export const amber = {
 };
 
 /**
- * Tertiary brand color — Christmas-warm red. New in v2.
- * Used for: live-state indicators, "show is live" badges, festive accents.
- * Distinct from semantic.danger — that's for destructive actions and errors.
+ * Tertiary brand color — neon red. New in v2 as a token, but the value
+ * matches what the deployed brand uses across the RF monogram + the
+ * "REMOTE FALCON" jukebox-arch wordmark (apps/ui/public/rf-icon.png and
+ * apps/ui/public/jukebox.png). The hue is intentionally hot/saturated so
+ * it reads as a neon glow against the near-black surfaces.
+ *
+ * Usage: live-state indicators, "show is live" badges, the RF monogram
+ * glow halo, festive accents. Distinct from semantic.danger — that's
+ * for destructive actions and validation errors.
  */
 export const red = {
-  300: '#fca5a5',
-  500: '#d4332e', // brand red — warm, not pure error red
-  700: '#a02520',
-  900: '#7a1a16'
+  300: '#ff8a8a',
+  500: '#ef2b3d', // brand neon-red
+  600: '#d61f30', // matches the rest tone of the wordmark glow edges
+  700: '#a8182a',
+  900: '#7a0f1c',
+  /**
+   * `glow` is a CSS box-shadow / filter value, not a color. Use it
+   * directly when something needs the brand "neon" effect:
+   *   sx={{ filter: red.glow }}
+   */
+  glow: 'drop-shadow(0 0 8px rgba(239,43,61,0.55)) drop-shadow(0 0 24px rgba(239,43,61,0.30))'
 };
 
 // 2. Neutrals — dark mode (default) -------------------------------------------

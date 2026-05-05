@@ -14,7 +14,9 @@ This directory is the v2 design system for `apps/ui`. It coexists with the legac
 ```
 design-system/
 ├── components/          ← shared v2 components
-│   └── ThemeToggle.jsx  ← light/dark switcher (uses existing useConfig)
+│   ├── ThemeToggle.jsx  ← light/dark switcher (uses existing useConfig)
+│   ├── LogoMark.jsx     ← RF monogram, sized + with optional neon glow
+│   └── Logo.jsx         ← brand lockup (mark + wordmark) and hero variant
 ├── tokens/              ← framework-agnostic source of truth
 │   ├── colors.js        ← navy + amber + red, drawn from the deployed theme3
 │   ├── radius.js
@@ -30,6 +32,20 @@ design-system/
     ├── componentOverrides.js
     └── index.jsx        ← drop-in <ThemeCustomization>
 ```
+
+## Logos
+
+```jsx
+import LogoMark from 'design-system/components/LogoMark';
+import Logo     from 'design-system/components/Logo';
+
+<LogoMark />                  // 28px RF monogram — nav, sidebar
+<LogoMark size={44} glow />   // with neon halo — hero, splash, auth
+<Logo />                      // mark + "Remote Falcon" lockup
+<Logo variant="hero" />       // full neon REMOTE FALCON wordmark — hero only
+```
+
+Wraps `apps/ui/public/rf-icon.png` and `apps/ui/public/jukebox.png` (the only brand-correct logo assets in the repo). The Berry-template SVGs at `src/assets/images/logo.svg` / `logo-dark.svg` / `public/favicon.svg` are leftovers and should never be referenced.
 
 ## Theme toggle
 

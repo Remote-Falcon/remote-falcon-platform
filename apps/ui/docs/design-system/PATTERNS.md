@@ -4,6 +4,58 @@ Cookbook of reusable patterns for building screens. Each pattern shows the **sha
 
 ---
 
+## Logo placement
+
+Two brand-correct logo assets exist and only these two. See [`DESIGN_SYSTEM.md`](../../DESIGN_SYSTEM.md) for the full inventory and usage rules.
+
+**Where each variant goes:**
+
+| Surface | Variant | Notes |
+|---|---|---|
+| Marketing nav | `<Logo />` (mark + wordmark text) | 28px mark, "Remote Falcon" beside |
+| Marketing hero | `<Logo variant="hero" />` | The full neon jukebox image — leads the page visually |
+| Marketing footer | `<Logo />` | Same lockup as nav |
+| Control panel sidebar header | `<Logo />` collapses to `<LogoMark />` when rail is collapsed |
+| Auth pages (login, signup) | `<LogoMark size={44} glow />` | Centered, with neon halo |
+| Splash / loading | `<LogoMark size={64} glow />` | Centered, optionally pulsing |
+| Favicon / browser tab | `public/rf-icon.png` | Replace the leftover Berry favicon |
+| Marketing emails | `<Logo variant="hero" />` at ~320px wide | Or the lockup if the email is text-heavy |
+
+**Don't:**
+- Use the wordmark (`<Logo variant="hero" />`) at small sizes — it has too much detail. Use the lockup instead.
+- Reproduce the neon glow with CSS — it's baked into the PNG. Use the asset as shipped.
+- Mix the RF monogram with the leftover Berry SVGs (`logo.svg`, `logo-dark.svg`) — those should be deleted.
+
+```jsx
+// Marketing nav
+<Stack direction="row" alignItems="center">
+  <Logo />
+  <NavLinks />
+  <ThemeToggle />
+  <Button color="secondary">Start free →</Button>
+</Stack>
+
+// Marketing hero
+<Grid container spacing={6} alignItems="center">
+  <Grid item xs={12} md={6}>
+    <Typography variant="display">Bring your light show online.</Typography>
+    <CtaRow />
+  </Grid>
+  <Grid item xs={12} md={6}>
+    <Logo variant="hero" />
+  </Grid>
+</Grid>
+
+// Auth screen
+<Stack alignItems="center" spacing={3}>
+  <LogoMark size={44} glow />
+  <Typography variant="h2">Welcome back</Typography>
+  <LoginForm />
+</Stack>
+```
+
+---
+
 ## Page header
 
 The top of every control-panel page.

@@ -24,23 +24,58 @@ Everything here maps 1:1 to the token files in `src/design-system/tokens/`. **If
 
 ## Brand assets
 
-These ship in `apps/ui/src/assets/images/` today and stay. **Do not rebrand or replace these without a design lead's sign-off.**
+There are exactly **two** brand-correct logo assets in the repo today. Several other files look like brand assets but are actually leftover from the Berry admin template the app was originally scaffolded from — they should be cleaned up during migration, not used.
 
-| Asset | Path | Use |
+### Brand-correct (use these)
+
+| Asset | Path | What it is | Use |
+|---|---|---|---|
+| **RF monogram** | `public/rf-icon.png`, `src/assets/images/rf-icon.png`, `src/assets/images/rf-icon-small.png` | Neon "RF" glowing red on a dark sphere | App icon mark — sidebar header, marketing nav, favicon, any 1:1 logo placement |
+| **REMOTE FALCON wordmark** | `public/jukebox.png`, `src/assets/images/landing/full-jukebox-1301x1041.png` | The iconic neon jukebox arch with "REMOTE FALCON" wordmark below | Marketing hero, marketing about page, splash/loading states |
+
+The two PNG variants of the wordmark are the same image at different resolutions — `public/jukebox.png` for in-app/UI use, the `landing/full-jukebox-*.png` for the marketing hero where higher resolution matters.
+
+### Don't use these — Berry template leftovers
+
+| Asset | Path | What it actually is |
 |---|---|---|
-| **Falcon icon mark** | `assets/images/rf-icon.svg` | Sidebar logo, favicon, any 1:1 logo placement |
-| Falcon icon (raster) | `assets/images/rf-icon.png`, `rf-icon-small.png` | Anywhere SVG isn't supported (rare) |
-| Wordmark logo (light) | `assets/images/logo.svg` | Marketing site nav on light bg |
-| Wordmark logo (dark) | `assets/images/logo-dark.svg` | Marketing site nav on dark bg |
-| Hero image | `assets/images/landing/full-jukebox-1301x1041.png` | Landing hero |
-| Hero background | `assets/images/landing/header-bg.jpg` | Optional layered hero bg |
-| "WL" mascot mark | `assets/images/WL.png` | Community / Winter Lights references |
+| Berry wordmark | `src/assets/images/logo.svg`, `logo-dark.svg` | A "BERRY" wordmark with a stylized berry icon, in `#2196f3` blue and `#673ab7` purple — never updated for Remote Falcon |
+| Berry favicon | `public/favicon.svg` | Same Berry icon, not the RF brand. The deployed favicon should be replaced with the RF monogram |
+| "Wally's Lights" | `src/assets/images/WL.png` | A community partner/show — **not** a Remote Falcon brand asset |
 
-**Rules**:
-- Always pair the falcon mark with a navy→amber gradient backdrop when displayed at small sizes (sidebar, nav). Don't put it on a flat red background — that's reserved for live-state UI.
-- The hero jukebox image is preserved through the migration. Phase 4 of [`MIGRATION.md`](./MIGRATION.md) replaces the `transform: scale(1.7)` hack with proper responsive sizing — the asset itself stays.
-- Favicon (`public/favicon.svg` + `public/rf-icon.png`) is unchanged.
-- When you need a new branded asset, derive it from the falcon mark or the existing color pair.
+These should be **deleted** during Phase 10 (Delete legacy) of [`MIGRATION.md`](./MIGRATION.md). Until then, every reference to `logo.svg` / `logo-dark.svg` / `favicon.svg` should be migrated to the brand-correct asset.
+
+### How to use the logos in code
+
+Two helper components are provided:
+
+```jsx
+import LogoMark from 'design-system/components/LogoMark';
+import Logo     from 'design-system/components/Logo';
+```
+
+**`<LogoMark />`** — the RF monogram alone. Defaults to 28px (nav-friendly).
+
+```jsx
+<LogoMark />                    // 28px, no glow — sidebar/nav default
+<LogoMark size={44} glow />     // 44px with neon halo — hero, footer, splash
+<LogoMark size={20} />          // 20px — dense/inline
+```
+
+**`<Logo />`** — the lockup (mark + "Remote Falcon" text), or the full neon hero variant.
+
+```jsx
+<Logo />                        // mark + "Remote Falcon" wordmark — nav, sidebar header, footer
+<Logo variant="hero" />         // full neon REMOTE FALCON jukebox arch — marketing hero only
+```
+
+### Logo usage rules
+
+- **Mark color is part of the brand identity.** Never recolor the RF monogram with CSS filters that shift hue, never put it on amber or red backgrounds (kills the glow). Always on a surface darker than `bg1`, or on transparent.
+- **Aspect ratio is sacred.** The RF mark is 1:1 (square). The wordmark/jukebox image has its own aspect (~5:4). Never stretch.
+- **Minimum sizes.** RF monogram: 20px floor. Wordmark: 240px wide floor — below that, switch to the lockup with text.
+- **Clear space.** Pad at least 1× the logo's height around it. Don't crowd with text or borders.
+- **The hero variant uses the iconic glow image as-is.** Don't try to recreate it with CSS — the PNG already has the carefully-tuned glow baked in.
 
 ---
 

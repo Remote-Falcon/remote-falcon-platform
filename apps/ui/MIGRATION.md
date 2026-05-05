@@ -20,7 +20,9 @@ apps/ui/
 └── src/design-system/
     ├── README.md                          ← engineer quick-start
     ├── components/
-    │   └── ThemeToggle.jsx                ← light/dark switcher (uses useConfig)
+    │   ├── ThemeToggle.jsx                ← light/dark switcher (uses useConfig)
+    │   ├── LogoMark.jsx                   ← RF monogram (wraps public/rf-icon.png)
+    │   └── Logo.jsx                       ← brand lockup + hero variant
     ├── tokens/
     │   ├── colors.js                      ← navy + amber + red, drawn from theme3
     │   ├── radius.js
@@ -188,7 +190,7 @@ The legacy `MainCard` adds a border *and* a shadow on hover *and* a divider — 
 
 ### Changes
 
-1. **Hero (`Header.jsx`)**: drop `transform: scale(1.7)` on the jukebox. Replace with an SVG (or `<img srcset>`). Reduce hero top padding from `mt: 18.75 / 10` to `mt: 6 / 4`. Add a soft animated gradient orb behind (mockup has the CSS).
+1. **Hero (`Header.jsx`)**: drop `transform: scale(1.7)` on the jukebox. Replace the manual `<img>` with `<Logo variant="hero" />` from `design-system/components/Logo` — that component owns the asset path and sizing. Reduce hero top padding from `mt: 18.75 / 10` to `mt: 6 / 4`. Add a soft animated gradient orb behind (mockup has the CSS).
 2. **Two CTAs**: "Create your show — free" (primary, `accent`) + "Watch a live show" (ghost). Today there's only one.
 3. **Feature blocks**: replace the rigid 3-up `SubCard` grid in `Feature.jsx` and `KeyFeature.jsx` with alternating left/right blocks (image one side, copy the other). 2 blocks per "screen" instead of 3 cramped.
 4. **Drop the icon `Avatar` circles**. Use 44×44 flat icon tiles with a tinted background.
@@ -302,6 +304,11 @@ Once all pages render correctly under `VITE_USE_DESIGN_SYSTEM_V2=true`:
 2. Delete `apps/ui/src/themes/` and `apps/ui/src/assets/scss/_themes-vars.module.scss` + `_theme1..6.module.scss`.
 3. Remove the `presetColor` config from `useConfig` (no more 6 preset themes — we ship one identity).
 4. Move `apps/ui/src/design-system/theme/` to `apps/ui/src/themes/` (so the eventual import path is `from './themes'` again — clean).
+5. **Delete the Berry-template logo leftovers**:
+   - `apps/ui/src/assets/images/logo.svg`
+   - `apps/ui/src/assets/images/logo-dark.svg`
+   - `apps/ui/public/favicon.svg`  ← replace with a favicon derived from `public/rf-icon.png`
+   Then `git grep "logo.svg\|logo-dark.svg\|favicon.svg"` to confirm zero references remain. All real logo placements should go through `<Logo />` or `<LogoMark />`.
 
 ### Acceptance
 

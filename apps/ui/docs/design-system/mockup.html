@@ -13,7 +13,7 @@
      Derived from theme3 (the deployed default per src/config.jsx):
        - primary navy   #16595a / #1f7778 (theme3 primary)
        - secondary amber #c77e23           (theme3 secondary, the warm CTA)
-       - tertiary red   #d4332e            (new — Christmas/live-state)
+       - tertiary red   #ef2b3d            (new — Christmas/live-state)
        - dark surfaces  #010606 family     (theme3 darkPaper/darkLevel1)
      ============================================================ */
   :root, [data-theme="dark"] {
@@ -32,8 +32,8 @@
 
     /* Tertiary brand — Christmas-warm red (new in v2) */
     --red-300: #fca5a5;
-    --red-500: #d4332e;       /* live-state, festive accents */
-    --red-700: #a02520;
+    --red-500: #ef2b3d;       /* live-state, festive accents */
+    --red-700: #a8182a;
 
     /* Dark neutrals — theme3 near-black blue-cast family */
     --bg-0: #01080d;          /* page (slightly lifted from theme3 #010606) */
@@ -56,7 +56,7 @@
     /* Glow */
     --cta-glow:    0 6px 20px rgba(199,126,35,0.30);   /* amber CTA glow */
     --cta-glow-hi: 0 8px 28px rgba(199,126,35,0.45);
-    --live-glow:   0 0 0 1px rgba(212,51,46,0.45), 0 10px 40px rgba(212,51,46,0.25); /* red */
+    --live-glow:   0 0 0 1px rgba(239,43,61,0.45), 0 10px 40px rgba(239,43,61,0.25); /* red */
 
     --shadow-subtle:   0 1px 2px rgba(0,0,0,0.30), 0 1px 0 rgba(255,255,255,0.02) inset;
     --shadow-medium:   0 6px 18px rgba(0,0,0,0.40);
@@ -110,20 +110,23 @@
   a { color: inherit; text-decoration: none; }
 
   /* ============================================================
-     RF FALCON LOGO MARK — embedded inline so the mockup is portable.
-     Mirrors apps/ui/src/assets/images/rf-icon.svg.
+     RF LOGO MARK — the actual neon "RF" monogram from the brand.
+     Asset: apps/ui/public/rf-icon.png (referenced via relative path).
+     The mark already has its own glow halo baked into the PNG, so the
+     wrapper only needs to size + position it.
      ============================================================ */
   .rf-mark {
-    width: 28px; height: 28px;
-    border-radius: var(--r-sm);
-    background: linear-gradient(135deg, var(--navy-600), var(--amber-500));
+    width: 32px; height: 32px;
     display: grid; place-items: center;
-    box-shadow: 0 6px 20px rgba(31,119,120,0.20);
     flex-shrink: 0;
   }
-  .rf-mark svg { width: 18px; height: 18px; fill: #fff; }
-  .rf-mark.lg { width: 44px; height: 44px; border-radius: var(--r-md); }
-  .rf-mark.lg svg { width: 28px; height: 28px; }
+  .rf-mark img { width: 100%; height: 100%; object-fit: contain; display: block; }
+  .rf-mark.lg { width: 56px; height: 56px; }
+  .rf-mark.glow img {
+    filter:
+      drop-shadow(0 0 8px rgba(239,43,61,0.55))
+      drop-shadow(0 0 24px rgba(239,43,61,0.30));
+  }
 
   /* ============================================================
      SCREEN SWITCHER + THEME TOGGLE (floating)
@@ -238,7 +241,37 @@
     max-width: 1200px;
     margin: 0 auto;
     padding: 96px 32px 64px;
-    text-align: center;
+  }
+  .hero-grid {
+    display: grid;
+    grid-template-columns: 1.05fr 1fr;
+    gap: 48px;
+    align-items: center;
+    text-align: left;
+  }
+  .hero-text { min-width: 0; }
+  .hero-art {
+    display: grid;
+    place-items: center;
+    position: relative;
+  }
+  .hero-art img {
+    max-width: 100%;
+    width: 460px;
+    height: auto;
+    /* The PNG already has its own glow, but pin a subtle radial halo
+       behind it so the wordmark feels seated on the page. */
+    filter: drop-shadow(0 0 40px rgba(239,43,61,0.35));
+    animation: hero-float 6s ease-in-out infinite alternate;
+  }
+  @keyframes hero-float {
+    from { transform: translateY(-4px); }
+    to   { transform: translateY(4px); }
+  }
+  @media (max-width: 880px) {
+    .hero-grid { grid-template-columns: 1fr; text-align: center; }
+    .hero-text .cta-row { justify-content: center; }
+    .hero-art img { width: 320px; }
   }
   .hero-orb {
     position: absolute;
@@ -249,7 +282,7 @@
     background:
       radial-gradient(circle at 30% 50%, rgba(31,119,120,0.22), transparent 50%),
       radial-gradient(circle at 70% 40%, rgba(199,126,35,0.20), transparent 55%),
-      radial-gradient(circle at 50% 80%, rgba(212,51,46,0.10), transparent 60%);
+      radial-gradient(circle at 50% 80%, rgba(239,43,61,0.10), transparent 60%);
     filter: blur(40px);
     animation: drift 14s ease-in-out infinite alternate;
   }
@@ -285,31 +318,30 @@
     box-shadow: 0 0 0 4px color-mix(in srgb, var(--red-500) 25%, transparent);
   }
   h1.display {
-    font-size: clamp(42px, 6vw, 72px);
+    font-size: clamp(40px, 5.2vw, 64px);
     line-height: 1.05;
     letter-spacing: -0.03em;
     font-weight: 700;
-    margin: 22px auto 18px;
+    margin: 22px 0 18px;
     max-width: 16ch;
     color: var(--text-1);
   }
   h1.display .accent {
-    /* Brand gradient — amber to red. Warm, festive, "lights are on". */
+    /* Brand gradient — amber to neon-red. Warm, festive, "lights are on". */
     background: linear-gradient(135deg, var(--amber-500), var(--red-500));
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
   }
   .hero-sub {
-    font-size: 19px;
+    font-size: 18px;
     color: var(--text-2);
     max-width: 56ch;
-    margin: 0 auto 36px;
+    margin: 0 0 36px;
   }
   .cta-row {
     display: flex;
     gap: 12px;
-    justify-content: center;
     flex-wrap: wrap;
   }
 
@@ -518,7 +550,7 @@
   }
   .fb-visual.viz-jukebox {
     background:
-      radial-gradient(circle at 30% 30%, rgba(212,51,46,0.20), transparent 50%),
+      radial-gradient(circle at 30% 30%, rgba(239,43,61,0.20), transparent 50%),
       radial-gradient(circle at 70% 70%, rgba(199,126,35,0.20), transparent 55%),
       var(--bg-2);
   }
@@ -554,7 +586,7 @@
     background:
       radial-gradient(circle at 25% 40%, rgba(31,119,120,0.18), transparent 30%),
       radial-gradient(circle at 65% 60%, rgba(31,119,120,0.18), transparent 30%),
-      radial-gradient(circle at 80% 30%, rgba(212,51,46,0.18), transparent 25%),
+      radial-gradient(circle at 80% 30%, rgba(239,43,61,0.18), transparent 25%),
       var(--bg-2);
   }
   .fb-visual.viz-map::before {
@@ -852,8 +884,8 @@
     align-items: center;
     padding: 14px;
     border-radius: var(--r-md);
-    background: linear-gradient(135deg, rgba(212,51,46,0.10), rgba(199,126,35,0.06));
-    border: 1px solid rgba(212,51,46,0.18);
+    background: linear-gradient(135deg, rgba(239,43,61,0.10), rgba(199,126,35,0.06));
+    border: 1px solid rgba(239,43,61,0.18);
   }
   .np-art {
     width: 56px; height: 56px;
@@ -1107,18 +1139,10 @@
 </head>
 <body>
 
-<!-- The Remote Falcon "RF" mark, inlined so the mockup is portable.
-     This mirrors apps/ui/src/assets/images/rf-icon.svg — same shape. -->
+<!-- Sun / moon icons for the theme toggle. The brand RF mark is a real
+     PNG referenced at ../../public/rf-icon.png (no inline SVG copy). -->
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <defs>
-    <symbol id="rf-icon" viewBox="0 0 1500 1400">
-      <g transform="translate(0,1400) scale(0.1,-0.1)" fill="currentColor">
-        <path d="M11805 9775 c20 -4 20 -13 25 -432 6 -536 5 -683 -4 -755 l-7 -58 -1582 -1 c-870 -1 -1595 -4 -1612 -8 l-30 -6 -3 -758 c-2 -715 -1 -758 15 -765 10 -4 54 -6 98 -4 240 7 2908 10 2927 3 l23 -9 3 -540 c2 -297 1 -565 -3 -596 l-7 -56 -1497 -1 c-823 -1 -1509 -4 -1526 -8 l-30 -6 -5 -1117 c-3 -725 -9 -1121 -15 -1127 -6 -6 -222 -12 -580 -16 -313 -3 -598 -6 -633 -8 -47 -1 -65 2 -73 13 -6 10 -8 379 -7 1028 l3 1013 -480 -3 c-264 -2 -487 -7 -495 -12 -8 -4 -46 -45 -85 -90 -38 -46 -304 -355 -590 -687 -286 -332 -614 -714 -730 -849 -115 -134 -243 -279 -283 -322 l-74 -77 -646 -5 c-356 -3 -679 -8 -718 -11 -94 -9 -104 1 -104 96 0 39 5 80 11 92 7 11 123 147 258 301 403 459 983 1121 1264 1444 87 100 179 199 204 221 43 38 49 61 16 61 -36 0 -356 116 -452 165 -349 175 -608 435 -776 780 -102 207 -158 397 -196 660 -19 131 -21 180 -16 390 4 207 8 258 31 371 92 456 300 839 603 1110 359 321 730 487 1254 561 112 15 271 18 1639 23 1663 6 4853 3 4885 -5z"/>
-        <path d="M6345 9640 c-1030 -7 -1046 -8 -1284 -66 -837 -205 -1392 -802 -1507 -1620 -19 -141 -22 -411 -4 -564 64 -572 310 -1012 719 -1286 91 -61 250 -143 347 -180 71 -26 292 -86 389 -104 116 -22 118 -26 47 -97 -26 -26 -61 -68 -78 -93 -16 -25 -268 -317 -559 -650 -292 -333 -627 -717 -745 -854 -118 -138 -257 -297 -308 -354 -68 -75 -91 -107 -83 -115 7 -7 54 -11 123 -10 62 1 297 1 522 1 225 1 443 4 483 8 l74 6 147 171 c81 94 183 212 227 262 74 84 193 223 560 650 351 409 614 714 655 761 25 28 73 83 108 122 l63 72 592 -2 592 -3 3 -1010 c3 -875 5 -1012 18 -1025 17 -18 24 -18 577 -8 219 4 402 10 407 13 6 3 10 471 10 1122 0 802 3 1120 11 1130 10 11 275 13 1531 13 1206 0 1519 3 1523 13 2 6 5 216 7 465 l3 453 -1490 -4 c-819 -1 -1502 -6 -1518 -10 -15 -4 -36 -3 -47 3 -20 11 -20 24 -20 903 0 681 3 896 12 905 9 9 383 12 1620 12 884 0 1608 3 1609 8 0 4 2 180 4 392 2 212 7 427 10 478 l7 92 -1344 0 c-738 0 -1730 2 -2203 4 -473 2 -1287 0 -1810 -4z m1083 -1945 c1 -550 -1 -1020 -5 -1045 l-9 -45 -954 0 c-1036 0 -1027 0 -1228 57 -190 53 -313 126 -438 260 -290 311 -352 836 -146 1243 91 181 290 362 491 446 81 34 202 66 296 78 39 5 502 8 1030 7 l960 -1 3 -1000z"/>
-        <path d="M5425 8545 c-226 -42 -442 -169 -571 -336 -54 -70 -126 -219 -148 -305 -83 -322 -4 -678 198 -901 63 -70 204 -163 297 -197 165 -60 150 -59 1152 -63 744 -3 918 -1 922 9 2 7 6 417 7 911 l3 897 -895 -1 c-689 -1 -911 -4 -965 -14z"/>
-      </g>
-    </symbol>
-    <!-- Sun / moon icons for theme toggle -->
     <symbol id="ico-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
     </symbol>
@@ -1136,7 +1160,7 @@
     <nav class="landing-nav">
       <div class="landing-nav-inner">
         <a class="logo" href="#">
-          <div class="rf-mark"><svg><use href="#rf-icon"/></svg></div>
+          <div class="rf-mark"><img src="../../public/rf-icon.png" alt="Remote Falcon" /></div>
           Remote Falcon
         </a>
         <div class="nav-links">
@@ -1158,17 +1182,29 @@
 
     <div class="hero">
       <div class="hero-orb"></div>
-      <span class="eyebrow"><span class="dot"></span>The 2026 holiday season starts here</span>
-      <h1 class="display">Bring your light show <span class="accent">online.</span></h1>
-      <p class="hero-sub">
-        Let viewers vote on the next song, jump the queue, or watch your show from anywhere.
-        Remote Falcon plugs into xLights, FPP, and your existing player — no scripting required.
-      </p>
-      <div class="cta-row">
-        <a class="btn btn-primary">Create your show — free →</a>
-        <a class="btn btn-ghost">▶ Watch a live show</a>
+
+      <div class="hero-grid">
+        <div class="hero-text">
+          <span class="eyebrow"><span class="dot"></span>The 2026 holiday season starts here</span>
+          <h1 class="display">Bring your light show <span class="accent">online.</span></h1>
+          <p class="hero-sub">
+            Let viewers vote on the next song, jump the queue, or watch your show from anywhere.
+            Remote Falcon plugs into xLights, FPP, and your existing player — no scripting required.
+          </p>
+          <div class="cta-row">
+            <a class="btn btn-primary">Create your show — free →</a>
+            <a class="btn btn-ghost">▶ Watch a live show</a>
+          </div>
+        </div>
+
+        <!-- The actual brand neon wordmark — straight from public/jukebox.png.
+             This is the primary brand visual on remotefalcon.com and we lead with it. -->
+        <div class="hero-art">
+          <img src="../../public/jukebox.png" alt="Remote Falcon" />
+        </div>
       </div>
 
+      <!-- Below the fold: a quick "this is the dashboard" device preview. -->
       <div class="hero-device">
         <div class="device-chrome"><span></span><span></span><span></span></div>
         <div class="device-fake-content">
@@ -1250,7 +1286,7 @@
       <div class="footer-inner">
         <div class="footer-col">
           <a class="logo" href="#">
-            <div class="rf-mark"><svg><use href="#rf-icon"/></svg></div>
+            <div class="rf-mark"><img src="../../public/rf-icon.png" alt="Remote Falcon" /></div>
             Remote Falcon
           </a>
           <p class="footer-blurb">Open-source, community-driven software for interactive holiday light shows. Made by hobbyists, for hobbyists.</p>
@@ -1283,7 +1319,7 @@
   <div class="app expanded" id="app">
     <aside class="rail">
       <a class="logo" href="#">
-        <div class="rf-mark"><svg><use href="#rf-icon"/></svg></div>
+        <div class="rf-mark"><img src="../../public/rf-icon.png" alt="Remote Falcon" /></div>
         <span class="logo-text">Remote Falcon</span>
       </a>
 
@@ -1341,7 +1377,7 @@
           <div class="page-head-actions">
             <button class="btn btn-ghost" style="font-size:13px;padding:8px 14px">Share viewer page</button>
             <button class="btn btn-primary" style="font-size:13px;padding:8px 14px">
-              <span style="width:7px;height:7px;border-radius:50%;background:var(--red-500);box-shadow:0 0 0 3px rgba(212,51,46,0.30);display:inline-block"></span>
+              <span style="width:7px;height:7px;border-radius:50%;background:var(--red-500);box-shadow:0 0 0 3px rgba(239,43,61,0.30);display:inline-block"></span>
               Show is live
             </button>
           </div>
@@ -1547,6 +1583,36 @@
     <p class="lede">Brand-aligned tokens drawn from theme3 (the deployed default per <code style="font-family:var(--font-mono);background:var(--bg-2);padding:2px 6px;border-radius:4px;font-size:13px">src/config.jsx</code>): <strong>navy + amber + red</strong>. Replace the existing <code style="font-family:var(--font-mono);background:var(--bg-2);padding:2px 6px;border-radius:4px;font-size:13px">themes/</code> contents with these and 80% of the visual upgrade lands automatically.</p>
 
     <div class="token-section">
+      <h2>Brand assets in use</h2>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;">
+        <div style="background:var(--bg-2);border-radius:var(--r-md);padding:24px;display:grid;place-items:center;gap:14px;">
+          <img src="../../public/rf-icon.png" alt="RF mark" style="width:88px;height:88px;object-fit:contain;filter:drop-shadow(0 0 12px rgba(239,43,61,0.40));" />
+          <div style="text-align:center;font-size:12px;color:var(--text-3);">
+            <div style="color:var(--text-1);font-weight:600;font-size:13px;">Logo mark</div>
+            <code style="font-family:var(--font-mono);font-size:11px;">public/rf-icon.png</code>
+          </div>
+        </div>
+        <div style="background:var(--bg-2);border-radius:var(--r-md);padding:24px;display:grid;place-items:center;gap:14px;">
+          <img src="../../public/jukebox.png" alt="Brand wordmark" style="width:160px;height:auto;object-fit:contain;" />
+          <div style="text-align:center;font-size:12px;color:var(--text-3);">
+            <div style="color:var(--text-1);font-weight:600;font-size:13px;">Brand wordmark / hero</div>
+            <code style="font-family:var(--font-mono);font-size:11px;">public/jukebox.png</code>
+          </div>
+        </div>
+        <div style="background:var(--bg-2);border-radius:var(--r-md);padding:24px;display:grid;place-items:center;gap:14px;">
+          <div class="rf-mark" style="width:32px;height:32px;"><img src="../../public/rf-icon.png" alt="" /></div>
+          <div style="text-align:center;font-size:12px;color:var(--text-3);">
+            <div style="color:var(--text-1);font-weight:600;font-size:13px;">Lockup (mark + wordmark)</div>
+            <code style="font-family:var(--font-mono);font-size:11px;">&lt;Logo /&gt;</code>
+          </div>
+        </div>
+      </div>
+      <p style="margin-top:16px;color:var(--text-3);font-size:13px;line-height:1.6;">
+        The RF monogram and the neon REMOTE FALCON wordmark are the only brand-correct logos in the repo today. Files at <code style="font-family:var(--font-mono);background:var(--bg-2);padding:1px 5px;border-radius:3px;">src/assets/images/logo.svg</code>, <code style="font-family:var(--font-mono);background:var(--bg-2);padding:1px 5px;border-radius:3px;">logo-dark.svg</code>, and <code style="font-family:var(--font-mono);background:var(--bg-2);padding:1px 5px;border-radius:3px;">public/favicon.svg</code> are leftover Berry admin-template assets — they should be removed during cleanup.
+      </p>
+    </div>
+
+    <div class="token-section">
       <h2>Brand — drawn from theme3, the deployed default</h2>
       <div class="swatches">
         <div class="swatch"><div class="swatch-color" style="background:#16595a"></div><div class="swatch-meta"><div class="name">navy.500</div><div class="hex">#16595a · light primary</div></div></div>
@@ -1554,8 +1620,8 @@
         <div class="swatch"><div class="swatch-color" style="background:#0c3e3f"></div><div class="swatch-meta"><div class="name">navy.800</div><div class="hex">#0c3e3f</div></div></div>
         <div class="swatch"><div class="swatch-color" style="background:#c77e23"></div><div class="swatch-meta"><div class="name">amber.500</div><div class="hex">#c77e23 · CTA</div></div></div>
         <div class="swatch"><div class="swatch-color" style="background:#e3bf91"></div><div class="swatch-meta"><div class="name">amber.200</div><div class="hex">#e3bf91</div></div></div>
-        <div class="swatch"><div class="swatch-color" style="background:#d4332e"></div><div class="swatch-meta"><div class="name">red.500</div><div class="hex">#d4332e · live</div></div></div>
-        <div class="swatch"><div class="swatch-color" style="background:#a02520"></div><div class="swatch-meta"><div class="name">red.700</div><div class="hex">#a02520</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#ef2b3d"></div><div class="swatch-meta"><div class="name">red.500</div><div class="hex">#ef2b3d · live</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#a8182a"></div><div class="swatch-meta"><div class="name">red.700</div><div class="hex">#a8182a</div></div></div>
       </div>
     </div>
 
@@ -1608,7 +1674,7 @@
         <button class="btn btn-primary">Primary CTA · amber →</button>
         <button class="btn btn-secondary">Secondary CTA · navy</button>
         <button class="btn btn-ghost">Ghost / tertiary</button>
-        <button class="btn" style="background:rgba(212,51,46,0.14);color:#fca5a5;border:1px solid rgba(212,51,46,0.30)">● Live · brand red</button>
+        <button class="btn" style="background:rgba(239,43,61,0.14);color:#fca5a5;border:1px solid rgba(239,43,61,0.30)">● Live · brand red</button>
         <button class="btn" style="background:rgba(239,68,68,0.12);color:#fca5a5;border:1px solid rgba(239,68,68,0.25)">Destructive</button>
       </div>
     </div>
