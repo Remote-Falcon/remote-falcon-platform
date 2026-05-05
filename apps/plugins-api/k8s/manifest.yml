@@ -122,6 +122,10 @@ metadata:
     nginx.ingress.kubernetes.io/rewrite-target: /$2
     nginx.ingress.kubernetes.io/use-regex: "true"
 spec:
+  tls:
+    - hosts:
+        - #{Host}#
+      secretName: remote-falcon-tls
   rules:
     - host: #{Host}#
       http:
