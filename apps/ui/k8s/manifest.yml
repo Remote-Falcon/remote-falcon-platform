@@ -77,6 +77,11 @@ metadata:
   annotations:
     kubernetes.io/ingress.class: nginx
 spec:
+  tls:
+  - hosts:
+    - #{Host}#
+    - '#{SubdomainHost}#'
+    secretName: remote-falcon-tls
   rules:
   - host: #{Host}#
     http:
