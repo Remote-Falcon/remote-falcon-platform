@@ -67,8 +67,8 @@ jobs:
           Application: remote-falcon-viewer
           Version: ${{ github.sha }}
           Env: prod
-          Replicas.Min: 1
-          Replicas.Max: 1
+          Replicas.Min: 2
+          Replicas.Max: 5
           Image: ${{ env.REGISTRY }}/${{ steps.repository_string.outputs.lowercase }}:${{ github.sha }}
           Requests.Memory: 160Mi
           Requests.CPU: 50m
