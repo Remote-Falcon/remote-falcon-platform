@@ -12,44 +12,71 @@ Everything here maps 1:1 to the token files in `src/design-system/tokens/`. **If
 
 ## Principles
 
-1. **Tokens, not magic numbers.** Every spacing, color, radius, and shadow comes from a named token. Hardcoded `#hex` values, `borderRadius: 4`, or `boxShadow: '0 2px 8px ...'` are review blockers.
-2. **Less is more visual weight.** Borders, shadows, and dividers each cost attention. Pick one to delineate a surface, not all three.
-3. **Restraint scales.** A page with three accent colors looks designed; a page with seven looks frantic. Use brand `accent` (amber) for primary CTAs and "what's important right now" — nothing else.
-4. **Motion is communication, not decoration.** Animate what the user changed (a sequence reordered, a panel opened). Don't animate decoration.
-5. **Dark first.** The product is used at night, looking at lights. Dark mode is the default and the canonical target. Light mode must work, but design decisions break ties toward dark.
-6. **Power users deserve speed.** Keyboard navigation, command palette, dense data views, bulk actions. The control panel is operated, not browsed.
+1. **Modernize the brand, don't replace it.** Remote Falcon's identity is the falcon mark, the brand blue (`#2196f3`), and the brand purple (`#7c4dff`/`#673ab7`). All of those carry forward. v2 changes the *surfaces* around them — typography, spacing, shadows, radius, density — not the brand itself.
+2. **Tokens, not magic numbers.** Every spacing, color, radius, and shadow comes from a named token. Hardcoded `#hex` values, `borderRadius: 4`, or `boxShadow: '0 2px 8px ...'` are review blockers.
+3. **Less is more visual weight.** Borders, shadows, and dividers each cost attention. Pick one to delineate a surface, not all three.
+4. **Restraint scales.** A page with three accent colors looks designed; a page with seven looks frantic. Brand blue is the primary CTA color. Brand purple is the secondary accent. Amber is *only* for live-state UI ("now playing", focused row, "live" badges). Nothing else gets to be loud.
+5. **Motion is communication, not decoration.** Animate what the user changed (a sequence reordered, a panel opened). Don't animate decoration.
+6. **Dark default, light first-class.** Dark mode is the default — the product is used at night, looking at lights. But the theme toggle is a top-level affordance on every surface, and the user's choice persists across reloads. Light mode must look polished, not like a dark-mode afterthought.
+7. **Power users deserve speed.** Keyboard navigation, command palette, dense data views, bulk actions. The control panel is operated, not browsed.
+
+---
+
+## Brand assets
+
+These ship in `apps/ui/src/assets/images/` today and stay. **Do not rebrand or replace these without a design lead's sign-off.**
+
+| Asset | Path | Use |
+|---|---|---|
+| **Falcon icon mark** | `assets/images/rf-icon.svg` | Sidebar logo, favicon, any 1:1 logo placement |
+| Falcon icon (raster) | `assets/images/rf-icon.png`, `rf-icon-small.png` | Anywhere SVG isn't supported (rare) |
+| Wordmark logo (light) | `assets/images/logo.svg` | Marketing site nav on light bg |
+| Wordmark logo (dark) | `assets/images/logo-dark.svg` | Marketing site nav on dark bg |
+| Hero image | `assets/images/landing/full-jukebox-1301x1041.png` | Landing hero |
+| Hero background | `assets/images/landing/header-bg.jpg` | Optional layered hero bg |
+| "WL" mascot mark | `assets/images/WL.png` | Community / Winter Lights references |
+
+**Rules**:
+- Always pair the falcon mark with a brand-blue→brand-purple gradient backdrop when displayed at small sizes (sidebar, nav). Don't put it on a flat amber background — that breaks brand.
+- The hero jukebox image is preserved through the migration. Phase 4 of [`MIGRATION.md`](./MIGRATION.md) replaces the `transform: scale(1.7)` hack with proper responsive sizing — the asset itself stays.
+- Favicon (`public/favicon.svg` + `public/rf-icon.png`) is unchanged.
+- When you need a new branded asset, derive it from the falcon mark or the existing color pair.
 
 ---
 
 ## Tokens
 
-### Brand colors
+### Brand colors — preserved from the existing palette
 
 | Token | Hex | Usage |
 |---|---|---|
-| `brand.500` | `#3b5bff` | Links, info, secondary brand surfaces |
-| `brand.700` | `#1f37c4` | Hover state for brand surfaces |
-| `accent.500` | `#f5a524` | **Primary CTA**, "now playing", focused/selected state |
-| `accent.300` | `#ffd28a` | Hover/pressed state of accent |
+| `brand.500` | `#2196f3` | **Primary CTA**, links, brand anchor (existing primary blue) |
+| `brand.700` | `#1565c0` | Hover state for primary CTA (existing $primary800) |
+| `secondary.500` (dark) | `#7c4dff` | Secondary CTA, brand purple in dark mode (existing $darkSecondaryMain) |
+| `secondary` (light)    | `#673ab7` | Same role in light mode (existing $secondaryMain) |
+| `accent.500` | `#f5a524` | **Live-state only** — now-playing badge, focused row marker, "live" indicators |
 | `cyan.400` | `#22d3ee` | Charts (secondary series), info badges |
-| `pink.400` | `#f472b6` | Gradients only (paired with `accent`) |
+| `pink.400` | `#f472b6` | Brand gradients only |
 
-**Rule:** A page may use *one* primary action color (always `accent`). `brand` is a supporting role; `cyan`/`pink` show up only inside data viz or branded gradients.
+**Rule:**
+- Primary CTAs are always `brand` (blue). Secondary CTAs are `secondary` (purple). These are the historic Remote Falcon colors and they stay.
+- `accent` (amber) is the "lights are on" highlight — reserve for things that should evoke a stage light. The "Now playing" art, the upcoming-vote winner row, the "live" pill on the marketing eyebrow. **Never** a generic primary CTA.
+- `cyan`/`pink` show up only inside data viz or branded gradients.
 
-### Neutrals (dark mode)
+### Dark surfaces — preserved from the existing navy/indigo family
 
-| Token | Hex | Usage |
-|---|---|---|
-| `bg0` | `#07090f` | Page background |
-| `bg1` | `#0c111c` | App shell, sidebar |
-| `bg2` | `#121826` | Cards, default surface |
-| `bg3` | `#1a2030` | Elevated cards, popovers, inputs |
-| `text1` | `#f5f7fb` | Primary text |
-| `text2` | `#c2c8d4` | Secondary text |
-| `text3` | `#7e8699` | Muted, labels, captions |
-| `text4` | `#525a6e` | Hints, placeholders, disabled |
-| `line` | `rgba(255,255,255,0.06)` | Default divider |
-| `lineStrong` | `rgba(255,255,255,0.12)` | Hover/focused divider, prominent borders |
+| Token | Hex | Maps to legacy | Usage |
+|---|---|---|---|
+| `bg0` | `#0b1029` | (deeper variant) | Page background |
+| `bg1` | `#111936` | `$darkPaper` | App shell, sidebar |
+| `bg2` | `#1a223f` | `$darkBackground` | Cards, default surface |
+| `bg3` | `#29314f` | `$darkLevel1` | Elevated cards, popovers, inputs |
+| `text1` | `#f5f7fb` | — | Primary text |
+| `text2` | `#c2c8d4` | — | Secondary text |
+| `text3` | `#8590ad` | — | Muted, labels, captions (tuned for navy bg) |
+| `text4` | `#525a6e` | — | Hints, placeholders, disabled |
+| `line` | `rgba(255,255,255,0.07)` | — | Default divider |
+| `lineStrong` | `rgba(255,255,255,0.14)` | — | Hover/focused divider, prominent borders |
 
 Light mode mirrors this with corresponding inverts (see `tokens/colors.js`). A component must work in both modes — never `color: '#fff'`, always `theme.palette.text.primary`.
 
@@ -199,6 +226,54 @@ This was the `MainCard` pattern under the old theme — three layers of visual w
 ✅ **Do** — use a form container with explicit submission. When fields are dirty, show a sticky "Save / Discard" footer.
 
 ❌ **Don't** save on `onBlur`. Users have no mental model of what changed and no way to undo.
+
+---
+
+## Theme mode (light / dark)
+
+Both surfaces — marketing site and control panel — support light and dark mode. The user's choice persists across reloads.
+
+### How it works
+
+- The existing `ConfigContext` (at `src/contexts/ConfigContext.jsx`) already persists `navType: 'light' | 'dark'` to localStorage under the key `rf-config` via the `useLocalStorage` hook. **No new persistence layer is needed.**
+- Toggling calls `onChangeMenuType('light' | 'dark')` from `useConfig()`.
+- The v2 ThemeProvider (`src/design-system/theme/index.jsx`) reads `navType` from `useConfig()` on every render — so a toggle anywhere in the tree updates the entire app instantly, including the marketing site.
+- Default is `dark` (matches `src/config.jsx`). New users see dark mode; returning users see whatever they last picked.
+
+### The toggle component
+
+`src/design-system/components/ThemeToggle.jsx` is the canonical toggle. Drop it anywhere under `<ConfigProvider>`:
+
+```jsx
+import ThemeToggle from 'design-system/components/ThemeToggle';
+
+<ThemeToggle />                 {/* icon-only, default */}
+<ThemeToggle variant="rail" />  {/* compact icon + label, for sidebar footer */}
+```
+
+### Where to place the toggle
+
+**Marketing site** — to the *left* of the "Sign in" button in the nav (`src/views/pages/landing/Header.jsx` or `src/ui-component/extended/AppBar.jsx`). On mobile, it stays visible — never collapses into a hamburger menu.
+
+**Control panel** — two places:
+1. The topbar (`src/layout/MainLayout/Header/index.jsx`), to the *left* of the notifications icon.
+2. The sidebar footer (above the collapse toggle) using `variant="rail"` — gives a labeled toggle when the rail is expanded, icon-only when collapsed.
+
+### Rules
+
+- The toggle is **always visible** on every screen of every surface. Never gated behind a settings menu.
+- Sun icon = "you are in dark mode, click to go light." Moon icon = the reverse. (Matches `useConfig().navType`.)
+- The toggle **must** survive Auth, ProfileSection, and other personalization changes — it's an app-level affordance, not a user-account preference.
+- Persistence is automatic via `useLocalStorage('rf-config', …)`. **Don't roll your own.**
+
+### Designing for both modes
+
+Every component must work in both modes. This is enforced by:
+- Using `theme.palette.text.primary` (not `'#fff'`) for text.
+- Using `theme.palette.surfaces.bg2` (not the dark hex) for cards.
+- Using `theme.palette.divider` (not `rgba(255,255,255,0.07)`) for borders.
+
+The token files in `src/design-system/tokens/colors.js` export both `dark` and `light` neutral ramps — `neutralsFor(mode)` returns the right one automatically. If a component renders correctly in dark mode but breaks in light, you've hardcoded a value somewhere — fix it at the source.
 
 ---
 

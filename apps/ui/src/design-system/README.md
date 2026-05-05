@@ -13,8 +13,10 @@ This directory is the v2 design system for `apps/ui`. It coexists with the legac
 
 ```
 design-system/
+├── components/          ← shared v2 components
+│   └── ThemeToggle.jsx  ← light/dark switcher (uses existing useConfig)
 ├── tokens/              ← framework-agnostic source of truth
-│   ├── colors.js
+│   ├── colors.js        ← brand blue + purple preserved from legacy palette
 │   ├── radius.js
 │   ├── shadows.js
 │   ├── typography.js
@@ -28,6 +30,17 @@ design-system/
     ├── componentOverrides.js
     └── index.jsx        ← drop-in <ThemeCustomization>
 ```
+
+## Theme toggle
+
+```jsx
+import ThemeToggle from 'design-system/components/ThemeToggle';
+
+<ThemeToggle />                 // icon-only — for topbar / nav
+<ThemeToggle variant="rail" />  // labeled — for sidebar footer
+```
+
+Uses the existing `useConfig()` hook, so persistence (localStorage `rf-config`) is automatic. Drop it anywhere under `<ConfigProvider>`.
 
 ## Using tokens directly
 

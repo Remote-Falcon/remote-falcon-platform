@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -9,65 +9,91 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
 <style>
   /* ============================================================
-     DESIGN TOKENS  (the foundation under both surfaces)
+     DESIGN TOKENS — preserves the existing Remote Falcon brand:
+       primary blue (#2196f3), secondary purple (#7c4dff in dark),
+       deep navy/indigo dark surfaces.
+     Amber is demoted to a "live state" highlight only.
      ============================================================ */
-  :root {
-    /* Brand */
-    --brand-50:  #eef4ff;
-    --brand-100: #d9e6ff;
-    --brand-300: #6f8bff;
-    --brand-500: #3b5bff;
-    --brand-700: #1f37c4;
-    --accent-300: #ffd28a;     /* warm amber — evokes lights */
-    --accent-500: #f5a524;
-    --accent-700: #c47a08;
-    --cyan-400:  #22d3ee;      /* secondary highlight */
+  :root, [data-theme="dark"] {
+    /* Brand — kept from the existing palette */
+    --brand-100: #bbdefb;
+    --brand-300: #64b5f6;
+    --brand-500: #2196f3;     /* primary CTA / brand anchor (existing) */
+    --brand-700: #1565c0;
+    --secondary-300: #b39ddb;
+    --secondary-500: #7c4dff; /* dark-mode-friendly purple (existing) */
+    --secondary-700: #5e35b1;
+
+    /* Tertiary highlights — used sparingly */
+    --accent-300: #ffd28a;
+    --accent-500: #f5a524;    /* live state / now-playing only */
+    --cyan-400:  #22d3ee;
     --pink-400:  #f472b6;
 
-    /* Neutrals (dark default) */
-    --bg-0: #07090f;            /* page */
-    --bg-1: #0c111c;            /* surface */
-    --bg-2: #121826;            /* card */
-    --bg-3: #1a2030;            /* elevated card */
-    --line:  rgba(255,255,255,0.06);
-    --line-strong: rgba(255,255,255,0.12);
+    /* Dark neutrals — match the existing Remote Falcon navy family */
+    --bg-0: #0b1029;          /* page */
+    --bg-1: #111936;          /* shell / sidebar (legacy darkPaper) */
+    --bg-2: #1a223f;          /* cards (legacy darkBackground) */
+    --bg-3: #29314f;          /* elevated (legacy darkLevel1) */
+    --line: rgba(255,255,255,0.07);
+    --line-strong: rgba(255,255,255,0.14);
 
-    --text-1: #f5f7fb;          /* primary */
-    --text-2: #c2c8d4;          /* secondary */
-    --text-3: #7e8699;          /* muted */
-    --text-4: #525a6e;          /* hint */
+    --text-1: #f5f7fb;
+    --text-2: #c2c8d4;
+    --text-3: #8590ad;
+    --text-4: #525a6e;
 
     /* Semantic */
     --success: #22c55e;
     --warning: #f59e0b;
     --danger:  #ef4444;
 
-    /* Radius scale */
-    --r-xs: 4px;
-    --r-sm: 8px;
-    --r-md: 12px;
-    --r-lg: 16px;
-    --r-xl: 24px;
-    --r-pill: 999px;
+    /* Glow */
+    --cta-glow:    0 6px 20px rgba(33,150,243,0.28);
+    --cta-glow-hi: 0 8px 28px rgba(33,150,243,0.40);
+    --live-glow:   0 0 0 1px rgba(245,165,36,0.4), 0 10px 40px rgba(245,165,36,0.25);
 
-    /* Shadow scale (3 levels, no more z1..z24) */
-    --sh-subtle:   0 1px 2px rgba(0,0,0,0.25), 0 1px 0 rgba(255,255,255,0.02) inset;
-    --sh-medium:   0 6px 18px rgba(0,0,0,0.35);
-    --sh-elevated: 0 20px 50px rgba(0,0,0,0.5);
-    --sh-glow:     0 0 0 1px rgba(245,165,36,0.4), 0 10px 40px rgba(245,165,36,0.25);
+    --shadow-subtle:   0 1px 2px rgba(0,0,0,0.25), 0 1px 0 rgba(255,255,255,0.02) inset;
+    --shadow-medium:   0 6px 18px rgba(0,0,0,0.35);
+    --shadow-elevated: 0 20px 50px rgba(0,0,0,0.5);
+  }
 
-    /* Motion */
+  [data-theme="light"] {
+    --bg-0: #ffffff;
+    --bg-1: #f8fafc;
+    --bg-2: #ffffff;
+    --bg-3: #f1f5f9;
+    --line: rgba(15,23,42,0.08);
+    --line-strong: rgba(15,23,42,0.16);
+
+    --text-1: #0f172a;
+    --text-2: #334155;
+    --text-3: #64748b;
+    --text-4: #94a3b8;
+
+    /* Light-mode purple is the legacy #673ab7 — slightly muted */
+    --secondary-500: #673ab7;
+
+    --shadow-subtle:   0 1px 2px rgba(15,23,42,0.06);
+    --shadow-medium:   0 4px 12px rgba(15,23,42,0.10);
+    --shadow-elevated: 0 12px 32px rgba(15,23,42,0.18);
+  }
+
+  /* Radius scale */
+  :root {
+    --r-xs: 4px;   --r-sm: 8px;   --r-md: 12px;
+    --r-lg: 16px;  --r-xl: 24px;  --r-pill: 999px;
+
     --t-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
     --t-base: 250ms cubic-bezier(0.4, 0, 0.2, 1);
     --t-slow: 450ms cubic-bezier(0.4, 0, 0.2, 1);
 
-    /* Type */
     --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
     --font-mono: 'JetBrains Mono', ui-monospace, monospace;
   }
 
   * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; }
+  html, body { margin: 0; padding: 0; transition: background-color var(--t-base), color var(--t-base); }
   body {
     font-family: var(--font-sans);
     background: var(--bg-0);
@@ -79,20 +105,42 @@
   a { color: inherit; text-decoration: none; }
 
   /* ============================================================
-     SCREEN SWITCHER (bottom-right floating)
+     RF FALCON LOGO MARK — embedded inline so the mockup is portable.
+     Mirrors apps/ui/src/assets/images/rf-icon.svg.
      ============================================================ */
-  .switcher {
+  .rf-mark {
+    width: 28px; height: 28px;
+    border-radius: var(--r-sm);
+    background: linear-gradient(135deg, var(--brand-500), var(--secondary-500));
+    display: grid; place-items: center;
+    box-shadow: 0 6px 20px rgba(33,150,243,0.20);
+    flex-shrink: 0;
+  }
+  .rf-mark svg { width: 18px; height: 18px; fill: #fff; }
+  .rf-mark.lg { width: 44px; height: 44px; border-radius: var(--r-md); }
+  .rf-mark.lg svg { width: 28px; height: 28px; }
+
+  /* ============================================================
+     SCREEN SWITCHER + THEME TOGGLE (floating)
+     ============================================================ */
+  .floating-controls {
     position: fixed;
     bottom: 16px;
     right: 16px;
     z-index: 100;
     display: flex;
-    gap: 4px;
-    padding: 4px;
+    gap: 8px;
+  }
+  .switcher, .theme-toggle-fab {
     background: var(--bg-3);
     border: 1px solid var(--line-strong);
     border-radius: var(--r-pill);
-    box-shadow: var(--sh-elevated);
+    box-shadow: var(--shadow-elevated);
+  }
+  .switcher {
+    display: flex;
+    gap: 4px;
+    padding: 4px;
     font-size: 12px;
     font-weight: 500;
   }
@@ -109,9 +157,18 @@
   }
   .switcher button:hover { color: var(--text-1); }
   .switcher button.active {
-    background: var(--accent-500);
-    color: #1a1100;
+    background: var(--brand-500);
+    color: #ffffff;
   }
+  .theme-toggle-fab {
+    width: 44px; height: 44px;
+    display: grid; place-items: center;
+    cursor: pointer;
+    color: var(--text-2);
+    transition: color var(--t-fast), background var(--t-fast);
+  }
+  .theme-toggle-fab:hover { color: var(--text-1); background: var(--bg-2); }
+  .theme-toggle-fab svg { width: 18px; height: 18px; }
 
   .screen { display: none; }
   .screen.active { display: block; }
@@ -127,7 +184,7 @@
     z-index: 10;
     backdrop-filter: blur(14px) saturate(150%);
     -webkit-backdrop-filter: blur(14px) saturate(150%);
-    background: rgba(7, 9, 15, 0.65);
+    background: color-mix(in srgb, var(--bg-0) 65%, transparent);
     border-bottom: 1px solid var(--line);
   }
   .landing-nav-inner {
@@ -146,18 +203,6 @@
     font-size: 16px;
     letter-spacing: -0.01em;
   }
-  .logo-mark {
-    width: 28px;
-    height: 28px;
-    border-radius: var(--r-sm);
-    background: linear-gradient(135deg, var(--accent-500), var(--pink-400));
-    display: grid;
-    place-items: center;
-    color: #1a1100;
-    font-weight: 800;
-    font-size: 14px;
-    box-shadow: var(--sh-glow);
-  }
   .nav-links {
     display: flex;
     gap: 28px;
@@ -167,6 +212,20 @@
   }
   .nav-links a:hover { color: var(--text-1); }
   .nav-spacer { flex: 1; }
+
+  /* Inline theme-toggle (used in nav + topbar) */
+  .theme-toggle {
+    width: 36px; height: 36px;
+    display: grid; place-items: center;
+    border-radius: var(--r-sm);
+    color: var(--text-2);
+    cursor: pointer;
+    background: transparent;
+    border: 0;
+    transition: background-color var(--t-fast), color var(--t-fast);
+  }
+  .theme-toggle:hover { background: var(--bg-2); color: var(--text-1); }
+  .theme-toggle svg { width: 18px; height: 18px; }
 
   /* Hero */
   .hero {
@@ -183,11 +242,16 @@
     pointer-events: none;
     z-index: -1;
     background:
-      radial-gradient(circle at 30% 50%, rgba(245,165,36,0.25), transparent 50%),
-      radial-gradient(circle at 70% 40%, rgba(34,211,238,0.18), transparent 55%),
-      radial-gradient(circle at 50% 80%, rgba(244,114,182,0.15), transparent 60%);
+      radial-gradient(circle at 30% 50%, rgba(33,150,243,0.22), transparent 50%),
+      radial-gradient(circle at 70% 40%, rgba(124,77,255,0.20), transparent 55%),
+      radial-gradient(circle at 50% 80%, rgba(245,165,36,0.10), transparent 60%);
     filter: blur(40px);
     animation: drift 14s ease-in-out infinite alternate;
+  }
+  [data-theme="light"] .hero-orb {
+    background:
+      radial-gradient(circle at 30% 50%, rgba(33,150,243,0.18), transparent 50%),
+      radial-gradient(circle at 70% 40%, rgba(124,77,255,0.16), transparent 55%);
   }
   @keyframes drift {
     from { transform: translate(-2%, -2%) scale(1); }
@@ -199,18 +263,19 @@
     gap: 8px;
     padding: 6px 14px;
     border-radius: var(--r-pill);
-    background: rgba(245,165,36,0.1);
-    color: var(--accent-300);
+    background: color-mix(in srgb, var(--brand-500) 12%, transparent);
+    color: var(--brand-300);
     font-size: 12px;
     font-weight: 600;
     letter-spacing: 0.04em;
     text-transform: uppercase;
-    border: 1px solid rgba(245,165,36,0.2);
+    border: 1px solid color-mix(in srgb, var(--brand-500) 25%, transparent);
   }
+  [data-theme="light"] .eyebrow { color: var(--brand-700); }
   .eyebrow .dot {
     width: 6px; height: 6px; border-radius: 50%;
-    background: var(--accent-500);
-    box-shadow: 0 0 0 4px rgba(245,165,36,0.2);
+    background: var(--brand-500);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand-500) 20%, transparent);
   }
   h1.display {
     font-size: clamp(42px, 6vw, 72px);
@@ -219,13 +284,11 @@
     font-weight: 700;
     margin: 22px auto 18px;
     max-width: 16ch;
-    background: linear-gradient(180deg, #fff 0%, #b9c0d4 100%);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
+    color: var(--text-1);
   }
   h1.display .accent {
-    background: linear-gradient(135deg, var(--accent-500), var(--pink-400));
+    /* Brand gradient — blue to purple, not amber to pink */
+    background: linear-gradient(135deg, var(--brand-500), var(--secondary-500));
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
@@ -259,18 +322,26 @@
     gap: 8px;
   }
   .btn:hover { transform: translateY(-1px); }
+  /* Primary CTA — brand blue */
   .btn-primary {
-    background: var(--accent-500);
-    color: #1a1100;
-    box-shadow: 0 6px 20px rgba(245,165,36,0.3);
+    background: var(--brand-500);
+    color: #ffffff;
+    box-shadow: var(--cta-glow);
   }
-  .btn-primary:hover { background: var(--accent-300); }
+  .btn-primary:hover { background: var(--brand-700); box-shadow: var(--cta-glow-hi); }
+  /* Secondary CTA — brand purple */
+  .btn-secondary {
+    background: var(--secondary-500);
+    color: #ffffff;
+    box-shadow: 0 6px 20px rgba(124,77,255,0.25);
+  }
+  .btn-secondary:hover { background: var(--secondary-700); }
   .btn-ghost {
     background: transparent;
     color: var(--text-1);
     border: 1px solid var(--line-strong);
   }
-  .btn-ghost:hover { background: rgba(255,255,255,0.04); }
+  .btn-ghost:hover { background: color-mix(in srgb, var(--text-1) 6%, transparent); }
 
   /* Hero device mock */
   .hero-device {
@@ -279,7 +350,7 @@
     background: var(--bg-2);
     border: 1px solid var(--line);
     border-radius: var(--r-lg);
-    box-shadow: var(--sh-elevated);
+    box-shadow: var(--shadow-elevated);
     overflow: hidden;
     aspect-ratio: 16/9;
     position: relative;
@@ -289,8 +360,8 @@
     position: absolute;
     inset: 0;
     background:
-      linear-gradient(135deg, rgba(59,91,255,0.12), transparent 40%),
-      radial-gradient(circle at 80% 80%, rgba(245,165,36,0.08), transparent 50%);
+      linear-gradient(135deg, rgba(33,150,243,0.10), transparent 40%),
+      radial-gradient(circle at 80% 80%, rgba(124,77,255,0.08), transparent 50%);
   }
   .device-chrome {
     height: 36px;
@@ -322,11 +393,11 @@
     height: 28px;
     border-radius: var(--r-sm);
     margin-bottom: 6px;
-    background: rgba(255,255,255,0.04);
+    background: color-mix(in srgb, var(--text-1) 4%, transparent);
   }
   .dfc-side-item:nth-child(2) {
-    background: rgba(245,165,36,0.15);
-    border: 1px solid rgba(245,165,36,0.25);
+    background: color-mix(in srgb, var(--brand-500) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--brand-500) 28%, transparent);
   }
   .dfc-main { padding: 20px; display: grid; gap: 14px; grid-template-rows: auto 1fr; }
   .dfc-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
@@ -342,7 +413,7 @@
     border: 1px solid var(--line);
     border-radius: var(--r-md);
     background-image:
-      linear-gradient(180deg, transparent 60%, rgba(245,165,36,0.18) 100%),
+      linear-gradient(180deg, transparent 60%, rgba(33,150,243,0.18) 100%),
       repeating-linear-gradient(90deg, transparent 0 40px, rgba(255,255,255,0.02) 40px 41px);
     position: relative;
   }
@@ -351,7 +422,7 @@
     position: absolute;
     inset: auto 12px 12px 12px;
     height: 60%;
-    background: linear-gradient(180deg, transparent, rgba(245,165,36,0.4));
+    background: linear-gradient(180deg, transparent, rgba(33,150,243,0.4));
     clip-path: polygon(0 80%, 12% 60%, 25% 70%, 38% 35%, 52% 50%, 65% 25%, 78% 40%, 92% 15%, 100% 30%, 100% 100%, 0 100%);
   }
 
@@ -362,13 +433,14 @@
     padding: 80px 32px;
   }
   .section-eyebrow {
-    color: var(--accent-300);
+    color: var(--brand-300);
     font-size: 13px;
     font-weight: 600;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     margin-bottom: 12px;
   }
+  [data-theme="light"] .section-eyebrow { color: var(--brand-700); }
   h2.section-title {
     font-size: clamp(28px, 3.5vw, 44px);
     line-height: 1.1;
@@ -397,11 +469,12 @@
     width: 44px; height: 44px;
     border-radius: var(--r-md);
     display: grid; place-items: center;
-    background: rgba(245,165,36,0.12);
-    color: var(--accent-300);
+    background: color-mix(in srgb, var(--brand-500) 12%, transparent);
+    color: var(--brand-300);
     margin-bottom: 18px;
     font-size: 22px;
   }
+  [data-theme="light"] .feature-block .fb-icon { color: var(--brand-700); }
   .feature-block h3 {
     font-size: 28px;
     margin: 0 0 14px;
@@ -413,13 +486,7 @@
     font-size: 16px;
     margin: 0 0 18px;
   }
-  .fb-bullets {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-    display: grid;
-    gap: 10px;
-  }
+  .fb-bullets { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
   .fb-bullets li {
     display: flex;
     gap: 10px;
@@ -429,7 +496,7 @@
   }
   .fb-bullets li::before {
     content: '✓';
-    color: var(--accent-500);
+    color: var(--brand-500);
     font-weight: 700;
     margin-top: 1px;
   }
@@ -438,14 +505,14 @@
     background: var(--bg-2);
     border: 1px solid var(--line);
     border-radius: var(--r-lg);
-    box-shadow: var(--sh-medium);
+    box-shadow: var(--shadow-medium);
     position: relative;
     overflow: hidden;
   }
   .fb-visual.viz-jukebox {
     background:
-      radial-gradient(circle at 30% 30%, rgba(245,165,36,0.25), transparent 50%),
-      radial-gradient(circle at 70% 70%, rgba(244,114,182,0.2), transparent 55%),
+      radial-gradient(circle at 30% 30%, rgba(245,165,36,0.20), transparent 50%),
+      radial-gradient(circle at 70% 70%, rgba(124,77,255,0.20), transparent 55%),
       var(--bg-2);
   }
   .fb-visual.viz-jukebox::after {
@@ -453,25 +520,17 @@
     position: absolute;
     inset: 20% 20% 20% 20%;
     border-radius: 50%;
-    background: conic-gradient(from 0deg, var(--accent-500), var(--pink-400), var(--cyan-400), var(--accent-500));
+    background: conic-gradient(from 0deg, var(--accent-500), var(--secondary-500), var(--brand-500), var(--accent-500));
     opacity: 0.4;
     filter: blur(10px);
     animation: spin 8s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .fb-visual.viz-vote {
-    display: grid;
-    place-items: center;
-  }
-  .vote-bars {
-    display: flex;
-    gap: 14px;
-    align-items: flex-end;
-    height: 60%;
-  }
+  .fb-visual.viz-vote { display: grid; place-items: center; }
+  .vote-bars { display: flex; gap: 14px; align-items: flex-end; height: 60%; }
   .vote-bar {
     width: 48px;
-    background: linear-gradient(180deg, var(--accent-500), var(--accent-700));
+    background: linear-gradient(180deg, var(--brand-500), var(--brand-700));
     border-radius: var(--r-sm) var(--r-sm) 0 0;
     position: relative;
   }
@@ -486,9 +545,9 @@
   }
   .fb-visual.viz-map {
     background:
-      radial-gradient(circle at 25% 40%, rgba(34,211,238,0.15), transparent 30%),
-      radial-gradient(circle at 65% 60%, rgba(34,211,238,0.15), transparent 30%),
-      radial-gradient(circle at 80% 30%, rgba(245,165,36,0.2), transparent 25%),
+      radial-gradient(circle at 25% 40%, rgba(33,150,243,0.18), transparent 30%),
+      radial-gradient(circle at 65% 60%, rgba(33,150,243,0.18), transparent 30%),
+      radial-gradient(circle at 80% 30%, rgba(245,165,36,0.18), transparent 25%),
       var(--bg-2);
   }
   .fb-visual.viz-map::before {
@@ -504,7 +563,7 @@
   /* Footer */
   footer {
     border-top: 1px solid var(--line);
-    background: linear-gradient(180deg, var(--bg-0), #03050a);
+    background: linear-gradient(180deg, var(--bg-0), color-mix(in srgb, var(--bg-0) 85%, #000));
     padding: 60px 32px 32px;
   }
   .footer-inner {
@@ -551,7 +610,6 @@
   }
   .app.expanded { grid-template-columns: 248px 1fr; }
 
-  /* Sidebar — icon rail */
   .rail {
     background: var(--bg-1);
     border-right: 1px solid var(--line);
@@ -561,9 +619,7 @@
     gap: 4px;
     transition: all var(--t-base);
   }
-  .rail .logo {
-    padding: 0 22px 18px;
-  }
+  .rail .logo { padding: 0 22px 18px; }
   .rail .logo-text { display: none; }
   .app.expanded .rail .logo-text { display: inline; }
   .rail-section-label {
@@ -591,11 +647,11 @@
     white-space: nowrap;
     overflow: hidden;
   }
-  .rail-item:hover { color: var(--text-1); background: rgba(255,255,255,0.03); }
+  .rail-item:hover { color: var(--text-1); background: color-mix(in srgb, var(--text-1) 3%, transparent); }
   .rail-item.active {
     color: var(--text-1);
-    border-left-color: var(--accent-500);
-    background: linear-gradient(90deg, rgba(245,165,36,0.08), transparent 80%);
+    border-left-color: var(--brand-500);
+    background: linear-gradient(90deg, rgba(33,150,243,0.10), transparent 80%);
   }
   .rail-item .ri-ico {
     width: 22px; height: 22px;
@@ -603,21 +659,27 @@
     flex-shrink: 0;
     color: var(--text-2);
   }
-  .rail-item.active .ri-ico { color: var(--accent-500); }
+  .rail-item.active .ri-ico { color: var(--brand-500); }
   .rail-item .ri-label { display: none; }
   .app.expanded .rail-item .ri-label { display: inline; }
 
-  .rail-toggle {
+  .rail-footer {
     margin-top: auto;
-    padding: 8px 22px;
+    border-top: 1px solid var(--line);
+    padding-top: 8px;
+  }
+  .rail-toggle {
+    padding: 10px 22px;
     color: var(--text-3);
     cursor: pointer;
     font-size: 13px;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 12px;
+    transition: color var(--t-fast);
   }
   .rail-toggle:hover { color: var(--text-1); }
+  .rail-toggle .ri-ico { width: 22px; height: 22px; display: grid; place-items: center; }
 
   /* Topbar */
   .topbar {
@@ -626,16 +688,13 @@
     display: flex;
     align-items: center;
     padding: 0 24px;
-    gap: 16px;
+    gap: 12px;
     background: var(--bg-0);
     position: sticky;
     top: 0;
     z-index: 5;
   }
-  .crumbs {
-    color: var(--text-3);
-    font-size: 14px;
-  }
+  .crumbs { color: var(--text-3); font-size: 14px; }
   .crumbs strong { color: var(--text-1); font-weight: 600; }
   .crumbs .sep { margin: 0 8px; color: var(--text-4); }
 
@@ -676,12 +735,13 @@
     background: transparent;
     transition: background var(--t-fast);
   }
-  .icon-btn:hover { background: rgba(255,255,255,0.05); color: var(--text-1); }
+  .icon-btn:hover { background: var(--bg-2); color: var(--text-1); }
+  .icon-btn svg { width: 18px; height: 18px; }
 
   .avatar {
     width: 32px; height: 32px;
     border-radius: 50%;
-    background: linear-gradient(135deg, var(--brand-500), var(--pink-400));
+    background: linear-gradient(135deg, var(--brand-500), var(--secondary-500));
     display: grid;
     place-items: center;
     font-size: 12px;
@@ -731,11 +791,7 @@
     font-weight: 600;
     margin-bottom: 8px;
   }
-  .stat-value {
-    font-size: 30px;
-    letter-spacing: -0.02em;
-    font-weight: 700;
-  }
+  .stat-value { font-size: 30px; letter-spacing: -0.02em; font-weight: 700; }
   .stat-trend {
     margin-top: 6px;
     font-size: 12px;
@@ -767,20 +823,11 @@
     gap: 12px;
     border-bottom: 1px solid var(--line);
   }
-  .card-head h3 {
-    font-size: 15px;
-    margin: 0;
-    font-weight: 600;
-  }
+  .card-head h3 { font-size: 15px; margin: 0; font-weight: 600; }
   .card-head .meta { color: var(--text-3); font-size: 12px; margin-left: auto; }
   .card-body { padding: 20px; }
 
-  /* Two-column dashboard layout */
-  .dash-grid {
-    display: grid;
-    grid-template-columns: 2fr 1fr;
-    gap: 16px;
-  }
+  .dash-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
   .chart-card { min-height: 280px; }
   .chart-mock {
     height: 200px;
@@ -791,35 +838,30 @@
   }
   .chart-mock svg { width: 100%; height: 100%; }
 
-  /* Now playing */
+  /* Now playing — uses amber as the live-state highlight */
   .now-playing {
     display: flex;
     gap: 14px;
     align-items: center;
     padding: 14px;
     border-radius: var(--r-md);
-    background: linear-gradient(135deg, rgba(245,165,36,0.08), rgba(244,114,182,0.06));
-    border: 1px solid rgba(245,165,36,0.15);
+    background: linear-gradient(135deg, rgba(245,165,36,0.10), rgba(124,77,255,0.06));
+    border: 1px solid rgba(245,165,36,0.18);
   }
   .np-art {
     width: 56px; height: 56px;
     border-radius: var(--r-sm);
-    background: linear-gradient(135deg, var(--accent-500), var(--pink-400));
+    background: linear-gradient(135deg, var(--accent-500), var(--secondary-500));
     display: grid; place-items: center;
-    color: #1a1100;
+    color: #fff;
     font-size: 22px;
     flex-shrink: 0;
-    box-shadow: var(--sh-glow);
+    box-shadow: var(--live-glow);
   }
   .np-info { flex: 1; min-width: 0; }
   .np-title { font-weight: 600; font-size: 14px; margin-bottom: 2px; }
   .np-sub { color: var(--text-3); font-size: 12px; }
-  .np-eq {
-    display: flex;
-    gap: 3px;
-    align-items: flex-end;
-    height: 18px;
-  }
+  .np-eq { display: flex; gap: 3px; align-items: flex-end; height: 18px; }
   .np-eq span {
     width: 3px;
     background: var(--accent-500);
@@ -844,24 +886,20 @@
   .queue-pos {
     width: 22px; height: 22px;
     border-radius: var(--r-xs);
-    background: rgba(255,255,255,0.05);
+    background: color-mix(in srgb, var(--text-1) 5%, transparent);
     display: grid; place-items: center;
     font-size: 11px;
     color: var(--text-3);
     font-weight: 600;
     flex-shrink: 0;
   }
+  /* "Up next" — amber for live highlight */
   .queue-item.next .queue-pos { background: var(--accent-500); color: #1a1100; }
   .queue-name { flex: 1; }
   .queue-votes { color: var(--text-3); font-size: 12px; }
 
   /* Sequences table */
-  .seq-controls {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 16px;
-    align-items: center;
-  }
+  .seq-controls { display: flex; gap: 8px; margin-bottom: 16px; align-items: center; }
   .chip {
     padding: 6px 12px;
     border-radius: var(--r-pill);
@@ -873,15 +911,12 @@
     cursor: pointer;
   }
   .chip.active {
-    background: rgba(245,165,36,0.12);
-    border-color: rgba(245,165,36,0.3);
-    color: var(--accent-300);
+    background: color-mix(in srgb, var(--brand-500) 14%, transparent);
+    border-color: color-mix(in srgb, var(--brand-500) 30%, transparent);
+    color: var(--brand-300);
   }
-  .seq-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 14px;
-  }
+  [data-theme="light"] .chip.active { color: var(--brand-700); }
+  .seq-table { width: 100%; border-collapse: collapse; font-size: 14px; }
   .seq-table th {
     text-align: left;
     color: var(--text-3);
@@ -892,20 +927,14 @@
     padding: 12px 16px;
     border-bottom: 1px solid var(--line);
   }
-  .seq-table td {
-    padding: 14px 16px;
-    border-bottom: 1px solid var(--line);
-  }
-  .seq-table tr:hover td { background: rgba(255,255,255,0.02); }
+  .seq-table td { padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  .seq-table tr:hover td { background: color-mix(in srgb, var(--text-1) 2%, transparent); }
   .seq-name { display: flex; align-items: center; gap: 12px; }
-  .seq-handle {
-    color: var(--text-4);
-    cursor: grab;
-  }
+  .seq-handle { color: var(--text-4); cursor: grab; }
   .seq-art {
     width: 32px; height: 32px;
     border-radius: var(--r-sm);
-    background: linear-gradient(135deg, var(--brand-500), var(--cyan-400));
+    background: linear-gradient(135deg, var(--brand-500), var(--secondary-500));
     display: grid; place-items: center;
     font-size: 12px; font-weight: 700;
     color: #fff;
@@ -920,14 +949,9 @@
     font-size: 11px;
     font-weight: 600;
   }
-  .badge.active {
-    background: rgba(34,197,94,0.12);
-    color: #4ade80;
-  }
-  .badge.inactive {
-    background: rgba(255,255,255,0.05);
-    color: var(--text-3);
-  }
+  .badge.active { background: rgba(34,197,94,0.14); color: #4ade80; }
+  .badge.inactive { background: color-mix(in srgb, var(--text-1) 6%, transparent); color: var(--text-3); }
+  [data-theme="light"] .badge.active { color: #15803d; }
   .row-actions { display: flex; gap: 4px; justify-content: flex-end; }
   .mini-btn {
     width: 28px; height: 28px;
@@ -938,20 +962,17 @@
     cursor: pointer;
     display: grid; place-items: center;
   }
-  .mini-btn:hover { background: rgba(255,255,255,0.06); color: var(--text-1); }
+  .mini-btn:hover { background: color-mix(in srgb, var(--text-1) 6%, transparent); color: var(--text-1); }
 
   /* Empty state */
-  .empty {
-    text-align: center;
-    padding: 48px 24px;
-  }
+  .empty { text-align: center; padding: 48px 24px; }
   .empty .empty-art {
     width: 64px; height: 64px;
     margin: 0 auto 16px;
     border-radius: 50%;
-    background: rgba(245,165,36,0.08);
+    background: color-mix(in srgb, var(--brand-500) 10%, transparent);
     display: grid; place-items: center;
-    color: var(--accent-500);
+    color: var(--brand-500);
     font-size: 28px;
   }
 
@@ -973,7 +994,7 @@
     background: var(--bg-3);
     border: 1px solid var(--line-strong);
     border-radius: var(--r-lg);
-    box-shadow: var(--sh-elevated);
+    box-shadow: var(--shadow-elevated);
     overflow: hidden;
   }
   .cmd-input {
@@ -1007,11 +1028,11 @@
     font-size: 14px;
   }
   .cmd-item:hover, .cmd-item.focused {
-    background: rgba(245,165,36,0.1);
+    background: color-mix(in srgb, var(--brand-500) 12%, transparent);
     color: var(--text-1);
   }
   .cmd-item .ci-ico { color: var(--text-3); }
-  .cmd-item.focused .ci-ico { color: var(--accent-500); }
+  .cmd-item.focused .ci-ico { color: var(--brand-500); }
   .cmd-foot {
     border-top: 1px solid var(--line);
     padding: 10px 18px;
@@ -1021,21 +1042,10 @@
     gap: 16px;
   }
 
-  /* ============================================================
-     TOKENS REFERENCE SCREEN
-     ============================================================ */
-  .tokens {
-    max-width: 1100px;
-    margin: 0 auto;
-    padding: 56px 32px 120px;
-  }
-  .tokens h1 {
-    font-size: 36px;
-    letter-spacing: -0.02em;
-    margin: 0 0 8px;
-  }
+  /* TOKENS REFERENCE SCREEN */
+  .tokens { max-width: 1100px; margin: 0 auto; padding: 56px 32px 120px; }
+  .tokens h1 { font-size: 36px; letter-spacing: -0.02em; margin: 0 0 8px; }
   .tokens .lede { color: var(--text-2); margin-bottom: 40px; }
-
   .token-section { margin-bottom: 48px; }
   .token-section h2 {
     font-size: 13px;
@@ -1055,12 +1065,7 @@
   .swatch-meta { padding: 10px 12px; font-size: 12px; }
   .swatch-meta .name { font-weight: 600; }
   .swatch-meta .hex { color: var(--text-3); font-family: var(--font-mono); margin-top: 2px; }
-
-  .radius-row, .shadow-row {
-    display: flex;
-    gap: 24px;
-    flex-wrap: wrap;
-  }
+  .radius-row, .shadow-row { display: flex; gap: 24px; flex-wrap: wrap; }
   .radius-demo, .shadow-demo {
     width: 96px; height: 96px;
     background: var(--bg-3);
@@ -1071,7 +1076,6 @@
     font-family: var(--font-mono);
   }
   .shadow-demo { background: var(--bg-2); border-radius: var(--r-md); }
-
   .type-row {
     padding: 16px 0;
     border-bottom: 1px solid var(--line);
@@ -1082,9 +1086,6 @@
   }
   .type-meta { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); }
 
-  /* ============================================================
-     RESPONSIVE
-     ============================================================ */
   @media (max-width: 880px) {
     .feature-block { grid-template-columns: 1fr; gap: 32px; }
     .feature-block.reverse .fb-text { order: 0; }
@@ -1099,6 +1100,27 @@
 </head>
 <body>
 
+<!-- The Remote Falcon "RF" mark, inlined so the mockup is portable.
+     This mirrors apps/ui/src/assets/images/rf-icon.svg — same shape. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="rf-icon" viewBox="0 0 1500 1400">
+      <g transform="translate(0,1400) scale(0.1,-0.1)" fill="currentColor">
+        <path d="M11805 9775 c20 -4 20 -13 25 -432 6 -536 5 -683 -4 -755 l-7 -58 -1582 -1 c-870 -1 -1595 -4 -1612 -8 l-30 -6 -3 -758 c-2 -715 -1 -758 15 -765 10 -4 54 -6 98 -4 240 7 2908 10 2927 3 l23 -9 3 -540 c2 -297 1 -565 -3 -596 l-7 -56 -1497 -1 c-823 -1 -1509 -4 -1526 -8 l-30 -6 -5 -1117 c-3 -725 -9 -1121 -15 -1127 -6 -6 -222 -12 -580 -16 -313 -3 -598 -6 -633 -8 -47 -1 -65 2 -73 13 -6 10 -8 379 -7 1028 l3 1013 -480 -3 c-264 -2 -487 -7 -495 -12 -8 -4 -46 -45 -85 -90 -38 -46 -304 -355 -590 -687 -286 -332 -614 -714 -730 -849 -115 -134 -243 -279 -283 -322 l-74 -77 -646 -5 c-356 -3 -679 -8 -718 -11 -94 -9 -104 1 -104 96 0 39 5 80 11 92 7 11 123 147 258 301 403 459 983 1121 1264 1444 87 100 179 199 204 221 43 38 49 61 16 61 -36 0 -356 116 -452 165 -349 175 -608 435 -776 780 -102 207 -158 397 -196 660 -19 131 -21 180 -16 390 4 207 8 258 31 371 92 456 300 839 603 1110 359 321 730 487 1254 561 112 15 271 18 1639 23 1663 6 4853 3 4885 -5z"/>
+        <path d="M6345 9640 c-1030 -7 -1046 -8 -1284 -66 -837 -205 -1392 -802 -1507 -1620 -19 -141 -22 -411 -4 -564 64 -572 310 -1012 719 -1286 91 -61 250 -143 347 -180 71 -26 292 -86 389 -104 116 -22 118 -26 47 -97 -26 -26 -61 -68 -78 -93 -16 -25 -268 -317 -559 -650 -292 -333 -627 -717 -745 -854 -118 -138 -257 -297 -308 -354 -68 -75 -91 -107 -83 -115 7 -7 54 -11 123 -10 62 1 297 1 522 1 225 1 443 4 483 8 l74 6 147 171 c81 94 183 212 227 262 74 84 193 223 560 650 351 409 614 714 655 761 25 28 73 83 108 122 l63 72 592 -2 592 -3 3 -1010 c3 -875 5 -1012 18 -1025 17 -18 24 -18 577 -8 219 4 402 10 407 13 6 3 10 471 10 1122 0 802 3 1120 11 1130 10 11 275 13 1531 13 1206 0 1519 3 1523 13 2 6 5 216 7 465 l3 453 -1490 -4 c-819 -1 -1502 -6 -1518 -10 -15 -4 -36 -3 -47 3 -20 11 -20 24 -20 903 0 681 3 896 12 905 9 9 383 12 1620 12 884 0 1608 3 1609 8 0 4 2 180 4 392 2 212 7 427 10 478 l7 92 -1344 0 c-738 0 -1730 2 -2203 4 -473 2 -1287 0 -1810 -4z m1083 -1945 c1 -550 -1 -1020 -5 -1045 l-9 -45 -954 0 c-1036 0 -1027 0 -1228 57 -190 53 -313 126 -438 260 -290 311 -352 836 -146 1243 91 181 290 362 491 446 81 34 202 66 296 78 39 5 502 8 1030 7 l960 -1 3 -1000z"/>
+        <path d="M5425 8545 c-226 -42 -442 -169 -571 -336 -54 -70 -126 -219 -148 -305 -83 -322 -4 -678 198 -901 63 -70 204 -163 297 -197 165 -60 150 -59 1152 -63 744 -3 918 -1 922 9 2 7 6 417 7 911 l3 897 -895 -1 c-689 -1 -911 -4 -965 -14z"/>
+      </g>
+    </symbol>
+    <!-- Sun / moon icons for theme toggle -->
+    <symbol id="ico-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+    </symbol>
+    <symbol id="ico-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+    </symbol>
+  </defs>
+</svg>
+
 <!-- ============================================================
      LANDING SCREEN
      ============================================================ -->
@@ -1107,7 +1129,7 @@
     <nav class="landing-nav">
       <div class="landing-nav-inner">
         <a class="logo" href="#">
-          <div class="logo-mark">RF</div>
+          <div class="rf-mark"><svg><use href="#rf-icon"/></svg></div>
           Remote Falcon
         </a>
         <div class="nav-links">
@@ -1118,6 +1140,10 @@
           <a href="#">Community</a>
         </div>
         <div class="nav-spacer"></div>
+        <button class="theme-toggle" data-theme-toggle title="Toggle theme">
+          <svg class="ico-dark"><use href="#ico-sun"/></svg>
+          <svg class="ico-light" style="display:none"><use href="#ico-moon"/></svg>
+        </button>
         <a class="btn btn-ghost" style="padding: 8px 14px; font-size: 13px;">Sign in</a>
         <a class="btn btn-primary" style="padding: 8px 14px; font-size: 13px;">Start free →</a>
       </div>
@@ -1217,31 +1243,22 @@
       <div class="footer-inner">
         <div class="footer-col">
           <a class="logo" href="#">
-            <div class="logo-mark">RF</div>
+            <div class="rf-mark"><svg><use href="#rf-icon"/></svg></div>
             Remote Falcon
           </a>
           <p class="footer-blurb">Open-source, community-driven software for interactive holiday light shows. Made by hobbyists, for hobbyists.</p>
         </div>
         <div class="footer-col">
           <h4>Product</h4>
-          <a>Features</a>
-          <a>Pricing</a>
-          <a>Templates</a>
-          <a>Changelog</a>
+          <a>Features</a><a>Pricing</a><a>Templates</a><a>Changelog</a>
         </div>
         <div class="footer-col">
           <h4>Community</h4>
-          <a>Shows Map</a>
-          <a>Discord</a>
-          <a>GitHub</a>
-          <a>Docs</a>
+          <a>Shows Map</a><a>Discord</a><a>GitHub</a><a>Docs</a>
         </div>
         <div class="footer-col">
           <h4>Company</h4>
-          <a>About</a>
-          <a>Contact</a>
-          <a>Privacy</a>
-          <a>Status</a>
+          <a>About</a><a>Contact</a><a>Privacy</a><a>Status</a>
         </div>
       </div>
       <div class="footer-base">
@@ -1259,7 +1276,7 @@
   <div class="app expanded" id="app">
     <aside class="rail">
       <a class="logo" href="#">
-        <div class="logo-mark">RF</div>
+        <div class="rf-mark"><svg><use href="#rf-icon"/></svg></div>
         <span class="logo-text">Remote Falcon</span>
       </a>
 
@@ -1277,9 +1294,15 @@
       <div class="rail-item"><div class="ri-ico">◉</div><span class="ri-label">Shows Map</span></div>
       <div class="rail-item"><div class="ri-ico">✦</div><span class="ri-label">Ask Wattson</span></div>
 
-      <div class="rail-toggle" id="railToggle">
-        <span>‹</span>
-        <span class="ri-label">Collapse</span>
+      <div class="rail-footer">
+        <div class="rail-toggle" data-theme-toggle title="Toggle theme">
+          <div class="ri-ico"><svg class="ico-dark" width="18" height="18"><use href="#ico-sun"/></svg><svg class="ico-light" width="18" height="18" style="display:none"><use href="#ico-moon"/></svg></div>
+          <span class="ri-label" data-toggle-label>Light mode</span>
+        </div>
+        <div class="rail-toggle" id="railToggle">
+          <div class="ri-ico">‹</div>
+          <span class="ri-label">Collapse</span>
+        </div>
       </div>
     </aside>
 
@@ -1293,6 +1316,10 @@
           <span>Search sequences, pages, settings…</span>
           <span class="kbd">⌘ K</span>
         </div>
+        <button class="theme-toggle" data-theme-toggle title="Toggle theme">
+          <svg class="ico-dark"><use href="#ico-sun"/></svg>
+          <svg class="ico-light" style="display:none"><use href="#ico-moon"/></svg>
+        </button>
         <button class="icon-btn" title="What's new">✦</button>
         <button class="icon-btn" title="Notifications">◔</button>
         <div class="avatar">JD</div>
@@ -1324,7 +1351,7 @@
             <div class="stat-value">7</div>
             <div class="stat-trend">▲ 3 in last 5m</div>
             <svg class="spark" viewBox="0 0 80 32" preserveAspectRatio="none">
-              <polyline fill="none" stroke="#f5a524" stroke-width="1.5" points="0,18 12,22 24,16 36,18 48,12 60,14 72,9 80,11"/>
+              <polyline fill="none" stroke="#2196f3" stroke-width="1.5" points="0,18 12,22 24,16 36,18 48,12 60,14 72,9 80,11"/>
             </svg>
           </div>
           <div class="stat">
@@ -1332,7 +1359,7 @@
             <div class="stat-value">312</div>
             <div class="stat-trend">▲ 18% vs. last show</div>
             <svg class="spark" viewBox="0 0 80 32" preserveAspectRatio="none">
-              <polyline fill="none" stroke="#22d3ee" stroke-width="1.5" points="0,28 12,22 24,24 36,15 48,18 60,10 72,12 80,4"/>
+              <polyline fill="none" stroke="#7c4dff" stroke-width="1.5" points="0,28 12,22 24,24 36,15 48,18 60,10 72,12 80,4"/>
             </svg>
           </div>
           <div class="stat">
@@ -1340,7 +1367,7 @@
             <div class="stat-value">38</div>
             <div class="stat-trend" style="color: var(--text-3)">— no change</div>
             <svg class="spark" viewBox="0 0 80 32" preserveAspectRatio="none">
-              <polyline fill="none" stroke="#7e8699" stroke-width="1.5" points="0,16 12,16 24,16 36,16 48,16 60,16 72,16 80,16"/>
+              <polyline fill="none" stroke="#8590ad" stroke-width="1.5" points="0,16 12,16 24,16 36,16 48,16 60,16 72,16 80,16"/>
             </svg>
           </div>
         </div>
@@ -1356,14 +1383,14 @@
                 <svg viewBox="0 0 600 200" preserveAspectRatio="none">
                   <defs>
                     <linearGradient id="g" x1="0" x2="0" y1="0" y2="1">
-                      <stop offset="0" stop-color="#f5a524" stop-opacity="0.45"/>
-                      <stop offset="1" stop-color="#f5a524" stop-opacity="0"/>
+                      <stop offset="0" stop-color="#2196f3" stop-opacity="0.45"/>
+                      <stop offset="1" stop-color="#2196f3" stop-opacity="0"/>
                     </linearGradient>
                   </defs>
                   <path d="M0,160 L80,140 L160,150 L240,90 L320,110 L400,60 L480,80 L600,30 L600,200 L0,200 Z" fill="url(#g)"/>
-                  <polyline fill="none" stroke="#f5a524" stroke-width="2" points="0,160 80,140 160,150 240,90 320,110 400,60 480,80 600,30"/>
-                  <path d="M0,180 L80,175 L160,170 L240,140 L320,150 L400,120 L480,135 L600,100 L600,200 L0,200 Z" fill="rgba(34,211,238,0.15)"/>
-                  <polyline fill="none" stroke="#22d3ee" stroke-width="2" stroke-dasharray="4,4" points="0,180 80,175 160,170 240,140 320,150 400,120 480,135 600,100"/>
+                  <polyline fill="none" stroke="#2196f3" stroke-width="2" points="0,160 80,140 160,150 240,90 320,110 400,60 480,80 600,30"/>
+                  <path d="M0,180 L80,175 L160,170 L240,140 L320,150 L400,120 L480,135 L600,100 L600,200 L0,200 Z" fill="rgba(124,77,255,0.15)"/>
+                  <polyline fill="none" stroke="#7c4dff" stroke-width="2" stroke-dasharray="4,4" points="0,180 80,175 160,170 240,140 320,150 400,120 480,135 600,100"/>
                 </svg>
               </div>
             </div>
@@ -1411,7 +1438,6 @@
           </div>
         </div>
 
-        <!-- Sequences preview -->
         <div class="card" style="margin-top: 16px;">
           <div class="card-head">
             <h3>Sequences</h3>
@@ -1429,13 +1455,7 @@
             <table class="seq-table">
               <thead>
                 <tr>
-                  <th></th>
-                  <th>Name</th>
-                  <th>Artist</th>
-                  <th>Length</th>
-                  <th>Plays tonight</th>
-                  <th>Status</th>
-                  <th></th>
+                  <th></th><th>Name</th><th>Artist</th><th>Length</th><th>Plays tonight</th><th>Status</th><th></th>
                 </tr>
               </thead>
               <tbody>
@@ -1450,7 +1470,7 @@
                 </tr>
                 <tr>
                   <td><span class="seq-handle">⋮⋮</span></td>
-                  <td><div class="seq-name"><div class="seq-art" style="background:linear-gradient(135deg,var(--accent-500),var(--pink-400))">WW</div>Wizards in Winter</div></td>
+                  <td><div class="seq-name"><div class="seq-art">WW</div>Wizards in Winter</div></td>
                   <td>Trans-Siberian Orchestra</td>
                   <td>3:08</td>
                   <td>2</td>
@@ -1459,7 +1479,7 @@
                 </tr>
                 <tr>
                   <td><span class="seq-handle">⋮⋮</span></td>
-                  <td><div class="seq-name"><div class="seq-art" style="background:linear-gradient(135deg,var(--cyan-400),var(--brand-500))">JB</div>Jingle Bell Rock</div></td>
+                  <td><div class="seq-name"><div class="seq-art">JB</div>Jingle Bell Rock</div></td>
                   <td>Bobby Helms</td>
                   <td>2:11</td>
                   <td>1</td>
@@ -1468,7 +1488,7 @@
                 </tr>
                 <tr>
                   <td><span class="seq-handle">⋮⋮</span></td>
-                  <td><div class="seq-name"><div class="seq-art" style="background:linear-gradient(135deg,var(--pink-400),var(--accent-500))">SP</div>Dance of the Sugar Plum</div></td>
+                  <td><div class="seq-name"><div class="seq-art">SP</div>Dance of the Sugar Plum</div></td>
                   <td>Tchaikovsky</td>
                   <td>3:34</td>
                   <td>0</td>
@@ -1483,7 +1503,6 @@
     </div>
   </div>
 
-  <!-- Command palette -->
   <div class="cmd-overlay" id="cmdOverlay">
     <div class="cmd-palette">
       <input class="cmd-input" placeholder="Search sequences, pages, settings, or run a command…" autofocus />
@@ -1515,29 +1534,29 @@
 <div class="screen" data-screen="tokens">
   <div class="tokens">
     <h1>Design tokens</h1>
-    <p class="lede">The single source of truth that drives both surfaces. Replace the existing <code style="font-family:var(--font-mono);background:var(--bg-2);padding:2px 6px;border-radius:4px;font-size:13px">themes/</code> contents with these and 80% of the visual upgrade lands automatically.</p>
+    <p class="lede">Brand-aligned tokens that preserve Remote Falcon's existing identity (blue + purple) while modernizing the surfaces, type, and interactions. Replace the existing <code style="font-family:var(--font-mono);background:var(--bg-2);padding:2px 6px;border-radius:4px;font-size:13px">themes/</code> contents with these and 80% of the visual upgrade lands automatically.</p>
 
     <div class="token-section">
-      <h2>Brand</h2>
+      <h2>Brand — kept from the existing palette</h2>
       <div class="swatches">
-        <div class="swatch"><div class="swatch-color" style="background:#3b5bff"></div><div class="swatch-meta"><div class="name">brand-500</div><div class="hex">#3b5bff</div></div></div>
-        <div class="swatch"><div class="swatch-color" style="background:#1f37c4"></div><div class="swatch-meta"><div class="name">brand-700</div><div class="hex">#1f37c4</div></div></div>
-        <div class="swatch"><div class="swatch-color" style="background:#f5a524"></div><div class="swatch-meta"><div class="name">accent-500</div><div class="hex">#f5a524</div></div></div>
-        <div class="swatch"><div class="swatch-color" style="background:#ffd28a"></div><div class="swatch-meta"><div class="name">accent-300</div><div class="hex">#ffd28a</div></div></div>
-        <div class="swatch"><div class="swatch-color" style="background:#22d3ee"></div><div class="swatch-meta"><div class="name">cyan-400</div><div class="hex">#22d3ee</div></div></div>
-        <div class="swatch"><div class="swatch-color" style="background:#f472b6"></div><div class="swatch-meta"><div class="name">pink-400</div><div class="hex">#f472b6</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#2196f3"></div><div class="swatch-meta"><div class="name">brand.500</div><div class="hex">#2196f3</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#1565c0"></div><div class="swatch-meta"><div class="name">brand.700</div><div class="hex">#1565c0</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#7c4dff"></div><div class="swatch-meta"><div class="name">secondary.500</div><div class="hex">#7c4dff</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#673ab7"></div><div class="swatch-meta"><div class="name">secondary (light)</div><div class="hex">#673ab7</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#f5a524"></div><div class="swatch-meta"><div class="name">accent.500</div><div class="hex">#f5a524</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#22d3ee"></div><div class="swatch-meta"><div class="name">cyan.400</div><div class="hex">#22d3ee</div></div></div>
       </div>
     </div>
 
     <div class="token-section">
-      <h2>Neutrals (dark)</h2>
+      <h2>Dark surfaces — kept from the legacy navy/indigo family</h2>
       <div class="swatches">
-        <div class="swatch"><div class="swatch-color" style="background:#07090f"></div><div class="swatch-meta"><div class="name">bg-0</div><div class="hex">#07090f</div></div></div>
-        <div class="swatch"><div class="swatch-color" style="background:#0c111c"></div><div class="swatch-meta"><div class="name">bg-1</div><div class="hex">#0c111c</div></div></div>
-        <div class="swatch"><div class="swatch-color" style="background:#121826"></div><div class="swatch-meta"><div class="name">bg-2</div><div class="hex">#121826</div></div></div>
-        <div class="swatch"><div class="swatch-color" style="background:#1a2030"></div><div class="swatch-meta"><div class="name">bg-3</div><div class="hex">#1a2030</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#0b1029"></div><div class="swatch-meta"><div class="name">bg-0</div><div class="hex">#0b1029</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#111936"></div><div class="swatch-meta"><div class="name">bg-1 (legacy darkPaper)</div><div class="hex">#111936</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#1a223f"></div><div class="swatch-meta"><div class="name">bg-2 (legacy darkBackground)</div><div class="hex">#1a223f</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#29314f"></div><div class="swatch-meta"><div class="name">bg-3 (legacy darkLevel1)</div><div class="hex">#29314f</div></div></div>
         <div class="swatch"><div class="swatch-color" style="background:#f5f7fb"></div><div class="swatch-meta"><div class="name">text-1</div><div class="hex">#f5f7fb</div></div></div>
-        <div class="swatch"><div class="swatch-color" style="background:#7e8699"></div><div class="swatch-meta"><div class="name">text-3</div><div class="hex">#7e8699</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#8590ad"></div><div class="swatch-meta"><div class="name">text-3</div><div class="hex">#8590ad</div></div></div>
       </div>
     </div>
 
@@ -1556,9 +1575,9 @@
     <div class="token-section">
       <h2>Shadows (only 3, used sparingly)</h2>
       <div class="shadow-row">
-        <div class="shadow-demo" style="box-shadow: var(--sh-subtle)">subtle</div>
-        <div class="shadow-demo" style="box-shadow: var(--sh-medium)">medium</div>
-        <div class="shadow-demo" style="box-shadow: var(--sh-elevated)">elevated</div>
+        <div class="shadow-demo" style="box-shadow: var(--shadow-subtle)">subtle</div>
+        <div class="shadow-demo" style="box-shadow: var(--shadow-medium)">medium</div>
+        <div class="shadow-demo" style="box-shadow: var(--shadow-elevated)">elevated</div>
       </div>
     </div>
 
@@ -1576,22 +1595,65 @@
       <h2>Buttons</h2>
       <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
         <button class="btn btn-primary">Primary CTA →</button>
-        <button class="btn btn-ghost">Ghost / secondary</button>
+        <button class="btn btn-secondary">Secondary CTA</button>
+        <button class="btn btn-ghost">Ghost / tertiary</button>
         <button class="btn" style="background:rgba(239,68,68,0.12);color:#fca5a5;border:1px solid rgba(239,68,68,0.25)">Destructive</button>
       </div>
     </div>
   </div>
 </div>
 
-<!-- Bottom-right screen switcher -->
-<div class="switcher">
-  <button class="active" data-go="landing">Marketing</button>
-  <button data-go="control">Control panel</button>
-  <button data-go="tokens">Tokens</button>
+<!-- Bottom-right floating controls -->
+<div class="floating-controls">
+  <div class="switcher">
+    <button class="active" data-go="landing">Marketing</button>
+    <button data-go="control">Control panel</button>
+    <button data-go="tokens">Tokens</button>
+  </div>
+  <div class="theme-toggle-fab" data-theme-toggle title="Toggle theme">
+    <svg class="ico-dark"><use href="#ico-sun"/></svg>
+    <svg class="ico-light" style="display:none"><use href="#ico-moon"/></svg>
+  </div>
 </div>
 
 <script>
-  // Screen switching
+  // ---------------------------------------------------------------
+  // Theme persistence — mirrors how the real app uses
+  // useLocalStorage('rf-config', { navType: 'dark' | 'light', ... })
+  // ---------------------------------------------------------------
+  const THEME_KEY = 'rf-mockup-theme';
+  const html = document.documentElement;
+
+  function applyTheme(mode) {
+    html.setAttribute('data-theme', mode);
+    document.querySelectorAll('[data-theme-toggle]').forEach(el => {
+      const dark = el.querySelector('.ico-dark');
+      const light = el.querySelector('.ico-light');
+      if (dark)  dark.style.display  = mode === 'dark' ? '' : 'none';
+      if (light) light.style.display = mode === 'dark' ? 'none' : '';
+      const label = el.querySelector('[data-toggle-label]');
+      if (label) label.textContent = mode === 'dark' ? 'Light mode' : 'Dark mode';
+    });
+  }
+  function toggleTheme() {
+    const next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+    applyTheme(next);
+    try { localStorage.setItem(THEME_KEY, next); } catch (e) {}
+  }
+  // Initialize from localStorage (default: dark, matching apps/ui/src/config.jsx)
+  try {
+    const saved = localStorage.getItem(THEME_KEY);
+    if (saved === 'light' || saved === 'dark') applyTheme(saved);
+    else applyTheme('dark');
+  } catch (e) { applyTheme('dark'); }
+
+  document.querySelectorAll('[data-theme-toggle]').forEach(el => {
+    el.addEventListener('click', toggleTheme);
+  });
+
+  // ---------------------------------------------------------------
+  // Screen switcher
+  // ---------------------------------------------------------------
   document.querySelectorAll('.switcher button').forEach(b => {
     b.addEventListener('click', () => {
       const target = b.dataset.go;
@@ -1601,13 +1663,17 @@
     });
   });
 
+  // ---------------------------------------------------------------
   // Sidebar collapse
+  // ---------------------------------------------------------------
   const app = document.getElementById('app');
   document.getElementById('railToggle').addEventListener('click', () => {
     app.classList.toggle('expanded');
   });
 
-  // Command palette
+  // ---------------------------------------------------------------
+  // Command palette (⌘K / Ctrl+K)
+  // ---------------------------------------------------------------
   const cmd = document.getElementById('cmdOverlay');
   document.getElementById('openCmd').addEventListener('click', () => cmd.classList.add('open'));
   document.addEventListener('keydown', (e) => {

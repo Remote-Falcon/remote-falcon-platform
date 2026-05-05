@@ -1,9 +1,17 @@
 /**
  * Color tokens — framework-agnostic source of truth.
  *
- * NEVER hardcode hex values in components. Reach for these tokens via
- * the MUI theme (`theme.palette.brand[500]`) or import directly when
- * you need a raw value.
+ * Honors the existing Remote Falcon brand identity:
+ *   - Primary blue   → kept from legacy `_themes-vars.module.scss` ($primaryMain).
+ *   - Secondary purple → kept (uses dark-mode-friendly variant by default).
+ *   - Dark surfaces  → kept from legacy navy/indigo family ($darkPaper / $darkBackground / $darkLevel1).
+ *
+ * What's new in v2:
+ *   - `accent` (warm amber) — TERTIARY highlight, used for live-state UI:
+ *     "now playing", active sequence indicator, focused row marker.
+ *     NOT the primary CTA color. Primary CTA stays brand blue.
+ *   - Three-level shadow scale (see shadows.js) instead of the legacy z1..z24 ladder.
+ *   - One typeface (Inter) instead of the per-config Roboto/Poppins/Inter switch.
  *
  * Token tiers:
  *   1. Brand        — accent colors that carry the Remote Falcon identity.
@@ -13,43 +21,69 @@
 
 // 1. Brand --------------------------------------------------------------------
 
+/**
+ * Primary brand color — Remote Falcon blue.
+ * Hex values match the legacy `_themes-vars.module.scss` $primaryLight..800.
+ */
 export const brand = {
-  50:  '#eef4ff',
-  100: '#d9e6ff',
-  300: '#6f8bff',
-  500: '#3b5bff', // primary brand blue
-  700: '#1f37c4'
+  50:  '#e3f2fd',
+  100: '#bbdefb',
+  200: '#90caf9',
+  300: '#64b5f6',
+  500: '#2196f3', // primary CTA / brand anchor
+  700: '#1565c0',
+  900: '#0d47a1'
 };
 
+/**
+ * Secondary brand color — Remote Falcon purple.
+ * Uses the legacy dark-mode-friendly $darkSecondaryMain (#7c4dff) so the
+ * default mode (dark) gets a vivid purple. Light mode adjusts via theme.
+ */
+export const secondary = {
+  50:  '#ede7f6',
+  100: '#d1c4e9',
+  200: '#b39ddb',
+  300: '#9575cd',
+  500: '#7c4dff', // dark-mode-friendly vivid purple
+  700: '#5e35b1',
+  900: '#4527a0'
+};
+
+/**
+ * Tertiary highlight — warm amber. Reserved for live-state UI (now playing,
+ * focused row, "show is live" badges) so it reads like a stage light. NEVER
+ * the primary CTA — that's brand blue.
+ */
 export const accent = {
   300: '#ffd28a',
-  500: '#f5a524', // primary CTA / highlight color (warm amber, evokes lights)
+  500: '#f5a524',
   700: '#c47a08'
 };
 
-export const cyan = {
-  400: '#22d3ee' // secondary highlight, charts, info-style data
-};
-
-export const pink = {
-  400: '#f472b6' // tertiary, used in gradients with accent
-};
+/** Cyan + pink used in chart series and brand gradients only. */
+export const cyan = { 400: '#22d3ee' };
+export const pink = { 400: '#f472b6' };
 
 // 2. Neutrals — dark mode (default) -------------------------------------------
 
+/**
+ * Dark surfaces follow the existing Remote Falcon navy/indigo family.
+ * Maps onto the legacy $darkPaper / $darkBackground / $darkLevel1 / $darkLevel2.
+ */
 export const dark = {
-  bg0: '#07090f', // page background
-  bg1: '#0c111c', // app shell / sidebar
-  bg2: '#121826', // cards
-  bg3: '#1a2030', // elevated cards / popovers / inputs
+  bg0: '#0b1029', // page background — deeper variant of darkPaper
+  bg1: '#111936', // app shell, sidebar — legacy $darkPaper
+  bg2: '#1a223f', // cards, default surface — legacy $darkBackground
+  bg3: '#29314f', // elevated cards, popovers, inputs — legacy $darkLevel1
 
-  text1: '#f5f7fb', // primary text
-  text2: '#c2c8d4', // secondary text
-  text3: '#7e8699', // muted / labels
-  text4: '#525a6e', // hints / placeholders / disabled
+  text1: '#f5f7fb',
+  text2: '#c2c8d4',
+  text3: '#8590ad', // tuned for navy bg — slightly brighter than my v1 attempt
+  text4: '#525a6e',
 
-  line:        'rgba(255,255,255,0.06)',
-  lineStrong:  'rgba(255,255,255,0.12)'
+  line:        'rgba(255,255,255,0.07)',
+  lineStrong:  'rgba(255,255,255,0.14)'
 };
 
 // 2b. Neutrals — light mode ---------------------------------------------------
@@ -80,10 +114,7 @@ export const semantic = {
 
 // Helpers ---------------------------------------------------------------------
 
-/**
- * Returns the neutral ramp for a given color mode.
- */
 export const neutralsFor = (mode) => (mode === 'light' ? light : dark);
 
-const colors = { brand, accent, cyan, pink, dark, light, semantic, neutralsFor };
+const colors = { brand, secondary, accent, cyan, pink, dark, light, semantic, neutralsFor };
 export default colors;

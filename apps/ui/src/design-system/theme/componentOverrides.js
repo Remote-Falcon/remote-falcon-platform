@@ -56,14 +56,19 @@ const buildComponentOverrides = (theme) => {
           transition: `transform ${t}, background-color ${t}, box-shadow ${t}`,
           '&:hover': { transform: 'translateY(-1px)' }
         },
+        // Primary CTA — brand blue with a subtle blue glow.
+        containedPrimary: {
+          boxShadow: '0 6px 20px rgba(33,150,243,0.28)',
+          '&:hover': { boxShadow: '0 8px 28px rgba(33,150,243,0.40)' }
+        },
+        // Secondary CTA — brand purple, slightly softer glow.
+        containedSecondary: {
+          boxShadow: '0 6px 20px rgba(124,77,255,0.25)',
+          '&:hover': { boxShadow: '0 8px 28px rgba(124,77,255,0.35)' }
+        },
         contained: {
           boxShadow: 'none',
           '&:hover': { boxShadow: sh.medium }
-        },
-        containedSecondary: {
-          // Accent CTA — gets the warm glow
-          boxShadow: '0 6px 20px rgba(245,165,36,0.30)',
-          '&:hover': { boxShadow: '0 8px 28px rgba(245,165,36,0.40)' }
         },
         outlined: {
           borderColor: surfaces.lineStrong
@@ -184,10 +189,11 @@ const buildComponentOverrides = (theme) => {
             backgroundColor: theme.palette.action.hover,
             color: theme.palette.text.primary
           },
+          // Selected state uses brand blue tint (the existing CTA color).
           '&.Mui-selected': {
-            backgroundColor: 'rgba(245,165,36,0.08)',
+            backgroundColor: 'rgba(33,150,243,0.10)',
             color: theme.palette.text.primary,
-            '&:hover': { backgroundColor: 'rgba(245,165,36,0.12)' }
+            '&:hover': { backgroundColor: 'rgba(33,150,243,0.16)' }
           }
         }
       }

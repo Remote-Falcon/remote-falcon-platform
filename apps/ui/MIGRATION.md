@@ -19,8 +19,10 @@ apps/ui/
 │   └── mockup.html                        ← interactive visual reference
 └── src/design-system/
     ├── README.md                          ← engineer quick-start
+    ├── components/
+    │   └── ThemeToggle.jsx                ← light/dark switcher (uses useConfig)
     ├── tokens/
-    │   ├── colors.js
+    │   ├── colors.js                      ← preserves brand blue + purple
     │   ├── radius.js
     │   ├── shadows.js
     │   ├── typography.js
@@ -45,16 +47,17 @@ The legacy theme under `src/themes/` is untouched. **Nothing has been migrated y
 |---|---|---|---|---|
 | 0 | Land assets (this PR) | — | none | — |
 | 1 | Wire v2 ThemeProvider behind a flag | ~½ day | low | UI |
-| 2 | Migrate the layout shell (`MainLayout`) | 1–2 days | medium | UI |
-| 3 | Replace `MainCard` / `SubCard` patterns | 1 day | low | UI |
-| 4 | Refresh marketing site (landing) | 1–2 days | low | UI |
-| 5 | Sequences page polish | 1 day | low | UI |
-| 6 | Settings: form-with-submit pattern | 2 days | medium | UI |
-| 7 | Command palette (⌘K) | 1–2 days | low | UI |
-| 8 | Empty states & skeletons sweep | 1 day | low | UI |
-| 9 | Delete legacy theme & SCSS modules | ½ day | low | UI |
+| 2 | Place `ThemeToggle` on marketing site + control panel | ~½ day | low | UI |
+| 3 | Migrate the layout shell (`MainLayout`) | 1–2 days | medium | UI |
+| 4 | Replace `MainCard` / `SubCard` patterns | 1 day | low | UI |
+| 5 | Refresh marketing site (landing) | 1–2 days | low | UI |
+| 6 | Sequences page polish | 1 day | low | UI |
+| 7 | Settings: form-with-submit pattern | 2 days | medium | UI |
+| 8 | Command palette (⌘K) | 1–2 days | low | UI |
+| 9 | Empty states & skeletons sweep | 1 day | low | UI |
+| 10 | Delete legacy theme & SCSS modules | ½ day | low | UI |
 
-Phases 1–4 deliver the bulk of the visible upgrade. Phases 5–9 are polish and can ship any order after 4.
+Phases 1–5 deliver the bulk of the visible upgrade. Phases 6–10 are polish and can ship any order after 5.
 
 ---
 
@@ -92,7 +95,34 @@ Phases 1–4 deliver the bulk of the visible upgrade. Phases 5–9 are polish an
 
 ---
 
-## Phase 2 — Migrate the layout shell
+## Phase 2 — Place `ThemeToggle` on marketing site + control panel
+
+**Goal:** users can flip between light/dark on every screen, and their choice persists across reloads. Persistence is already free — `ConfigContext` writes `navType` to `localStorage('rf-config')` via `useLocalStorage`.
+
+### Files to touch
+
+- `apps/ui/src/views/pages/landing/Header.jsx` (marketing nav) — or `apps/ui/src/ui-component/extended/AppBar.jsx` if the toggle should live in the shared marketing AppBar
+- `apps/ui/src/layout/MainLayout/Header/index.jsx` (control panel topbar)
+- `apps/ui/src/layout/MainLayout/Sidebar/index.jsx` (control panel rail footer)
+
+### Changes
+
+1. **Marketing nav**: import `ThemeToggle` from `design-system/components/ThemeToggle` and place it to the left of the "Sign in" button. The toggle stays visible on mobile.
+2. **Control panel topbar**: place `<ThemeToggle />` to the left of the notifications icon. Ensure it's reachable at every breakpoint.
+3. **Control panel sidebar footer**: place `<ThemeToggle variant="rail" />` above the collapse-rail toggle. When the rail is collapsed (icon-only), the icon stays visible; when expanded, it shows "Light mode" / "Dark mode" beside the icon.
+4. **Verify the v2 ThemeProvider re-renders on toggle.** It already reads `navType` from `useConfig()`; no extra plumbing should be needed. Smoke-test by toggling and confirming all surfaces (landing, dashboard, sequences) update without a reload.
+
+### Acceptance
+
+- [ ] Toggle is visible and clickable on landing, dashboard, sequences, settings, viewer-page, shows-map.
+- [ ] Toggling on the landing page persists when navigating to the control panel and vice versa.
+- [ ] After page reload, the last-chosen mode is restored.
+- [ ] No flash of unstyled content (FOUC) on initial load — the saved mode is applied before paint.
+- [ ] Mobile (< 600px): toggle is reachable without opening a menu.
+
+---
+
+## Phase 3 — Migrate the layout shell
 
 The control panel's perceived modernization comes 80% from the shell.
 
@@ -121,7 +151,7 @@ The control panel's perceived modernization comes 80% from the shell.
 
 ---
 
-## Phase 3 — Replace `MainCard` / `SubCard` patterns
+## Phase 4 — Replace `MainCard` / `SubCard` patterns
 
 The legacy `MainCard` adds a border *and* a shadow on hover *and* a divider — three layers of visual weight. The v2 theme already strips the default border from `MuiCard`. We just need to stop telling individual `MainCard` instances to add it back.
 
@@ -145,7 +175,7 @@ The legacy `MainCard` adds a border *and* a shadow on hover *and* a divider — 
 
 ---
 
-## Phase 4 — Refresh marketing site
+## Phase 5 — Refresh marketing site
 
 ### Files to touch
 
@@ -173,7 +203,7 @@ The legacy `MainCard` adds a border *and* a shadow on hover *and* a divider — 
 
 ---
 
-## Phase 5 — Sequences page polish
+## Phase 6 — Sequences page polish
 
 ### Files to touch
 
@@ -196,7 +226,7 @@ The legacy `MainCard` adds a border *and* a shadow on hover *and* a divider — 
 
 ---
 
-## Phase 6 — Settings: form-with-submit pattern
+## Phase 7 — Settings: form-with-submit pattern
 
 The legacy pattern is to save settings on `onBlur` of every field. The v2 pattern uses Formik (already a dep) with an explicit submit and a sticky save bar.
 
@@ -222,7 +252,7 @@ The legacy pattern is to save settings on `onBlur` of every field. The v2 patter
 
 ---
 
-## Phase 7 — Command palette (⌘K)
+## Phase 8 — Command palette (⌘K)
 
 ### Files to touch
 
@@ -245,7 +275,7 @@ The legacy pattern is to save settings on `onBlur` of every field. The v2 patter
 
 ---
 
-## Phase 8 — Empty states & skeletons sweep
+## Phase 9 — Empty states & skeletons sweep
 
 For each page with async data: image hosting, shows map (filtered to no results), sequences (new account), dashboard (no show running), Ask Wattson (no history).
 
@@ -264,7 +294,7 @@ The component lives at `apps/ui/src/ui-component/EmptyState.jsx` (build it durin
 
 ---
 
-## Phase 9 — Delete legacy
+## Phase 10 — Delete legacy
 
 Once all pages render correctly under `VITE_USE_DESIGN_SYSTEM_V2=true`:
 
@@ -298,7 +328,7 @@ Per-phase smoke tests live in `cypress/e2e/`. Add a v2-specific spec under `cypr
 Every phase is reversible by:
 
 - **Phase 1**: unset `VITE_USE_DESIGN_SYSTEM_V2`.
-- **Phases 2–8**: revert the per-page commits. Token files and v2 theme stay; they're additive.
-- **Phase 9**: unmerge the deletion commit; the legacy theme is in git history forever.
+- **Phases 2–9**: revert the per-page commits. Token files and v2 theme stay; they're additive.
+- **Phase 10**: unmerge the deletion commit; the legacy theme is in git history forever.
 
 If a production issue surfaces, flip the env var off and dig in. The flag is the rollback.
