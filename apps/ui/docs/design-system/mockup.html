@@ -1,0 +1,1625 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Remote Falcon — UI modernization mock</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  /* ============================================================
+     DESIGN TOKENS  (the foundation under both surfaces)
+     ============================================================ */
+  :root {
+    /* Brand */
+    --brand-50:  #eef4ff;
+    --brand-100: #d9e6ff;
+    --brand-300: #6f8bff;
+    --brand-500: #3b5bff;
+    --brand-700: #1f37c4;
+    --accent-300: #ffd28a;     /* warm amber — evokes lights */
+    --accent-500: #f5a524;
+    --accent-700: #c47a08;
+    --cyan-400:  #22d3ee;      /* secondary highlight */
+    --pink-400:  #f472b6;
+
+    /* Neutrals (dark default) */
+    --bg-0: #07090f;            /* page */
+    --bg-1: #0c111c;            /* surface */
+    --bg-2: #121826;            /* card */
+    --bg-3: #1a2030;            /* elevated card */
+    --line:  rgba(255,255,255,0.06);
+    --line-strong: rgba(255,255,255,0.12);
+
+    --text-1: #f5f7fb;          /* primary */
+    --text-2: #c2c8d4;          /* secondary */
+    --text-3: #7e8699;          /* muted */
+    --text-4: #525a6e;          /* hint */
+
+    /* Semantic */
+    --success: #22c55e;
+    --warning: #f59e0b;
+    --danger:  #ef4444;
+
+    /* Radius scale */
+    --r-xs: 4px;
+    --r-sm: 8px;
+    --r-md: 12px;
+    --r-lg: 16px;
+    --r-xl: 24px;
+    --r-pill: 999px;
+
+    /* Shadow scale (3 levels, no more z1..z24) */
+    --sh-subtle:   0 1px 2px rgba(0,0,0,0.25), 0 1px 0 rgba(255,255,255,0.02) inset;
+    --sh-medium:   0 6px 18px rgba(0,0,0,0.35);
+    --sh-elevated: 0 20px 50px rgba(0,0,0,0.5);
+    --sh-glow:     0 0 0 1px rgba(245,165,36,0.4), 0 10px 40px rgba(245,165,36,0.25);
+
+    /* Motion */
+    --t-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    --t-base: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+    --t-slow: 450ms cubic-bezier(0.4, 0, 0.2, 1);
+
+    /* Type */
+    --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: var(--font-sans);
+    background: var(--bg-0);
+    color: var(--text-1);
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+  a { color: inherit; text-decoration: none; }
+
+  /* ============================================================
+     SCREEN SWITCHER (bottom-right floating)
+     ============================================================ */
+  .switcher {
+    position: fixed;
+    bottom: 16px;
+    right: 16px;
+    z-index: 100;
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    background: var(--bg-3);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r-pill);
+    box-shadow: var(--sh-elevated);
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .switcher button {
+    appearance: none;
+    background: transparent;
+    color: var(--text-2);
+    border: 0;
+    padding: 8px 14px;
+    border-radius: var(--r-pill);
+    cursor: pointer;
+    font: inherit;
+    transition: all var(--t-fast);
+  }
+  .switcher button:hover { color: var(--text-1); }
+  .switcher button.active {
+    background: var(--accent-500);
+    color: #1a1100;
+  }
+
+  .screen { display: none; }
+  .screen.active { display: block; }
+
+  /* ============================================================
+     LANDING SCREEN
+     ============================================================ */
+  .landing { position: relative; overflow: hidden; }
+
+  .landing-nav {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    backdrop-filter: blur(14px) saturate(150%);
+    -webkit-backdrop-filter: blur(14px) saturate(150%);
+    background: rgba(7, 9, 15, 0.65);
+    border-bottom: 1px solid var(--line);
+  }
+  .landing-nav-inner {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 14px 32px;
+    display: flex;
+    align-items: center;
+    gap: 32px;
+  }
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 700;
+    font-size: 16px;
+    letter-spacing: -0.01em;
+  }
+  .logo-mark {
+    width: 28px;
+    height: 28px;
+    border-radius: var(--r-sm);
+    background: linear-gradient(135deg, var(--accent-500), var(--pink-400));
+    display: grid;
+    place-items: center;
+    color: #1a1100;
+    font-weight: 800;
+    font-size: 14px;
+    box-shadow: var(--sh-glow);
+  }
+  .nav-links {
+    display: flex;
+    gap: 28px;
+    margin-left: 24px;
+    color: var(--text-2);
+    font-size: 14px;
+  }
+  .nav-links a:hover { color: var(--text-1); }
+  .nav-spacer { flex: 1; }
+
+  /* Hero */
+  .hero {
+    position: relative;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 96px 32px 64px;
+    text-align: center;
+  }
+  .hero-orb {
+    position: absolute;
+    inset: -200px 0 auto 0;
+    height: 700px;
+    pointer-events: none;
+    z-index: -1;
+    background:
+      radial-gradient(circle at 30% 50%, rgba(245,165,36,0.25), transparent 50%),
+      radial-gradient(circle at 70% 40%, rgba(34,211,238,0.18), transparent 55%),
+      radial-gradient(circle at 50% 80%, rgba(244,114,182,0.15), transparent 60%);
+    filter: blur(40px);
+    animation: drift 14s ease-in-out infinite alternate;
+  }
+  @keyframes drift {
+    from { transform: translate(-2%, -2%) scale(1); }
+    to   { transform: translate(3%, 4%) scale(1.05); }
+  }
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    border-radius: var(--r-pill);
+    background: rgba(245,165,36,0.1);
+    color: var(--accent-300);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    border: 1px solid rgba(245,165,36,0.2);
+  }
+  .eyebrow .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent-500);
+    box-shadow: 0 0 0 4px rgba(245,165,36,0.2);
+  }
+  h1.display {
+    font-size: clamp(42px, 6vw, 72px);
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+    font-weight: 700;
+    margin: 22px auto 18px;
+    max-width: 16ch;
+    background: linear-gradient(180deg, #fff 0%, #b9c0d4 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  h1.display .accent {
+    background: linear-gradient(135deg, var(--accent-500), var(--pink-400));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .hero-sub {
+    font-size: 19px;
+    color: var(--text-2);
+    max-width: 56ch;
+    margin: 0 auto 36px;
+  }
+  .cta-row {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  /* Buttons */
+  .btn {
+    appearance: none;
+    border: 0;
+    cursor: pointer;
+    font: inherit;
+    font-weight: 600;
+    font-size: 14px;
+    padding: 12px 20px;
+    border-radius: var(--r-md);
+    transition: transform var(--t-fast), background var(--t-fast), box-shadow var(--t-fast);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .btn:hover { transform: translateY(-1px); }
+  .btn-primary {
+    background: var(--accent-500);
+    color: #1a1100;
+    box-shadow: 0 6px 20px rgba(245,165,36,0.3);
+  }
+  .btn-primary:hover { background: var(--accent-300); }
+  .btn-ghost {
+    background: transparent;
+    color: var(--text-1);
+    border: 1px solid var(--line-strong);
+  }
+  .btn-ghost:hover { background: rgba(255,255,255,0.04); }
+
+  /* Hero device mock */
+  .hero-device {
+    margin: 64px auto 0;
+    max-width: 1080px;
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    box-shadow: var(--sh-elevated);
+    overflow: hidden;
+    aspect-ratio: 16/9;
+    position: relative;
+  }
+  .hero-device::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(135deg, rgba(59,91,255,0.12), transparent 40%),
+      radial-gradient(circle at 80% 80%, rgba(245,165,36,0.08), transparent 50%);
+  }
+  .device-chrome {
+    height: 36px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    padding: 0 14px;
+    gap: 6px;
+    background: var(--bg-3);
+    position: relative;
+  }
+  .device-chrome span {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--text-4);
+    opacity: 0.6;
+  }
+  .device-fake-content {
+    position: absolute;
+    inset: 36px 0 0 0;
+    display: grid;
+    grid-template-columns: 220px 1fr;
+  }
+  .dfc-side {
+    background: var(--bg-1);
+    border-right: 1px solid var(--line);
+    padding: 16px;
+  }
+  .dfc-side-item {
+    height: 28px;
+    border-radius: var(--r-sm);
+    margin-bottom: 6px;
+    background: rgba(255,255,255,0.04);
+  }
+  .dfc-side-item:nth-child(2) {
+    background: rgba(245,165,36,0.15);
+    border: 1px solid rgba(245,165,36,0.25);
+  }
+  .dfc-main { padding: 20px; display: grid; gap: 14px; grid-template-rows: auto 1fr; }
+  .dfc-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .dfc-stat {
+    background: var(--bg-3);
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+    padding: 14px;
+    height: 90px;
+  }
+  .dfc-chart {
+    background: var(--bg-3);
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+    background-image:
+      linear-gradient(180deg, transparent 60%, rgba(245,165,36,0.18) 100%),
+      repeating-linear-gradient(90deg, transparent 0 40px, rgba(255,255,255,0.02) 40px 41px);
+    position: relative;
+  }
+  .dfc-chart::before {
+    content: '';
+    position: absolute;
+    inset: auto 12px 12px 12px;
+    height: 60%;
+    background: linear-gradient(180deg, transparent, rgba(245,165,36,0.4));
+    clip-path: polygon(0 80%, 12% 60%, 25% 70%, 38% 35%, 52% 50%, 65% 25%, 78% 40%, 92% 15%, 100% 30%, 100% 100%, 0 100%);
+  }
+
+  /* Section heading */
+  .section {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 80px 32px;
+  }
+  .section-eyebrow {
+    color: var(--accent-300);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+  h2.section-title {
+    font-size: clamp(28px, 3.5vw, 44px);
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    font-weight: 700;
+    margin: 0 0 14px;
+    max-width: 18ch;
+  }
+  .section-sub {
+    color: var(--text-2);
+    font-size: 17px;
+    max-width: 56ch;
+    margin: 0 0 48px;
+  }
+
+  /* Alternating feature blocks */
+  .feature-block {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 64px;
+    align-items: center;
+    margin-bottom: 80px;
+  }
+  .feature-block.reverse .fb-text { order: 2; }
+  .feature-block .fb-icon {
+    width: 44px; height: 44px;
+    border-radius: var(--r-md);
+    display: grid; place-items: center;
+    background: rgba(245,165,36,0.12);
+    color: var(--accent-300);
+    margin-bottom: 18px;
+    font-size: 22px;
+  }
+  .feature-block h3 {
+    font-size: 28px;
+    margin: 0 0 14px;
+    letter-spacing: -0.02em;
+    font-weight: 700;
+  }
+  .feature-block p {
+    color: var(--text-2);
+    font-size: 16px;
+    margin: 0 0 18px;
+  }
+  .fb-bullets {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: grid;
+    gap: 10px;
+  }
+  .fb-bullets li {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    color: var(--text-2);
+    font-size: 14px;
+  }
+  .fb-bullets li::before {
+    content: '✓';
+    color: var(--accent-500);
+    font-weight: 700;
+    margin-top: 1px;
+  }
+  .fb-visual {
+    aspect-ratio: 4/3;
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    box-shadow: var(--sh-medium);
+    position: relative;
+    overflow: hidden;
+  }
+  .fb-visual.viz-jukebox {
+    background:
+      radial-gradient(circle at 30% 30%, rgba(245,165,36,0.25), transparent 50%),
+      radial-gradient(circle at 70% 70%, rgba(244,114,182,0.2), transparent 55%),
+      var(--bg-2);
+  }
+  .fb-visual.viz-jukebox::after {
+    content: '';
+    position: absolute;
+    inset: 20% 20% 20% 20%;
+    border-radius: 50%;
+    background: conic-gradient(from 0deg, var(--accent-500), var(--pink-400), var(--cyan-400), var(--accent-500));
+    opacity: 0.4;
+    filter: blur(10px);
+    animation: spin 8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .fb-visual.viz-vote {
+    display: grid;
+    place-items: center;
+  }
+  .vote-bars {
+    display: flex;
+    gap: 14px;
+    align-items: flex-end;
+    height: 60%;
+  }
+  .vote-bar {
+    width: 48px;
+    background: linear-gradient(180deg, var(--accent-500), var(--accent-700));
+    border-radius: var(--r-sm) var(--r-sm) 0 0;
+    position: relative;
+  }
+  .vote-bar::after {
+    content: attr(data-c);
+    position: absolute;
+    top: -22px; left: 0; right: 0;
+    text-align: center;
+    color: var(--text-2);
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .fb-visual.viz-map {
+    background:
+      radial-gradient(circle at 25% 40%, rgba(34,211,238,0.15), transparent 30%),
+      radial-gradient(circle at 65% 60%, rgba(34,211,238,0.15), transparent 30%),
+      radial-gradient(circle at 80% 30%, rgba(245,165,36,0.2), transparent 25%),
+      var(--bg-2);
+  }
+  .fb-visual.viz-map::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+
+  /* Footer */
+  footer {
+    border-top: 1px solid var(--line);
+    background: linear-gradient(180deg, var(--bg-0), #03050a);
+    padding: 60px 32px 32px;
+  }
+  .footer-inner {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1.4fr 1fr 1fr 1fr;
+    gap: 48px;
+  }
+  .footer-col h4 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-3);
+    margin: 0 0 14px;
+    font-weight: 600;
+  }
+  .footer-col a {
+    display: block;
+    color: var(--text-2);
+    font-size: 14px;
+    padding: 6px 0;
+  }
+  .footer-col a:hover { color: var(--text-1); }
+  .footer-blurb { color: var(--text-3); font-size: 14px; margin-top: 14px; max-width: 38ch; }
+  .footer-base {
+    max-width: 1200px;
+    margin: 48px auto 0;
+    padding-top: 24px;
+    border-top: 1px solid var(--line);
+    display: flex;
+    justify-content: space-between;
+    color: var(--text-3);
+    font-size: 13px;
+  }
+
+  /* ============================================================
+     CONTROL PANEL SCREEN
+     ============================================================ */
+  .app {
+    display: grid;
+    grid-template-columns: 72px 1fr;
+    min-height: 100vh;
+  }
+  .app.expanded { grid-template-columns: 248px 1fr; }
+
+  /* Sidebar — icon rail */
+  .rail {
+    background: var(--bg-1);
+    border-right: 1px solid var(--line);
+    padding: 18px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    transition: all var(--t-base);
+  }
+  .rail .logo {
+    padding: 0 22px 18px;
+  }
+  .rail .logo-text { display: none; }
+  .app.expanded .rail .logo-text { display: inline; }
+  .rail-section-label {
+    display: none;
+    padding: 16px 22px 6px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-4);
+    font-weight: 600;
+  }
+  .app.expanded .rail-section-label { display: block; }
+
+  .rail-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 22px;
+    color: var(--text-3);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    border-left: 2px solid transparent;
+    transition: color var(--t-fast), background var(--t-fast);
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .rail-item:hover { color: var(--text-1); background: rgba(255,255,255,0.03); }
+  .rail-item.active {
+    color: var(--text-1);
+    border-left-color: var(--accent-500);
+    background: linear-gradient(90deg, rgba(245,165,36,0.08), transparent 80%);
+  }
+  .rail-item .ri-ico {
+    width: 22px; height: 22px;
+    display: grid; place-items: center;
+    flex-shrink: 0;
+    color: var(--text-2);
+  }
+  .rail-item.active .ri-ico { color: var(--accent-500); }
+  .rail-item .ri-label { display: none; }
+  .app.expanded .rail-item .ri-label { display: inline; }
+
+  .rail-toggle {
+    margin-top: auto;
+    padding: 8px 22px;
+    color: var(--text-3);
+    cursor: pointer;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .rail-toggle:hover { color: var(--text-1); }
+
+  /* Topbar */
+  .topbar {
+    height: 56px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    padding: 0 24px;
+    gap: 16px;
+    background: var(--bg-0);
+    position: sticky;
+    top: 0;
+    z-index: 5;
+  }
+  .crumbs {
+    color: var(--text-3);
+    font-size: 14px;
+  }
+  .crumbs strong { color: var(--text-1); font-weight: 600; }
+  .crumbs .sep { margin: 0 8px; color: var(--text-4); }
+
+  .topbar-search {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 12px;
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+    color: var(--text-3);
+    font-size: 13px;
+    cursor: pointer;
+    min-width: 280px;
+    transition: border var(--t-fast);
+  }
+  .topbar-search:hover { border-color: var(--line-strong); }
+  .kbd {
+    margin-left: auto;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: var(--bg-3);
+    border: 1px solid var(--line);
+    color: var(--text-3);
+  }
+
+  .icon-btn {
+    width: 36px; height: 36px;
+    display: grid; place-items: center;
+    border-radius: var(--r-sm);
+    color: var(--text-2);
+    cursor: pointer;
+    border: 0;
+    background: transparent;
+    transition: background var(--t-fast);
+  }
+  .icon-btn:hover { background: rgba(255,255,255,0.05); color: var(--text-1); }
+
+  .avatar {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--brand-500), var(--pink-400));
+    display: grid;
+    place-items: center;
+    font-size: 12px;
+    font-weight: 700;
+    color: #fff;
+    cursor: pointer;
+  }
+
+  /* Main content area */
+  .main { padding: 28px 32px; }
+  .page-head {
+    display: flex;
+    align-items: flex-end;
+    gap: 24px;
+    margin-bottom: 24px;
+  }
+  .page-head h1 {
+    font-size: 28px;
+    letter-spacing: -0.02em;
+    font-weight: 700;
+    margin: 0 0 4px;
+  }
+  .page-head p { margin: 0; color: var(--text-3); font-size: 14px; }
+  .page-head-actions { margin-left: auto; display: flex; gap: 8px; }
+
+  /* Stat cards */
+  .stat-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+  .stat {
+    background: var(--bg-2);
+    border-radius: var(--r-md);
+    padding: 18px 20px;
+    position: relative;
+    overflow: hidden;
+    transition: transform var(--t-fast);
+  }
+  .stat:hover { transform: translateY(-2px); }
+  .stat-label {
+    color: var(--text-3);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+  .stat-value {
+    font-size: 30px;
+    letter-spacing: -0.02em;
+    font-weight: 700;
+  }
+  .stat-trend {
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--success);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .stat .spark {
+    position: absolute;
+    right: 14px;
+    bottom: 14px;
+    width: 80px;
+    height: 32px;
+    opacity: 0.6;
+  }
+
+  /* Card */
+  .card {
+    background: var(--bg-2);
+    border-radius: var(--r-md);
+    overflow: hidden;
+    transition: background var(--t-fast);
+  }
+  .card-head {
+    padding: 16px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  .card-head h3 {
+    font-size: 15px;
+    margin: 0;
+    font-weight: 600;
+  }
+  .card-head .meta { color: var(--text-3); font-size: 12px; margin-left: auto; }
+  .card-body { padding: 20px; }
+
+  /* Two-column dashboard layout */
+  .dash-grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 16px;
+  }
+  .chart-card { min-height: 280px; }
+  .chart-mock {
+    height: 200px;
+    margin-top: 12px;
+    position: relative;
+    border-radius: var(--r-sm);
+    overflow: hidden;
+  }
+  .chart-mock svg { width: 100%; height: 100%; }
+
+  /* Now playing */
+  .now-playing {
+    display: flex;
+    gap: 14px;
+    align-items: center;
+    padding: 14px;
+    border-radius: var(--r-md);
+    background: linear-gradient(135deg, rgba(245,165,36,0.08), rgba(244,114,182,0.06));
+    border: 1px solid rgba(245,165,36,0.15);
+  }
+  .np-art {
+    width: 56px; height: 56px;
+    border-radius: var(--r-sm);
+    background: linear-gradient(135deg, var(--accent-500), var(--pink-400));
+    display: grid; place-items: center;
+    color: #1a1100;
+    font-size: 22px;
+    flex-shrink: 0;
+    box-shadow: var(--sh-glow);
+  }
+  .np-info { flex: 1; min-width: 0; }
+  .np-title { font-weight: 600; font-size: 14px; margin-bottom: 2px; }
+  .np-sub { color: var(--text-3); font-size: 12px; }
+  .np-eq {
+    display: flex;
+    gap: 3px;
+    align-items: flex-end;
+    height: 18px;
+  }
+  .np-eq span {
+    width: 3px;
+    background: var(--accent-500);
+    border-radius: 2px;
+    animation: eq 0.8s ease-in-out infinite alternate;
+  }
+  .np-eq span:nth-child(1) { height: 60%; animation-delay: 0s; }
+  .np-eq span:nth-child(2) { height: 100%; animation-delay: 0.15s; }
+  .np-eq span:nth-child(3) { height: 40%; animation-delay: 0.3s; }
+  .np-eq span:nth-child(4) { height: 80%; animation-delay: 0.1s; }
+  @keyframes eq { from { transform: scaleY(0.4); transform-origin: bottom; } }
+
+  .queue-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--line);
+    font-size: 13px;
+  }
+  .queue-item:last-child { border-bottom: 0; }
+  .queue-pos {
+    width: 22px; height: 22px;
+    border-radius: var(--r-xs);
+    background: rgba(255,255,255,0.05);
+    display: grid; place-items: center;
+    font-size: 11px;
+    color: var(--text-3);
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+  .queue-item.next .queue-pos { background: var(--accent-500); color: #1a1100; }
+  .queue-name { flex: 1; }
+  .queue-votes { color: var(--text-3); font-size: 12px; }
+
+  /* Sequences table */
+  .seq-controls {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+    align-items: center;
+  }
+  .chip {
+    padding: 6px 12px;
+    border-radius: var(--r-pill);
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    color: var(--text-2);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .chip.active {
+    background: rgba(245,165,36,0.12);
+    border-color: rgba(245,165,36,0.3);
+    color: var(--accent-300);
+  }
+  .seq-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+  .seq-table th {
+    text-align: left;
+    color: var(--text-3);
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--line);
+  }
+  .seq-table td {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--line);
+  }
+  .seq-table tr:hover td { background: rgba(255,255,255,0.02); }
+  .seq-name { display: flex; align-items: center; gap: 12px; }
+  .seq-handle {
+    color: var(--text-4);
+    cursor: grab;
+  }
+  .seq-art {
+    width: 32px; height: 32px;
+    border-radius: var(--r-sm);
+    background: linear-gradient(135deg, var(--brand-500), var(--cyan-400));
+    display: grid; place-items: center;
+    font-size: 12px; font-weight: 700;
+    color: #fff;
+    flex-shrink: 0;
+  }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 9px;
+    border-radius: var(--r-pill);
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .badge.active {
+    background: rgba(34,197,94,0.12);
+    color: #4ade80;
+  }
+  .badge.inactive {
+    background: rgba(255,255,255,0.05);
+    color: var(--text-3);
+  }
+  .row-actions { display: flex; gap: 4px; justify-content: flex-end; }
+  .mini-btn {
+    width: 28px; height: 28px;
+    border-radius: var(--r-sm);
+    background: transparent;
+    border: 0;
+    color: var(--text-3);
+    cursor: pointer;
+    display: grid; place-items: center;
+  }
+  .mini-btn:hover { background: rgba(255,255,255,0.06); color: var(--text-1); }
+
+  /* Empty state */
+  .empty {
+    text-align: center;
+    padding: 48px 24px;
+  }
+  .empty .empty-art {
+    width: 64px; height: 64px;
+    margin: 0 auto 16px;
+    border-radius: 50%;
+    background: rgba(245,165,36,0.08);
+    display: grid; place-items: center;
+    color: var(--accent-500);
+    font-size: 28px;
+  }
+
+  /* Command palette overlay */
+  .cmd-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    backdrop-filter: blur(6px);
+    display: none;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 14vh;
+    z-index: 50;
+  }
+  .cmd-overlay.open { display: flex; }
+  .cmd-palette {
+    width: min(560px, 92vw);
+    background: var(--bg-3);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r-lg);
+    box-shadow: var(--sh-elevated);
+    overflow: hidden;
+  }
+  .cmd-input {
+    width: 100%;
+    padding: 18px 22px;
+    background: transparent;
+    border: 0;
+    color: var(--text-1);
+    font-size: 16px;
+    font-family: inherit;
+    border-bottom: 1px solid var(--line);
+    outline: 0;
+  }
+  .cmd-input::placeholder { color: var(--text-4); }
+  .cmd-list { padding: 8px; max-height: 360px; overflow: auto; }
+  .cmd-section {
+    font-size: 11px;
+    color: var(--text-4);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 10px 12px 6px;
+  }
+  .cmd-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: var(--r-sm);
+    cursor: pointer;
+    color: var(--text-2);
+    font-size: 14px;
+  }
+  .cmd-item:hover, .cmd-item.focused {
+    background: rgba(245,165,36,0.1);
+    color: var(--text-1);
+  }
+  .cmd-item .ci-ico { color: var(--text-3); }
+  .cmd-item.focused .ci-ico { color: var(--accent-500); }
+  .cmd-foot {
+    border-top: 1px solid var(--line);
+    padding: 10px 18px;
+    font-size: 12px;
+    color: var(--text-4);
+    display: flex;
+    gap: 16px;
+  }
+
+  /* ============================================================
+     TOKENS REFERENCE SCREEN
+     ============================================================ */
+  .tokens {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 56px 32px 120px;
+  }
+  .tokens h1 {
+    font-size: 36px;
+    letter-spacing: -0.02em;
+    margin: 0 0 8px;
+  }
+  .tokens .lede { color: var(--text-2); margin-bottom: 40px; }
+
+  .token-section { margin-bottom: 48px; }
+  .token-section h2 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-3);
+    margin: 0 0 16px;
+    font-weight: 600;
+  }
+  .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
+  .swatch {
+    background: var(--bg-2);
+    border-radius: var(--r-md);
+    overflow: hidden;
+  }
+  .swatch-color { height: 80px; }
+  .swatch-meta { padding: 10px 12px; font-size: 12px; }
+  .swatch-meta .name { font-weight: 600; }
+  .swatch-meta .hex { color: var(--text-3); font-family: var(--font-mono); margin-top: 2px; }
+
+  .radius-row, .shadow-row {
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+  .radius-demo, .shadow-demo {
+    width: 96px; height: 96px;
+    background: var(--bg-3);
+    display: grid; place-items: end center;
+    padding-bottom: 8px;
+    color: var(--text-3);
+    font-size: 11px;
+    font-family: var(--font-mono);
+  }
+  .shadow-demo { background: var(--bg-2); border-radius: var(--r-md); }
+
+  .type-row {
+    padding: 16px 0;
+    border-bottom: 1px solid var(--line);
+    display: grid;
+    grid-template-columns: 120px 1fr;
+    align-items: baseline;
+    gap: 24px;
+  }
+  .type-meta { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); }
+
+  /* ============================================================
+     RESPONSIVE
+     ============================================================ */
+  @media (max-width: 880px) {
+    .feature-block { grid-template-columns: 1fr; gap: 32px; }
+    .feature-block.reverse .fb-text { order: 0; }
+    .footer-inner { grid-template-columns: 1fr 1fr; }
+    .dash-grid { grid-template-columns: 1fr; }
+    .stat-row { grid-template-columns: repeat(2, 1fr); }
+    .nav-links { display: none; }
+    .topbar-search { min-width: 0; flex: 1; }
+    .crumbs { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ============================================================
+     LANDING SCREEN
+     ============================================================ -->
+<div class="screen active" data-screen="landing">
+  <section class="landing">
+    <nav class="landing-nav">
+      <div class="landing-nav-inner">
+        <a class="logo" href="#">
+          <div class="logo-mark">RF</div>
+          Remote Falcon
+        </a>
+        <div class="nav-links">
+          <a href="#">Features</a>
+          <a href="#">Shows Map</a>
+          <a href="#">Pricing</a>
+          <a href="#">Docs</a>
+          <a href="#">Community</a>
+        </div>
+        <div class="nav-spacer"></div>
+        <a class="btn btn-ghost" style="padding: 8px 14px; font-size: 13px;">Sign in</a>
+        <a class="btn btn-primary" style="padding: 8px 14px; font-size: 13px;">Start free →</a>
+      </div>
+    </nav>
+
+    <div class="hero">
+      <div class="hero-orb"></div>
+      <span class="eyebrow"><span class="dot"></span>The 2026 holiday season starts here</span>
+      <h1 class="display">Bring your light show <span class="accent">online.</span></h1>
+      <p class="hero-sub">
+        Let viewers vote on the next song, jump the queue, or watch your show from anywhere.
+        Remote Falcon plugs into xLights, FPP, and your existing player — no scripting required.
+      </p>
+      <div class="cta-row">
+        <a class="btn btn-primary">Create your show — free →</a>
+        <a class="btn btn-ghost">▶ Watch a live show</a>
+      </div>
+
+      <div class="hero-device">
+        <div class="device-chrome"><span></span><span></span><span></span></div>
+        <div class="device-fake-content">
+          <div class="dfc-side">
+            <div class="dfc-side-item"></div>
+            <div class="dfc-side-item"></div>
+            <div class="dfc-side-item"></div>
+            <div class="dfc-side-item"></div>
+            <div class="dfc-side-item"></div>
+          </div>
+          <div class="dfc-main">
+            <div class="dfc-stats">
+              <div class="dfc-stat"></div>
+              <div class="dfc-stat"></div>
+              <div class="dfc-stat"></div>
+            </div>
+            <div class="dfc-chart"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-eyebrow">Why Remote Falcon</div>
+      <h2 class="section-title">Everything you need to run an interactive show.</h2>
+      <p class="section-sub">From the first vote to the final song, give your viewers a reason to come back every night.</p>
+
+      <div class="feature-block">
+        <div class="fb-text">
+          <div class="fb-icon">♪</div>
+          <h3>Jukebox &amp; Voting modes</h3>
+          <p>Two interactive flavors out of the box. Switch in a click — or schedule them by night.</p>
+          <ul class="fb-bullets">
+            <li>Real-time queue with rate-limit safeguards</li>
+            <li>Pre-show voting windows with live tallies</li>
+            <li>Per-sequence cooldowns and visibility rules</li>
+          </ul>
+        </div>
+        <div class="fb-visual viz-jukebox"></div>
+      </div>
+
+      <div class="feature-block reverse">
+        <div class="fb-text">
+          <div class="fb-icon">▥</div>
+          <h3>A viewer page you actually own</h3>
+          <p>Drop in a template, or write your own HTML/CSS. The editor lints as you type and previews live.</p>
+          <ul class="fb-bullets">
+            <li>Curated, mobile-first templates</li>
+            <li>Inline validation with the new Monaco editor</li>
+            <li>Custom domain &amp; SSL included</li>
+          </ul>
+        </div>
+        <div class="fb-visual viz-vote">
+          <div class="vote-bars">
+            <div class="vote-bar" data-c="42" style="height: 90%"></div>
+            <div class="vote-bar" data-c="31" style="height: 70%"></div>
+            <div class="vote-bar" data-c="18" style="height: 42%"></div>
+            <div class="vote-bar" data-c="9"  style="height: 22%"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature-block">
+        <div class="fb-text">
+          <div class="fb-icon">◉</div>
+          <h3>Find &amp; be found on the Shows Map</h3>
+          <p>Opt in to the global directory and let viewers discover shows in their neighborhood — with live status.</p>
+          <ul class="fb-bullets">
+            <li>Auto-clustered by region with live "playing now"</li>
+            <li>Filter by features (jukebox, voting, FM)</li>
+            <li>Embed a regional map on your own site</li>
+          </ul>
+        </div>
+        <div class="fb-visual viz-map"></div>
+      </div>
+    </div>
+
+    <footer>
+      <div class="footer-inner">
+        <div class="footer-col">
+          <a class="logo" href="#">
+            <div class="logo-mark">RF</div>
+            Remote Falcon
+          </a>
+          <p class="footer-blurb">Open-source, community-driven software for interactive holiday light shows. Made by hobbyists, for hobbyists.</p>
+        </div>
+        <div class="footer-col">
+          <h4>Product</h4>
+          <a>Features</a>
+          <a>Pricing</a>
+          <a>Templates</a>
+          <a>Changelog</a>
+        </div>
+        <div class="footer-col">
+          <h4>Community</h4>
+          <a>Shows Map</a>
+          <a>Discord</a>
+          <a>GitHub</a>
+          <a>Docs</a>
+        </div>
+        <div class="footer-col">
+          <h4>Company</h4>
+          <a>About</a>
+          <a>Contact</a>
+          <a>Privacy</a>
+          <a>Status</a>
+        </div>
+      </div>
+      <div class="footer-base">
+        <span>© 2026 Remote Falcon</span>
+        <span>Built with ♥ for the light-show community</span>
+      </div>
+    </footer>
+  </section>
+</div>
+
+<!-- ============================================================
+     CONTROL PANEL SCREEN
+     ============================================================ -->
+<div class="screen" data-screen="control">
+  <div class="app expanded" id="app">
+    <aside class="rail">
+      <a class="logo" href="#">
+        <div class="logo-mark">RF</div>
+        <span class="logo-text">Remote Falcon</span>
+      </a>
+
+      <div class="rail-section-label">Show</div>
+      <div class="rail-item active"><div class="ri-ico">▤</div><span class="ri-label">Dashboard</span></div>
+      <div class="rail-item"><div class="ri-ico">♪</div><span class="ri-label">Sequences</span></div>
+      <div class="rail-item"><div class="ri-ico">▥</div><span class="ri-label">Viewer Page</span></div>
+      <div class="rail-item"><div class="ri-ico">▦</div><span class="ri-label">Templates</span></div>
+
+      <div class="rail-section-label">Account</div>
+      <div class="rail-item"><div class="ri-ico">⚙</div><span class="ri-label">Settings</span></div>
+      <div class="rail-item"><div class="ri-ico">▣</div><span class="ri-label">Image Hosting</span></div>
+
+      <div class="rail-section-label">Community</div>
+      <div class="rail-item"><div class="ri-ico">◉</div><span class="ri-label">Shows Map</span></div>
+      <div class="rail-item"><div class="ri-ico">✦</div><span class="ri-label">Ask Wattson</span></div>
+
+      <div class="rail-toggle" id="railToggle">
+        <span>‹</span>
+        <span class="ri-label">Collapse</span>
+      </div>
+    </aside>
+
+    <div>
+      <div class="topbar">
+        <div class="crumbs">
+          <span>Show</span><span class="sep">/</span><strong>Dashboard</strong>
+        </div>
+        <div class="topbar-search" id="openCmd">
+          <span>⌕</span>
+          <span>Search sequences, pages, settings…</span>
+          <span class="kbd">⌘ K</span>
+        </div>
+        <button class="icon-btn" title="What's new">✦</button>
+        <button class="icon-btn" title="Notifications">◔</button>
+        <div class="avatar">JD</div>
+      </div>
+
+      <div class="main">
+        <div class="page-head">
+          <div>
+            <h1>Tonight's show</h1>
+            <p>Live view · Show: <strong style="color: var(--text-1)">winterlights2026</strong> · Started 6:00 PM</p>
+          </div>
+          <div class="page-head-actions">
+            <button class="btn btn-ghost" style="font-size:13px;padding:8px 14px">Share viewer page</button>
+            <button class="btn btn-primary" style="font-size:13px;padding:8px 14px">▶ Show is live</button>
+          </div>
+        </div>
+
+        <div class="stat-row">
+          <div class="stat">
+            <div class="stat-label">Viewers right now</div>
+            <div class="stat-value">142</div>
+            <div class="stat-trend">▲ 24 vs. avg</div>
+            <svg class="spark" viewBox="0 0 80 32" preserveAspectRatio="none">
+              <polyline fill="none" stroke="#22c55e" stroke-width="1.5" points="0,22 12,18 24,20 36,12 48,15 60,8 72,11 80,5"/>
+            </svg>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Songs queued</div>
+            <div class="stat-value">7</div>
+            <div class="stat-trend">▲ 3 in last 5m</div>
+            <svg class="spark" viewBox="0 0 80 32" preserveAspectRatio="none">
+              <polyline fill="none" stroke="#f5a524" stroke-width="1.5" points="0,18 12,22 24,16 36,18 48,12 60,14 72,9 80,11"/>
+            </svg>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Votes cast</div>
+            <div class="stat-value">312</div>
+            <div class="stat-trend">▲ 18% vs. last show</div>
+            <svg class="spark" viewBox="0 0 80 32" preserveAspectRatio="none">
+              <polyline fill="none" stroke="#22d3ee" stroke-width="1.5" points="0,28 12,22 24,24 36,15 48,18 60,10 72,12 80,4"/>
+            </svg>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Active sequences</div>
+            <div class="stat-value">38</div>
+            <div class="stat-trend" style="color: var(--text-3)">— no change</div>
+            <svg class="spark" viewBox="0 0 80 32" preserveAspectRatio="none">
+              <polyline fill="none" stroke="#7e8699" stroke-width="1.5" points="0,16 12,16 24,16 36,16 48,16 60,16 72,16 80,16"/>
+            </svg>
+          </div>
+        </div>
+
+        <div class="dash-grid">
+          <div class="card chart-card">
+            <div class="card-head">
+              <h3>Viewer engagement</h3>
+              <span class="meta">Last 7 nights</span>
+            </div>
+            <div class="card-body">
+              <div class="chart-mock">
+                <svg viewBox="0 0 600 200" preserveAspectRatio="none">
+                  <defs>
+                    <linearGradient id="g" x1="0" x2="0" y1="0" y2="1">
+                      <stop offset="0" stop-color="#f5a524" stop-opacity="0.45"/>
+                      <stop offset="1" stop-color="#f5a524" stop-opacity="0"/>
+                    </linearGradient>
+                  </defs>
+                  <path d="M0,160 L80,140 L160,150 L240,90 L320,110 L400,60 L480,80 L600,30 L600,200 L0,200 Z" fill="url(#g)"/>
+                  <polyline fill="none" stroke="#f5a524" stroke-width="2" points="0,160 80,140 160,150 240,90 320,110 400,60 480,80 600,30"/>
+                  <path d="M0,180 L80,175 L160,170 L240,140 L320,150 L400,120 L480,135 L600,100 L600,200 L0,200 Z" fill="rgba(34,211,238,0.15)"/>
+                  <polyline fill="none" stroke="#22d3ee" stroke-width="2" stroke-dasharray="4,4" points="0,180 80,175 160,170 240,140 320,150 400,120 480,135 600,100"/>
+                </svg>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <h3>Now playing</h3>
+              <span class="meta">●  live</span>
+            </div>
+            <div class="card-body">
+              <div class="now-playing">
+                <div class="np-art">♪</div>
+                <div class="np-info">
+                  <div class="np-title">Carol of the Bells — TSO</div>
+                  <div class="np-sub">Requested by guest · 3:24 / 4:42</div>
+                </div>
+                <div class="np-eq"><span></span><span></span><span></span><span></span></div>
+              </div>
+
+              <div style="margin-top: 18px;">
+                <div style="font-size: 12px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; margin-bottom: 10px;">Up next</div>
+                <div class="queue-item next">
+                  <div class="queue-pos">1</div>
+                  <div class="queue-name">Wizards in Winter</div>
+                  <div class="queue-votes">42 votes</div>
+                </div>
+                <div class="queue-item">
+                  <div class="queue-pos">2</div>
+                  <div class="queue-name">Dance of the Sugar Plum</div>
+                  <div class="queue-votes">31 votes</div>
+                </div>
+                <div class="queue-item">
+                  <div class="queue-pos">3</div>
+                  <div class="queue-name">Jingle Bell Rock</div>
+                  <div class="queue-votes">18 votes</div>
+                </div>
+                <div class="queue-item">
+                  <div class="queue-pos">4</div>
+                  <div class="queue-name">All I Want For Christmas</div>
+                  <div class="queue-votes">9 votes</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sequences preview -->
+        <div class="card" style="margin-top: 16px;">
+          <div class="card-head">
+            <h3>Sequences</h3>
+            <span class="meta">38 active · 4 hidden</span>
+            <button class="btn btn-ghost" style="margin-left:auto;font-size:12px;padding:6px 12px">+ Add sequence</button>
+          </div>
+          <div class="card-body" style="padding: 12px 0 0;">
+            <div class="seq-controls" style="padding: 0 20px;">
+              <span class="chip active">All</span>
+              <span class="chip">Active</span>
+              <span class="chip">Hidden</span>
+              <span class="chip">Cooldown</span>
+              <span style="margin-left:auto;color:var(--text-3);font-size:12px">Density: <span style="color:var(--text-1)">Comfortable</span></span>
+            </div>
+            <table class="seq-table">
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>Name</th>
+                  <th>Artist</th>
+                  <th>Length</th>
+                  <th>Plays tonight</th>
+                  <th>Status</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="seq-handle">⋮⋮</span></td>
+                  <td><div class="seq-name"><div class="seq-art">CB</div>Carol of the Bells</div></td>
+                  <td>Trans-Siberian Orchestra</td>
+                  <td>4:42</td>
+                  <td>3</td>
+                  <td><span class="badge active">●  Active</span></td>
+                  <td><div class="row-actions"><button class="mini-btn">▶</button><button class="mini-btn">◐</button><button class="mini-btn">⋯</button></div></td>
+                </tr>
+                <tr>
+                  <td><span class="seq-handle">⋮⋮</span></td>
+                  <td><div class="seq-name"><div class="seq-art" style="background:linear-gradient(135deg,var(--accent-500),var(--pink-400))">WW</div>Wizards in Winter</div></td>
+                  <td>Trans-Siberian Orchestra</td>
+                  <td>3:08</td>
+                  <td>2</td>
+                  <td><span class="badge active">●  Active</span></td>
+                  <td><div class="row-actions"><button class="mini-btn">▶</button><button class="mini-btn">◐</button><button class="mini-btn">⋯</button></div></td>
+                </tr>
+                <tr>
+                  <td><span class="seq-handle">⋮⋮</span></td>
+                  <td><div class="seq-name"><div class="seq-art" style="background:linear-gradient(135deg,var(--cyan-400),var(--brand-500))">JB</div>Jingle Bell Rock</div></td>
+                  <td>Bobby Helms</td>
+                  <td>2:11</td>
+                  <td>1</td>
+                  <td><span class="badge inactive">Cooldown</span></td>
+                  <td><div class="row-actions"><button class="mini-btn">▶</button><button class="mini-btn">◐</button><button class="mini-btn">⋯</button></div></td>
+                </tr>
+                <tr>
+                  <td><span class="seq-handle">⋮⋮</span></td>
+                  <td><div class="seq-name"><div class="seq-art" style="background:linear-gradient(135deg,var(--pink-400),var(--accent-500))">SP</div>Dance of the Sugar Plum</div></td>
+                  <td>Tchaikovsky</td>
+                  <td>3:34</td>
+                  <td>0</td>
+                  <td><span class="badge inactive">Hidden</span></td>
+                  <td><div class="row-actions"><button class="mini-btn">▶</button><button class="mini-btn">◐</button><button class="mini-btn">⋯</button></div></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Command palette -->
+  <div class="cmd-overlay" id="cmdOverlay">
+    <div class="cmd-palette">
+      <input class="cmd-input" placeholder="Search sequences, pages, settings, or run a command…" autofocus />
+      <div class="cmd-list">
+        <div class="cmd-section">Suggested</div>
+        <div class="cmd-item focused"><span class="ci-ico">▶</span>Play next sequence</div>
+        <div class="cmd-item"><span class="ci-ico">⏸</span>Pause current sequence</div>
+        <div class="cmd-item"><span class="ci-ico">▤</span>Open dashboard</div>
+        <div class="cmd-section">Sequences</div>
+        <div class="cmd-item"><span class="ci-ico">♪</span>Carol of the Bells</div>
+        <div class="cmd-item"><span class="ci-ico">♪</span>Wizards in Winter</div>
+        <div class="cmd-item"><span class="ci-ico">♪</span>Jingle Bell Rock</div>
+        <div class="cmd-section">Settings</div>
+        <div class="cmd-item"><span class="ci-ico">⚙</span>Voting safeguards</div>
+        <div class="cmd-item"><span class="ci-ico">⚙</span>Show schedule</div>
+      </div>
+      <div class="cmd-foot">
+        <span><span class="kbd">↑↓</span> navigate</span>
+        <span><span class="kbd">↵</span> select</span>
+        <span><span class="kbd">esc</span> close</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     TOKENS REFERENCE SCREEN
+     ============================================================ -->
+<div class="screen" data-screen="tokens">
+  <div class="tokens">
+    <h1>Design tokens</h1>
+    <p class="lede">The single source of truth that drives both surfaces. Replace the existing <code style="font-family:var(--font-mono);background:var(--bg-2);padding:2px 6px;border-radius:4px;font-size:13px">themes/</code> contents with these and 80% of the visual upgrade lands automatically.</p>
+
+    <div class="token-section">
+      <h2>Brand</h2>
+      <div class="swatches">
+        <div class="swatch"><div class="swatch-color" style="background:#3b5bff"></div><div class="swatch-meta"><div class="name">brand-500</div><div class="hex">#3b5bff</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#1f37c4"></div><div class="swatch-meta"><div class="name">brand-700</div><div class="hex">#1f37c4</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#f5a524"></div><div class="swatch-meta"><div class="name">accent-500</div><div class="hex">#f5a524</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#ffd28a"></div><div class="swatch-meta"><div class="name">accent-300</div><div class="hex">#ffd28a</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#22d3ee"></div><div class="swatch-meta"><div class="name">cyan-400</div><div class="hex">#22d3ee</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#f472b6"></div><div class="swatch-meta"><div class="name">pink-400</div><div class="hex">#f472b6</div></div></div>
+      </div>
+    </div>
+
+    <div class="token-section">
+      <h2>Neutrals (dark)</h2>
+      <div class="swatches">
+        <div class="swatch"><div class="swatch-color" style="background:#07090f"></div><div class="swatch-meta"><div class="name">bg-0</div><div class="hex">#07090f</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#0c111c"></div><div class="swatch-meta"><div class="name">bg-1</div><div class="hex">#0c111c</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#121826"></div><div class="swatch-meta"><div class="name">bg-2</div><div class="hex">#121826</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#1a2030"></div><div class="swatch-meta"><div class="name">bg-3</div><div class="hex">#1a2030</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#f5f7fb"></div><div class="swatch-meta"><div class="name">text-1</div><div class="hex">#f5f7fb</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:#7e8699"></div><div class="swatch-meta"><div class="name">text-3</div><div class="hex">#7e8699</div></div></div>
+      </div>
+    </div>
+
+    <div class="token-section">
+      <h2>Radius scale</h2>
+      <div class="radius-row">
+        <div class="radius-demo" style="border-radius:4px">4 · xs</div>
+        <div class="radius-demo" style="border-radius:8px">8 · sm</div>
+        <div class="radius-demo" style="border-radius:12px">12 · md</div>
+        <div class="radius-demo" style="border-radius:16px">16 · lg</div>
+        <div class="radius-demo" style="border-radius:24px">24 · xl</div>
+        <div class="radius-demo" style="border-radius:999px">pill</div>
+      </div>
+    </div>
+
+    <div class="token-section">
+      <h2>Shadows (only 3, used sparingly)</h2>
+      <div class="shadow-row">
+        <div class="shadow-demo" style="box-shadow: var(--sh-subtle)">subtle</div>
+        <div class="shadow-demo" style="box-shadow: var(--sh-medium)">medium</div>
+        <div class="shadow-demo" style="box-shadow: var(--sh-elevated)">elevated</div>
+      </div>
+    </div>
+
+    <div class="token-section">
+      <h2>Type scale (Inter, 1.25 ratio)</h2>
+      <div class="type-row"><div class="type-meta">display · 72/1.05</div><div style="font-size:72px;line-height:1.05;font-weight:700;letter-spacing:-0.03em">Bring your show online.</div></div>
+      <div class="type-row"><div class="type-meta">h1 · 36/1.1</div><div style="font-size:36px;line-height:1.1;font-weight:700;letter-spacing:-0.02em">Tonight's show</div></div>
+      <div class="type-row"><div class="type-meta">h2 · 24/1.2</div><div style="font-size:24px;line-height:1.2;font-weight:700;letter-spacing:-0.015em">Sequences</div></div>
+      <div class="type-row"><div class="type-meta">h3 · 18/1.3</div><div style="font-size:18px;line-height:1.3;font-weight:600">Now playing</div></div>
+      <div class="type-row"><div class="type-meta">body · 15/1.6</div><div style="font-size:15px;line-height:1.6">Let viewers vote on the next song or jump the queue. Remote Falcon plugs into your existing player.</div></div>
+      <div class="type-row"><div class="type-meta">label · 12/1.2</div><div style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;font-weight:600;color:var(--text-3)">Viewers right now</div></div>
+    </div>
+
+    <div class="token-section">
+      <h2>Buttons</h2>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+        <button class="btn btn-primary">Primary CTA →</button>
+        <button class="btn btn-ghost">Ghost / secondary</button>
+        <button class="btn" style="background:rgba(239,68,68,0.12);color:#fca5a5;border:1px solid rgba(239,68,68,0.25)">Destructive</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Bottom-right screen switcher -->
+<div class="switcher">
+  <button class="active" data-go="landing">Marketing</button>
+  <button data-go="control">Control panel</button>
+  <button data-go="tokens">Tokens</button>
+</div>
+
+<script>
+  // Screen switching
+  document.querySelectorAll('.switcher button').forEach(b => {
+    b.addEventListener('click', () => {
+      const target = b.dataset.go;
+      document.querySelectorAll('.switcher button').forEach(x => x.classList.toggle('active', x === b));
+      document.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.dataset.screen === target));
+      window.scrollTo(0, 0);
+    });
+  });
+
+  // Sidebar collapse
+  const app = document.getElementById('app');
+  document.getElementById('railToggle').addEventListener('click', () => {
+    app.classList.toggle('expanded');
+  });
+
+  // Command palette
+  const cmd = document.getElementById('cmdOverlay');
+  document.getElementById('openCmd').addEventListener('click', () => cmd.classList.add('open'));
+  document.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      cmd.classList.toggle('open');
+    }
+    if (e.key === 'Escape') cmd.classList.remove('open');
+  });
+  cmd.addEventListener('click', (e) => {
+    if (e.target === cmd) cmd.classList.remove('open');
+  });
+</script>
+</body>
+</html>

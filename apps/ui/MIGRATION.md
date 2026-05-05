@@ -1,0 +1,304 @@
+# UI Modernization — Migration Plan
+
+This document is the execution plan for moving Remote Falcon's UI from the legacy MUI/Berry theme to the v2 design system documented in [`DESIGN_SYSTEM.md`](./DESIGN_SYSTEM.md).
+
+**Guiding rule:** ship in phases. The legacy and v2 systems coexist. No phase is allowed to break the app on `main`.
+
+---
+
+## What's already done
+
+The following already exists in the repo as a non-breaking addition:
+
+```
+apps/ui/
+├── DESIGN_SYSTEM.md                       ← the style guide
+├── MIGRATION.md                           ← this file
+├── docs/design-system/
+│   ├── PATTERNS.md                        ← component pattern reference
+│   └── mockup.html                        ← interactive visual reference
+└── src/design-system/
+    ├── README.md                          ← engineer quick-start
+    ├── tokens/
+    │   ├── colors.js
+    │   ├── radius.js
+    │   ├── shadows.js
+    │   ├── typography.js
+    │   ├── motion.js
+    │   ├── spacing.js
+    │   ├── breakpoints.js
+    │   └── index.js
+    └── theme/
+        ├── palette.js
+        ├── typography.js
+        ├── componentOverrides.js
+        └── index.jsx                      ← v2 ThemeProvider (drop-in)
+```
+
+The legacy theme under `src/themes/` is untouched. **Nothing has been migrated yet.** Phase 1 below is what flips the switch.
+
+---
+
+## Phased rollout
+
+| # | Phase | Effort | Risk | Owner |
+|---|---|---|---|---|
+| 0 | Land assets (this PR) | — | none | — |
+| 1 | Wire v2 ThemeProvider behind a flag | ~½ day | low | UI |
+| 2 | Migrate the layout shell (`MainLayout`) | 1–2 days | medium | UI |
+| 3 | Replace `MainCard` / `SubCard` patterns | 1 day | low | UI |
+| 4 | Refresh marketing site (landing) | 1–2 days | low | UI |
+| 5 | Sequences page polish | 1 day | low | UI |
+| 6 | Settings: form-with-submit pattern | 2 days | medium | UI |
+| 7 | Command palette (⌘K) | 1–2 days | low | UI |
+| 8 | Empty states & skeletons sweep | 1 day | low | UI |
+| 9 | Delete legacy theme & SCSS modules | ½ day | low | UI |
+
+Phases 1–4 deliver the bulk of the visible upgrade. Phases 5–9 are polish and can ship any order after 4.
+
+---
+
+## Phase 1 — Wire v2 ThemeProvider behind a flag
+
+**Goal:** developers and reviewers can preview the new theme by setting an env var, with zero impact on prod.
+
+### Steps
+
+1. In `apps/ui/src/App.jsx` (or wherever `ThemeCustomization` is imported), gate the import:
+
+   ```jsx
+   import LegacyTheme from './themes';
+   import V2Theme from './design-system/theme';
+
+   const ThemeCustomization = import.meta.env.VITE_USE_DESIGN_SYSTEM_V2 === 'true'
+     ? V2Theme
+     : LegacyTheme;
+   ```
+
+2. Add a row to `apps/ui/.env.example` (create if missing):
+   ```
+   VITE_USE_DESIGN_SYSTEM_V2=false
+   ```
+
+3. Document the flag in `apps/ui/README.md` under "Local development".
+
+4. Smoke-test both modes locally — login, dashboard, sequences, settings, viewer-page.
+
+### Acceptance
+
+- [ ] Setting `VITE_USE_DESIGN_SYSTEM_V2=true` renders the app with v2 colors, type, and component shapes.
+- [ ] Unsetting / `false` renders the app identically to `main`.
+- [ ] No console warnings about missing palette keys.
+
+---
+
+## Phase 2 — Migrate the layout shell
+
+The control panel's perceived modernization comes 80% from the shell.
+
+### Files to touch
+
+- `apps/ui/src/layout/MainLayout/index.jsx`
+- `apps/ui/src/layout/MainLayout/Header/index.jsx`
+- `apps/ui/src/layout/MainLayout/Sidebar/index.jsx`
+- `apps/ui/src/menu-items/controlPanel.jsx` (group items by section)
+- `apps/ui/src/store/constant.jsx` — change `drawerWidth` to support collapsed/expanded
+- `apps/ui/src/hooks/useConfig.js` — add `sidebarCollapsed` state
+
+### Changes
+
+1. **Sidebar → icon rail.** Replace the fixed 320px drawer with a collapsible rail (72px collapsed → 248px expanded). Persist the state to localStorage (or the existing config store).
+2. **Group menu items.** Update `menu-items/controlPanel.jsx` to nest items under section labels: *Show* / *Account* / *Community* / *Admin*. Section labels render only when expanded.
+3. **Slim the topbar** to 56px. Move localization, customization, and "what's new" into one overflow `IconButton` with a Menu. Keep only profile + notifications visible.
+4. **Add command-palette trigger** to topbar (the search-shaped chip with ⌘K hint). Wire to a placeholder modal for now — Phase 7 implements the real palette.
+
+### Acceptance
+
+- [ ] Sidebar collapses smoothly (250ms transition) and persists across reloads.
+- [ ] All 9 nav items reachable, grouped under 4 sections.
+- [ ] Topbar height = 56px, no horizontal scroll on 1280px.
+- [ ] Mobile (< 600px) keeps current full-screen drawer behavior.
+
+---
+
+## Phase 3 — Replace `MainCard` / `SubCard` patterns
+
+The legacy `MainCard` adds a border *and* a shadow on hover *and* a divider — three layers of visual weight. The v2 theme already strips the default border from `MuiCard`. We just need to stop telling individual `MainCard` instances to add it back.
+
+### Files to touch
+
+- `apps/ui/src/ui-component/cards/MainCard.jsx`
+- `apps/ui/src/ui-component/cards/SubCard.jsx`
+- (A few page-level overrides that pass `border={true}` — search for them.)
+
+### Changes
+
+1. In `MainCard`, remove the default `border` and `borderColor` props. Default `boxShadow` to `'none'`. Reserve borders for explicit use cases (`<MainCard variant="outlined">`).
+2. Default the inner `CardHeader` padding to `theme.spacing(2)` (16px), down from 20px.
+3. In `SubCard`, drop the secondary border entirely — it's redundant inside a `MainCard`.
+
+### Acceptance
+
+- [ ] Dashboard, sequences, settings pages render with the new look without any per-page changes.
+- [ ] Zero "double border" surfaces.
+- [ ] No visual regressions on opt-in `variant="outlined"` callouts.
+
+---
+
+## Phase 4 — Refresh marketing site
+
+### Files to touch
+
+- `apps/ui/src/views/pages/landing/index.jsx`
+- `apps/ui/src/views/pages/landing/Header.jsx` (hero)
+- `apps/ui/src/views/pages/landing/Feature.jsx`
+- `apps/ui/src/views/pages/landing/KeyFeature.jsx`
+- `apps/ui/src/views/pages/landing/Footer.jsx`
+- `apps/ui/src/ui-component/extended/AppBar.jsx`
+
+### Changes
+
+1. **Hero (`Header.jsx`)**: drop `transform: scale(1.7)` on the jukebox. Replace with an SVG (or `<img srcset>`). Reduce hero top padding from `mt: 18.75 / 10` to `mt: 6 / 4`. Add a soft animated gradient orb behind (mockup has the CSS).
+2. **Two CTAs**: "Create your show — free" (primary, `accent`) + "Watch a live show" (ghost). Today there's only one.
+3. **Feature blocks**: replace the rigid 3-up `SubCard` grid in `Feature.jsx` and `KeyFeature.jsx` with alternating left/right blocks (image one side, copy the other). 2 blocks per "screen" instead of 3 cramped.
+4. **Drop the icon `Avatar` circles**. Use 44×44 flat icon tiles with a tinted background.
+5. **Footer**: switch from solid `secondary.dark` block to dark `bg0`/`#03050a` gradient. 4-column layout: brand+blurb / Product / Community / Company.
+6. **AppBar**: enable `backdrop-filter: blur(14px)` always (not just on scroll). The component override in `componentOverrides.js` already does this.
+
+### Acceptance
+
+- [ ] Hero renders crisp at 1×, 2×, and 3× displays. No `scale()` hacks.
+- [ ] Lighthouse "Best Practices" still ≥ 90.
+- [ ] Cumulative Layout Shift < 0.05 on hero load.
+
+---
+
+## Phase 5 — Sequences page polish
+
+### Files to touch
+
+- `apps/ui/src/views/pages/controlPanel/sequences/index.jsx`
+- `apps/ui/src/ui-component/RFSplitButton.jsx`
+
+### Changes
+
+1. Add **pagination** (10 / 25 / 50 / 100) and **column sort**.
+2. Add a **density toggle** (Compact / Comfortable / Spacious) that adjusts row padding.
+3. Add **filter chips** above the table: All / Active / Hidden / Cooldown.
+4. Replace the custom `RFSplitButton` with a standard MUI `ButtonGroup` (Delete / Export) + a kebab `Menu` for "Delete inactive", "Delete all".
+5. **Confirm dialogs** for every destructive action. No exceptions.
+
+### Acceptance
+
+- [ ] 100+ sequences renders in < 200ms with pagination active.
+- [ ] All destructive actions show a confirm dialog with the count of affected items.
+- [ ] No `RFSplitButton` references remain.
+
+---
+
+## Phase 6 — Settings: form-with-submit pattern
+
+The legacy pattern is to save settings on `onBlur` of every field. The v2 pattern uses Formik (already a dep) with an explicit submit and a sticky save bar.
+
+### Files to touch
+
+- `apps/ui/src/views/pages/controlPanel/viewerSettings/*`
+- `apps/ui/src/views/pages/controlPanel/accountSettings/*`
+- (Add) `apps/ui/src/ui-component/forms/StickyFormBar.jsx`
+
+### Changes
+
+1. Wrap each settings page in a `<Formik>` with the existing field config.
+2. Add a `<StickyFormBar>` that appears at the bottom only when `formik.dirty`. Buttons: "Save changes" (primary) / "Discard" (ghost).
+3. Show inline field-level errors via Formik's `meta.error`.
+4. On save success, show a success snackbar and reset `formik.dirty`.
+5. Block route navigation when dirty (use a `useBlocker` hook with a confirm dialog).
+
+### Acceptance
+
+- [ ] No field saves on blur.
+- [ ] Discard reverts to last-saved values.
+- [ ] Closing the tab with unsaved changes triggers the browser's native warning.
+
+---
+
+## Phase 7 — Command palette (⌘K)
+
+### Files to touch
+
+- (Add) `apps/ui/src/ui-component/CommandPalette/index.jsx`
+- (Add) `apps/ui/src/ui-component/CommandPalette/useCommands.js`
+- `apps/ui/src/layout/MainLayout/index.jsx` — mount the palette globally
+
+### Changes
+
+1. Build a global modal triggered by ⌘K / Ctrl+K (also from the topbar search chip).
+2. Source commands from three buckets: **Navigation** (every menu item), **Sequences** (live data from the existing query), **Actions** (Play next / Pause / Toggle voting / etc.).
+3. Fuzzy-match using `fuse.js` (small, single-purpose dep — bring it in only if needed) or a simple substring filter to start.
+4. Keyboard navigation: ↑↓ to move, ↵ to select, Esc to close.
+
+### Acceptance
+
+- [ ] ⌘K opens the palette from any page.
+- [ ] Typing "carol" surfaces the "Carol of the Bells" sequence.
+- [ ] Selecting a sequence navigates to it; selecting an action runs it.
+
+---
+
+## Phase 8 — Empty states & skeletons sweep
+
+For each page with async data: image hosting, shows map (filtered to no results), sequences (new account), dashboard (no show running), Ask Wattson (no history).
+
+### Pattern
+
+```jsx
+<EmptyState
+  icon={<IconPlaylist size={48} />}
+  title="No sequences yet"
+  description="Add your first sequence to get the show running."
+  cta={{ label: 'Add sequence', onClick: ... }}
+/>
+```
+
+The component lives at `apps/ui/src/ui-component/EmptyState.jsx` (build it during this phase). Skeleton loaders for tables and cards already partially exist (`DashboardStatsSkeleton`); standardize them.
+
+---
+
+## Phase 9 — Delete legacy
+
+Once all pages render correctly under `VITE_USE_DESIGN_SYSTEM_V2=true`:
+
+1. Flip the default to `true` in code (drop the env-var gate).
+2. Delete `apps/ui/src/themes/` and `apps/ui/src/assets/scss/_themes-vars.module.scss` + `_theme1..6.module.scss`.
+3. Remove the `presetColor` config from `useConfig` (no more 6 preset themes — we ship one identity).
+4. Move `apps/ui/src/design-system/theme/` to `apps/ui/src/themes/` (so the eventual import path is `from './themes'` again — clean).
+
+### Acceptance
+
+- [ ] `git grep -r "themes-vars\|theme1\.module"` returns zero hits.
+- [ ] No references to legacy `presetColor` remain.
+- [ ] Theme directory has a single source of truth.
+
+---
+
+## How to QA each phase
+
+Local:
+```bash
+cd apps/ui
+VITE_USE_DESIGN_SYSTEM_V2=true npm run dev
+```
+
+Per-phase smoke tests live in `cypress/e2e/`. Add a v2-specific spec under `cypress/e2e/design-system-v2.cy.jsx` that snapshots the major pages with the flag on. Don't merge a phase without the snapshot diff being clean.
+
+---
+
+## Rollback
+
+Every phase is reversible by:
+
+- **Phase 1**: unset `VITE_USE_DESIGN_SYSTEM_V2`.
+- **Phases 2–8**: revert the per-page commits. Token files and v2 theme stay; they're additive.
+- **Phase 9**: unmerge the deletion commit; the legacy theme is in git history forever.
+
+If a production issue surfaces, flip the env var off and dig in. The flag is the rollback.
