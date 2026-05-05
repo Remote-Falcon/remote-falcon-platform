@@ -16,7 +16,7 @@ import RFLoadingButton from '../../../../ui-component/RFLoadingButton';
 import { ViewerControlMode } from '../../../../utils/enum';
 import { DASHBOARD_STATS } from '../../../../utils/graphql/controlPanel/queries';
 
-import { DELETE_STATS_WITHIN_RANGE, PURGE_STATS } from '../../../../utils/graphql/controlPanel/mutations';
+import { DELETE_STATS_WITHIN_RANGE } from '../../../../utils/graphql/controlPanel/mutations';
 import { showAlert } from '../../globalPageHelpers';
 import ApexBarChart from './ApexBarChart';
 import ApexLineChart from './ApexLineChart';
@@ -46,7 +46,6 @@ const DashboardCharts = () => {
   const datePlus1 = new Date();
   datePlus1.setHours(0, 0, 0);
 
-  const [purgeStatsMutation] = useMutation(PURGE_STATS);
   const [deleteStatsWithinRangeMutation] = useMutation(DELETE_STATS_WITHIN_RANGE);
 
   const [dashboardStatsQuery] = useLazyQuery(DASHBOARD_STATS);
@@ -119,10 +118,6 @@ const DashboardCharts = () => {
     };
     init();
   }, [fetchDashboardStats]);
-
-  useEffect(() => {
-    purgeStatsMutation();
-  }, [purgeStatsMutation]);
 
   return (
     <>

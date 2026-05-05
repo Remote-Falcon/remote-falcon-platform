@@ -82,7 +82,7 @@ jobs:
           Namespace: remote-falcon
           Application: remote-falcon-ui
           Env: prod
-          Replicas: 1
+          Replicas: 2
           Image: ${{ env.REGISTRY }}/${{ steps.repository_string.outputs.lowercase }}:${{ github.sha }}
           Requests.Memory: 64Mi
           Requests.CPU: 5m

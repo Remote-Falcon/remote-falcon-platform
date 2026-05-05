@@ -3,7 +3,112 @@ import { gql } from '@apollo/client';
 export const SIGN_IN = gql`
   query @api(name: controlPanel) {
     signIn {
+      showToken
+      email
+      showName
+      showSubdomain
+      emailVerified
+      createdDate
+      lastLoginDate
+      expireDate
+      pluginVersion
+      fppVersion
+      lastLoginIp
+      showRole
+      playingNow
+      playingNext
       serviceToken
+      apiAccess {
+        apiAccessActive
+      }
+      userProfile {
+        firstName
+        lastName
+        facebookUrl
+        youtubeUrl
+        lastTokenResetDate
+      }
+      preferences {
+        viewerControlEnabled
+        viewerPageViewOnly
+        viewerControlMode
+        resetVotes
+        jukeboxDepth
+        locationCheckMethod
+        showLatitude
+        showLongitude
+        allowedRadius
+        checkIfVoted
+        checkIfRequested
+        psaEnabled
+        psaFrequency
+        jukeboxRequestLimit
+        locationCode
+        hideSequenceCount
+        makeItSnow
+        managePsa
+        sequencesPlayed
+        pageTitle
+        pageIconUrl
+        showOnMap
+        selfHostedRedirectUrl
+        blockedViewerIps
+        notificationPreferences {
+          enableFppHeartbeat
+          fppHeartbeatIfControlEnabled
+          fppHeartbeatRenotifyAfterMinutes
+          fppHeartbeatLastNotification
+        }
+      }
+      sequences {
+        name
+        key
+        displayName
+        duration
+        visible
+        index
+        order
+        imageUrl
+        active
+        visibilityCount
+        type
+        group
+        category
+        artist
+      }
+      sequenceGroups {
+        name
+        visibilityCount
+      }
+      psaSequences {
+        name
+        order
+        lastPlayed
+      }
+      pages {
+        name
+        active
+        html
+      }
+      requests {
+        sequence {
+          name
+        }
+        position
+        ownerRequested
+      }
+      votes {
+        sequence {
+          name
+        }
+        votes
+        lastVoteTime
+        ownerVoted
+      }
+      activeViewers {
+        ipAddress
+        visitDateTime
+      }
     }
   }
 `;

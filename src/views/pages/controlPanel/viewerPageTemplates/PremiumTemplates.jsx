@@ -8,6 +8,11 @@ const PremiumTemplates = () => (
       <CardActions>
         <List>
           <ListItem disablePadding>
+            <ListItemButton component="a" href="https://www.rfpagebuilder.com/" target="_blank">
+              <ListItemText primary="RF Page Builder" sx={{ textDecoration: 'underline' }} />
+            </ListItemButton>
+          </ListItem>
+          <ListItem disablePadding>
             <ListItemButton component="a" href="https://strammade3d.com/collections/remote-falcon-backgrounds" target="_blank">
               <ListItemText primary="Strammade 3D" sx={{ textDecoration: 'underline' }} />
             </ListItemButton>

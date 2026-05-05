@@ -148,32 +148,23 @@ export const JWTProvider = ({ children }) => {
       },
       onCompleted: (data) => {
         setSession(data?.signIn?.serviceToken);
-        getShowQuery({
-          context: {
-            headers: {
-              Route: 'Control-Panel'
-            }
-          },
-          onCompleted: (data) => {
-            const showData = { ...data?.getShow };
-            showData.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-            dispatch(
-              startLoginAction({
-                ...showData
-              })
-            );
-            // Identify this user/show in PostHog using the showSubdomain as distinct_id
-            try {
-              if (posthog && showData?.showSubdomain) {
-                posthog.identify(showData.showSubdomain, {
-                  email: showData?.email,
-                  showName: showData?.showName,
-                  showRole: showData?.showRole
-                });
-              }
-            } catch (_) {}
+        const showData = { ...data?.signIn };
+        showData.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        dispatch(
+          startLoginAction({
+            ...showData
+          })
+        );
+        // Identify this user/show in PostHog using the showSubdomain as distinct_id
+        try {
+          if (posthog && showData?.showSubdomain) {
+            posthog.identify(showData.showSubdomain, {
+              email: showData?.email,
+              showName: showData?.showName,
+              showRole: showData?.showRole
+            });
           }
-        });
+        } catch (_) {}
       },
       onError: (error) => {
         if (error?.message === StatusResponse.UNAUTHORIZED) {

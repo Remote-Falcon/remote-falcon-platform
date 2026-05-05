@@ -59,13 +59,11 @@ const DashboardHeader = () => {
   }, [dashboardLiveStatsQuery, dispatch, show?.timezone]);
 
   useEffect(() => {
-    const init = async () => {
-      setIsLoading(true);
-      await fetchDashboardLiveStats();
-      setIsLoading(false);
-    };
-    init();
-  }, [fetchDashboardLiveStats]);
+    if (!show?.timezone) return;
+    setIsLoading(true);
+    fetchDashboardLiveStats().finally(() => setIsLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [show?.timezone]);
 
   useInterval(async () => {
     await fetchDashboardLiveStats();
