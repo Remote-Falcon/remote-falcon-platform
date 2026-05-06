@@ -12,6 +12,8 @@ name: Deploy
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
     inputs:
       service:
@@ -31,6 +33,11 @@ on:
           - account-archive
       dry_run:
         description: "Dry run: build + push images, skip cluster apply"
+        type: boolean
+        required: false
+        default: false
+      skip_tests:
+        description: "Emergency override: skip test gates. Use only when test infra is broken and a hotfix is required."
         type: boolean
         required: false
         default: false
@@ -90,10 +97,95 @@ jobs:
           echo "Resolved services: $services"
 
   # ---------------------------------------------------------------
+  # test-unit — per-service unit tests via reusable workflow
+  # ---------------------------------------------------------------
+  test-unit:
+    needs: detect
+    if: ${{ inputs.skip_tests != true && needs.detect.outputs.services != '[]' && needs.detect.outputs.services != '' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.detect.outputs.services) }}
+    uses: ./.github/workflows/_test-service.yml
+    with:
+      service: ${{ matrix.service }}
+
+  # ---------------------------------------------------------------
+  # test-contract — schema round-trip + plugin contract fixtures
+  # ---------------------------------------------------------------
+  test-contract:
+    needs: detect
+    if: ${{ inputs.skip_tests != true }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Run contract tests
+        run: mvn -pl tests/contract -am test
+
+  # ---------------------------------------------------------------
+  # test-e2e — Playwright smoke tier against full dev stack
+  # ---------------------------------------------------------------
+  test-e2e:
+    needs: detect
+    if: ${{ inputs.skip_tests != true && (github.event_name == 'push' || github.event_name == 'pull_request') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: tests/e2e/package-lock.json
+
+      - name: Install e2e deps
+        working-directory: tests/e2e
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: tests/e2e
+        run: npx playwright install --with-deps chromium
+
+      - name: Bring up dev stack
+        run: ./ops/dev-up.sh up
+
+      - name: Health check stack
+        run: ./ops/dev-up.sh health
+
+      - name: Run Playwright smoke
+        working-directory: tests/e2e
+        env:
+          PLAYWRIGHT_TIER: smoke
+        run: npx playwright test
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ github.run_id }}
+          path: tests/e2e/playwright-report/
+          retention-days: 14
+
+      - name: Tear down dev stack
+        if: always()
+        run: ./ops/dev-up.sh down
+
+  # ---------------------------------------------------------------
   # deploy — build, push, and roll out each changed service
   # ---------------------------------------------------------------
   deploy:
-    needs: detect
+    needs: [detect, test-unit, test-contract, test-e2e]
     if: ${{ needs.detect.outputs.services != '[]' && needs.detect.outputs.services != '' }}
     runs-on: ubuntu-latest
     environment: prod

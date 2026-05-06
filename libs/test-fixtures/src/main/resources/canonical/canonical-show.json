@@ -1,0 +1,3 @@
+{
+  "_TODO_Sprint_2": "populate with a deterministic canonical Show document; current ShowFactory.canonical() uses Faker so output isn't snapshot-friendly. Sprint 2 will introduce a separate deterministic seed path (or fixed Random seed) and replace this placeholder with the serialized canonical Show."
+}

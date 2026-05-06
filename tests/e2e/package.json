@@ -1,0 +1,19 @@
+{
+  "name": "remote-falcon-e2e",
+  "version": "1.0.0",
+  "description": "End-to-end tests for the Remote Falcon platform",
+  "private": true,
+  "scripts": {
+    "test:e2e:smoke": "PLAYWRIGHT_TIER=smoke playwright test",
+    "test:e2e:regression": "PLAYWRIGHT_TIER=regression playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:debug": "PWDEBUG=1 playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0",
+    "@faker-js/faker": "^9.0.0",
+    "mongodb": "^6.10.0",
+    "typescript": "^5.6.0",
+    "@types/node": "^22.0.0"
+  }
+}

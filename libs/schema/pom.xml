@@ -12,6 +12,11 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <java.version>17</java.version>
+        <!-- Override Spring Boot 3.1.0's managed Lombok 1.18.26 to support Java 21
+             javac. Lets the Maven reactor compile under JDK 21 in CI. Unblocks
+             part of remote-falcon-issue-tracker#123 (full fix is bumping the
+             Spring Boot parent itself). -->
+        <lombok.version>1.18.34</lombok.version>
     </properties>
 
     <parent>

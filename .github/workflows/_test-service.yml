@@ -1,0 +1,97 @@
+name: Test Service
+
+# Reusable workflow: runs the appropriate unit-test command for a single
+# service based on its build tool. Called from deploy.yml's test-unit
+# matrix job, once per changed service.
+#
+# Build-tool resolution (shell case statement):
+#   control-panel, external-api, gateway       -> Maven
+#   viewer, plugins-api, mongo-backup,
+#     account-archive                          -> Gradle
+#   ui                                         -> Node + Vitest
+
+on:
+  workflow_call:
+    inputs:
+      service:
+        description: Service name (matches apps/<service>)
+        type: string
+        required: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Java 21
+        if: inputs.service != 'ui'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Cache Gradle
+        if: contains(fromJSON('["viewer","plugins-api","mongo-backup","account-archive"]'), inputs.service)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ inputs.service }}-${{ hashFiles(format('apps/{0}/**/*.gradle*', inputs.service), format('apps/{0}/gradle/wrapper/gradle-wrapper.properties', inputs.service)) }}
+          restore-keys: |
+            gradle-${{ inputs.service }}-
+
+      - name: Set up Node 22
+        if: inputs.service == 'ui'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: apps/ui/package-lock.json
+
+      - name: Install libs/schema to mavenLocal (Gradle services consume via mavenLocal)
+        if: contains(fromJSON('["viewer","plugins-api","mongo-backup","account-archive"]'), inputs.service)
+        run: mvn -pl libs/schema -am -B install -DskipTests
+
+      - name: Run tests
+        env:
+          SERVICE: ${{ inputs.service }}
+        run: |
+          set -euo pipefail
+          case "$SERVICE" in
+            control-panel|external-api|gateway)
+              mvn -pl "apps/$SERVICE" -am test
+              ;;
+            viewer|plugins-api|mongo-backup|account-archive)
+              cd "apps/$SERVICE"
+              ./gradlew test
+              ;;
+            ui)
+              cd apps/ui
+              npm ci
+              if node -e "process.exit(require('./package.json').scripts && require('./package.json').scripts['test:unit'] ? 0 : 1)"; then
+                npm run test:unit -- --run
+              else
+                echo "no UI tests yet"
+                exit 0
+              fi
+              ;;
+            *)
+              echo "Unknown service: $SERVICE" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ inputs.service }}
+          path: |
+            apps/${{ inputs.service }}/target/site/jacoco/**
+            apps/${{ inputs.service }}/build/reports/jacoco/**
+            apps/${{ inputs.service }}/coverage/**
+          if-no-files-found: ignore
+          retention-days: 14
