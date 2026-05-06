@@ -162,10 +162,24 @@ jobs:
           DEV_UP_YES: "1"
         run: ./ops/dev-up.sh up --core
 
-      - name: Health check stack
+      - name: Health check stack (retry until ready, max ~3 min)
         env:
           DEV_UP_YES: "1"
-        run: ./ops/dev-up.sh health --core
+        run: |
+          set +e
+          for i in $(seq 1 18); do
+            if ./ops/dev-up.sh health --core; then
+              echo "Stack healthy on attempt $i"
+              exit 0
+            fi
+            echo "Attempt $i: not yet healthy, sleeping 10s..."
+            sleep 10
+          done
+          echo "Stack failed to become healthy after 3 minutes"
+          ./ops/dev-up.sh health --core   # final pass for diagnostic output
+          docker compose -f ops/docker-compose.dev.yml ps
+          docker compose -f ops/docker-compose.dev.yml logs --tail=50
+          exit 1
 
       - name: Run Playwright smoke
         working-directory: tests/e2e
