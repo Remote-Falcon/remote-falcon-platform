@@ -18,6 +18,12 @@
 
     <properties>
         <java.version>17</java.version>
+        <!-- Override Spring Boot 3.1.0's managed json-path 2.8.0 (out-of-bounds write
+             vulnerability) with the patched 2.9.0. See libs/test-fixtures/pom.xml
+             for the same override; both inherit from spring-boot-starter-parent 3.1.0
+             which manages json-path version. Removable once the Spring Boot parent
+             is bumped (issue tracker #123). -->
+        <json-path.version>2.9.0</json-path.version>
     </properties>
 
     <dependencies>

@@ -28,6 +28,11 @@
         <java.version>17</java.version>
         <jjwt.version>0.12.6</jjwt.version>
         <datafaker.version>2.4.2</datafaker.version>
+        <!-- Override Spring Boot 3.1.0's managed json-path 2.8.0 (out-of-bounds write
+             vulnerability) with the patched 2.9.0. Pulled in transitively via
+             spring-boot-starter-test. Removable once the Spring Boot parent is bumped
+             to 3.2.x+ (issue tracker #123). -->
+        <json-path.version>2.9.0</json-path.version>
     </properties>
 
     <dependencies>
