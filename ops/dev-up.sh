@@ -129,8 +129,13 @@ cmd_up() {
       warn "First-time build detected (core mode). 5 services build serially via Dockerfile.dev (JVM jars; ~1-3 min each)."
       warn "Stack-wide initial build typically completes in ~5-8 minutes. Subsequent builds cache."
     fi
-    read -r -p "Proceed? [y/N] " ans
-    [[ "$ans" =~ ^[Yy]$ ]] || { warn "Aborted."; exit 0; }
+    if [[ -n "${DEV_UP_YES:-}" || ! -t 0 ]]; then
+      # Non-interactive: CI runs ($DEV_UP_YES=1) or piped stdin (no TTY) auto-proceed.
+      log "Non-interactive mode (DEV_UP_YES set or no TTY); proceeding without prompt."
+    else
+      read -r -p "Proceed? [y/N] " ans
+      [[ "$ans" =~ ^[Yy]$ ]] || { warn "Aborted."; exit 0; }
+    fi
   fi
   # Build sequentially first, then start in parallel.
   # Why sequential build: GraalVM native-image generation peaks at 4-6GB RAM

@@ -157,11 +157,15 @@ jobs:
         working-directory: tests/e2e
         run: npx playwright install --with-deps chromium
 
-      - name: Bring up dev stack
-        run: ./ops/dev-up.sh up
+      - name: Bring up dev stack (core mode — smoke tests need mongo+ui+control-panel+viewer+plugins-api only)
+        env:
+          DEV_UP_YES: "1"
+        run: ./ops/dev-up.sh up --core
 
       - name: Health check stack
-        run: ./ops/dev-up.sh health
+        env:
+          DEV_UP_YES: "1"
+        run: ./ops/dev-up.sh health --core
 
       - name: Run Playwright smoke
         working-directory: tests/e2e
@@ -179,7 +183,7 @@ jobs:
 
       - name: Tear down dev stack
         if: always()
-        run: ./ops/dev-up.sh down
+        run: ./ops/dev-up.sh down --core
 
   # ---------------------------------------------------------------
   # deploy — build, push, and roll out each changed service
