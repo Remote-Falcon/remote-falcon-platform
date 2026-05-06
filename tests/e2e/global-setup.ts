@@ -3,7 +3,10 @@ import { readdirSync, readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 
 export default async () => {
-  const uri = process.env.MONGO_URI ?? 'mongodb://root:root@localhost:27017/?authSource=admin';
+  // dev-up.sh's mongo container runs without auth (no MONGO_INITDB_ROOT_USERNAME
+  // set in ops/docker-compose.dev.yml). Override MONGO_URI to point at a Mongo
+  // with credentials if connecting to a different stack.
+  const uri = process.env.MONGO_URI ?? 'mongodb://localhost:27017/remote-falcon';
   const dbName = process.env.MONGO_DATABASE ?? 'remote-falcon';
 
   const client = new MongoClient(uri);
