@@ -204,7 +204,14 @@ jobs:
   # ---------------------------------------------------------------
   deploy:
     needs: [detect, test-unit, test-contract, test-e2e]
-    if: ${{ needs.detect.outputs.services != '[]' && needs.detect.outputs.services != '' }}
+    # Deploy only on push to main (which fires after PR merge) or explicit
+    # workflow_dispatch — NEVER on pull_request. PRs must run the test gates
+    # but must not modify the cluster.
+    if: ${{
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+      && needs.detect.outputs.services != '[]'
+      && needs.detect.outputs.services != ''
+      }}
     runs-on: ubuntu-latest
     environment: prod
     strategy:
