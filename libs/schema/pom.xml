@@ -51,6 +51,22 @@
             <artifactId>quarkus-smallrye-graphql</artifactId>
             <version>3.17.7</version>
         </dependency>
+
+        <!-- Test dependencies. Phase C PR B: schema round-trip tests.
+             jackson-datatype-jsr310 is needed because Show uses LocalDateTime;
+             without JavaTimeModule registered, the round-trip would lose type
+             info. spring-boot-starter-test gives us JUnit 5 + AssertJ + a
+             pre-configured Jackson ObjectMapper matching Spring Data defaults. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jsr310</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

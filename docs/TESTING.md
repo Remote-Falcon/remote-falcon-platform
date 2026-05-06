@@ -1,190 +1,454 @@
-# Remote Falcon — Testing Audit & Improvement Plan
+# Remote Falcon — Testing Guide
 
-**Audit date:** 2026-04-25 (counts re-verified 2026-04-27 against the consolidated monorepo)
-**Scope:** All 8 production services (now under `apps/` in the monorepo), plus adjacent repos in the Remote-Falcon GitHub org (shared library, customer-facing artifacts, operator tooling).
-**Method:** Three parallel agents inventoried test files, frameworks, coverage tooling, CI integration, and risk areas across the production services. The "Adjacent repos coverage" section was added 2026-04-25 after the rest of the org's repos were cloned locally. The 2026-04-27 re-verification corrected the plugins-api test count (56/3, not 58/4 — the 4th file is a `MongoTestResource` fixture, not a test class) and added the dead UI analytics-config finding.
+**Last updated:** 2026-05-06
+**Status:** Operational reference (post Phase C Sprint 1)
+**Related docs:** [PHASE-C-KICKOFF.md](PHASE-C-KICKOFF.md), [SERVICES.md](SERVICES.md), [CONSOLIDATION-PLAN.md](CONSOLIDATION-PLAN.md)
 
----
-
-## TL;DR
-
-| | |
-|---|---|
-| **Stack-wide effective coverage** | ~10% by class count, concentrated in 2 of 8 services |
-| **Services with credible tests** | 2 (`remote-falcon-viewer`, `remote-falcon-plugins-api`) |
-| **Services with zero tests** | 6 (`account-archive`, `mongo-backup`, `control-panel`, `external-api`, `gateway`, `ui`) — the UI has 2 pre-auth Cypress specs only |
-| **Services running tests in CI** | 0 — every `build-and-release.yml` workflow goes straight from `mvn package` / `gradle build` / `vite build` to Docker push, with no test step |
-| **Coverage thresholds enforced** | 0 |
-| **Contract / integration tests across services** | 0 |
-| **Native-image smoke tests** | 0 (and 6 of 8 services ship as GraalVM native images) |
-| **Adjacent repos with tests** | 0 of the in-scope ones — `remote-falcon-library` (the canonical Mongo schema for 5 services), `remote-falcon-plugin` (FPP plugin running on every customer's controller), and `remote-falcon-viewer-page-js` (CDN scripts running in every viewer browser) all have **zero** test coverage. `remote-falcon-deployment-wizard` (not yet published) and `remote-falcon-mobile` (archived) also have zero — relevant when those re-enter scope. |
-
-The riskiest services are the worst-tested: `mongo-backup` (silent backup failure = no recoverable data) and `account-archive` (deletes customer accounts) both have **zero** tests. The control-panel — the entire auth surface and integration hub — has 4,000+ lines of test code, all of it commented out, referencing a previous package layout.
+> **What changed (2026-05-06):** This doc replaces the prior audit-state writeup ("what we found, what was missing"). After Phase C Sprint 1 landed real tests in each tier and wired CI gates, the doc is now a current-state + how-to-add-tests guide. The prior audit content lives in git history if you need it (commit before this rewrite).
 
 ---
 
-## Per-service inventory
+## TL;DR — current state
 
-| Service | Stack | Source classes | Active test classes | `@Test` methods | JaCoCo | Sonar | CI test step |
-|---|---|---:|---:|---:|:---:|:---:|:---:|
-| remote-falcon-viewer | Quarkus 21 native | 11 | 9 | 88 | ✓ | ✓ | (no enforcement) |
-| remote-falcon-plugins-api | Quarkus 21 native | 17 | 3 | 56 | ✓ | ✓ | (no enforcement) |
-| remote-falcon-account-archive | Quarkus 21 native | 2 | **0** | 0 | ✗ | ✗ | ✗ |
-| remote-falcon-mongo-backup | Quarkus 21 native | 2 | **0** | 0 | ✗ | ✗ | ✗ |
-| remote-falcon-control-panel | Spring Boot 3 / Java 21 native | 57 | **0** *(6 commented-out files, ~4k LOC)* | 0 | ✗ | ✗ | ✗ |
-| remote-falcon-external-api | Spring Boot 3 / Java 21 native | 12 | **0** *(1 commented-out file)* | 0 | ✗ | ✗ | ✗ |
-| remote-falcon-gateway | Spring Cloud Gateway / Java 17 | 1 + 4 YAML | **0** *(no `src/test`)* | 0 | ✗ | ✗ | ✗ |
-| remote-falcon-ui | Vite + React | ~all `.jsx` | 2 Cypress specs *(landing + signup only)* | ~10 `it` blocks | n/a | ✗ | ✗ |
+| Service | Stack | Test count | Coverage gate (Sprint 1 floor) | CI gate |
+|---|---|---:|---|:---:|
+| [`apps/viewer`](../apps/viewer) | Quarkus 21 native | 88 `@Test` | 60% line / 60% branch (JaCoCo) | ✓ |
+| [`apps/plugins-api`](../apps/plugins-api) | Quarkus 21 native | 56 `@Test` | 60% line / 60% branch (JaCoCo) | ✓ |
+| [`apps/mongo-backup`](../apps/mongo-backup) | Quarkus 21 native | new in PR B | 80% line on `*.service.*` | ✓ |
+| [`apps/account-archive`](../apps/account-archive) | Quarkus 21 native | 0 (Sprint 2) | 0% (ratchets in Sprint 2) | ✓ |
+| [`apps/control-panel`](../apps/control-panel) | Spring Boot 3 native | 0 (Sprint 2) | 0% (ratchets in Sprint 2) | ✓ |
+| [`apps/external-api`](../apps/external-api) | Spring Boot 3 native | 0 (Sprint 2) | 0% (ratchets in Sprint 2) | ✓ |
+| [`apps/gateway`](../apps/gateway) | Spring Cloud Gateway | 0 | (skip — config-only service) | ✓ |
+| [`apps/ui`](../apps/ui) | Vite + React | 2 Cypress (legacy) | 0% (Vitest in Sprint 2) | ✓ |
+| [`libs/schema`](../libs/schema) | JUnit 5 | 1 round-trip | n/a | ✓ |
+| [`libs/test-fixtures`](../libs/test-fixtures) | JUnit 5 | 1 drift test | n/a | ✓ |
+| [`tests/contract`](../tests/contract) | REST Assured + JUnit 5 | placeholder | n/a (real fixtures Sprint 3) | ✓ |
+| [`tests/e2e`](../tests/e2e) | Playwright (TS) | smoke: login | n/a | ✓ |
 
-> **"Active test classes"** = files in `src/test/` that compile and run. The Spring services contain large test files where every line is `//` commented out (legacy from a package rename — they reference `com.remotefalcon.api` and classes like `PluginService`, `ApiService`, `ViewerPageService` that no longer exist in `main`).
+**Three CI jobs gate every PR + push to main:** `test-unit` (matrix per service), `test-contract`, `test-e2e`. All three must pass before `deploy` runs. See [§ CI workflow](#ci-workflow) below.
 
----
-
-## Adjacent repos coverage
-
-The 8 production services aren't the whole picture. Several other repos in the Remote-Falcon org ship code that runs in production — on customer FPPs, in viewer browsers, or as a build-time dependency of multiple services — and none of them have any test coverage either.
-
-| Repo | Stack | What it ships | Tests | CI test step | Status |
-|---|---|---|---:|:---:|---|
-| `remote-falcon-library` | Maven / Java 17 (Spring Data + Quarkus Panache) | Shared MongoDB schema (`Show`, `Wattson`, `Notification`, etc.), pulled at a pinned git SHA via JitPack by 5 of 8 services | **0** *(no `src/test`)* | ✗ *(no `.github/workflows`)* | — |
-| `remote-falcon-plugin` | PHP + JS + shell | FPP plugin installed on customer show controllers (~975 LOC); talks to `plugins-api` | **0** | ✗ | Active |
-| `remote-falcon-viewer-page-js` | Plain JS | 6 CDN-served scripts (snow, countdowns, dynamic menu) executed in viewer browsers | **0** | ✗ | Active |
-| `remote-falcon-page-templates` | Static HTML | 6 default viewer-page templates seeded by `control-panel` | **0** | ✗ | Active |
-| `remote-falcon-maintenance-mode` | Static HTML | Maintenance landing page | n/a | n/a | Active |
-| `remote-falcon-deployment-wizard` | Node / Express | Customer-installable deployer (`localhost:3030`); provisions cloud resources | **0** | ✗ | **Not yet published** (2026-04-27) |
-| `remote-falcon-mobile` | Expo / React Native (Expo Router, Apollo, Redux Toolkit) | Mobile companion app (~23 `.tsx` screens), distributed via EAS | **0** *(`jest-expo` preset declared, no test files)* | ✗ | **Archived** (2026-04-27) |
-| `remote-falcon-viewer-quarkus` | Quarkus / Java 21 | Dormant viewer rewrite (Feb 2025) on a separate cluster | 1 *(auto-generated `ExampleResourceTest`)* | ✗ | Dormant |
-| `remote-falcon-data` | k6 + JMeter + kind scripts | Load tests + cluster bootstrap + manually-applied Datadog/secret manifests | n/a *(this repo is itself test infra)* | ✗ | **Retiring** (Phase E6) |
-| `remote-falcon-load-tests` | k6 + Node + `mongodb` driver | Viewer GraphQL smoke + data-integrity scripts | n/a *(this repo is itself test infra)* | ✗ | Active |
-
-**Highest-risk findings here:**
-
-- **`remote-falcon-library` has zero tests and is the canonical Mongo schema for 5 services.** All 5 currently pin to the same SHA (`a5703a28fe`), so they agree by accident — but nothing protects that. A field rename or default change here can silently desync any one service that bumps without the others, with no contract test to catch it. **Highest-leverage untested repo in the entire org.**
-- **`remote-falcon-plugin` is the only un-version-pinned wire-format contract in production.** Customers run whatever version they last installed; `plugins-api` accepts requests from all of them. There's nothing testing that `plugins-api` still serves the older plugin shapes.
-- **`remote-falcon-viewer-page-js` runs in real customers' viewer pages from `master`.** No version pinning on the customer side; a revert on `master` is the only rollback path.
-- **`remote-falcon-deployment-wizard` provisions DigitalOcean infra on customer accounts** when published. Bugs there will cost customers real money (wrong-region or oversized droplets) and surface as support tickets, not pages. Currently not yet published as of 2026-04-27 — but the repo is in development, so the gap is worth filling before launch.
-- ~~**`remote-falcon-mobile` declares `jest-expo` but ships no tests.**~~ Repo archived 2026-04-27; no longer in scope.
+**The framework choice doc is [PHASE-C-KICKOFF.md § 4](PHASE-C-KICKOFF.md#4-test-framework-choices-per-surface).** This doc focuses on day-to-day "how do I write or run a test" mechanics.
 
 ---
 
-## Findings by service
+## Test pyramid — five tiers
 
-### remote-falcon-viewer ✓ *(credibly tested, but unenforced)*
-- 88 `@Test` methods across 9 classes — REST + GraphQL + 3 Mongo testcontainers integration tests.
-- Geo-fencing, IP blocking, request limits, vote dedup are all directly exercised.
-- JaCoCo configured but **no `violationRules`** — coverage can regress silently.
-- Untested: `CustomGraphQLExceptionResolver`, `ViewerMetrics`, OpenTelemetry/Micrometer instrumentation, native-image reflection correctness.
-- **Highest-traffic service in the stack — and there's no load test.**
+The platform has five distinct test surfaces. Each has a fixed framework choice (don't introduce a sixth without a discussion).
 
-### remote-falcon-plugins-api ✓ *(credibly tested, but unenforced)*
-- 56 `@Test` methods across 3 classes (`PluginControllerTest` 15, `PluginControllerIntegrationTest` 19, `PluginServiceTest` 22); a 4th file `MongoTestResource` is a testcontainers fixture, not a test class. Every named REST endpoint has at least a happy-path test plus a Mongo-testcontainers integration suite.
-- **`ShowTokenFilter` (the only authn boundary, 63 LOC) has no dedicated test** — only indirectly hit via integration.
-- 789-LOC `PluginService`: 22 service-layer tests are thin per-LOC; error/boundary branches likely under-tested.
+### 1. Quarkus services
+Targets: [`apps/viewer`](../apps/viewer), [`apps/plugins-api`](../apps/plugins-api), [`apps/mongo-backup`](../apps/mongo-backup), [`apps/account-archive`](../apps/account-archive)
 
-### remote-falcon-account-archive ✗ *(0 tests, deletes data)*
-- 2 source classes; one is a scheduled job that archives/deletes show accounts.
-- **Zero tests** — no archive-cutoff predicate test, no "don't archive recent activity" test, no Mongo collection-targeting test.
-- A regression here destroys customer accounts silently and irreversibly.
+- **Frameworks:** JUnit 5 + Quarkus Test (`@QuarkusTest`) + Mockito + REST Assured + Testcontainers
+- **Coverage:** JaCoCo, thresholds enforced via `<rules>` in each service's `build.gradle`
+- **Patterns:**
+  - `@QuarkusTest` for HTTP-level integration tests (boots full app)
+  - Plain `@Test` + Mockito for pure-logic units
+  - `@Container` static field for Mongo/S3 (LocalStack) testcontainers
+- **Test path convention:** `apps/<svc>/src/test/java/com/remotefalcon/<svc>/...`
 
-### remote-falcon-mongo-backup ✗ *(0 tests, the backup itself)*
-- 2 source classes; `MongoBackupService` is 276 LOC and talks to Mongo + S3.
-- **Zero tests** — no dump-correctness test, no S3 key-format test, no retention test, no failure-handling test.
-- **Silent backup failure is the worst-case bug class in the stack** and this is the service most likely to suffer from it.
+### 2. Spring services
+Targets: [`apps/gateway`](../apps/gateway), [`apps/control-panel`](../apps/control-panel), [`apps/external-api`](../apps/external-api)
 
-### remote-falcon-control-panel ✗ *(0 active tests; 4k LOC commented out)*
-- 57 source classes including `WebSecurityConfig`, `AuthUtil` (JWT), `AccessAspect`/`@RequiresAccess` AOP, GraphQL resolvers, S3/SendGrid/GitHub-PAT/OpenAI integrations.
-- 6 test files exist but every line begins with `//`. Stale package references (`com.remotefalcon.api`) and target classes that no longer exist (`PluginService`, `ApiService`, `ViewerPageService`).
-- `pom.xml` declares `wiremock-standalone`, `testcontainers`, `rest-assured` — **none used**.
-- **Highest-leverage untested code in the entire stack:** the JWT issuance/validation path.
+- **Frameworks:** JUnit 5 + Spring Boot Test + Mockito + Testcontainers + JaCoCo
+- **Patterns:**
+  - `@SpringBootTest` for full-context tests
+  - `@DataMongoTest` for repo-slice tests
+  - `MockMvc` / `WebTestClient` for controller-level
+  - WireMock (already in `pom.xml`) for outbound HTTP stubs (GitHub PAT, SendGrid, OpenAI)
+- **Test path convention:** `apps/<svc>/src/test/java/com/remotefalcon/<svc>/...`
 
-### remote-falcon-external-api ✗ *(0 active tests)*
-- 12 classes including the API-key validation that gates the entire partner GraphQL surface.
-- One commented-out `Mocks.java`. No test deps for `spring-graphql-test` or `spring-security-test`.
-- `DozerRuntimeHints` is the only guard against native-image reflection breakage — itself untested.
+### 3. UI
+Target: [`apps/ui`](../apps/ui)
 
-### remote-falcon-gateway ✗ *(0 tests, routes are config-only)*
-- 1 Java class (`Application`); all routes/predicates/filters live in `application*.yml`.
-- No `src/test` directory. **A typo in `application-prod.yml` ships to prod undetected.**
+- **Sprint 1:** UI tests are still the 2 legacy Cypress specs (deleted in Sprint 2 — `login.spec.ts` covers same ground via Playwright).
+- **Sprint 2:** Vitest + React Testing Library for component/hook units. Coverage via Vitest's built-in v8/c8 reporter.
+- **Full-stack flows live in `tests/e2e/` (Playwright), not in `apps/ui/`.** UI-side tests cover hooks, reducers, and isolated components only.
 
-### remote-falcon-ui ✗ *(no unit tests; 2 marketing-page e2e)*
-- Cypress: 2 specs covering landing-page navigation and sign-up form validation. **That's it.**
-- No vitest/jest, no `@testing-library`, no MSW, no Playwright, no Storybook.
-- Build-time keys (`VIEWER_JWT_KEY`, `GOOGLE_MAPS_KEY`, PostHog, GA, Mixpanel, Clarity) read via `import.meta.env.VITE_*` with **no startup assertion** — a missing GitHub secret silently produces a deploy where auth/maps/analytics don't work.
-- TypeScript dep is present but unused (codebase is `.jsx`); `tsconfig.json` doesn't exist.
-- The viewer page (the highest-traffic public surface) and the entire control panel SPA are completely untested.
+### 4. Schema contract
+Target: [`libs/schema`](../libs/schema)
 
----
+- **Framework:** Plain JUnit 5 — no Spring, no Quarkus, just `ObjectMapper` instances.
+- **What it catches:** Drift between Spring Data and Quarkus Panache mappings on shared documents (`Show`, `Wattson`, `Notification`). 5 services consume `libs/schema` and used to silently desync on field renames; now they round-trip JSON+BSON through both mappers in the same test.
+- **Test path:** `libs/schema/src/test/java/com/remotefalcon/library/...`
 
-## Cross-cutting findings
+### 5. External plugin contract
+Target: [`tests/contract`](../tests/contract)
 
-1. **CI runs no tests anywhere.** Every `build-and-release.yml` is `checkout → docker build → push → kubectl apply`. There is no `mvn test`, no `./gradlew test`, no `vitest`, no `cypress run`. The two services with credible tests run them locally only.
-2. **No coverage thresholds.** Where JaCoCo is wired (viewer, plugins-api), nothing breaks the build on regression.
-3. **No contract tests** between services. The shared `Show` document (in `remote-falcon-library`) is the most likely silent-breakage vector and nothing protects it. The library itself has zero tests and is consumed at pinned git SHA by 5 of 8 services; if any one service bumps without the others, the only safety is reading the diff.
-4. **No native-image smoke tests.** Six services ship as GraalVM native; reflection/serialization issues only surface at deploy time.
-5. **No load / performance tests** on viewer or plugins-api.
-6. **The Spring services have aspirational test deps** (WireMock, Testcontainers, REST Assured) that are declared and unused — and now obscure the fact that nothing runs.
-7. **Deploy → prod has no smoke test.** A failed start, a crash-loop, a 500-on-every-request — all only caught when a user complains.
-8. **Customer-installed code has no automated guardrails.** The FPP plugin (`remote-falcon-plugin`) and the CDN-served viewer scripts (`remote-falcon-viewer-page-js`) ship to end users from `master` with no tests, no CI, and no version pinning on the consumer side. The deployment wizard (`remote-falcon-deployment-wizard`) is in the same shape but is **not yet published** as of 2026-04-27.
-9. **The UI ships ~600 lines of dead third-party-analytics plumbing.** `MIXPANEL_KEY`, `GA_TRACKING_ID`, and `CLARITY_PROJECT_ID` are still threaded through GH Actions secrets → Dockerfile build-args → `VITE_*` env vars, but **nothing reads them in `apps/ui/src/`** (verified 2026-04-27). Only `posthog-js` is actually wired in. Removing the dead chain is a no-op simplification, planned in OBSERVABILITY-PLAN Obs-2. `VIEWER_JWT_KEY` is similarly absent from source — flagged for verification before removal.
+- **Sprint 1:** placeholder test (boots the harness, asserts trivially) — proves the wiring works.
+- **Sprint 3:** captured JSON request/response fixtures from real FPP plugin versions (sourced from PostHog server-side events / access logs). Replayed against the running `plugins-api` via REST Assured + testcontainers.
+- **Why hand-rolled fixtures, not Pact:** Zero plugin-side changes required. Customers run whatever version they last installed; we can't ask them to publish a contract. Upgrade path to Pact later if/when that constraint changes.
+- **Test path:** `tests/contract/src/test/java/com/remotefalcon/contract/...`
 
 ---
 
-## Prioritized improvement plan
+## How to add a test — one example per tier
 
-### Phase 1 — Stop the bleed *(week 1; ≤5 dev-days total)*
-Goal: every service has *something* gating it and the highest-risk untested code gets a basic safety net.
+The shortest path to seeing each pattern in action is to read the canonical example, copy, edit. Pointers below.
 
-1. **Wire `mvn test` / `./gradlew test` / `cypress run` into every `build-and-release.yml`** before the Docker step. Make `main` builds fail on test failure. Effort: ~30 min per service.
-2. **Add JaCoCo + Sonar config to `account-archive` and `mongo-backup`** — copy from viewer. 30 min each.
-3. **Write `AccountArchiveServiceTest`**: 5–8 Mockito tests asserting the archive cutoff, "don't archive recent activity" predicate, empty-result handling. ~half a day.
-4. **Add an env-var assert at UI boot** (`src/index.jsx`) that throws if `VITE_VIEWER_JWT_KEY` / `VITE_CONTROL_PANEL_API` / `VITE_VIEWER_API` are empty. Eliminates the silent-misconfig deploy class entirely. ~1 hour.
-5. **Add `WebTestClient` smoke tests for the gateway** — one per route in `application-prod.yml`. Catches typos in YAML routes. ~half a day.
-6. **Delete or quarantine the commented-out test files in control-panel and external-api** (move to `archive/` or remove). They reference dead packages and falsely suggest coverage exists. ~1 hour.
-7. **Add `./dev-up.sh health` to CI smoke** — bring up the local stack, hit every health endpoint, fail if any non-200. Catches start-up regressions before they reach k8s.
+### Tier 1 — per-service unit/integration test (Quarkus)
 
-### Phase 2 — Cover the highest-risk paths *(weeks 2–4; ~10 dev-days)*
+Example: [`apps/mongo-backup/src/test/java/com/remotefalcon/mongobackup/service/MongoBackupServiceTest.java`](../apps/mongo-backup/src/test/java/com/remotefalcon/mongobackup/service/MongoBackupServiceTest.java)
 
-8. **`MongoBackupServiceTest` with LocalStack S3 + testcontainers Mongo** — assert dump key format, S3 PutObject is called, retention/cleanup logic. ~3 days. **Highest-impact single test in the stack.**
-9. **`ShowTokenFilter` unit test** in plugins-api: parameterised tests for missing/malformed/expired tokens and mismatched show ID. ~1 day.
-10. **End-to-end JWT flow test in control-panel**: `WebSecurityConfig` + `AuthUtil` + `@RequiresAccess` exercised through a real `MockMvc` request. ~2 days.
-11. **WireMock-backed integration tests for control-panel's outbound calls**: GitHub PAT (`ClientUtil`), SendGrid (`EmailUtil`), OpenAI (`WattsonUtil`). The deps are already in pom; just use them. ~2 days.
-12. **`@DataMongoTest` repository tests** for control-panel and external-api repositories using testcontainers. ~1 day each.
-13. **Restore `@RequiresAccess` AOP tests** in control-panel and external-api with `@SpringBootTest` slices. ~1 day.
-14. **Set initial JaCoCo thresholds** at a low baseline (40% line) on viewer and plugins-api with `jacocoTestCoverageVerification`; tighten quarterly. ~2 hours.
-15. **Schema round-trip tests in `remote-falcon-library`** for `Show`, `Wattson`, and `Notification` — assert that both the Spring `documents/*` and Quarkus `quarkus/entity/*` mappings round-trip JSON/BSON cleanly, and add a JitPack-friendly `mvn test` step. Locks down the most ripple-prone untested code in the org. ~1–2 days.
+This test uses Testcontainers Mongo + LocalStack S3 to assert:
 
-### Phase 3 — Stack-level confidence *(month 2+; multi-week)*
+1. Dump file key format (`mongo-backup-YYYYMMDD-HHMMSS.gz`)
+2. S3 `PutObject` is called with the bucket from `BACKUP_S3_BUCKET`
+3. Retention deletes objects older than the retention window
+4. Failure path (S3 throws) logs and doesn't crash silently
 
-15. **Playwright e2e for the viewer voting/request flow** against a seeded show, including the `SWAP_CP` true/false branch. ~1 week.
-16. **GraalVM native test target in CI** for all 6 native services. ~1 week to set up a reusable workflow snippet.
-17. **Pact or Spring Cloud Contract** between `plugins-api` ↔ FPP plugin, and between `viewer` ↔ `control-panel`. The biggest unmodelled risk in the stack. ~2 weeks.
-18. **k6 / Gatling load test for viewer** with a CI baseline (P95, error rate). ~1 week (the `remote-falcon-data` repo already has a k6 starting point).
-19. **Vitest + `@testing-library/react` + MSW** component tests for the four highest-risk control-panel screens (Sequences editor, Requests/Votes config, Pages/Monaco editor, Account email change). ~1 week.
-20. **A11y smoke** via `@axe-core/playwright` on landing, sign-in, sign-up, viewer, and 3 CP screens. ~3 days.
-21. **Mutation testing (Pitest)** on `GraphQLMutationService` (viewer) and `PluginService` (plugins-api). Reveals whether the existing assertions are real or shallow. ~1 week.
-22. **Migrate UI `.jsx` → `.tsx` incrementally** with `tsconfig.json` strict mode, starting with `src/utils/` and `src/services/`. The `typescript` dep is already there but does nothing today. Multi-week.
+Pattern to copy when adding a new Quarkus service test:
+
+```java
+@QuarkusTest
+@TestProfile(MongoBackupServiceTest.Profile.class)
+class MongoBackupServiceTest {
+
+    @Container
+    static MongoDBContainer mongo = new MongoDBContainer("mongo:7");
+
+    @Container
+    static LocalStackContainer localstack =
+        new LocalStackContainer(DockerImageName.parse("localstack/localstack:3"))
+            .withServices(S3);
+
+    @Inject MongoBackupService service;
+
+    @Test
+    void writes_dump_to_s3_with_dated_key() {
+        // ... arrange via testcontainers, act via service.run(), assert S3 client saw PutObject
+    }
+}
+```
+
+Run a single Quarkus service test:
+```bash
+cd apps/mongo-backup
+./gradlew test --tests "MongoBackupServiceTest.writes_dump_to_s3_with_dated_key"
+```
+
+### Tier 2 — per-service unit/integration test (Spring)
+
+For a Spring service the entry pattern is `@SpringBootTest` + `MockMvc`. There's no Sprint 1 example yet (Sprint 2 lands the JWT/auth tests in [`apps/control-panel`](../apps/control-panel)). Until then, copy from public Spring Boot Test docs and use [`libs/test-fixtures`](../libs/test-fixtures) for `Show` / JWT construction:
+
+```java
+@SpringBootTest
+@AutoConfigureMockMvc
+class WebSecurityConfigTest {
+    @Autowired MockMvc mvc;
+
+    @Test
+    void unauthenticated_request_returns_401() throws Exception {
+        mvc.perform(get("/api/showInfo")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void valid_jwt_returns_200() throws Exception {
+        String token = JwtFactory.validToken("user@test.com");
+        mvc.perform(get("/api/showInfo").header("Authorization", "Bearer " + token))
+           .andExpect(status().isOk());
+    }
+}
+```
+
+### Tier 3 — schema round-trip test
+
+Example: [`libs/schema/src/test/java/com/remotefalcon/library/ShowSchemaRoundTripTest.java`](../libs/schema/src/test/java/com/remotefalcon/library/ShowSchemaRoundTripTest.java)
+
+This test serializes a canonical `Show` (built via [`ShowFactory.canonical()`](../libs/test-fixtures/src/main/java/com/remotefalcon/testfixtures/ShowFactory.java)) through Spring Data's `ObjectMapper`, deserializes through Quarkus's Jackson config, and asserts equality. Catches the dual-mapper drift class — a field that's `@JsonProperty("foo")` in one mapping and unannotated in the other will round-trip differently.
+
+To add a new schema entity to the round-trip:
+
+1. Add a factory in [`libs/test-fixtures`](../libs/test-fixtures) (e.g. `WattsonFactory.canonical()`)
+2. Add a `@Test` to `ShowSchemaRoundTripTest` that calls the new factory and asserts equality
+3. Run: `mvn -pl libs/schema -am test`
+
+> **Cycle warning:** `libs/test-fixtures` depends on `libs/schema`. Don't have `libs/schema/src/test/` use `ShowFactory` (would cycle). Build entities directly inside the schema module's tests.
+
+### Tier 4 — contract test placeholder
+
+Example: [`tests/contract/src/test/java/com/remotefalcon/contract/PluginsApiPlaceholderTest.java`](../tests/contract/src/test/java/com/remotefalcon/contract/PluginsApiPlaceholderTest.java)
+
+The Sprint 1 file proves the harness boots, the testcontainers stack starts, and CI's `test-contract` job runs. It asserts trivially.
+
+**Sprint 3 will replace this with real captured fixtures.** Procedure stub: [`tests/fixtures/plugin-requests/README.md`](../tests/fixtures/plugin-requests/README.md). The flow will be:
+
+1. Capture 3–5 real plugin requests from prod (PostHog server-side events or `plugins-api` access logs)
+2. Save as `tests/fixtures/plugin-requests/<endpoint>/<plugin-version>.json`
+3. `PluginsApiContractTest` (replacing the placeholder) launches the testcontainers `plugins-api` image, replays each captured request, and asserts the response matches the captured response
+
+Until then, the placeholder gates that the harness doesn't break.
+
+### Tier 5 — E2E smoke spec (Playwright)
+
+Example: [`tests/e2e/smoke/login.spec.ts`](../tests/e2e/smoke/login.spec.ts)
+
+The first real spec covers full sign-up → email-verify → log-in → see dashboard. Pattern:
+
+```ts
+import { test, expect } from '@playwright/test';
+import { faker } from '@faker-js/faker';
+
+test('user can sign up, verify, log in, see dashboard', async ({ page }) => {
+    const email = faker.internet.email();
+    await page.goto('/');
+    // ... drive the flow
+    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
+});
+```
+
+To add a new smoke spec:
+
+1. Drop a `.spec.ts` file in [`tests/e2e/smoke/`](../tests/e2e/smoke)
+2. Use `faker` for unique identifiers (avoids cross-spec collisions; the `globalSetup` clears Mongo only once)
+3. If the spec needs seed data, add a JSON to [`tests/fixtures/seed-shows/`](../tests/fixtures/seed-shows) — `tests/e2e/global-setup.ts` loads everything in that dir
+4. Run locally: `cd tests/e2e && npm run test:e2e:smoke`
+5. Author iteratively: `cd tests/e2e && npm run test:e2e:ui` (Playwright UI mode — clickable steps, time-travel debugging)
+
+**Smoke specs block deploy.** Keep them <30s each, ~5 specs total. Larger flows go in [`tests/e2e/regression/`](../tests/e2e) (Sprint 3 — nightly cron, doesn't block).
+
+### Tier extra — test fixtures (Object Mother + Builder)
+
+Examples:
+- [`libs/test-fixtures/src/main/java/com/remotefalcon/testfixtures/ShowFactory.java`](../libs/test-fixtures/src/main/java/com/remotefalcon/testfixtures/ShowFactory.java)
+- [`libs/test-fixtures/src/main/java/com/remotefalcon/testfixtures/JwtFactory.java`](../libs/test-fixtures/src/main/java/com/remotefalcon/testfixtures/JwtFactory.java)
+
+Use these in any service test that needs a `Show` or JWT. Three usage patterns:
+
+```java
+// 90% of the time — canonical, no customization
+Show show = ShowFactory.canonical();
+
+// One field tweaked
+Show show = ShowFactory.builder().email("specific@test.com").build();
+
+// Nested factory customization
+Show show = ShowFactory.builder()
+    .preferences(PreferencesFactory.builder().geoFenceEnabled(true).build())
+    .build();
+```
+
+**Ground rules** (don't break these without a discussion):
+
+- Factories return *fresh* instances every call — never share mutable fixtures across tests.
+- No assertion helpers in `libs/test-fixtures` — only construction. Service-specific assertion logic stays in the service's own test classpath.
+- No service-specific factories here — only entities from `libs/schema/`. Service-specific request/response DTOs get factories inside the service's own `src/test/`.
+
+**Adding a new factory:** Put it in `libs/test-fixtures/src/main/java/...` (note: `src/main/`, not `src/test/` — fixtures need to be exportable to other modules' test classpaths). Each consumer adds the dep with `<scope>test</scope>`. See [PHASE-C-KICKOFF.md § 5](PHASE-C-KICKOFF.md#5-test-data-strategy--libstest-fixtures--testsfixtures) for rationale.
+
+**JWT key drift detection:** [`TestSecretsDriftTest`](../libs/test-fixtures/src/test/java/com/remotefalcon/testfixtures/TestSecretsDriftTest.java) asserts that [`TestSecrets.JWT_KEY`](../libs/test-fixtures/src/main/java/com/remotefalcon/testfixtures/TestSecrets.java) matches every service's `application-test.yml` default. If you add a service with JWT auth, add it to the enumeration in that drift test or you'll get a silent gap.
 
 ---
 
-## Recommended initial targets
+## Coverage thresholds per service
 
-If you can only pick **three things this month**, pick:
+These are Sprint 1 floors — set deliberately low so they pass *today* and ratchet up after each sprint as real coverage lands. The goal is "lock in progress, prevent regression" not "block work."
 
-1. **Add a CI test step to every repo** (Phase 1.1). Without this, every other test investment is optional.
-2. **Test `MongoBackupService`** (Phase 2.8). Silent backup failure is the only bug class that destroys data permanently.
-3. **End-to-end JWT flow test in control-panel** (Phase 2.10). The auth surface for the entire authenticated stack has zero coverage today.
-
----
-
-## Where new tests should live (per stack)
-
-| Stack | Location | Framework | First test to add |
+| Service | Sprint 1 floor | Sprint 3 target | How it's enforced |
 |---|---|---|---|
-| Quarkus (Gradle) | `src/test/java/.../<svc>` | `quarkus-junit5` + `rest-assured` + testcontainers Mongo *(already wired in viewer/plugins-api)* | Service-layer Mockito test |
-| Spring Boot (Maven) | `src/test/java/.../<svc>` | `spring-boot-starter-test` + `spring-security-test` *(add)* + WireMock *(already wired)* + testcontainers | `@WebMvcTest` controller test or `@DataMongoTest` repo test |
-| Spring Cloud Gateway | `src/test/java/.../gateway` | `WebTestClient` from `spring-boot-starter-test` | One assertion per YAML route |
-| UI | `src/__tests__/` (unit) + `e2e/` (Playwright, replacing Cypress) | Vitest + `@testing-library/react` + MSW | `route-guard/helpers/helpers.jsx` (`SWAP_CP` branching) |
+| `apps/viewer` | 60% line / 60% branch | 70% / 65% | JaCoCo `<rules>` in [`build.gradle`](../apps/viewer/build.gradle) |
+| `apps/plugins-api` | 60% line / 60% branch | 70% / 65% | JaCoCo `<rules>` in [`build.gradle`](../apps/plugins-api/build.gradle) |
+| `apps/mongo-backup` | 80% line on `*.service.*` | 80% | JaCoCo, scoped to service classes |
+| `apps/account-archive` | 0% | 80% line on service classes | Sprint 2 |
+| `apps/control-panel` | 0% | 50% / 40% | Sprint 2 (JWT/auth tests lift it) |
+| `apps/external-api` | 0% | 50% / 40% | Sprint 2 |
+| `apps/gateway` | (skip) | (skip) | 1 source class, mostly framework wiring |
+| `apps/ui` | 0% | 30% line | Sprint 2 (Vitest); e2e covers most paths anyway |
+
+**Ratchet rule:** at the end of each sprint, raise each service's floor to wherever current coverage actually sits, minus a 2-point buffer for noise. Lock in progress; don't try to forecast.
+
+**No SonarCloud.** JaCoCo HTML reports do 95% of what Sonar's coverage view does. Restore Sonar later if we miss the trend dashboard.
 
 ---
 
-*Next step suggestion: start with Phase 1.1 (CI test gating) — it's the smallest change with the largest cultural shift, and it makes every subsequent investment compound.*
+## Local dev workflow
+
+All commands are from the monorepo root unless noted.
+
+### Per-service tests
+
+| Service stack | Command |
+|---|---|
+| Maven (Spring) | `mvn -pl apps/<service> -am test` |
+| Gradle (Quarkus) | `cd apps/<service> && ./gradlew test` |
+| UI | `cd apps/ui && npm test` (Vitest, post-Sprint-2) |
+
+Single-test run:
+- Maven: `mvn -pl apps/<service> -Dtest=ClassName#method test`
+- Gradle: `cd apps/<service> && ./gradlew test --tests "ClassName.method"`
+
+### Schema, fixtures, contract — Maven multi-module
+
+```bash
+mvn -pl libs/schema,libs/test-fixtures,tests/contract -am test
+```
+
+Or one at a time:
+
+```bash
+mvn -pl libs/schema -am test
+mvn -pl libs/test-fixtures -am test
+mvn -pl tests/contract -am test
+```
+
+`-am` ("also-make") builds the upstream modules `libs/test-fixtures` depends on (`libs/schema`).
+
+### E2E — Playwright
+
+Bring up the local stack, then run smoke specs:
+
+```bash
+./ops/dev-up.sh up --core
+cd tests/e2e
+npm run test:e2e:smoke
+```
+
+`--core` brings up gateway + control-panel + viewer + plugins-api + mongo + ui (the surfaces the smoke specs hit). Skips `mongo-backup` and `account-archive` to shave ~2 min off cold start.
+
+Authoring iteratively (Playwright UI — clickable test runner with time-travel debugging):
+
+```bash
+cd tests/e2e
+npm run test:e2e:ui
+```
+
+Targeting one spec:
+
+```bash
+cd tests/e2e
+npx playwright test smoke/login.spec.ts
+```
+
+### Health-check shortcut
+
+```bash
+./ops/dev-up.sh health
+```
+
+Hits every service's health endpoint; non-200 fails the script. The CI `test-e2e` job runs this before invoking Playwright.
+
+---
+
+## CI workflow
+
+Three test jobs run in parallel on every PR and every push to `main`:
+
+```
+detect ─┬─→ test-unit (matrix: per service)  ─┐
+        ├─→ test-contract                     ├─→ deploy
+        └─→ test-e2e                          ─┘
+```
+
+Source: [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml). The reusable per-service test workflow lives at [`.github/workflows/_test-service.yml`](../.github/workflows/_test-service.yml).
+
+### Triggers
+
+| Event | What runs |
+|---|---|
+| `pull_request` to `main` | All 3 test jobs. `deploy` does not run. |
+| `push` to `main` | All 3 test jobs gate `deploy`. |
+| `workflow_dispatch` (manual) | `test-unit` + `test-contract` only. `test-e2e` skipped (5–10 min stack bring-up not worth it for ad-hoc deploys). |
+
+### Job behavior
+
+- **`test-unit`** runs as a matrix per service. A broken test in one service blocks only that service's deploy lane, not the whole matrix.
+- **`test-contract`** runs the schema round-trip and external plugin contract tests. A failure here blocks *all* deploys — wire-format or schema breaks are global.
+- **`test-e2e`** brings up the full stack via `./ops/dev-up.sh up`, runs `./ops/dev-up.sh health`, then runs Playwright smoke. Failure blocks all deploys.
+
+### Emergency override — `skip_tests`
+
+A boolean `workflow_dispatch` input on `deploy.yml`. Default `false`. Set `true` only when:
+
+- Test infrastructure itself is broken (Docker registry outage, GHA runner issue) **and** you must hotfix prod.
+- The fix you're shipping has been validated locally.
+
+Logged loudly in the workflow run summary. Don't make this a habit.
+
+### Failure artifacts
+
+- **Playwright HTML reports** auto-upload on `test-e2e` failure to GitHub Actions Artifacts as `playwright-report-<run-id>` with **14-day retention**. Open the report in a browser to see screenshots, video, and full traces of every failed step.
+- **JaCoCo HTML reports** are NOT auto-uploaded today (Sprint 2 may add). For now, run `./gradlew jacocoTestReport` locally and open `apps/<svc>/build/reports/jacoco/test/html/index.html`.
+
+### Retry policy
+
+Playwright runs with `retries: 2` in CI (most flakes resolve by retry 2; real bugs fail all 3) and `retries: 0` locally. `trace: on-first-retry` keeps green-run artifact size bounded but produces full diagnostics on red.
+
+---
+
+## What's NOT in Sprint 1 — see kickoff doc for the rest
+
+Sprint 1 deliberately ships the *foundation* + one real test in each tier. Everything else is in Sprint 2 / 3. Cross-references:
+
+### Sprint 2 — see [PHASE-C-KICKOFF.md § 8](PHASE-C-KICKOFF.md#8-sprint-2--high-risk-service-tests-ui-vitest-cleanup-1-week)
+
+- `AccountArchiveServiceTest` (same shape as `MongoBackupServiceTest`)
+- Control-panel JWT / auth end-to-end test (the entire authenticated surface today has zero coverage)
+- Retention cron tests — unit on `purgeStatsForShow(Show)`, testcontainers on `purgeStaleStatsForAllShows`
+- `findByEmailCollation` query construction test (the regression class behind PR #73)
+- UI Vitest scaffolding + first 2–3 component/hook unit tests
+- UI env-var boot assertion (throws on missing required `VITE_*`)
+- Cypress → Playwright migration: delete the 2 legacy Cypress specs (`landing.cy.js`, `signup.cy.js`); `login.spec.ts` covers same ground
+- C2 cleanup: delete 4k LOC of commented-out tests in `apps/control-panel` and `apps/external-api`
+- Coverage threshold ratchet — lift floors to current actuals
+
+### Sprint 3 — see [PHASE-C-KICKOFF.md § 9](PHASE-C-KICKOFF.md#9-sprint-3--contract-tests-regression-e2e-post-deploy-smoke-35-days)
+
+- Real plugin contract tests (capture 3–5 real plugin requests from prod, replay against testcontainers `plugins-api`)
+- Cross-service control-panel ↔ viewer schema integration test
+- Regression e2e tier: grow `tests/e2e/regression/` to ~20 specs (sequence editor, votes/requests config, account email change, page editor)
+- `nightly-regression.yml` workflow — cron + manual dispatch, files an issue on failure
+- Post-deploy smoke + auto-rollback (split `deploy` into "build/push" + "apply/rollout"; smoke hits health + 1 critical path; failure triggers `kubectl rollout undo`)
+- Firefox + WebKit added to Playwright project matrix
+
+### Out of Phase C entirely
+
+- Mutation testing (Pitest) on `GraphQLMutationService` (viewer) and `PluginService` (plugins-api)
+- A11y smoke via `@axe-core/playwright`
+- k6 / Gatling load tests (the [`remote-falcon-data`](../../remote-falcon-data) and [`remote-falcon-load-tests`](../../remote-falcon-load-tests) repos already have starting points)
+- GraalVM native-image test target in CI for the 6 native services
+- Anonymized prod data fixtures (faker covers ~95% today; revisit when a specific bug class motivates real data)
+
+---
+
+## Gotchas & FAQ
+
+### "I added a new service. How do I wire it into CI?"
+
+1. Add it to the `detect` job's service list in [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml).
+2. Make sure its build command (Gradle or Maven) is in [`.github/workflows/_test-service.yml`](../.github/workflows/_test-service.yml).
+3. Add a JaCoCo `<rules>` block to its build file even if floor is 0% — establishes the gate so future ratchets are mechanical.
+4. If it has JWT auth, add it to the enumeration in [`TestSecretsDriftTest`](../libs/test-fixtures/src/test/java/com/remotefalcon/testfixtures/TestSecretsDriftTest.java).
+
+### "My test passes locally but fails in CI."
+
+Most common causes, in order of likelihood:
+
+1. **Flaky timing in Playwright.** `retries: 2` should mask it; if all 3 fail in CI but pass locally, suspect a race that the slower CI runner exposes. Add `await expect(...).toBeVisible()` waits, not `setTimeout`.
+2. **Testcontainers + GHA Docker-in-Docker.** Edge cases with networking. Make sure container ports use `getMappedPort()`, not hardcoded values.
+3. **Missing env var.** Locally you might have a `.env` Docker Compose loaded; CI doesn't. Check `application-test.yml` defaults.
+4. **`globalSetup` race.** Mongo briefly unready post-health-check. The setup should retry on connection failure with backoff.
+
+### "I want to write a test that uses a real production payload."
+
+Defer. Faker-driven canonical fixtures cover ~95% of test scenarios. If a specific bug class motivates anonymized prod data, capture the minimal slice as a JSON fixture in [`tests/fixtures/`](../tests/fixtures), strip PII, commit. Don't build a general anonymization pipeline yet.
+
+### "Where does the e2e Mongo seed data come from?"
+
+[`tests/e2e/global-setup.ts`](../tests/e2e/global-setup.ts) connects to the dev-stack Mongo (`localhost:27017`) before any spec runs. It clears the `show` collection and loads every JSON file in [`tests/fixtures/seed-shows/`](../tests/fixtures/seed-shows). Mutation specs use unique faker-generated identifiers to avoid colliding with each other (the seed only runs once per test session).
+
+### "How do I disable a flaky test?"
+
+Three escalation tiers — start at 1, only move up if needed:
+
+1. **First-class** (default). 2 retries handle most flakes.
+2. **Quarantined** — tag with `@flaky`, runs in nightly only, files issue on failure. Move criteria: 3 retry-passes-but-fails-in-a-row in 7 days.
+3. **Skipped** — `test.skip(...)` with linked tracker issue. Move criteria: quarantine fails to stabilize within 2 weeks.
+
+Don't pre-build the quarantine machinery; add it the first time you need it.
+
+### "Can I add a new test framework?"
+
+Probably not. The five frameworks above (JUnit, Quarkus Test, Spring Boot Test, Vitest, Playwright) cover every existing surface. Adding one is a discussion, not a unilateral decision — a sixth framework means a sixth mental model, a sixth set of CI plumbing, and a sixth thing to keep upgraded. Make the case in a kickoff doc first.
+
+---
+
+*If you change something that affects this doc — adding a service, restructuring CI jobs, changing coverage floors, moving file paths — update this doc in the same change. Stale ops docs are worse than no ops docs.*
