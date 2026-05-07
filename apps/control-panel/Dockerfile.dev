@@ -15,15 +15,25 @@ COPY libs/schema/pom.xml .
 COPY libs/schema/src ./src
 RUN mvn install -DskipTests -B
 
+# libs/test-fixtures: control-panel's pom.xml declares it as a test-scope dep.
+# Even with -Dmaven.test.skip=true, Maven still resolves the full dep tree and
+# fails if test-fixtures isn't reachable. Install it into mavenLocal so the
+# subsequent build can resolve it (then ignore it via -Dmaven.test.skip=true).
+FROM maven:3-eclipse-temurin-17 AS test-fixtures-build
+WORKDIR /lib
+COPY --from=schema-build /root/.m2/repository /root/.m2/repository
+COPY libs/test-fixtures/pom.xml .
+COPY libs/test-fixtures/src ./src
+RUN mvn install -DskipTests -B
+
 FROM maven:3-eclipse-temurin-21 AS build
 WORKDIR /usr/src/app
-COPY --from=schema-build /root/.m2/repository /root/.m2/repository
+COPY --from=test-fixtures-build /root/.m2/repository /root/.m2/repository
 COPY apps/control-panel/pom.xml .
 COPY apps/control-panel/src ./src
-# -Dmaven.test.skip=true (not -DskipTests) so test-scope deps aren't resolved
-# during the build. control-panel now has libs/test-fixtures + testcontainers
-# in test scope; resolving them here would require installing libs/test-fixtures
-# into mavenLocal first. Tests run in CI's test-unit job, not here.
+# -Dmaven.test.skip=true skips test compile + execution; mavenLocal contains
+# libs/schema + libs/test-fixtures so resolution still succeeds. Tests run
+# in CI's test-unit job, not here.
 RUN mvn -Dmaven.test.skip=true package
 
 FROM eclipse-temurin:21-jre

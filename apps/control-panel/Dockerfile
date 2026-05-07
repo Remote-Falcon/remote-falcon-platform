@@ -15,17 +15,29 @@ COPY libs/schema/pom.xml .
 COPY libs/schema/src ./src
 RUN mvn install -DskipTests -B
 
-# Stage 1: GraalVM 21 native build for the service, inheriting the schema jar.
+# Stage 0b: build libs/test-fixtures on the same JDK 17. control-panel's pom.xml
+# declares it as a test-scope dep; even with -Dmaven.test.skip=true, Maven still
+# resolves the full dep tree and fails if test-fixtures isn't reachable. Install
+# it into mavenLocal so the subsequent native build can resolve it (then ignore
+# it via -Dmaven.test.skip=true).
+FROM maven:3-eclipse-temurin-17 AS test-fixtures-build
+WORKDIR /lib
+COPY --from=schema-build /root/.m2/repository /root/.m2/repository
+COPY libs/test-fixtures/pom.xml .
+COPY libs/test-fixtures/src ./src
+RUN mvn install -DskipTests -B
+
+# Stage 1: GraalVM 21 native build for the service, inheriting the schema +
+# test-fixtures jars from mavenLocal.
 FROM ghcr.io/graalvm/native-image-community:21 AS build
 WORKDIR /usr/src/app
 RUN microdnf install -y maven && microdnf clean all
-COPY --from=schema-build /root/.m2/repository /root/.m2/repository
+COPY --from=test-fixtures-build /root/.m2/repository /root/.m2/repository
 COPY apps/control-panel/pom.xml .
 COPY apps/control-panel/src ./src
-# -Dmaven.test.skip=true (not -DskipTests) so test-scope deps aren't resolved
-# here. control-panel now has libs/test-fixtures + testcontainers in test
-# scope; resolving them in this build context would require installing
-# libs/test-fixtures into mavenLocal first. Tests run in CI's test-unit job.
+# -Dmaven.test.skip=true skips test compile + execution; mavenLocal contains
+# libs/schema + libs/test-fixtures so resolution still succeeds. Tests run
+# in CI's test-unit job, not here.
 RUN mvn -Pnative -Dmaven.test.skip=true package
 
 FROM registry.access.redhat.com/ubi9/ubi-minimal:9.2

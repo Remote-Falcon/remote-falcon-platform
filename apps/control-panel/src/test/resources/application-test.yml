@@ -36,10 +36,14 @@ spring:
     mongodb:
       database: ${MONGO_DATABASE:remote-falcon-test}
 
-# JWT signing key used by AuthUtil. Default value MUST match
-# libs/test-fixtures' TestSecrets.JWT_KEY.
+# JWT signing keys.
+# - jwt.user: control-panel HMAC key. Default MUST match
+#   libs/test-fixtures' TestSecrets.JWT_KEY (drift-detected by TestSecretsDriftTest).
+# - jwt.viewer: separate key consumed by viewer-side endpoints; placeholder is fine
+#   for tests that don't exercise the viewer surface.
 jwt:
   user: ${JWT_USER:test-jwt-must-be-256-bits-long-padding-padding-padding-padding}
+  viewer: test-viewer-jwt-key
 
 # S3ClientConfig throws on a blank endpoint; supply a harmless placeholder.
 s3:
@@ -66,6 +70,14 @@ auto-validate-email: false
 expo-push-url: http://expo.test.local
 web:
   url: http://test.local
+sendgrid:
+  key: test-sendgrid-key
+  template:
+    sign-up: test
+    forgot-password: test
+    request-api-access: test
+client:
+  header: X-Forwarded-For
 
 mailersend:
   template-ids:
