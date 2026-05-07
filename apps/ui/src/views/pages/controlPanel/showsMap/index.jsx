@@ -144,7 +144,18 @@ const ShowsMap = () => {
     if (value) {
       let showLatitude = show?.preferences?.showLatitude;
       let showLongitude = show?.preferences?.showLongitude;
-      if (showLatitude === null || showLongitude === null) {
+      const hasValidExistingCoords =
+        Number.isFinite(showLatitude) &&
+        Number.isFinite(showLongitude) &&
+        !(showLatitude === 0 && showLongitude === 0);
+      if (!hasValidExistingCoords) {
+        if (detectedLocation.lat === 0 || detectedLocation.long === 0) {
+          showAlert(dispatch, {
+            alert: 'warning',
+            message: 'Location cannot be accurately detected. Please enable location services and try again.'
+          });
+          return;
+        }
         showLatitude = detectedLocation.lat;
         showLongitude = detectedLocation.long;
       }
