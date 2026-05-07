@@ -25,7 +25,7 @@ ARG OTEL_URI
 ENV MONGO_URI=${MONGO_URI}
 ENV OTEL_URI=${OTEL_URI}
 
-RUN ./gradlew clean build -Dquarkus.native.enabled=true \
+RUN ./gradlew clean build -x test -Dquarkus.native.enabled=true \
     -Dquarkus.native.container-build=false \
     -Dquarkus.native.builder-image=graalvm \
     -Dquarkus.native.container-runtime=docker \
