@@ -41,10 +41,13 @@ For the full local stack (UI + every backend + Mongo behind the prod-shaped ingr
 
 ## Testing
 
-- **Cypress**: 2 specs (`landing.cy.js`, signup) covering pre-auth pages only
-- **Vitest / RTL / Playwright**: not yet wired
+- **Vitest + React Testing Library**: unit/component tests in `src/**/*.test.{ts,tsx,js,jsx}`
+  - `npm run test:unit -- --run` — single CI-style run
+  - `npm run test:unit:watch` — watch mode
+  - `npm run test:unit:coverage -- --run` — emit `coverage/` (text + html + lcov)
+- **Playwright**: end-to-end tests live at the repo root in `tests/e2e/` (replaces the previous Cypress setup)
 
-The component-level testing gap is tracked in the consolidation plan (UI test pyramid, Phase C).
+Coverage thresholds are currently set to 0% (Sprint 2 floor) — they exist to surface real numbers in CI and will be ratcheted up in Sprint 3.
 
 ## Key directories
 

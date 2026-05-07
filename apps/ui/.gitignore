@@ -31,6 +31,7 @@ chrome-user-data
 
 # testing
 /coverage
+.vitest/
 
 # production
 /build

@@ -19,6 +19,34 @@ import { store } from './store';
 import './assets/scss/style.scss';
 import { Environments } from './utils/enum';
 
+// Required VITE_* env vars: bundle is broken without these. Surfaces
+// build-time misconfiguration as a loud console error rather than a silent
+// runtime degrade. See docs/PHASE-C-KICKOFF.md § 7 (item C8).
+const REQUIRED_ENV = [
+  'VITE_CONTROL_PANEL_API',
+  'VITE_VIEWER_API',
+  'VITE_VIEWER_JWT_KEY',
+  'VITE_HOSTNAME_PARTS'
+];
+
+const missingEnv = REQUIRED_ENV.filter((key) => {
+  const value = import.meta.env[key];
+  return value === undefined || value === '' || value === 'undefined';
+});
+
+if (missingEnv.length > 0) {
+  const message =
+    `Remote Falcon UI: required build-time env vars are missing or empty: ${missingEnv.join(', ')}. ` +
+    'The bundle was built without these values, which means the workflow ' +
+    "is missing the corresponding secrets or the build-args weren't passed. " +
+    'Check the GitHub Actions deploy workflow + org-level secret access.';
+  // eslint-disable-next-line no-console
+  console.error(message);
+  // Throw: prevents the React tree from mounting against a broken config.
+  // Browser surfaces the error; ops sees it in PostHog error tracking.
+  throw new Error(message);
+}
+
 const posthogOptions = {
   api_host: 'https://us.i.posthog.com',
   person_profiles: 'identified_only'
