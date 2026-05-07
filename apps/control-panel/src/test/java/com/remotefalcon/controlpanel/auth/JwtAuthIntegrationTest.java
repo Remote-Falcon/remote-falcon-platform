@@ -21,10 +21,10 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.time.Duration;
 import java.util.List;
 
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -139,88 +139,66 @@ class JwtAuthIntegrationTest {
     }
 
     // ------------------------------------------------------------------
-    // Negative paths: AccessAspect throws RuntimeException(INVALID_JWT)
-    // when AuthUtil rejects the token. Because AccessAspect runs as AOP
-    // BEFORE the controller method, the exception bypasses Spring MVC's
-    // exception resolver chain and bubbles all the way up to MockMvc's
-    // perform() call as a NestedServletException with the original
-    // RuntimeException as cause.
-    //
-    // The contract under test is "rejected requests do not reach the
-    // controller body" — we assert that contract by catching the
-    // exception and verifying the cause is INVALID_JWT. If a future
-    // commit adds a @ControllerAdvice mapping INVALID_JWT to 401/403,
-    // these tests should be re-shaped to assert on the response status.
+    // Negative paths: AccessAspect throws InvalidJwtException when
+    // AuthUtil rejects the token. InvalidJwtExceptionHandler maps it
+    // to HTTP 401 with body { errorType: "INVALID_JWT" }.
     // ------------------------------------------------------------------
 
-    /** Asserts the request was rejected at the auth layer with INVALID_JWT. */
-    private void assertRejectedAsInvalidJwt(Runnable mockMvcCall) {
-        assertThatThrownBy(mockMvcCall::run)
-                .rootCause()
-                .isInstanceOf(RuntimeException.class)
-                .hasMessage("INVALID_JWT");
+    /** Asserts the request was rejected at the auth layer with HTTP 401 + INVALID_JWT body. */
+    private void assertRejectedAsInvalidJwt(MockMvcCall mockMvcCall) throws Exception {
+        mockMvcCall.run()
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.errorType").value("INVALID_JWT"));
+    }
+
+    @FunctionalInterface
+    private interface MockMvcCall {
+        org.springframework.test.web.servlet.ResultActions run() throws Exception;
     }
 
     @Test
-    void protectedEndpoint_rejects_withoutAuthorizationHeader() {
-        assertRejectedAsInvalidJwt(() -> {
-            try { mockMvc.perform(get(PROTECTED_ENDPOINT)); }
-            catch (Exception e) { throw new RuntimeException(e); }
-        });
+    void protectedEndpoint_rejects_withoutAuthorizationHeader() throws Exception {
+        assertRejectedAsInvalidJwt(() -> mockMvc.perform(get(PROTECTED_ENDPOINT)));
     }
 
     @Test
-    void protectedEndpoint_rejects_withEmptyBearerToken() {
-        assertRejectedAsInvalidJwt(() -> {
-            try { mockMvc.perform(get(PROTECTED_ENDPOINT).header("Authorization", "Bearer ")); }
-            catch (Exception e) { throw new RuntimeException(e); }
-        });
+    void protectedEndpoint_rejects_withEmptyBearerToken() throws Exception {
+        assertRejectedAsInvalidJwt(() -> mockMvc.perform(get(PROTECTED_ENDPOINT)
+                .header("Authorization", "Bearer ")));
     }
 
     @Test
-    void protectedEndpoint_rejects_withMalformedToken() {
-        assertRejectedAsInvalidJwt(() -> {
-            try { mockMvc.perform(get(PROTECTED_ENDPOINT)
-                    .header("Authorization", "Bearer " + JwtFactory.malformed())); }
-            catch (Exception e) { throw new RuntimeException(e); }
-        });
+    void protectedEndpoint_rejects_withMalformedToken() throws Exception {
+        assertRejectedAsInvalidJwt(() -> mockMvc.perform(get(PROTECTED_ENDPOINT)
+                .header("Authorization", "Bearer " + JwtFactory.malformed())));
     }
 
     @Test
-    void protectedEndpoint_rejects_withGarbageToken() {
-        assertRejectedAsInvalidJwt(() -> {
-            try { mockMvc.perform(get(PROTECTED_ENDPOINT)
-                    .header("Authorization", "Bearer not-a-real-jwt")); }
-            catch (Exception e) { throw new RuntimeException(e); }
-        });
+    void protectedEndpoint_rejects_withGarbageToken() throws Exception {
+        assertRejectedAsInvalidJwt(() -> mockMvc.perform(get(PROTECTED_ENDPOINT)
+                .header("Authorization", "Bearer not-a-real-jwt")));
     }
 
     @Test
-    void protectedEndpoint_rejects_withExpiredToken() {
+    void protectedEndpoint_rejects_withExpiredToken() throws Exception {
         String token = JwtFactory.expiredControlPanel(
                 "expired-token", "expired@example.com", "expired-show", "USER");
-        assertRejectedAsInvalidJwt(() -> {
-            try { mockMvc.perform(get(PROTECTED_ENDPOINT)
-                    .header("Authorization", "Bearer " + token)); }
-            catch (Exception e) { throw new RuntimeException(e); }
-        });
+        assertRejectedAsInvalidJwt(() -> mockMvc.perform(get(PROTECTED_ENDPOINT)
+                .header("Authorization", "Bearer " + token)));
     }
 
     @Test
-    void protectedEndpoint_rejects_withWrongIssuer() {
+    void protectedEndpoint_rejects_withWrongIssuer() throws Exception {
         // AuthUtil#isJwtValid builds the verifier with .withIssuer("remotefalcon"),
         // so a token signed with the right key but the wrong issuer is rejected.
         String token = JwtFactory.wrongIssuerControlPanel(
                 "wrong-iss", "wi@example.com", "wi-show", "USER");
-        assertRejectedAsInvalidJwt(() -> {
-            try { mockMvc.perform(get(PROTECTED_ENDPOINT)
-                    .header("Authorization", "Bearer " + token)); }
-            catch (Exception e) { throw new RuntimeException(e); }
-        });
+        assertRejectedAsInvalidJwt(() -> mockMvc.perform(get(PROTECTED_ENDPOINT)
+                .header("Authorization", "Bearer " + token)));
     }
 
     @Test
-    void protectedEndpoint_rejects_tokenSignedWithWrongKey() {
+    void protectedEndpoint_rejects_tokenSignedWithWrongKey() throws Exception {
         // Token signed with a different (but length-valid) HMAC key is rejected
         // at signature-verification time. We mint via the io.jsonwebtoken stack
         // directly here so we don't need a separate "wrong key" factory method.
@@ -237,21 +215,15 @@ class JwtAuthIntegrationTest {
                         "totally-different-256-bit-key-padding-padding-padding".getBytes()),
                         io.jsonwebtoken.Jwts.SIG.HS256)
                 .compact();
-        assertRejectedAsInvalidJwt(() -> {
-            try { mockMvc.perform(get(PROTECTED_ENDPOINT)
-                    .header("Authorization", "Bearer " + token)); }
-            catch (Exception e) { throw new RuntimeException(e); }
-        });
+        assertRejectedAsInvalidJwt(() -> mockMvc.perform(get(PROTECTED_ENDPOINT)
+                .header("Authorization", "Bearer " + token)));
     }
 
     @Test
-    void protectedEndpoint_rejects_basicAuthInsteadOfBearer() {
+    void protectedEndpoint_rejects_basicAuthInsteadOfBearer() throws Exception {
         // AuthUtil#getTokenFromRequest only extracts on a "Bearer" prefix; a
         // Basic-auth header therefore yields an empty token and is rejected.
-        assertRejectedAsInvalidJwt(() -> {
-            try { mockMvc.perform(get(PROTECTED_ENDPOINT)
-                    .header("Authorization", "Basic dXNlcjpwYXNz")); }
-            catch (Exception e) { throw new RuntimeException(e); }
-        });
+        assertRejectedAsInvalidJwt(() -> mockMvc.perform(get(PROTECTED_ENDPOINT)
+                .header("Authorization", "Basic dXNlcjpwYXNz")));
     }
 }

@@ -1,6 +1,6 @@
 package com.remotefalcon.controlpanel.aop;
 
-import com.remotefalcon.library.enums.StatusResponse;
+import com.remotefalcon.controlpanel.exception.InvalidJwtException;
 import com.remotefalcon.controlpanel.util.AuthUtil;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
@@ -25,7 +25,7 @@ public class AccessAspect {
       if(this.authUtil.isJwtValid(request)) {
         return proceedingJoinPoint.proceed();
       }
-      throw new RuntimeException(StatusResponse.INVALID_JWT.name());
+      throw new InvalidJwtException();
     } finally {
       this.authUtil.clearTokenDTO();
     }
@@ -38,7 +38,7 @@ public class AccessAspect {
       if(this.authUtil.isAdminJwtValid(request)) {
         return proceedingJoinPoint.proceed();
       }
-      throw new RuntimeException(StatusResponse.INVALID_JWT.name());
+      throw new InvalidJwtException();
     } finally {
       this.authUtil.clearTokenDTO();
     }

@@ -9,8 +9,8 @@ import com.auth0.jwt.exceptions.JWTVerificationException;
 import com.auth0.jwt.interfaces.DecodedJWT;
 import com.remotefalcon.library.documents.Show;
 import com.remotefalcon.controlpanel.dto.TokenDTO;
+import com.remotefalcon.controlpanel.exception.InvalidJwtException;
 import com.remotefalcon.library.enums.ShowRole;
-import com.remotefalcon.library.enums.StatusResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -70,7 +70,7 @@ public class AuthUtil {
               .build();
       return setTokenDTO(tokenDTO);
     }catch (JWTDecodeException jde) {
-      throw new RuntimeException(StatusResponse.INVALID_JWT.name());
+      throw new InvalidJwtException();
     }
   }
 
@@ -78,7 +78,7 @@ public class AuthUtil {
     try {
       String token = this.getTokenFromRequest(httpServletRequest);
       if (StringUtils.isEmpty(token)) {
-        throw new RuntimeException(StatusResponse.INVALID_JWT.name());
+        throw new InvalidJwtException();
       }
       Algorithm algorithm = Algorithm.HMAC256(jwtSignKey);
       JWTVerifier verifier = JWT.require(algorithm).withIssuer("remotefalcon").build();
@@ -86,7 +86,7 @@ public class AuthUtil {
       setTokenDTO(getJwtPayload());
       return true;
     } catch (JWTVerificationException e) {
-      throw new RuntimeException(StatusResponse.INVALID_JWT.name());
+      throw new InvalidJwtException();
     }
   }
 
@@ -94,7 +94,7 @@ public class AuthUtil {
     try {
       String token = this.getTokenFromRequest(httpServletRequest);
       if (StringUtils.isEmpty(token)) {
-        throw new RuntimeException(StatusResponse.INVALID_JWT.name());
+        throw new InvalidJwtException();
       }
       Algorithm algorithm = Algorithm.HMAC256(jwtSignKey);
       JWTVerifier verifier = JWT.require(algorithm).withIssuer("remotefalcon").build();
@@ -102,7 +102,7 @@ public class AuthUtil {
       TokenDTO tokenDTO = setTokenDTO(getJwtPayload());
       return tokenDTO.getShowRole() == ShowRole.ADMIN;
     } catch (JWTVerificationException e) {
-      throw new RuntimeException(StatusResponse.INVALID_JWT.name());
+      throw new InvalidJwtException();
     }
   }
 
@@ -114,7 +114,7 @@ public class AuthUtil {
         token = authorization.split(" ")[1];
       }catch (Exception e) {
         log.error("Error getting token from request");
-        throw new RuntimeException(StatusResponse.INVALID_JWT.name());
+        throw new InvalidJwtException();
       }
     }
     return token;
@@ -150,7 +150,7 @@ public class AuthUtil {
   public TokenDTO getTokenDTO() {
     TokenDTO tokenDTO = tokenHolder.get();
     if(tokenDTO == null) {
-      throw new RuntimeException(StatusResponse.INVALID_JWT.name());
+      throw new InvalidJwtException();
     }
     return tokenDTO;
   }
