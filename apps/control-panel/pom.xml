@@ -178,12 +178,14 @@
         </dependency>
 
         <!--TESTING-->
-        <dependency>
-            <groupId>com.github.tomakehurst</groupId>
-            <artifactId>wiremock-standalone</artifactId>
-            <version>2.15.0</version>
-            <scope>test</scope>
-        </dependency>
+        <!--
+            wiremock-standalone removed: bundled SLF4J NOPLoggerFactory collided
+            with Spring Boot's Logback at test runtime, breaking ApplicationContext
+            load. It was leftover from the 4k lines of commented-out tests we
+            deleted in PR #12 (none of the current tests use it). If wiremock is
+            needed in the future, add 'wiremock' (non-standalone) or
+            'wiremock-standalone' with an exclusion on slf4j.
+        -->
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>testcontainers</artifactId>

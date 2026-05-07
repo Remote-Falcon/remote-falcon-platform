@@ -22,7 +22,11 @@ RUN microdnf install -y maven && microdnf clean all
 COPY --from=schema-build /root/.m2/repository /root/.m2/repository
 COPY apps/control-panel/pom.xml .
 COPY apps/control-panel/src ./src
-RUN mvn -Pnative -DskipTests package
+# -Dmaven.test.skip=true (not -DskipTests) so test-scope deps aren't resolved
+# here. control-panel now has libs/test-fixtures + testcontainers in test
+# scope; resolving them in this build context would require installing
+# libs/test-fixtures into mavenLocal first. Tests run in CI's test-unit job.
+RUN mvn -Pnative -Dmaven.test.skip=true package
 
 FROM registry.access.redhat.com/ubi9/ubi-minimal:9.2
 WORKDIR /usr/app

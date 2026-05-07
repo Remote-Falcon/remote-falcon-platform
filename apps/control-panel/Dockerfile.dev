@@ -20,7 +20,11 @@ WORKDIR /usr/src/app
 COPY --from=schema-build /root/.m2/repository /root/.m2/repository
 COPY apps/control-panel/pom.xml .
 COPY apps/control-panel/src ./src
-RUN mvn -DskipTests package
+# -Dmaven.test.skip=true (not -DskipTests) so test-scope deps aren't resolved
+# during the build. control-panel now has libs/test-fixtures + testcontainers
+# in test scope; resolving them here would require installing libs/test-fixtures
+# into mavenLocal first. Tests run in CI's test-unit job, not here.
+RUN mvn -Dmaven.test.skip=true package
 
 FROM eclipse-temurin:21-jre
 WORKDIR /usr/app
