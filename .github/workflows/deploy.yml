@@ -398,6 +398,41 @@ jobs:
         if: ${{ inputs.dry_run != true }}
         run: kubectl rollout status deployment/${{ steps.cfg.outputs.deployment }} --namespace ${{ env.NAMESPACE }} --timeout=5m
 
+      - name: Post-deploy verify
+        id: verify
+        if: ${{ inputs.dry_run != true }}
+        env:
+          DEPLOYMENT: ${{ steps.cfg.outputs.deployment }}
+          EXPECTED_IMAGE: ${{ steps.cfg.outputs.image }}
+          NS: ${{ env.NAMESPACE }}
+          SERVICE: ${{ matrix.service }}
+        run: |
+          set -euo pipefail
+          live_image=$(kubectl get deployment "$DEPLOYMENT" -n "$NS" -o jsonpath='{.spec.template.spec.containers[0].image}')
+          if [ "$live_image" != "$EXPECTED_IMAGE" ]; then
+            echo "::error::$SERVICE: image mismatch. expected=$EXPECTED_IMAGE live=$live_image"
+            exit 1
+          fi
+          ready=$(kubectl get deployment "$DEPLOYMENT" -n "$NS" -o jsonpath='{.status.readyReplicas}')
+          spec=$(kubectl get deployment "$DEPLOYMENT" -n "$NS" -o jsonpath='{.spec.replicas}')
+          if [ -z "$ready" ] || [ -z "$spec" ] || [ "$ready" != "$spec" ]; then
+            echo "::error::$SERVICE: partial scale-up. ready=${ready:-0} spec=${spec:-?}"
+            exit 1
+          fi
+          echo "::notice::Post-deploy verify passed for $SERVICE: image=$live_image ready=$ready/$spec"
+
+      - name: Auto-rollback on failure
+        if: ${{ failure() && steps.verify.conclusion == 'failure' && inputs.dry_run != true }}
+        env:
+          DEPLOYMENT: ${{ steps.cfg.outputs.deployment }}
+          NS: ${{ env.NAMESPACE }}
+          SERVICE: ${{ matrix.service }}
+        run: |
+          set -euo pipefail
+          kubectl rollout undo deployment/$DEPLOYMENT -n $NS
+          kubectl rollout status deployment/$DEPLOYMENT -n $NS --timeout=3m
+          echo "::error::$SERVICE: post-deploy verify failed; rolled back"
+
       - name: Dry-run summary
         if: ${{ inputs.dry_run == true }}
         env:
