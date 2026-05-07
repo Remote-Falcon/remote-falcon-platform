@@ -1,0 +1,73 @@
+# Test profile for the control-panel service.
+#
+# This file is loaded when @ActiveProfiles("test") is active. It supplies the
+# minimal set of properties required for an @SpringBootTest context to start
+# without a real Mongo, S3, MailerSend, GitHub, or OpenAI dependency.
+#
+# JWT key MUST stay in sync with libs/test-fixtures' TestSecrets.JWT_KEY so
+# tokens minted by JwtFactory validate against AuthUtil's signer. The
+# TestSecretsDriftTest in libs/test-fixtures is intended to assert this.
+
+# Strip the production context path so MockMvc requests hit "/controlPanel/..."
+# directly without needing the "/remote-falcon-control-panel" prefix.
+server:
+  servlet:
+    context-path: ""
+
+spring:
+  # Disable scheduled tasks during tests so retention crons don't fire mid-test.
+  task:
+    scheduling:
+      enabled: false
+  # Auto-configurations that touch real infrastructure are disabled here.
+  # JPA: app excludes DataSourceAutoConfiguration in @SpringBootApplication, but
+  # we also exclude HibernateJpaAutoConfiguration so JPA's own bootstrap is
+  # skipped entirely.
+  # Mongo: excluded so the test does not try to open a connection. MongoTemplate
+  # is provided via @MockBean in JwtAuthIntegrationTest.
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.mongo.MongoAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.mongo.MongoDataAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.mongo.MongoRepositoriesAutoConfiguration
+      - org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration
+  data:
+    mongodb:
+      database: ${MONGO_DATABASE:remote-falcon-test}
+
+# JWT signing key used by AuthUtil. Default value MUST match
+# libs/test-fixtures' TestSecrets.JWT_KEY.
+jwt:
+  user: ${JWT_USER:test-jwt-must-be-256-bits-long-padding-padding-padding-padding}
+
+# S3ClientConfig throws on a blank endpoint; supply a harmless placeholder.
+s3:
+  endpoint: http://s3.test.local
+  accessKey: test-access-key
+  secretKey: test-secret-key
+
+images:
+  s3:
+    bucket: test-bucket
+  cdn:
+    endpoint: http://cdn.test.local
+
+# Misc placeholders required by various @Value-injected configs/services so the
+# context bootstraps cleanly. Real values are not exercised in this test.
+github:
+  pat: test-github-pat
+wattson:
+  key: test-wattson-key
+  max_output_tokens: 0
+openai:
+  model: ""
+auto-validate-email: false
+expo-push-url: http://expo.test.local
+web:
+  url: http://test.local
+
+mailersend:
+  template-ids:
+    sign-up: test
+    forgot-password: test
+    request-api-access: test
