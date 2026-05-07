@@ -1,8 +1,30 @@
-import { defineConfig, devices } from '@playwright/test';
+import { defineConfig, devices, type Project } from '@playwright/test';
 
 const tier = process.env.PLAYWRIGHT_TIER ?? 'smoke';
 const testMatch =
   tier === 'regression' ? 'regression/**/*.spec.ts' : 'smoke/**/*.spec.ts';
+
+// Smoke tier: chromium only — keeps the PR/push CI budget tight.
+// Regression tier: chromium + firefox + webkit, runs nightly + on-demand.
+const projects: Project[] = [
+  {
+    name: 'chromium',
+    use: { ...devices['Desktop Chrome'] },
+  },
+];
+
+if (tier === 'regression') {
+  projects.push(
+    {
+      name: 'firefox',
+      use: { ...devices['Desktop Firefox'] },
+    },
+    {
+      name: 'webkit',
+      use: { ...devices['Desktop Safari'] },
+    },
+  );
+}
 
 export default defineConfig({
   testDir: '.',
@@ -25,11 +47,5 @@ export default defineConfig({
     actionTimeout: 10_000,
     navigationTimeout: 30_000,
   },
-  projects: [
-    {
-      name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
-    },
-    // Firefox and WebKit projects will be added in Sprint 3.
-  ],
+  projects,
 });

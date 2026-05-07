@@ -1,0 +1,89 @@
+# ---------------------------------------------------------------
+# regression-e2e.yml
+#
+# Runs the Playwright regression tier (chromium + firefox + webkit)
+# against a freshly-brought-up dev stack on every push to main and
+# on demand. This is intentionally separate from deploy.yml because:
+#   - It is slow (multi-browser, full regression glob).
+#   - It must NOT gate deploys; deploy.yml runs only the smoke tier.
+#
+# Why post-merge instead of a nightly cron: deps are pinned via
+# package-lock.json and the Playwright browsers ship with @playwright/test,
+# so external drift between merges is negligible. Running unconditionally
+# every night just burns CI minutes and surfaces flakes with no recent
+# change to correlate them to.
+#
+# Manual trigger: GitHub UI -> Actions -> "Regression E2E"
+#                  -> Run workflow, or `gh workflow run regression-e2e.yml`.
+# ---------------------------------------------------------------
+name: Regression E2E
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  regression-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: tests/e2e/package-lock.json
+
+      - name: Install e2e deps
+        working-directory: tests/e2e
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: tests/e2e
+        run: npx playwright install --with-deps chromium firefox webkit
+
+      - name: Bring up dev stack (core mode — regression tests need mongo+ui+control-panel+viewer+plugins-api only)
+        env:
+          DEV_UP_YES: "1"
+        run: ./ops/dev-up.sh up --core
+
+      - name: Health check stack (retry until ready, max ~3 min)
+        env:
+          DEV_UP_YES: "1"
+        run: |
+          set +e
+          for i in $(seq 1 18); do
+            if ./ops/dev-up.sh health --core; then
+              echo "Stack healthy on attempt $i"
+              exit 0
+            fi
+            echo "Attempt $i: not yet healthy, sleeping 10s..."
+            sleep 10
+          done
+          echo "Stack failed to become healthy after 3 minutes"
+          ./ops/dev-up.sh health --core   # final pass for diagnostic output
+          docker compose -f ops/docker-compose.dev.yml ps
+          docker compose -f ops/docker-compose.dev.yml logs --tail=50
+          exit 1
+
+      - name: Run Playwright regression
+        working-directory: tests/e2e
+        env:
+          PLAYWRIGHT_TIER: regression
+        run: npx playwright test
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-regression
+          path: tests/e2e/playwright-report/
+          retention-days: 14
+
+      - name: Tear down dev stack
+        if: always()
+        run: ./ops/dev-up.sh down --core
