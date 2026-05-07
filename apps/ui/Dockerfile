@@ -4,6 +4,10 @@ WORKDIR /app
 ENV PATH /app/node_modules/.bin:$PATH
 COPY package.json ./
 COPY package-lock.json ./
+# .npmrc carries legacy-peer-deps=true (MUI v5 pins @types/react@17 vs RTL v16
+# strict peer of @types/react@^18). Must be present before `npm ci` or it
+# fails ERESOLVE under modern npm strictness.
+COPY .npmrc ./
 RUN npm ci --silent
 
 COPY . ./
