@@ -123,11 +123,16 @@ class ShowSchemaContractTest {
     }
 
     private static java.util.stream.Stream<Field> persistedFields(Class<?> clazz) {
-        return java.util.stream.Stream.iterate(clazz, c -> c != null && c != Object.class, Class::getSuperclass)
-                .flatMap(c -> Arrays.stream(c.getDeclaredFields()))
-                .filter(f -> !java.lang.reflect.Modifier.isStatic(f.getModifiers()))
-                .filter(f -> !f.isSynthetic())
-                // Lombok @Builder may generate a synthetic-ish $default field on some variants; isSynthetic catches it.
-                .filter(f -> !f.getName().startsWith("$"));
+        var fields = new java.util.ArrayList<Field>();
+        for (Class<?> c = clazz; c != null && c != Object.class; c = c.getSuperclass()) {
+            for (Field f : c.getDeclaredFields()) {
+                if (java.lang.reflect.Modifier.isStatic(f.getModifiers())) continue;
+                if (f.isSynthetic()) continue;
+                // Lombok @Builder may generate a synthetic-ish $default field on some variants.
+                if (f.getName().startsWith("$")) continue;
+                fields.add(f);
+            }
+        }
+        return fields.stream();
     }
 }
