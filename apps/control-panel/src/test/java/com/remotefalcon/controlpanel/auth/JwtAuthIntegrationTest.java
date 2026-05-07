@@ -8,11 +8,15 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
-import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.testcontainers.containers.MongoDBContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
 import java.util.List;
@@ -53,9 +57,25 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
+@Testcontainers
 class JwtAuthIntegrationTest {
 
     private static final String PROTECTED_ENDPOINT = "/controlPanel/gitHubIssues";
+
+    /**
+     * Real testcontainers Mongo. Spring Data's {@code @EnableMongoRepositories}
+     * runs during context refresh and demands a {@code mongoTemplate} bean
+     * before {@code @MockBean} can register replacements; mocking Mongo at
+     * test scope was tried and didn't work cleanly. Cost is +5s startup once
+     * per test class; tradeoff worth it for context stability.
+     */
+    @Container
+    static MongoDBContainer mongo = new MongoDBContainer("mongo:7");
+
+    @DynamicPropertySource
+    static void mongoProps(DynamicPropertyRegistry reg) {
+        reg.add("spring.data.mongodb.uri", mongo::getReplicaSetUrl);
+    }
 
     @Autowired
     private MockMvc mockMvc;
@@ -66,15 +86,6 @@ class JwtAuthIntegrationTest {
      */
     @MockBean
     private ControlPanelService controlPanelService;
-
-    /**
-     * MongoTemplate is mocked so {@link com.remotefalcon.controlpanel.configuration.MongoIndexInitializer}
-     * (a {@code @Component}) has a satisfiable dependency. The Mongo
-     * auto-configuration is excluded in {@code application-test.yml}, so the
-     * test never touches a real Mongo.
-     */
-    @MockBean
-    private MongoTemplate mongoTemplate;
 
     /**
      * Configures the mocked downstream so a successful auth path returns 200

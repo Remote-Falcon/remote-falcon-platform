@@ -19,17 +19,18 @@ spring:
   task:
     scheduling:
       enabled: false
-  # Auto-configurations that touch real infrastructure are disabled here.
-  # JPA: app excludes DataSourceAutoConfiguration in @SpringBootApplication, but
-  # we also exclude HibernateJpaAutoConfiguration so JPA's own bootstrap is
-  # skipped entirely.
-  # Mongo: excluded so the test does not try to open a connection. MongoTemplate
-  # is provided via @MockBean in JwtAuthIntegrationTest.
+  # JPA bootstrap is skipped — app excludes DataSourceAutoConfiguration in
+  # @SpringBootApplication, but HibernateJpaAutoConfiguration is also auto-loaded
+  # via spring-boot-starter-data-jpa being on the classpath, so exclude it too.
+  #
+  # Mongo auto-config IS loaded — testcontainers-based tests
+  # (JwtAuthIntegrationTest, RetentionSweepIntegrationTest, ShowRepositoryCollationTest)
+  # all bring up a real Mongo and inject the URI via @DynamicPropertySource. Excluding
+  # MongoAutoConfiguration here would break them: @EnableMongoRepositories needs a
+  # real mongoTemplate bean to wire ShowRepository, and @MockBean substitution doesn't
+  # work cleanly because it runs after the repository factory's bean creation.
   autoconfigure:
     exclude:
-      - org.springframework.boot.autoconfigure.mongo.MongoAutoConfiguration
-      - org.springframework.boot.autoconfigure.data.mongo.MongoDataAutoConfiguration
-      - org.springframework.boot.autoconfigure.data.mongo.MongoRepositoriesAutoConfiguration
       - org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration
   data:
     mongodb:
