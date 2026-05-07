@@ -1,0 +1,22 @@
+{
+  "playlists": [
+    {
+      "playlistName": "Wizards in Winter",
+      "playlistDuration": 312,
+      "playlistIndex": 0,
+      "playlistType": "SEQUENCE",
+      "mediaTitle": "Wizards in Winter",
+      "mediaArtist": "Trans-Siberian Orchestra",
+      "mediaAlbumUrl": "https://example.com/albums/tso.jpg"
+    },
+    {
+      "playlistName": "Carol of the Bells",
+      "playlistDuration": 245,
+      "playlistIndex": 1,
+      "playlistType": "SEQUENCE",
+      "mediaTitle": "Carol of the Bells",
+      "mediaArtist": "Lindsey Stirling",
+      "mediaAlbumUrl": "https://example.com/albums/cotb.jpg"
+    }
+  ]
+}
