@@ -24,6 +24,11 @@ name: Regression E2E
 on:
   workflow_dispatch:
 
+env:
+  # Opt JS-based actions onto Node 24 — silences the Node-20
+  # deprecation warning GitHub started showing in early 2026.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   regression-e2e:
     runs-on: ubuntu-latest

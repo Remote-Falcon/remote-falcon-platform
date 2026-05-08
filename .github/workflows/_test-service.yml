@@ -18,6 +18,11 @@ on:
         type: string
         required: true
 
+env:
+  # Opt JS-based actions onto Node 24 — silences the Node-20
+  # deprecation warning GitHub started showing in early 2026.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   test:
     runs-on: ubuntu-latest
