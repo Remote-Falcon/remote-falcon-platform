@@ -224,8 +224,9 @@ const JukeboxScreen = () => (
               animation: `${pulse} 1.6s ease-in-out infinite`
             }}
           />
+          {/* Easter egg: 47 — the iconic Star Trek / hacker number. */}
           <Typography sx={{ fontSize: 8, color: 'text.secondary', fontWeight: 600 }}>
-            Live
+            Live · 47
           </Typography>
         </Stack>
       }
@@ -243,7 +244,9 @@ const JukeboxScreen = () => (
 const VOTES = [
   { title: 'Wizards in Winter',     pct: 47, leading: true },
   { title: 'Linus and Lucy',        pct: 32 },
-  { title: 'Christmas Canon',       pct: 21 }
+  // Easter egg: TSO is the Christmas-light-show patron saint —
+  // referencing the band by name lands with the RF community.
+  { title: 'Trans-Siberian Medley', pct: 21 }
 ];
 
 const VoteRow = ({ track }) => (
@@ -297,12 +300,16 @@ VoteRow.propTypes = { track: PropTypes.object.isRequired };
 
 const VotingScreen = () => (
   <PhoneFrame>
-    <ShowBrand initials="HH" name="Holly House" tone="primary" />
+    {/* Easter egg: "Vance Lane" is a nod to James Vance, the original
+        Remote Falcon creator. Reads as a fictional show name first,
+        homage second. */}
+    <ShowBrand initials="VL" name="Vance Lane" tone="primary" />
     <ModeRow
       label="Voting"
       right={
         <Typography sx={{ fontSize: 8, color: 'text.secondary', fontWeight: 600 }}>
-          0:42
+          {/* Easter egg: 1:25 = Dec 25 */}
+          1:25
         </Typography>
       }
     />

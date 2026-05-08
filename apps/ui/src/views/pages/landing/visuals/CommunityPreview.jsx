@@ -95,8 +95,29 @@ const RepoHeader = () => (
       <Box component="span" sx={{ color: 'text.primary' }}>
         Remote-Falcon
       </Box>
+      {/* Easter egg: real first-commit date on the org's UI repo
+          (2024-04-24, per gh api). */}
+      <Box component="span" sx={{ color: 'text.secondary', fontWeight: 400 }}>
+        {' '}· since Apr ’24
+      </Box>
     </Typography>
     <Box sx={{ flexGrow: 1 }} />
+    {/* MIT license chip — quiet attribution, real fact */}
+    <Box
+      sx={{
+        px: 0.7,
+        py: 0.2,
+        borderRadius: '999px',
+        border: '1px solid',
+        borderColor: 'divider',
+        color: 'text.secondary',
+        fontSize: 8,
+        fontWeight: 700,
+        letterSpacing: '0.08em'
+      }}
+    >
+      MIT
+    </Box>
     {/* Star chip */}
     <Stack
       direction="row"
@@ -113,7 +134,8 @@ const RepoHeader = () => (
     >
       <IconStarFilled size={9} />
       <Typography sx={{ fontSize: 9, fontWeight: 700, color: 'text.primary' }}>
-        1,247
+        {/* Easter egg: 1,225 = Dec 25 */}
+        1,225
       </Typography>
     </Stack>
     {/* Contributors chip */}
@@ -225,19 +247,22 @@ ActivityRow.propTypes = {
   when: PropTypes.string.isRequired
 };
 
+// Easter egg: the two latest contributors are JV (James Vance — original
+// creator) and MS (Matt Shorts). Third row stays a community handle so
+// the feed still reads as "many people, not just two".
 const ACTIVITY = [
   {
-    author: 'lightsmith',
-    initials: 'LS',
+    author: 'jvance',
+    initials: 'JV',
     avatarColor: AVATAR_TONES[0],
     type: 'merged',
     message: 'feat(map): cluster pins below zoom 10',
     when: '3h ago'
   },
   {
-    author: 'jingleboss',
-    initials: 'JB',
-    avatarColor: AVATAR_TONES[1],
+    author: 'mshorts',
+    initials: 'MS',
+    avatarColor: AVATAR_TONES[2],
     type: 'committed',
     message: 'fix(auth): map INVALID_JWT → HTTP 401',
     when: '1d ago'
@@ -245,19 +270,23 @@ const ACTIVITY = [
   {
     author: 'neonpixel',
     initials: 'NP',
-    avatarColor: AVATAR_TONES[2],
+    avatarColor: AVATAR_TONES[1],
     type: 'opened',
-    message: 'docs: jukebox-mode setup walkthrough',
+    // Easter egg: TSO's "Wizards in Winter" is a community staple —
+    // probably the most-sequenced track in the RF universe.
+    message: 'fix: Wizards in Winter sync drift',
     when: '3d ago'
   }
 ];
 
 // ---------- Contributor mosaic ------------------------------------------
 
+// JV + MS lead — same easter egg as the activity feed above. The rest are
+// invented community handles (LS=lightsmith, NP=neonpixel, etc).
 const CONTRIBUTORS = [
-  { initials: 'LS', tone: 0 },
-  { initials: 'JB', tone: 1 },
-  { initials: 'NP', tone: 2 },
+  { initials: 'JV', tone: 0 },
+  { initials: 'MS', tone: 2 },
+  { initials: 'NP', tone: 1 },
   { initials: 'SG', tone: 3 },
   { initials: 'PP', tone: 4 },
   { initials: 'FB', tone: 5 },

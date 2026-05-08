@@ -290,7 +290,8 @@ const PopupCard = ({ x, y }) => (
             mt: 0.15
           }}
         >
-          2.4 mi · 47 sequences
+          {/* Easter egg: 0.42 mi — Hitchhiker's Guide to the Galaxy nod. */}
+          0.42 mi · 47 sequences
         </Typography>
       </Box>
     </Stack>
@@ -381,7 +382,8 @@ const StatChip = () => (
   >
     <Typography sx={{ fontSize: 9, color: 'text.secondary', fontWeight: 500 }}>
       <Box component="span" sx={{ color: 'text.primary', fontWeight: 700 }}>
-        2,847
+        {/* Easter egg: 1,225 = Dec 25 */}
+        1,225
       </Box>{' '}
       shows mapped this season
     </Typography>

@@ -53,9 +53,12 @@ const str     = t('string');
 const prop    = t('prop');
 const val     = t('value');
 const text    = t('text');
+const cmt     = t('comment');
 
 const LINES = [
   // [content, indent]
+  // Easter egg: a "ho ho ho" comment greets anyone who reads the source.
+  [<>{cmt('<!-- ho ho ho -->')}</>, 0],
   [<>{bracket('<')}{tag('header')} {attr('class')}{bracket('=')}{str('"hero"')}{bracket('>')}</>, 0],
   [<>{bracket('<')}{tag('h1')}{bracket('>')}{text('Pine Lights')}{bracket('</')}{tag('h1')}{bracket('>')}</>, 1],
   [<>{bracket('<')}{tag('p')}{bracket('>')}{text('Sundown — 11 PM')}{bracket('</')}{tag('p')}{bracket('>')}</>, 1],
@@ -66,6 +69,10 @@ const LINES = [
   [<>{bracket('</')}{tag('button')}{bracket('>')}</>, 0],
   [<>{' '}</>, 0],
   [<>{bracket('<')}{tag('style')}{bracket('>')}</>, 0],
+  // Easter egg: 91.7 FM is the broadcast frequency many real RF show
+  // owners use to sync their light-show audio. Plausible CSS comment,
+  // real-world community reference.
+  [<>{cmt('/* tune to 91.7 FM */')}</>, 1],
   [<>{prop('.hero')} {bracket('{')} {prop('background')}{bracket(':')} {val('#0e3a66')}{bracket(';')} {bracket('}')}</>, 1],
   [<>{prop('.btn')} {bracket('{')} {prop('color')}{bracket(':')} {val('#f4b860')}{bracket(';')} {bracket('}')}</>, 1],
   [<>{bracket('</')}{tag('style')}{bracket('>')}</>, 0]
