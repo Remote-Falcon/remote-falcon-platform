@@ -53,6 +53,8 @@ Coverage thresholds are currently set to 0% (Sprint 2 floor) — they exist to s
 
 [`STYLE_GUIDE.md`](STYLE_GUIDE.md) is the source of truth for visual & interaction standards — color, typography, spacing, components, theme behavior. Token files under [`src/design-system/tokens/`](src/design-system/tokens/) carry the actual values; if you need a value, import the token rather than redefining it.
 
+To preview the design system locally, copy `.env.example` to `.env.local`, set `VITE_USE_DESIGN_SYSTEM_V2=true`, and restart `npm run dev`. The flag is transient — removed once the migration completes.
+
 ## Key directories
 
 - `src/views/pages/controlPanel/` — control-panel screens (sequences, requests, pages, account, admin)
