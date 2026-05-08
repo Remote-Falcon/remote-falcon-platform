@@ -1,12 +1,8 @@
+import MiscPageShell from './MiscPageShell';
 
 const TermsAndConditions = () => {
     return (
-        <>
-            <meta charSet="utf-8" />
-            <meta name="viewport" content="width=device-width" />
-            <title>Terms &amp; Conditions</title>
-            <strong>Terms &amp; Conditions</strong>
-            <br />
+        <MiscPageShell title="Terms & Conditions">
             <p>
                 These terms and conditions apply to the Remote Falcon app (hereby referred
                 to as "Application") for mobile devices that was created by James Vance
@@ -167,8 +163,7 @@ const TermsAndConditions = () => {
                 please do not hesitate to contact the Service Provider at
                 jvance@remotefalcon.com.
             </p>
-            <hr />
-        </>
+        </MiscPageShell>
     )
 }
 

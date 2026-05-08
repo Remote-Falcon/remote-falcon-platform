@@ -25,11 +25,13 @@ import { Link as RouterLink } from 'react-router-dom';
 import Logo from '../../design-system/components/Logo';
 import ThemeToggle from '../../design-system/components/ThemeToggle';
 
-// Marketing nav structure. Anchor links (`#features`) scroll within the
-// landing page; `external: true` links open in a new tab.
+// Marketing nav structure. Anchor links use the full path (`/#features`)
+// so they navigate to landing AND scroll, even when the user is already
+// on /privacy-policy / /terms-and-conditions / /owners. `external: true`
+// links open in a new tab.
 const NAV_LINKS = [
-  { label: 'Features',  href: '#features',                                          icon: IconBolt },
-  { label: 'Shows Map', href: '#shows-map',                                         icon: IconMap, badge: 'Soon' },
+  { label: 'Features',  href: '/#features',                                         icon: IconBolt },
+  { label: 'Shows Map', href: '/#shows-map',                                        icon: IconMap, badge: 'Soon' },
   { label: 'Docs',      href: 'https://docs.remotefalcon.com',         external: true, icon: IconBook },
   { label: 'Community', href: 'https://www.facebook.com/groups/remotefalcon', external: true, icon: IconUsers }
 ];

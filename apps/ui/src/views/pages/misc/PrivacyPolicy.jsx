@@ -1,11 +1,8 @@
+import MiscPageShell from './MiscPageShell';
 
 const PrivacyPolicy = () => {
     return (
-        <>
-            <meta charSet="utf-8" />
-            <meta name="viewport" content="width=device-width" />
-            <title>Privacy Policy</title>
-            <strong>Privacy Policy</strong>
+        <MiscPageShell title="Privacy Policy">
             <p>
                 This privacy policy applies to the Remote Falcon app (hereby referred to as
                 "Application") for mobile devices that was created by James Vance (hereby
@@ -222,8 +219,7 @@ const PrivacyPolicy = () => {
                 have questions about the practices, please contact the Service Provider via
                 email at jvance@remotefalcon.com.
             </p>
-            <hr />
-        </>
+        </MiscPageShell>
     )
 }
 
