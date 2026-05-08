@@ -24,6 +24,7 @@ import PropTypes from 'prop-types';
 import { Link as RouterLink } from 'react-router-dom';
 
 import Logo from '../../ui-component/Logo';
+import ThemeToggle from '../../design-system/components/ThemeToggle';
 
 function ElevationScroll({ children, window }) {
   const theme = useTheme();
@@ -68,10 +69,11 @@ const AppBar = ({ ...others }) => {
             <Typography component="div" sx={{ flexGrow: 1, textAlign: 'left' }}>
               <Logo />
             </Typography>
-            <Stack direction="row" sx={{ display: { xs: 'none', sm: 'block' } }} spacing={2}>
+            <Stack direction="row" alignItems="center" sx={{ display: { xs: 'none', sm: 'flex' } }} spacing={1.5}>
               <Button id="appbar-documentation" color="inherit" component={Link} href="https://docs.remotefalcon.com" target="_blank">
                 Documentation
               </Button>
+              <ThemeToggle />
               <Button id="appbar-signin" color="inherit" component={RouterLink} to="/signin">
                 Sign In
               </Button>
@@ -111,6 +113,7 @@ const AppBar = ({ ...others }) => {
                           <ListItemText primary="Sign Up" />
                         </ListItemButton>
                       </Link>
+                      <ThemeToggle variant="rail" />
                     </List>
                   </Box>
                 )}
