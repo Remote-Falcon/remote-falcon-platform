@@ -18,7 +18,13 @@ test.describe('logout', () => {
     // mounts NotificationSection / LocalizationSection / Customization, all
     // of which advertise aria-haspopup="true" — selecting by haspopup alone
     // would hit the first one (Notifications) instead.
-    await page.locator('#header-profile-trigger').click();
+    //
+    // force: true skips Playwright's "stable" actionability gate. The chip
+    // contains an Avatar that loads its gravatar from a remote CDN, which
+    // shifts the chip's bounding box on webkit and trips the gate at 30s.
+    const trigger = page.locator('#header-profile-trigger');
+    await trigger.scrollIntoViewIfNeeded();
+    await trigger.click({ force: true });
     await expect(page.getByText('Logout', { exact: true })).toBeVisible();
     await page.getByText('Logout', { exact: true }).click();
 
