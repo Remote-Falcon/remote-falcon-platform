@@ -134,7 +134,10 @@ Berry-only theme keys, Phase 10 swaps `App.jsx`'s import to
 
 ## Phase 3 — Migrate the layout shell
 
-The control panel's perceived modernization comes 80% from the shell.
+The control panel's perceived modernization comes 80% from the shell. The
+target shape is documented in [`docs/design-system/mockup.html`](./docs/design-system/mockup.html)
+under the `[data-screen="control"]` section — that file is the source of
+truth when the prose below is ambiguous.
 
 ### Files to touch
 
@@ -143,19 +146,26 @@ The control panel's perceived modernization comes 80% from the shell.
 - `apps/ui/src/layout/MainLayout/Sidebar/index.jsx`
 - `apps/ui/src/menu-items/controlPanel.jsx` (group items by section)
 - `apps/ui/src/store/constant.jsx` — change `drawerWidth` to support collapsed/expanded
-- `apps/ui/src/hooks/useConfig.js` — add `sidebarCollapsed` state
+- `apps/ui/src/hooks/useConfig.jsx` + `apps/ui/src/contexts/ConfigContext.jsx` — add `sidebarCollapsed` state
+- (new) `apps/ui/src/ui-component/PageHead.jsx` — title + meta + right-side actions, used on every signed-in page
 
 ### Changes
 
-1. **Sidebar → icon rail.** Replace the fixed 320px drawer with a collapsible rail (72px collapsed → 248px expanded). Persist the state to localStorage (or the existing config store).
-2. **Group menu items.** Update `menu-items/controlPanel.jsx` to nest items under section labels: *Show* / *Account* / *Community* / *Admin*. Section labels render only when expanded.
-3. **Slim the topbar** to 56px. Move localization, customization, and "what's new" into one overflow `IconButton` with a Menu. Keep only profile + notifications visible.
-4. **Add command-palette trigger** to topbar (the search-shaped chip with ⌘K hint). Wire to a placeholder modal for now — Phase 7 implements the real palette.
+1. **Sidebar → icon rail.** Replace the fixed 320px drawer with a collapsible rail (72px collapsed → 248px expanded). Persist the state to localStorage via the existing config store. Per the mockup: section labels render only when expanded; rail footer holds `<ThemeToggle variant="rail" />` above a "Collapse / Expand" toggle.
+2. **Group menu items.** Update `menu-items/controlPanel.jsx` to nest items under section labels (matching the mockup):
+   - *Show* — Dashboard, Sequences, Viewer Page, Templates
+   - *Account* — Settings, Image Hosting
+   - *Community* — Shows Map, Ask Wattson
+   - *Admin* — admin-role-only items (only rendered when role === 'admin')
+3. **Slim the topbar** to 56px. Per the mockup, contents (left → right): breadcrumb trail (`Show / Dashboard`), search-trigger chip (`Search sequences, pages, settings… ⌘K`), `<ThemeToggle />`, what's-new icon, notifications icon, profile avatar. Move legacy localization + customization buttons into an overflow `IconButton`+Menu (or drop entirely — the only locale we ship in is English).
+4. **Topbar breadcrumb** derives from the route (e.g. `/control-panel/sequences` → `Show / Sequences`). Pull the label from `menu-items/controlPanel.jsx`'s `title` field.
+5. **Page-head component.** Build `<PageHead title="Tonight's show" meta={<>Live · Show <strong>winterlights2026</strong></>} actions={<>...</>} />` per the mockup pattern. Wire into the dashboard first as the validation case; other pages adopt it as part of their phase.
+6. **Add command-palette trigger** to the topbar. Wire to a placeholder modal that just logs `cmd-k pressed` — Phase 8 implements the real palette.
 
 ### Acceptance
 
 - [ ] Sidebar collapses smoothly (250ms transition) and persists across reloads.
-- [ ] All 9 nav items reachable, grouped under 4 sections.
+- [ ] All nav items reachable, grouped under sections; admin section gated by role.
 - [ ] Topbar height = 56px, no horizontal scroll on 1280px.
 - [ ] Mobile (< 600px) keeps current full-screen drawer behavior.
 
