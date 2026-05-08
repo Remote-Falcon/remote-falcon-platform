@@ -1,11 +1,14 @@
 /**
- * v2 ThemeProvider — wires the design-system tokens into MUI.
+ * v2 ThemeProvider — drop-in replacement for `themes/index.jsx`.
  *
- * Imported directly by App.jsx as the only ThemeCustomization. The
- * legacy Berry theme under `apps/ui/src/themes/` is kept for now
- * because some control-panel views still reference its custom
- * typography keys; once those phases ship, that directory can be
- * deleted (see MIGRATION.md, Phase 10).
+ * Wires the new tokens into MUI. To switch the app over, change the
+ * import in `App.jsx` (or wherever `ThemeCustomization` is used):
+ *
+ *   - import ThemeCustomization from './themes';
+ *   + import ThemeCustomization from './design-system/theme';
+ *
+ * Until then, both systems coexist and you can flip between them via
+ * the env var `VITE_USE_DESIGN_SYSTEM_V2=true`. See MIGRATION.md.
  */
 
 import { useMemo } from 'react';

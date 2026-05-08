@@ -63,18 +63,37 @@ Phases 1–5 deliver the bulk of the visible upgrade. Phases 6–10 are polish a
 
 ---
 
-## Phase 1 — Wire v2 ThemeProvider _(SHIPPED)_
+## Phase 1 — Wire v2 ThemeProvider behind a flag
 
-`apps/ui/src/App.jsx` imports `ThemeCustomization` directly from
-`design-system/theme`. The v2 theme is the default for everyone — no
-env-var gate, no parallel rendering path. The legacy Berry theme under
-`apps/ui/src/themes/` is still on disk because some control-panel views
-reference its `theme.typography.customInput` shorthand; that goes away
-in Phase 10.
+**Goal:** developers and reviewers can preview the new theme by setting an env var, with zero impact on prod.
 
-Originally this phase shipped behind `VITE_USE_DESIGN_SYSTEM_V2=true`
-for safe rollout; the gate was removed once the marketing, auth, and
-misc-page surfaces were validated.
+### Steps
+
+1. In `apps/ui/src/App.jsx` (or wherever `ThemeCustomization` is imported), gate the import:
+
+   ```jsx
+   import LegacyTheme from './themes';
+   import V2Theme from './design-system/theme';
+
+   const ThemeCustomization = import.meta.env.VITE_USE_DESIGN_SYSTEM_V2 === 'true'
+     ? V2Theme
+     : LegacyTheme;
+   ```
+
+2. Add a row to `apps/ui/.env.example` (create if missing):
+   ```
+   VITE_USE_DESIGN_SYSTEM_V2=false
+   ```
+
+3. Document the flag in `apps/ui/README.md` under "Local development".
+
+4. Smoke-test both modes locally — login, dashboard, sequences, settings, viewer-page.
+
+### Acceptance
+
+- [ ] Setting `VITE_USE_DESIGN_SYSTEM_V2=true` renders the app with v2 colors, type, and component shapes.
+- [ ] Unsetting / `false` renders the app identically to `main`.
+- [ ] No console warnings about missing palette keys.
 
 ---
 
@@ -279,11 +298,9 @@ The component lives at `apps/ui/src/ui-component/EmptyState.jsx` (build it durin
 
 ## Phase 10 — Delete legacy
 
-Step 1 is already done: the env-var gate is removed and v2 is the
-default. The remaining cleanup happens once all control-panel pages
-render correctly under v2:
+Once all pages render correctly under `VITE_USE_DESIGN_SYSTEM_V2=true`:
 
-1. ~~Flip the default to `true` in code (drop the env-var gate).~~ _Done._
+1. Flip the default to `true` in code (drop the env-var gate).
 2. Delete `apps/ui/src/themes/` and `apps/ui/src/assets/scss/_themes-vars.module.scss` + `_theme1..6.module.scss`.
 3. Remove the `presetColor` config from `useConfig` (no more 6 preset themes — we ship one identity).
 4. Move `apps/ui/src/design-system/theme/` to `apps/ui/src/themes/` (so the eventual import path is `from './themes'` again — clean).
@@ -306,10 +323,10 @@ render correctly under v2:
 Local:
 ```bash
 cd apps/ui
-npm run dev
+VITE_USE_DESIGN_SYSTEM_V2=true npm run dev
 ```
 
-Per-phase smoke tests live in `cypress/e2e/`. Add a v2-specific spec under `cypress/e2e/design-system-v2.cy.jsx` that snapshots the major pages. Don't merge a phase without the snapshot diff being clean.
+Per-phase smoke tests live in `cypress/e2e/`. Add a v2-specific spec under `cypress/e2e/design-system-v2.cy.jsx` that snapshots the major pages with the flag on. Don't merge a phase without the snapshot diff being clean.
 
 ---
 
@@ -317,8 +334,8 @@ Per-phase smoke tests live in `cypress/e2e/`. Add a v2-specific spec under `cypr
 
 Every phase is reversible by:
 
-- **Phase 1**: revert the App.jsx import — point `ThemeCustomization` back at `'./themes'`. The legacy theme directory is still on disk.
+- **Phase 1**: unset `VITE_USE_DESIGN_SYSTEM_V2`.
 - **Phases 2–9**: revert the per-page commits. Token files and v2 theme stay; they're additive.
 - **Phase 10**: unmerge the deletion commit; the legacy theme is in git history forever.
 
-If a production issue surfaces, the App.jsx import swap is the rollback — one line, one redeploy.
+If a production issue surfaces, flip the env var off and dig in. The flag is the rollback.
