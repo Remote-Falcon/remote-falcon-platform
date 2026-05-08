@@ -121,13 +121,14 @@ const AuthResetPassword = ({ ...others }) => {
     >
       {({ errors, handleBlur, handleChange, handleSubmit, isSubmitting, touched, values }) => (
         <form noValidate onSubmit={handleSubmit} {...others}>
-          <FormControl fullWidth error={Boolean(touched.password && errors.password)} sx={{ ...theme.typography.customInput }}>
+          <FormControl fullWidth error={Boolean(touched.password && errors.password)} sx={{ ...theme.typography.customInput, mt: 0, mb: 2.5 }}>
             <InputLabel htmlFor="outlined-adornment-password-reset">Password</InputLabel>
             <OutlinedInput
               id="outlined-adornment-password-reset"
               type={showPassword ? 'text' : 'password'}
               value={values.password}
               name="password"
+              label="Password"
               onBlur={handleBlur}
               onChange={(e) => {
                 handleChange(e);
@@ -183,7 +184,7 @@ const AuthResetPassword = ({ ...others }) => {
           <FormControl
             fullWidth
             error={Boolean(touched.confirmPassword && errors.confirmPassword)}
-            sx={{ ...theme.typography.customInput }}
+            sx={{ ...theme.typography.customInput, mt: 0, mb: 2.5 }}
           >
             <InputLabel htmlFor="outlined-adornment-confirm-password">Confirm Password</InputLabel>
             <OutlinedInput

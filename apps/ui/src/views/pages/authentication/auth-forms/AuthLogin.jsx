@@ -59,13 +59,14 @@ const JWTLogin = ({ ...others }) => {
     >
       {({ errors, handleBlur, handleChange, handleSubmit, isSubmitting, touched, values }) => (
         <form noValidate onSubmit={handleSubmit} {...others}>
-          <FormControl fullWidth error={Boolean(touched.email && errors.email)} sx={{ ...theme.typography.customInput }}>
+          <FormControl fullWidth error={Boolean(touched.email && errors.email)} sx={{ ...theme.typography.customInput, mt: 0, mb: 2.5 }}>
             <InputLabel htmlFor="outlined-adornment-email-login">Email Address</InputLabel>
             <OutlinedInput
               id="outlined-adornment-email-login"
               type="email"
               value={values.email}
               name="email"
+              label="Email Address"
               onBlur={handleBlur}
               onChange={handleChange}
               inputProps={{}}
@@ -77,7 +78,7 @@ const JWTLogin = ({ ...others }) => {
             )}
           </FormControl>
 
-          <FormControl fullWidth error={Boolean(touched.password && errors.password)} sx={{ ...theme.typography.customInput }}>
+          <FormControl fullWidth error={Boolean(touched.password && errors.password)} sx={{ ...theme.typography.customInput, mt: 0, mb: 2.5 }}>
             <InputLabel htmlFor="outlined-adornment-password-login">Password</InputLabel>
             <OutlinedInput
               id="outlined-adornment-password-login"

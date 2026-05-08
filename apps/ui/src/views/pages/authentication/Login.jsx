@@ -16,7 +16,6 @@ const Login = () => (
         </Box>
       </>
     }
-    meta="Open source · Community-built"
   >
     <AuthLogin />
     <AuthFormSwitch prompt="Don't have an account?" label="Sign up" to="/signup" />

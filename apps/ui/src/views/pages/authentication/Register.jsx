@@ -17,7 +17,6 @@ const Register = () => (
         in under a minute.
       </>
     }
-    meta="Free to start · No credit card required"
   >
     <AuthRegister />
     <AuthFormSwitch prompt="Already have an account?" label="Sign in" to="/signin" />

@@ -24,7 +24,15 @@ const buildComponentOverrides = (theme) => {
           backgroundColor: theme.palette.background.default,
           color: theme.palette.text.primary,
           WebkitFontSmoothing: 'antialiased',
-          MozOsxFontSmoothing: 'grayscale'
+          MozOsxFontSmoothing: 'grayscale',
+          // Force the vertical scrollbar to always render so the viewport's
+          // content area is the same width on tall (scrolling) and short
+          // (non-scrolling) pages. Without this, the custom 10px webkit
+          // scrollbar declared below takes space on landing but vanishes
+          // on /signin, shifting every centered container by ~5px.
+          // (scrollbar-gutter: stable doesn't reliably reserve space when
+          // a ::-webkit-scrollbar override is in effect.)
+          overflowY: 'scroll'
         },
         ':focus-visible': {
           outline: `2px solid ${theme.palette.secondary.main}`,
@@ -153,7 +161,28 @@ const buildComponentOverrides = (theme) => {
     },
     MuiInputLabel: {
       styleOverrides: {
-        root: { color: theme.palette.text.muted }
+        root: { color: theme.palette.text.muted },
+        // Center the resting-state label vertically inside the INPUT BOX,
+        // not the FormControl. This matters because some fields render a
+        // <FormHelperText> sibling for errors — that slot makes FormControl
+        // taller than the input, so a `top: 50%` against FormControl drifts
+        // the label below the input's center. A fixed translate keeps the
+        // label nailed to the input regardless of FormControl height.
+        //
+        // Geometry: v2 body font is 15px × line-height 1.6 (24px) and the
+        // OutlinedInput input padding is 11px top/bottom → input ~46px.
+        // Label height ~15px → centered top = (46 − 15) / 2 ≈ 15.5px.
+        //
+        // !important wins against MUI's transition leaving inline transform
+        // styles after focus → blur cycles. `:not(.MuiInputLabel-shrink)`
+        // is the canonical "resting" selector — covers initial (empty) and
+        // post-blur (empty) without touching the shrunk/notched state.
+        outlined: {
+          '&:not(.MuiInputLabel-shrink)': {
+            top: '0 !important',
+            transform: 'translate(14px, 15.5px) scale(1) !important'
+          }
+        }
       }
     },
 

@@ -3,8 +3,6 @@ import { alpha } from '@mui/material/styles';
 import { IconBrandGithub, IconLayoutGrid, IconMapPin, IconMusic } from '@tabler/icons-react';
 import PropTypes from 'prop-types';
 
-import FadeInWhenVisible from './Animation';
-
 // ---------------------------------------------------------------------------
 // Building blocks
 // ---------------------------------------------------------------------------
@@ -119,36 +117,32 @@ const FeatureBlock = ({ icon, tone, heading, body, bullets, badge, visualPalette
     sx={{ mb: { xs: 7, md: 10 }, '&:last-of-type': { mb: 0 } }}
   >
     <Grid item xs={12} md={6}>
-      <FadeInWhenVisible>
-        <IconTile icon={icon} tone={tone} />
-        <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 1.75, flexWrap: 'wrap', rowGap: 1 }}>
-          <Typography
-            variant="h3"
-            sx={{
-              fontSize: { xs: '1.5rem', md: '1.75rem' },
-              fontWeight: 700,
-              letterSpacing: '-0.02em',
-              lineHeight: 1.2
-            }}
-          >
-            {heading}
-          </Typography>
-          {badge && <SoonBadge />}
-        </Stack>
-        <Typography variant="body1" color="text.secondary" sx={{ mb: 2.5, maxWidth: '44ch', lineHeight: 1.6 }}>
-          {body}
+      <IconTile icon={icon} tone={tone} />
+      <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 1.75, flexWrap: 'wrap', rowGap: 1 }}>
+        <Typography
+          variant="h3"
+          sx={{
+            fontSize: { xs: '1.5rem', md: '1.75rem' },
+            fontWeight: 700,
+            letterSpacing: '-0.02em',
+            lineHeight: 1.2
+          }}
+        >
+          {heading}
         </Typography>
-        <Stack spacing={1.5}>
-          {bullets.map((b) => (
-            <FeatureBullet key={b}>{b}</FeatureBullet>
-          ))}
-        </Stack>
-      </FadeInWhenVisible>
+        {badge && <SoonBadge />}
+      </Stack>
+      <Typography variant="body1" color="text.secondary" sx={{ mb: 2.5, maxWidth: '44ch', lineHeight: 1.6 }}>
+        {body}
+      </Typography>
+      <Stack spacing={1.5}>
+        {bullets.map((b) => (
+          <FeatureBullet key={b}>{b}</FeatureBullet>
+        ))}
+      </Stack>
     </Grid>
     <Grid item xs={12} md={6}>
-      <FadeInWhenVisible>
-        <VisualCard palette={visualPalette} />
-      </FadeInWhenVisible>
+      <VisualCard palette={visualPalette} />
     </Grid>
   </Grid>
 );

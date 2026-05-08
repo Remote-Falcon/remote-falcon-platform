@@ -2,19 +2,20 @@
  * <AuthShell />
  *
  * Split-screen container for every public auth route (Login, Register,
- * Forgot/Reset Password, Verify Email). Mirrors the marketing landing
- * visual language so the logo position doesn't jump when a visitor
- * navigates between the two surfaces.
+ * Forgot/Reset Password, Verify Email). Renders the marketing AppBar at
+ * the top in its `variant="auth"` mode (lockup + ThemeToggle only) so the
+ * brand sits in the exact same DOM node — and pixel position — as on the
+ * landing page. No coordinate matching gymnastics.
  *
  * Layout:
- *   - Page: 1200px container, centered, full viewport height.
- *   - Left panel  → brand surface (bg1) with RF lockup top-left,
- *                   jukebox + tagline centered, optional meta strip
- *                   at the bottom.
+ *   - Top: <AppBar variant="auth" /> (sticky, 96px tall).
+ *   - Below: 1200px container with a 2-column grid filling the rest of
+ *            the viewport (calc(100vh - 96px) on md+).
+ *   - Left panel  → brand surface (bg1), jukebox + tagline centered,
+ *                   optional meta strip at the bottom.
  *   - Right panel → form surface (bg0) with centered ~400px form
  *                   (eyebrow → heading → subhead → children).
- *   - Mobile     → stacks vertically; brand panel collapses to a
- *                   slim banner with logo + tagline.
+ *   - Mobile     → stacks vertically.
  *
  * Props
  *   eyebrow   — small UPPERCASE label above the form heading
@@ -33,7 +34,11 @@ import PropTypes from 'prop-types';
 import { Link as RouterLink } from 'react-router-dom';
 
 import jukebox from '../../../assets/images/landing/full-jukebox-1301x1041.png';
-import Logo from '../../../design-system/components/Logo';
+import AppBar from '../../../ui-component/extended/AppBar';
+
+// Marketing AppBar Toolbar minHeight; we offset the split-screen by the
+// same amount so the form/brand panels fill exactly the rest of the viewport.
+const APPBAR_HEIGHT = 96;
 
 // "or" divider + cross-link between Login ↔ Sign up.
 // Rendered inside the form panel (children of AuthShell).
@@ -95,158 +100,157 @@ const BrandOrb = () => (
 );
 
 const AuthShell = ({ eyebrow, heading, subhead, tagline, meta, children }) => (
-  <Container
-    disableGutters
-    maxWidth="lg"
-    sx={{
-      maxWidth: 1200,
-      minHeight: '100vh'
-    }}
-  >
-    <Grid
-      container
+  <>
+    {/* Same AppBar component as landing — its `auth` variant strips the
+        nav and sign-in/up buttons but keeps the lockup + ThemeToggle.
+        Identical DOM = brand stays nailed to the same coordinates when
+        navigating between /, /signin, and /signup. */}
+    <AppBar variant="auth" />
+
+    <Container
+      disableGutters
+      maxWidth="lg"
       sx={{
-        minHeight: '100vh',
-        // Subtle border separates the centered shell from the page
-        // background on viewports wider than 1200px.
-        boxShadow: { md: (t) => `0 0 0 1px ${t.palette.divider}` }
+        maxWidth: 1200,
+        minHeight: { md: `calc(100vh - ${APPBAR_HEIGHT}px)` }
       }}
     >
-      {/* BRAND PANEL ----------------------------------------------------- */}
       <Grid
-        item
-        xs={12}
-        md={6}
+        container
         sx={{
-          position: 'relative',
-          overflow: 'hidden',
-          bgcolor: 'background.paper',
-          borderRight: { md: '1px solid' },
-          borderBottom: { xs: '1px solid', md: 'none' },
-          borderColor: { xs: 'divider', md: 'divider' },
-          // Match marketing nav padding exactly so logo lands at the
-          // same viewport coords as the AppBar's logo.
-          pt: { xs: 3, md: 1.5 },
-          px: { xs: 3, md: 4 },
-          pb: { xs: 3, md: 4 },
-          display: 'flex',
-          flexDirection: 'column'
+          minHeight: { md: `calc(100vh - ${APPBAR_HEIGHT}px)` },
+          // Subtle border separates the centered shell from the page
+          // background on viewports wider than 1200px.
+          boxShadow: { md: (t) => `0 0 0 1px ${t.palette.divider}` }
         }}
       >
-        <BrandOrb />
-
-        {/* Logo top-left — also "back to home" affordance */}
-        <RouterLink to="/" aria-label="Remote Falcon home" style={{ textDecoration: 'none', color: 'inherit', position: 'relative', zIndex: 1 }}>
-          <Logo variant="lockup" markSize={72} wordmarkSize={22} />
-        </RouterLink>
-
-        {/* Jukebox + tagline, centered */}
-        <Box
+        {/* BRAND PANEL --------------------------------------------------- */}
+        <Grid
+          item
+          xs={12}
+          md={6}
           sx={{
-            flex: 1,
             position: 'relative',
-            zIndex: 1,
+            overflow: 'hidden',
+            bgcolor: 'background.paper',
+            borderRight: { md: '1px solid' },
+            borderBottom: { xs: '1px solid', md: 'none' },
+            borderColor: { xs: 'divider', md: 'divider' },
+            p: { xs: 4, md: 6 },
             display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: { xs: 2, md: 4 },
-            textAlign: 'center',
-            py: { xs: 3, md: 4 }
+            flexDirection: 'column'
           }}
         >
+          <BrandOrb />
+
+          {/* Jukebox + tagline, centered */}
           <Box
-            component="img"
-            src={jukebox}
-            alt="Remote Falcon"
             sx={{
-              width: '100%',
-              maxWidth: { xs: 220, md: 760 },
-              maxHeight: { xs: 'none', md: 600 },
-              height: 'auto',
-              display: 'block',
-              filter: 'drop-shadow(0 16px 36px rgba(239,43,61,0.25))'
+              flex: 1,
+              position: 'relative',
+              zIndex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: { xs: 2, md: 4 },
+              textAlign: 'center',
+              py: { xs: 3, md: 4 }
             }}
-          />
-          {tagline && (
-            <Typography
-              variant="h2"
-              sx={{
-                fontSize: { xs: '1.375rem', md: '2rem' },
-                fontWeight: 700,
-                lineHeight: 1.15,
-                letterSpacing: '-0.02em',
-                maxWidth: '18ch',
-                margin: '0 auto'
-              }}
-            >
-              {tagline}
-            </Typography>
-          )}
-        </Box>
-
-        {meta && (
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ position: 'relative', zIndex: 1, fontSize: 13, display: { xs: 'none', md: 'block' } }}
           >
-            {meta}
-          </Typography>
-        )}
-      </Grid>
+            <Box
+              component="img"
+              src={jukebox}
+              alt="Remote Falcon"
+              sx={{
+                width: '100%',
+                maxWidth: { xs: 220, md: 760 },
+                maxHeight: { xs: 'none', md: 600 },
+                height: 'auto',
+                display: 'block',
+                filter: 'drop-shadow(0 16px 36px rgba(239,43,61,0.25))'
+              }}
+            />
+            {tagline && (
+              <Typography
+                variant="h2"
+                sx={{
+                  fontSize: { xs: '1.375rem', md: '2rem' },
+                  fontWeight: 700,
+                  lineHeight: 1.15,
+                  letterSpacing: '-0.02em',
+                  maxWidth: '18ch',
+                  margin: '0 auto'
+                }}
+              >
+                {tagline}
+              </Typography>
+            )}
+          </Box>
 
-      {/* FORM PANEL ------------------------------------------------------ */}
-      <Grid
-        item
-        xs={12}
-        md={6}
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          p: { xs: 4, md: 6 },
-          bgcolor: 'background.default'
-        }}
-      >
-        <Stack spacing={1} sx={{ width: '100%', maxWidth: 400 }}>
-          {eyebrow && (
+          {meta && (
             <Typography
-              sx={{
-                color: 'secondary.main',
-                fontSize: 12,
-                fontWeight: 600,
-                letterSpacing: '0.08em',
-                textTransform: 'uppercase'
-              }}
+              variant="caption"
+              color="text.secondary"
+              sx={{ position: 'relative', zIndex: 1, fontSize: 13, display: { xs: 'none', md: 'block' } }}
             >
-              {eyebrow}
+              {meta}
             </Typography>
           )}
-          {heading && (
-            <Typography
-              variant="h2"
-              component="h1"
-              sx={{
-                fontSize: { xs: '1.75rem', md: '2rem' },
-                fontWeight: 700,
-                lineHeight: 1.15,
-                letterSpacing: '-0.02em'
-              }}
-            >
-              {heading}
-            </Typography>
-          )}
-          {subhead && (
-            <Typography variant="body1" color="text.secondary" sx={{ fontSize: 15, lineHeight: 1.6, pb: 2 }}>
-              {subhead}
-            </Typography>
-          )}
-          <Box sx={{ pt: subhead ? 0 : 2 }}>{children}</Box>
-        </Stack>
+        </Grid>
+
+        {/* FORM PANEL ---------------------------------------------------- */}
+        <Grid
+          item
+          xs={12}
+          md={6}
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            p: { xs: 4, md: 6 },
+            bgcolor: 'background.default'
+          }}
+        >
+          <Stack spacing={1} sx={{ width: '100%', maxWidth: 400 }}>
+            {eyebrow && (
+              <Typography
+                sx={{
+                  color: 'secondary.main',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  letterSpacing: '0.08em',
+                  textTransform: 'uppercase'
+                }}
+              >
+                {eyebrow}
+              </Typography>
+            )}
+            {heading && (
+              <Typography
+                variant="h2"
+                component="h1"
+                sx={{
+                  fontSize: { xs: '1.75rem', md: '2rem' },
+                  fontWeight: 700,
+                  lineHeight: 1.15,
+                  letterSpacing: '-0.02em'
+                }}
+              >
+                {heading}
+              </Typography>
+            )}
+            {subhead && (
+              <Typography variant="body1" color="text.secondary" sx={{ fontSize: 15, lineHeight: 1.6, pb: 2 }}>
+                {subhead}
+              </Typography>
+            )}
+            <Box sx={{ pt: subhead ? 0 : 2 }}>{children}</Box>
+          </Stack>
+        </Grid>
       </Grid>
-    </Grid>
-  </Container>
+    </Container>
+  </>
 );
 
 AuthShell.propTypes = {

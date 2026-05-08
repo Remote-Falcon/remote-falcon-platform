@@ -23,10 +23,12 @@ import { Box } from '@mui/material';
 
 import rfIcon from '../../../public/rf-icon.png';
 
-const LogoMark = ({ size = 28, glow = false, sx, ...rest }) => (
+// Pass `src` to use a different image (e.g. an experimental
+// rf-icon-new while we evaluate it in a single surface).
+const LogoMark = ({ size = 28, glow = false, src, sx, ...rest }) => (
   <Box
     component="img"
-    src={rfIcon}
+    src={src ?? rfIcon}
     alt="Remote Falcon"
     width={size}
     height={size}
@@ -46,6 +48,7 @@ const LogoMark = ({ size = 28, glow = false, sx, ...rest }) => (
 LogoMark.propTypes = {
   size: PropTypes.number,
   glow: PropTypes.bool,
+  src: PropTypes.string,
   sx: PropTypes.oneOfType([PropTypes.object, PropTypes.array, PropTypes.func])
 };
 

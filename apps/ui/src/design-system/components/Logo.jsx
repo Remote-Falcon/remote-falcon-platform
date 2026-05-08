@@ -27,7 +27,7 @@ import { Box, Stack, Typography } from '@mui/material';
 import LogoMark from './LogoMark';
 import jukebox from '../../../public/jukebox.png';
 
-const Logo = ({ variant = 'lockup', markSize = 28, wordmarkSize, sx }) => {
+const Logo = ({ variant = 'lockup', markSize = 28, wordmarkSize, markSrc, sx }) => {
   if (variant === 'hero') {
     return (
       <Box
@@ -60,7 +60,7 @@ const Logo = ({ variant = 'lockup', markSize = 28, wordmarkSize, sx }) => {
         ...sx
       }}
     >
-      <LogoMark size={markSize} />
+      <LogoMark size={markSize} src={markSrc} />
       <Typography
         component="span"
         sx={{
@@ -84,6 +84,7 @@ Logo.propTypes = {
   variant: PropTypes.oneOf(['lockup', 'hero']),
   markSize: PropTypes.number,
   wordmarkSize: PropTypes.number,
+  markSrc: PropTypes.string,
   sx: PropTypes.oneOfType([PropTypes.object, PropTypes.array, PropTypes.func])
 };
 

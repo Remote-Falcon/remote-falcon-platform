@@ -88,7 +88,7 @@ const AuthRegister = () => {
                   value={values.firstName}
                   onBlur={handleBlur}
                   onChange={handleChange}
-                  sx={{ ...theme.typography.customInput }}
+                  sx={{ ...theme.typography.customInput, mt: 0, mb: 2.5 }}
                 />
               </Grid>
               <Grid item xs={12} sm={6}>
@@ -102,17 +102,18 @@ const AuthRegister = () => {
                   value={values.lastName}
                   onBlur={handleBlur}
                   onChange={handleChange}
-                  sx={{ ...theme.typography.customInput }}
+                  sx={{ ...theme.typography.customInput, mt: 0, mb: 2.5 }}
                 />
               </Grid>
             </Grid>
-            <FormControl fullWidth error={Boolean(touched.showName && errors.showName)} sx={{ ...theme.typography.customInput }}>
+            <FormControl fullWidth error={Boolean(touched.showName && errors.showName)} sx={{ ...theme.typography.customInput, mt: 0, mb: 2.5 }}>
               <InputLabel htmlFor="signup-last-name-error">Show Name</InputLabel>
               <OutlinedInput
                 id="signup-show-name"
                 type="text"
                 value={values.showName}
                 name="showName"
+                label="Show Name"
                 onBlur={handleBlur}
                 onChange={handleChange}
                 inputProps={{}}
@@ -124,13 +125,14 @@ const AuthRegister = () => {
               )}
             </FormControl>
 
-            <FormControl fullWidth error={Boolean(touched.email && errors.email)} sx={{ ...theme.typography.customInput }}>
+            <FormControl fullWidth error={Boolean(touched.email && errors.email)} sx={{ ...theme.typography.customInput, mt: 0, mb: 2.5 }}>
               <InputLabel htmlFor="signup-email">Email Address</InputLabel>
               <OutlinedInput
                 id="signup-email"
                 type="email"
                 value={values.email}
                 name="email"
+                label="Email Address"
                 onBlur={handleBlur}
                 onChange={handleChange}
                 inputProps={{}}
@@ -142,7 +144,7 @@ const AuthRegister = () => {
               )}
             </FormControl>
 
-            <FormControl fullWidth error={Boolean(touched.password && errors.password)} sx={{ ...theme.typography.customInput }}>
+            <FormControl fullWidth error={Boolean(touched.password && errors.password)} sx={{ ...theme.typography.customInput, mt: 0, mb: 2.5 }}>
               <InputLabel htmlFor="signup-password">Password</InputLabel>
               <OutlinedInput
                 id="signup-password"

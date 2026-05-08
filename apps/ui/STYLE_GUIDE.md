@@ -1,6 +1,6 @@
 # Remote Falcon Style Guide
 
-The visual and interaction standards for every Remote Falcon UI surface — marketing, control panel, public viewer pages, auth, and admin tools.
+The visual and interaction standards for every Remote Falcon UI surface we own — marketing, control panel, auth, and admin tools. Public viewer pages are out of scope: each show is custom-themed by its owner.
 
 If a value isn't documented here or codified in a token file under [`src/design-system/tokens/`](src/design-system/tokens/), it doesn't exist.
 

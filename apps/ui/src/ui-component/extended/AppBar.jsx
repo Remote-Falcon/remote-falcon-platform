@@ -71,10 +71,18 @@ const NavButton = ({ link }) => {
 
 NavButton.propTypes = { link: PropTypes.object.isRequired };
 
-const AppBar = ({ ...others }) => {
+// `variant` controls how much chrome the bar shows.
+//   "full" (default) → marketing nav + Sign In/Up + ThemeToggle (+ mobile drawer)
+//   "auth"           → only the lockup + ThemeToggle. Used by AuthShell so the
+//                      bar — and the brand inside it — stays in the exact same
+//                      DOM node and pixel position when navigating between
+//                      landing and signin/signup.
+const AppBar = ({ variant = 'full', ...others }) => {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const closeDrawer = () => setDrawerOpen(false);
   const openDrawer = () => setDrawerOpen(true);
+
+  const isFull = variant === 'full';
 
   return (
     <MuiAppBar
@@ -97,74 +105,87 @@ const AppBar = ({ ...others }) => {
             <Logo variant="lockup" markSize={72} wordmarkSize={22} />
           </RouterLink>
 
-          {/* Middle nav — desktop only */}
-          <Stack
-            direction="row"
-            alignItems="center"
-            sx={{ display: { xs: 'none', md: 'flex' }, ml: 2 }}
-            spacing={0.5}
-          >
-            {NAV_LINKS.map((link) => (
-              <NavButton key={link.label} link={link} />
-            ))}
-          </Stack>
+          {/* Middle nav — desktop only, full variant only */}
+          {isFull && (
+            <Stack
+              direction="row"
+              alignItems="center"
+              sx={{ display: { xs: 'none', md: 'flex' }, ml: 2 }}
+              spacing={0.5}
+            >
+              {NAV_LINKS.map((link) => (
+                <NavButton key={link.label} link={link} />
+              ))}
+            </Stack>
+          )}
 
           <Box sx={{ flexGrow: 1 }} />
 
-          {/* Right side — desktop */}
+          {/* Right side. In auth variant the ThemeToggle is the only item and
+              must remain reachable on every breakpoint (no mobile drawer). */}
           <Stack
             direction="row"
             alignItems="center"
-            sx={{ display: { xs: 'none', sm: 'flex' } }}
+            sx={{ display: isFull ? { xs: 'none', sm: 'flex' } : 'flex' }}
             spacing={1.5}
           >
             <ThemeToggle />
-            <Button id="appbar-signin" color="inherit" component={RouterLink} to="/signin">
-              Sign In
-            </Button>
-            <Button id="appbar-signup" component={RouterLink} to="/signup" disableElevation variant="contained" color="secondary">
-              Sign Up
-            </Button>
+            {isFull && (
+              <>
+                <Button id="appbar-signin" color="inherit" component={RouterLink} to="/signin">
+                  Sign In
+                </Button>
+                <Button id="appbar-signup" component={RouterLink} to="/signup" disableElevation variant="contained" color="secondary">
+                  Sign Up
+                </Button>
+              </>
+            )}
           </Stack>
 
-          {/* Mobile drawer */}
-          <Box sx={{ display: { xs: 'block', sm: 'none' } }}>
-            <IconButton color="inherit" onClick={openDrawer} size="large" aria-label="Open menu">
-              <MenuIcon />
-            </IconButton>
-            <Drawer anchor="top" open={drawerOpen} onClose={closeDrawer}>
-              <Box sx={{ width: 'auto' }} role="presentation" onClick={closeDrawer} onKeyDown={closeDrawer}>
-                <List>
-                  {NAV_LINKS.map((link) => {
-                    const Icon = link.icon;
-                    const itemProps = link.external
-                      ? { component: 'a', href: link.href, target: '_blank', rel: 'noopener' }
-                      : { component: 'a', href: link.href };
-                    return (
-                      <ListItemButton key={link.label} {...itemProps}>
-                        <ListItemIcon><Icon /></ListItemIcon>
-                        <ListItemText primary={link.label} />
-                        {link.badge && <SoonBadge />}
-                      </ListItemButton>
-                    );
-                  })}
-                  <ListItemButton component="a" href="/signin">
-                    <ListItemIcon><IconLogin /></ListItemIcon>
-                    <ListItemText primary="Sign In" />
-                  </ListItemButton>
-                  <ListItemButton component="a" href="/signup">
-                    <ListItemIcon><IconChevronRight /></ListItemIcon>
-                    <ListItemText primary="Sign Up" />
-                  </ListItemButton>
-                  <ThemeToggle variant="rail" />
-                </List>
-              </Box>
-            </Drawer>
-          </Box>
+          {/* Mobile drawer — full variant only */}
+          {isFull && (
+            <Box sx={{ display: { xs: 'block', sm: 'none' } }}>
+              <IconButton color="inherit" onClick={openDrawer} size="large" aria-label="Open menu">
+                <MenuIcon />
+              </IconButton>
+              <Drawer anchor="top" open={drawerOpen} onClose={closeDrawer}>
+                <Box sx={{ width: 'auto' }} role="presentation" onClick={closeDrawer} onKeyDown={closeDrawer}>
+                  <List>
+                    {NAV_LINKS.map((link) => {
+                      const Icon = link.icon;
+                      const itemProps = link.external
+                        ? { component: 'a', href: link.href, target: '_blank', rel: 'noopener' }
+                        : { component: 'a', href: link.href };
+                      return (
+                        <ListItemButton key={link.label} {...itemProps}>
+                          <ListItemIcon><Icon /></ListItemIcon>
+                          <ListItemText primary={link.label} />
+                          {link.badge && <SoonBadge />}
+                        </ListItemButton>
+                      );
+                    })}
+                    <ListItemButton component="a" href="/signin">
+                      <ListItemIcon><IconLogin /></ListItemIcon>
+                      <ListItemText primary="Sign In" />
+                    </ListItemButton>
+                    <ListItemButton component="a" href="/signup">
+                      <ListItemIcon><IconChevronRight /></ListItemIcon>
+                      <ListItemText primary="Sign Up" />
+                    </ListItemButton>
+                    <ThemeToggle variant="rail" />
+                  </List>
+                </Box>
+              </Drawer>
+            </Box>
+          )}
         </Toolbar>
       </Container>
     </MuiAppBar>
   );
+};
+
+AppBar.propTypes = {
+  variant: PropTypes.oneOf(['full', 'auth'])
 };
 
 export default AppBar;

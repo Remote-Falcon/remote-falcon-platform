@@ -112,34 +112,20 @@ const HeaderPage = () => {
           {/* Image column */}
           <Grid item xs={12} md={7} sx={{ display: { xs: 'none', md: 'flex' }, justifyContent: 'center' }}>
             <Box
-              component={motion.div}
-              initial={{ opacity: 0, scale: 0.96 }}
-              animate={{
-                opacity: 1,
-                scale: 1,
-                y: [-6, 6, -6]
+              component="img"
+              src={jukebox}
+              alt="Remote Falcon"
+              sx={{
+                position: 'relative',
+                maxWidth: 760,
+                width: '100%',
+                maxHeight: 600,
+                height: 'auto',
+                objectFit: 'contain',
+                display: 'block',
+                filter: 'drop-shadow(0 20px 40px rgba(239,43,61,0.25))'
               }}
-              transition={{
-                opacity: { duration: 0.6 },
-                scale: { duration: 0.6 },
-                y: { repeat: Infinity, duration: 6, ease: 'easeInOut' }
-              }}
-              sx={{ position: 'relative', maxWidth: 760, width: '100%' }}
-            >
-              <Box
-                component="img"
-                src={jukebox}
-                alt="Remote Falcon"
-                sx={{
-                  width: '100%',
-                  maxHeight: 600,
-                  height: 'auto',
-                  objectFit: 'contain',
-                  display: 'block',
-                  filter: 'drop-shadow(0 20px 40px rgba(239,43,61,0.25))'
-                }}
-              />
-            </Box>
+            />
           </Grid>
         </Grid>
       </Container>
