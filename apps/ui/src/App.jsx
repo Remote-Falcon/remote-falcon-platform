@@ -4,17 +4,21 @@ import { JWTProvider as AuthProvider } from './contexts/JWTContext';
 import NavigationScroll from './layout/NavigationScroll';
 import Routes from './routes';
 import LegacyTheme from './themes';
-import V2Theme from './design-system/theme';
 import Snackbar from './ui-component/extended/Snackbar';
 import Locales from './ui-component/Locales';
 import RTLLayout from './ui-component/RTLLayout';
 
-// Resolved at module load. Flip via VITE_USE_DESIGN_SYSTEM_V2=true and rebuild.
-const ThemeCustomization =
-  import.meta.env.VITE_USE_DESIGN_SYSTEM_V2 === 'true' ? V2Theme : LegacyTheme;
-
+// Theme strategy during the modernization:
+//   - LegacyTheme (Berry) is the global default at this level — it covers
+//     the control panel and any other surface that hasn't been migrated yet.
+//   - The v2 design system wraps individual route groups that have been
+//     refreshed (currently LoginRoutes — landing, auth, legal, 404). See
+//     apps/ui/src/routes/LoginRoutes.jsx.
+// When MainRoutes (control-panel) finishes migrating per Phases 3–9 of
+// MIGRATION.md, swap this import to design-system/theme and drop the
+// per-route override.
 const App = () => (
-  <ThemeCustomization>
+  <LegacyTheme>
     {/* RTL layout */}
     <RTLLayout>
       <Locales>
@@ -28,7 +32,7 @@ const App = () => (
         </NavigationScroll>
       </Locales>
     </RTLLayout>
-  </ThemeCustomization>
+  </LegacyTheme>
 );
 
 export default App;

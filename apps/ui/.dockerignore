@@ -1,3 +1,9 @@
 node_modules
 Dockerfile
 .git
+# Local env overrides — keep them out of prod builds. Vite reads
+# .env.local in every mode (incl. `npm run build`), so without this
+# entry a developer's local toggles (e.g. VITE_USE_DESIGN_SYSTEM_V2)
+# leak into the production bundle.
+.env.local
+.env.*.local
