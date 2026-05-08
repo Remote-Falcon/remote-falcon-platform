@@ -29,6 +29,9 @@ public class EmailUtil {
   @Value("${mailersend.template-ids.request-api-access}")
   String requestApiAccessTemplateId;
 
+  @Value("${mailer.dev-bypass:false}")
+  Boolean mailerDevBypass;
+
   public MailerSendResponse sendSignUpEmail(Show show) {
     Email email = new Email();
     email.addRecipient(show.getShowName(), show.getEmail());
@@ -62,6 +65,12 @@ public class EmailUtil {
   private MailerSendResponse sendEmail(Email email) {
     MailerSendResponse response = new MailerSendResponse();
     email.setFrom("Remote Falcon", "noreply@remotefalcon.com");
+
+    if (Boolean.TRUE.equals(mailerDevBypass)) {
+      log.info("MAILER_DEV_BYPASS enabled — skipping outbound send and returning synthetic 202");
+      response.responseStatusCode = 202;
+      return response;
+    }
 
     MailerSend ms = new MailerSend();
 
