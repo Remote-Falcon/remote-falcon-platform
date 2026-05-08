@@ -2,16 +2,19 @@
 # regression-e2e.yml
 #
 # Runs the Playwright regression tier (chromium + firefox + webkit)
-# against a freshly-brought-up dev stack on every push to main and
-# on demand. This is intentionally separate from deploy.yml because:
-#   - It is slow (multi-browser, full regression glob).
+# against a freshly-brought-up dev stack on demand only.
+#
+# This is intentionally separate from deploy.yml because:
+#   - It is slow (multi-browser, full regression glob — ~12-25min).
 #   - It must NOT gate deploys; deploy.yml runs only the smoke tier.
 #
-# Why post-merge instead of a nightly cron: deps are pinned via
-# package-lock.json and the Playwright browsers ship with @playwright/test,
-# so external drift between merges is negligible. Running unconditionally
-# every night just burns CI minutes and surfaces flakes with no recent
-# change to correlate them to.
+# Trigger model: workflow_dispatch only. The default release flow is
+# to run regression locally (`./ops/dev-up.sh up --core` +
+# `cd tests/e2e && PLAYWRIGHT_TIER=regression npx playwright test`)
+# before tagging, and to dispatch this workflow when a CI-side run is
+# desired (e.g. before a larger release). Auto-running on every push
+# to main was burning CI minutes for solo-developer release cadence
+# without ever gating anything.
 #
 # Manual trigger: GitHub UI -> Actions -> "Regression E2E"
 #                  -> Run workflow, or `gh workflow run regression-e2e.yml`.
@@ -19,8 +22,6 @@
 name: Regression E2E
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 jobs:
