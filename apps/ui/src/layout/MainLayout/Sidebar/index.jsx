@@ -8,6 +8,7 @@ import PropTypes from 'prop-types';
 import PerfectScrollbar from 'react-perfect-scrollbar';
 
 import { VERSION } from '../../../config';
+import ThemeToggle from '../../../design-system/components/ThemeToggle';
 import useAuth from '../../../hooks/useAuth';
 import { useDispatch, useSelector } from '../../../store';
 import { drawerWidth } from '../../../store/constant';
@@ -51,6 +52,13 @@ const Sidebar = ({ window }) => {
         }}
       >
         <MenuList />
+
+        {/* Theme toggle — Phase 2 of the v2 migration. The rail variant
+            shows the icon plus a "Light mode" / "Dark mode" label so it's
+            obvious in the expanded sidebar. */}
+        <Box sx={{ mt: 2, px: 1 }}>
+          <ThemeToggle variant="rail" />
+        </Box>
 
         <Stack direction="row" justifyContent="center" spacing={2} sx={{ mt: 2 }}>
           <Box

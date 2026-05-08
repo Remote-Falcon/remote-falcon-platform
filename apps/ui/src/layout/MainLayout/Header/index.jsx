@@ -8,6 +8,7 @@ import { useTheme } from '@mui/material/styles';
 import { IconMenu2 } from '@tabler/icons-react';
 import _ from 'lodash';
 
+import ThemeToggle from '../../../design-system/components/ThemeToggle';
 import Customization from '../../../layout/Customization';
 import { useDispatch, useSelector } from '../../../store';
 import { openDrawer } from '../../../store/slices/menu';
@@ -130,6 +131,15 @@ const Header = () => {
       <Box sx={{ flexGrow: 1 }} />
 
       <RFSplitButton options={actionOptions} color="error" onClick={(options, selectedIndex) => takeAction(options, selectedIndex)} />
+
+      {/* Theme toggle — Phase 2 of the v2 migration. Lives in the chrome
+          stack alongside notifications, customization, and the profile
+          chip. Persists via the same `rf-config` localStorage key that
+          the marketing AppBar's toggle uses, so flipping here also flips
+          the public surfaces and vice versa. */}
+      <Box sx={{ ml: 1 }}>
+        <ThemeToggle />
+      </Box>
 
       <Box sx={{ mr: -3 }}>
         <NotificationSection />
