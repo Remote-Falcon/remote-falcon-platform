@@ -90,10 +90,12 @@ const AppBar = ({ variant = 'full', ...others }) => {
       position="sticky"
       elevation={0}
       sx={{
-        // Always-on glass effect — not scroll-triggered.
+        // Always-on glass effect — not scroll-triggered. Alpha is high
+        // (0.92) so text behind the sticky bar doesn't bleed through and
+        // tank readability; the blur still softens the seam at the edge.
         backdropFilter: 'blur(14px) saturate(150%)',
         WebkitBackdropFilter: 'blur(14px) saturate(150%)',
-        backgroundColor: (theme) => alpha(theme.palette.background.default, 0.65),
+        backgroundColor: (theme) => alpha(theme.palette.background.default, 0.92),
         borderBottom: '1px solid',
         borderColor: 'divider',
         color: 'text.primary'

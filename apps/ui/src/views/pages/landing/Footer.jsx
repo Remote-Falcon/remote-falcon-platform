@@ -18,8 +18,15 @@ const FOOTER_COLS = [
     title: 'Community',
     links: [
       { label: 'Facebook group', href: 'https://www.facebook.com/groups/remotefalcon', external: true },
-      { label: 'GitHub', href: 'https://github.com/Remote-Falcon', external: true },
-      { label: 'Patreon', href: 'https://www.patreon.com/RemoteFalcon', external: true }
+      { label: 'GitHub', href: 'https://github.com/Remote-Falcon', external: true }
+    ]
+  },
+  {
+    title: 'Support',
+    links: [
+      { label: 'Patreon', href: 'https://www.patreon.com/cw/MattShorts', external: true },
+      { label: 'Ko-fi', href: 'https://ko-fi.com/mattshorts', external: true },
+      { label: 'Buy Me a Coffee', href: 'https://buymeacoffee.com/mattshorts', external: true }
     ]
   },
   {
@@ -89,7 +96,7 @@ const FooterPage = () => (
         <Grid item xs={12} md={7}>
           <Grid container spacing={{ xs: 4, sm: 4 }}>
             {FOOTER_COLS.map((col) => (
-              <Grid item xs={6} sm={4} key={col.title}>
+              <Grid item xs={6} sm={6} md={3} key={col.title}>
                 <Typography
                   sx={{
                     color: 'text.secondary',
