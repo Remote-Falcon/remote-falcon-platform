@@ -3,6 +3,11 @@ import { alpha } from '@mui/material/styles';
 import { IconBrandGithub, IconLayoutGrid, IconMapPin, IconMusic } from '@tabler/icons-react';
 import PropTypes from 'prop-types';
 
+import CommunityPreview from './visuals/CommunityPreview';
+import JukeboxPreview from './visuals/JukeboxPreview';
+import ShowsMapPreview from './visuals/ShowsMapPreview';
+import ViewerPagePreview from './visuals/ViewerPagePreview';
+
 // ---------------------------------------------------------------------------
 // Building blocks
 // ---------------------------------------------------------------------------
@@ -82,8 +87,11 @@ const SoonBadge = () => (
   />
 );
 
-// Decorative visual card — placeholder until real screenshots land.
-const VisualCard = ({ palette: visualPalette = ['primary', 'secondary'] }) => (
+// Framed visual surface — gradient backdrop + soft border + shadow.
+// Children render absolutely-positioned over the backdrop. Until the
+// real screenshots land, each FeatureBlock can pass a stylized v2
+// mockup component as `children`.
+const VisualCard = ({ palette: visualPalette = ['primary', 'secondary'], children }) => (
   <Box
     sx={{
       aspectRatio: '4/3',
@@ -99,15 +107,20 @@ const VisualCard = ({ palette: visualPalette = ['primary', 'secondary'] }) => (
         ${theme.palette.background.paper}
       `
     }}
-  />
+  >
+    {children}
+  </Box>
 );
-VisualCard.propTypes = { palette: PropTypes.arrayOf(PropTypes.string) };
+VisualCard.propTypes = {
+  palette: PropTypes.arrayOf(PropTypes.string),
+  children: PropTypes.node
+};
 
 // ---------------------------------------------------------------------------
 // Feature block — alternating left/right text + visual
 // ---------------------------------------------------------------------------
 
-const FeatureBlock = ({ icon, tone, heading, body, bullets, badge, visualPalette, reverse, anchor }) => (
+const FeatureBlock = ({ icon, tone, heading, body, bullets, badge, visual, visualPalette, reverse, anchor }) => (
   <Grid
     container
     id={anchor}
@@ -142,7 +155,7 @@ const FeatureBlock = ({ icon, tone, heading, body, bullets, badge, visualPalette
       </Stack>
     </Grid>
     <Grid item xs={12} md={6}>
-      <VisualCard palette={visualPalette} />
+      <VisualCard palette={visualPalette}>{visual}</VisualCard>
     </Grid>
   </Grid>
 );
@@ -153,6 +166,7 @@ FeatureBlock.propTypes = {
   body: PropTypes.string.isRequired,
   bullets: PropTypes.arrayOf(PropTypes.string).isRequired,
   badge: PropTypes.string,
+  visual: PropTypes.node,
   visualPalette: PropTypes.arrayOf(PropTypes.string),
   reverse: PropTypes.bool,
   anchor: PropTypes.string
@@ -173,7 +187,8 @@ const FEATURES = [
       'Voting rounds let viewers pick what plays next — highest tally wins the round',
       'Group sequences into categories, control visibility per sequence, hide a song after it plays'
     ],
-    visualPalette: ['error', 'secondary']
+    visualPalette: ['error', 'secondary'],
+    visual: <JukeboxPreview />
   },
   {
     icon: IconLayoutGrid,
@@ -186,7 +201,8 @@ const FEATURES = [
       'Your own subdomain on remotefalcon.com (auto-created from your show name)'
     ],
     reverse: true,
-    visualPalette: ['primary', 'primary']
+    visualPalette: ['primary', 'primary'],
+    visual: <ViewerPagePreview />
   },
   {
     icon: IconMapPin,
@@ -200,7 +216,8 @@ const FEATURES = [
     ],
     badge: 'Soon',
     anchor: 'shows-map',
-    visualPalette: ['primary', 'error']
+    visualPalette: ['primary', 'error'],
+    visual: <ShowsMapPreview />
   },
   {
     icon: IconBrandGithub,
@@ -213,7 +230,8 @@ const FEATURES = [
       'Community-supported via the Remote Falcon Facebook group and Patreon'
     ],
     reverse: true,
-    visualPalette: ['error', 'secondary']
+    visualPalette: ['error', 'secondary'],
+    visual: <CommunityPreview />
   }
 ];
 
