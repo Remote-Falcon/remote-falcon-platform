@@ -63,37 +63,28 @@ Phases 1–5 deliver the bulk of the visible upgrade. Phases 6–10 are polish a
 
 ---
 
-## Phase 1 — Wire v2 ThemeProvider behind a flag
+## Phase 1 — Per-route theme split _(SHIPPED)_
 
-**Goal:** developers and reviewers can preview the new theme by setting an env var, with zero impact on prod.
+The original plan was to gate v2 behind a `VITE_USE_DESIGN_SYSTEM_V2`
+env var. We landed on a different shape that ships v2 to users today
+without waiting for the control-panel migration:
 
-### Steps
+- `apps/ui/src/App.jsx` imports `LegacyTheme` (Berry) directly as the
+  global default. Anything that doesn't have its own override renders
+  Berry — which is exactly what `MainRoutes` (`/control-panel/*`)
+  needs because it still references Berry-only palette keys
+  (`palette.dark`, `palette.text.dark`, `customShadows.medium`,
+  `customInput`).
+- `apps/ui/src/routes/LoginRoutes.jsx` wraps its element tree in the
+  v2 `ThemeCustomization` from `design-system/theme`. Public surfaces
+  — landing, signin/signup, forgot/reset password, verify-email,
+  privacy, terms, and 404 — render under v2.
+- `apps/ui/.dockerignore` excludes `.env.local` / `.env.*.local` so
+  developer-local toggles never leak into the production bundle.
 
-1. In `apps/ui/src/App.jsx` (or wherever `ThemeCustomization` is imported), gate the import:
-
-   ```jsx
-   import LegacyTheme from './themes';
-   import V2Theme from './design-system/theme';
-
-   const ThemeCustomization = import.meta.env.VITE_USE_DESIGN_SYSTEM_V2 === 'true'
-     ? V2Theme
-     : LegacyTheme;
-   ```
-
-2. Add a row to `apps/ui/.env.example` (create if missing):
-   ```
-   VITE_USE_DESIGN_SYSTEM_V2=false
-   ```
-
-3. Document the flag in `apps/ui/README.md` under "Local development".
-
-4. Smoke-test both modes locally — login, dashboard, sequences, settings, viewer-page.
-
-### Acceptance
-
-- [ ] Setting `VITE_USE_DESIGN_SYSTEM_V2=true` renders the app with v2 colors, type, and component shapes.
-- [ ] Unsetting / `false` renders the app identically to `main`.
-- [ ] No console warnings about missing palette keys.
+When Phases 3–9 finish migrating the control-panel surfaces off
+Berry-only theme keys, Phase 10 swaps `App.jsx`'s import to
+`design-system/theme` and removes the override in `LoginRoutes`.
 
 ---
 
@@ -298,13 +289,18 @@ The component lives at `apps/ui/src/ui-component/EmptyState.jsx` (build it durin
 
 ## Phase 10 — Delete legacy
 
-Once all pages render correctly under `VITE_USE_DESIGN_SYSTEM_V2=true`:
+Once all control-panel pages render correctly under v2 (i.e. there are
+no remaining Berry-only theme key references):
 
-1. Flip the default to `true` in code (drop the env-var gate).
-2. Delete `apps/ui/src/themes/` and `apps/ui/src/assets/scss/_themes-vars.module.scss` + `_theme1..6.module.scss`.
-3. Remove the `presetColor` config from `useConfig` (no more 6 preset themes — we ship one identity).
-4. Move `apps/ui/src/design-system/theme/` to `apps/ui/src/themes/` (so the eventual import path is `from './themes'` again — clean).
-5. **Delete the Berry-template logo leftovers**:
+1. In `apps/ui/src/App.jsx`, swap `import LegacyTheme from './themes'`
+   to `import ThemeCustomization from './design-system/theme'`.
+2. In `apps/ui/src/routes/LoginRoutes.jsx`, drop the `<V2Theme>`
+   override around the route element (no longer needed — the global
+   default is v2).
+3. Delete `apps/ui/src/themes/` and `apps/ui/src/assets/scss/_themes-vars.module.scss` + `_theme1..6.module.scss`.
+4. Remove the `presetColor` config from `useConfig` (no more 6 preset themes — we ship one identity).
+5. Move `apps/ui/src/design-system/theme/` to `apps/ui/src/themes/` (so the eventual import path is `from './themes'` again — clean).
+6. **Delete the Berry-template logo leftovers**:
    - `apps/ui/src/assets/images/logo.svg`
    - `apps/ui/src/assets/images/logo-dark.svg`
    - `apps/ui/public/favicon.svg`  ← replace with a favicon derived from `public/rf-icon.png`
@@ -323,10 +319,10 @@ Once all pages render correctly under `VITE_USE_DESIGN_SYSTEM_V2=true`:
 Local:
 ```bash
 cd apps/ui
-VITE_USE_DESIGN_SYSTEM_V2=true npm run dev
+npm run dev
 ```
 
-Per-phase smoke tests live in `cypress/e2e/`. Add a v2-specific spec under `cypress/e2e/design-system-v2.cy.jsx` that snapshots the major pages with the flag on. Don't merge a phase without the snapshot diff being clean.
+Per-phase smoke tests live in `tests/e2e/regression/`. Don't merge a phase without the regression suite being clean.
 
 ---
 
@@ -334,8 +330,8 @@ Per-phase smoke tests live in `cypress/e2e/`. Add a v2-specific spec under `cypr
 
 Every phase is reversible by:
 
-- **Phase 1**: unset `VITE_USE_DESIGN_SYSTEM_V2`.
+- **Phase 1**: in `LoginRoutes.jsx`, unwrap the `<V2Theme>` around the route element. Public surfaces fall back to the global Berry default. The v2 token files and theme directory stay on disk; they're additive.
 - **Phases 2–9**: revert the per-page commits. Token files and v2 theme stay; they're additive.
 - **Phase 10**: unmerge the deletion commit; the legacy theme is in git history forever.
 
-If a production issue surfaces, flip the env var off and dig in. The flag is the rollback.
+If a production issue surfaces on a v2-rendered surface, the rollback is one line — drop the `<V2Theme>` wrapper in `LoginRoutes.jsx` and redeploy.
