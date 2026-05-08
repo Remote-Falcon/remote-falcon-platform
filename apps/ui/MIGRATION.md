@@ -45,21 +45,38 @@ The legacy theme under `src/themes/` is untouched. **Nothing has been migrated y
 
 ## Phased rollout
 
-| # | Phase | Effort | Risk | Owner |
+| # | Phase | Effort | Risk | Status |
 |---|---|---|---|---|
-| 0 | Land assets (this PR) | — | none | — |
-| 1 | Wire v2 ThemeProvider behind a flag | ~½ day | low | UI |
-| 2 | Place `ThemeToggle` on marketing site + control panel | ~½ day | low | UI |
-| 3 | Migrate the layout shell (`MainLayout`) | 1–2 days | medium | UI |
-| 4 | Replace `MainCard` / `SubCard` patterns | 1 day | low | UI |
-| 5 | Refresh marketing site (landing) | 1–2 days | low | UI |
-| 6 | Sequences page polish | 1 day | low | UI |
-| 7 | Settings: form-with-submit pattern | 2 days | medium | UI |
-| 8 | Command palette (⌘K) | 1–2 days | low | UI |
-| 9 | Empty states & skeletons sweep | 1 day | low | UI |
-| 10 | Delete legacy theme & SCSS modules | ½ day | low | UI |
+| 0 | Land assets | — | none | ✅ shipped |
+| 1 | Wire v2 ThemeProvider (became per-route theme split) | ~½ day | low | ✅ shipped |
+| 2 | Place `ThemeToggle` on marketing site + control panel | ~½ day | low | 🟡 marketing done · control-panel pending |
+| 3 | Migrate the layout shell (`MainLayout`) | 1–2 days | medium | ❌ pending |
+| 4 | Replace `MainCard` / `SubCard` patterns | 1 day | low | ❌ pending |
+| 5 | Refresh marketing site (landing) | 1–2 days | low | ✅ shipped |
+| 6 | Sequences page polish | 1 day | low | ❌ pending |
+| 7 | Settings: form-with-submit pattern | 2 days | medium | ❌ pending |
+| 8 | Command palette (⌘K) | 1–2 days | low | ❌ pending |
+| 9 | Empty states & skeletons sweep | 1 day | low | ❌ pending |
+| 10 | Delete legacy theme & SCSS modules | ½ day | low | ❌ pending (gated on 2–9) |
 
-Phases 1–5 deliver the bulk of the visible upgrade. Phases 6–10 are polish and can ship any order after 5.
+### Bonus work shipped along the way (not in original plan)
+
+- **AuthShell** — split-screen treatment for Login, Register, Forgot/Reset password, Verify email. Marketing AppBar with `variant="auth"` mode (lockup + ThemeToggle only) keeps the brand pinned across `/`, `/signin`, `/signup`.
+- **MiscPageShell + legal rewrites** — Privacy Policy and Terms of Service rewritten in plain language to reflect the real stack (PostHog, MailerSend, MapTiler, etc.); Show Ownership page removed; 404 page redesigned with a "spilling jukebox" decoration. Catch-all redirect for unmatched URLs.
+- **Landing feature visuals** — four stylized v2 mockups replace the old gradient cards: Jukebox+Voting phones with show brands, code-editor preview with syntax-highlighted HTML/CSS, streets-style map with status pins, GitHub-flavored repo feed.
+- **Polish bin** — AppBar opacity bump, scrollbar-gutter stability fix, form-label centering across all OutlinedInputs, per-field spacing, transparent RF icon, footer Support column (Patreon / Ko-fi / Buy Me a Coffee), `MAILER_DEV_BYPASS` env to keep e2e clean, `.dockerignore` exclusion of `.env.local` so dev-only flags can't leak into prod builds.
+- **Phase 5 caveat** — the "two CTAs" item from the original Phase 5 plan landed with only one ("Create your show — free"). The "Watch a live show" ghost CTA isn't in. Worth revisiting once the public Shows Map ships and there's something to actually link to.
+
+### Suggested next-up order
+
+1. **Phase 2 control-panel half** (ThemeToggle on `MainLayout/Header` + sidebar footer) — cheap warm-up, ~30 min.
+2. **Phase 3 — layout shell** — biggest perceived modernization for signed-in users. Sidebar rail, grouped menu, slim topbar, command-palette trigger placeholder.
+3. **Phase 4 — cards** — drop borders/shadows from `MainCard`/`SubCard` defaults. Snowballs the visual upgrade across every dashboard surface for free.
+4. **Phase 9 — empty states + skeletons** — small but high-touch; can land alongside or just after 3/4.
+5. **Phase 6 — sequences** — table polish (pagination, sort, density, filter chips) + replace `RFSplitButton` with a stock MUI `ButtonGroup` + kebab menu.
+6. **Phase 7 — settings forms** — Formik + sticky save bar. Medium risk (touches save behavior).
+7. **Phase 8 — command palette** — wire to the trigger Phase 3 added.
+8. **Phase 10 — delete legacy** — once nothing references Berry palette keys, swap App.jsx's import to v2 and delete `apps/ui/src/themes/`.
 
 ---
 
@@ -92,26 +109,26 @@ Berry-only theme keys, Phase 10 swaps `App.jsx`'s import to
 
 **Goal:** users can flip between light/dark on every screen, and their choice persists across reloads. Persistence is already free — `ConfigContext` writes `navType` to `localStorage('rf-config')` via `useLocalStorage`.
 
-### Files to touch
+### Status
 
-- `apps/ui/src/views/pages/landing/Header.jsx` (marketing nav) — or `apps/ui/src/ui-component/extended/AppBar.jsx` if the toggle should live in the shared marketing AppBar
-- `apps/ui/src/layout/MainLayout/Header/index.jsx` (control panel topbar)
-- `apps/ui/src/layout/MainLayout/Sidebar/index.jsx` (control panel rail footer)
+- ✅ **Marketing AppBar** — `<ThemeToggle />` is in `apps/ui/src/ui-component/extended/AppBar.jsx`, visible on every public route (landing, signin, signup, legal, 404). Also kept in the `variant="auth"` AppBar so the toggle is still reachable while logged out.
+- ❌ **Control-panel topbar** — `apps/ui/src/layout/MainLayout/Header/index.jsx` doesn't import `ThemeToggle` yet. Drop it next to the notifications icon (left side, before `NotificationSection`).
+- ❌ **Control-panel sidebar footer** — `apps/ui/src/layout/MainLayout/Sidebar/index.jsx` doesn't render `<ThemeToggle variant="rail" />`. Add it above wherever the rail-collapse toggle will live (Phase 3).
 
-### Changes
+### What's left
 
-1. **Marketing nav**: import `ThemeToggle` from `design-system/components/ThemeToggle` and place it to the left of the "Sign in" button. The toggle stays visible on mobile.
-2. **Control panel topbar**: place `<ThemeToggle />` to the left of the notifications icon. Ensure it's reachable at every breakpoint.
-3. **Control panel sidebar footer**: place `<ThemeToggle variant="rail" />` above the collapse-rail toggle. When the rail is collapsed (icon-only), the icon stays visible; when expanded, it shows "Light mode" / "Dark mode" beside the icon.
-4. **Verify the v2 ThemeProvider re-renders on toggle.** It already reads `navType` from `useConfig()`; no extra plumbing should be needed. Smoke-test by toggling and confirming all surfaces (landing, dashboard, sequences) update without a reload.
+1. **Control-panel topbar**: place `<ThemeToggle />` to the left of `NotificationSection`. Ensure it's reachable at every breakpoint.
+2. **Control-panel sidebar footer**: place `<ThemeToggle variant="rail" />` above the rail-collapse toggle (which Phase 3 introduces; for now, just put it at the bottom of the sidebar). Icon-only when collapsed, "Light mode" / "Dark mode" beside the icon when expanded.
+3. **Smoke-test the cross-theme toggle** — change theme on landing → sign in → confirm dashboard reflects the new mode without a reload. Both Berry (control panel) and v2 (public) read `navType` from `useConfig()`, so they stay in sync.
 
 ### Acceptance
 
-- [ ] Toggle is visible and clickable on landing, dashboard, sequences, settings, viewer-page, shows-map.
+- [x] Toggle on every public surface (landing / signin / signup / legal / 404).
+- [ ] Toggle on dashboard / sequences / settings / viewer-page / shows-map.
 - [ ] Toggling on the landing page persists when navigating to the control panel and vice versa.
-- [ ] After page reload, the last-chosen mode is restored.
+- [x] After page reload, the last-chosen mode is restored (`localStorage('rf-config')`).
 - [ ] No flash of unstyled content (FOUC) on initial load — the saved mode is applied before paint.
-- [ ] Mobile (< 600px): toggle is reachable without opening a menu.
+- [x] Mobile (< 600px): toggle is reachable without opening a menu (already true for the marketing AppBar).
 
 ---
 
@@ -168,31 +185,20 @@ The legacy `MainCard` adds a border *and* a shadow on hover *and* a divider — 
 
 ---
 
-## Phase 5 — Refresh marketing site
+## Phase 5 — Refresh marketing site _(SHIPPED)_
 
-### Files to touch
+The landing page rewrite landed in PR #21. Final shape:
 
-- `apps/ui/src/views/pages/landing/index.jsx`
-- `apps/ui/src/views/pages/landing/Header.jsx` (hero)
-- `apps/ui/src/views/pages/landing/Feature.jsx`
-- `apps/ui/src/views/pages/landing/KeyFeature.jsx`
-- `apps/ui/src/views/pages/landing/Footer.jsx`
-- `apps/ui/src/ui-component/extended/AppBar.jsx`
+- **Hero** — `transform: scale(1.7)` gone. New v2 typography, single amber CTA "Create your show — free", soft gradient orb behind the hero, jukebox at natural size with a subtle drop-shadow.
+- **Feature blocks** — `KeyFeature.jsx` is no longer imported (left on disk, dead code; should be deleted in Phase 10). Four alternating left/right blocks live in the new `Feature.jsx`, each with a stylized v2 visual mockup instead of a placeholder gradient card.
+- **Icon tiles** — 44×44 tinted tiles, no Avatar circles.
+- **Footer** — 4-column layout: Product / Community / Support (Patreon, Ko-fi, Buy Me a Coffee) / Legal. Dark gradient surface, version chip + copyright bottom strip.
+- **AppBar** — always-on `backdrop-filter: blur(14px) saturate(150%)`, sticky, ThemeToggle on the right, full nav links + Sign In / Sign Up.
 
-### Changes
+### Outstanding follow-up
 
-1. **Hero (`Header.jsx`)**: drop `transform: scale(1.7)` on the jukebox. Replace the manual `<img>` with `<Logo variant="hero" />` from `design-system/components/Logo` — that component owns the asset path and sizing. Reduce hero top padding from `mt: 18.75 / 10` to `mt: 6 / 4`. Add a soft animated gradient orb behind (mockup has the CSS).
-2. **Two CTAs**: "Create your show — free" (primary, `accent`) + "Watch a live show" (ghost). Today there's only one.
-3. **Feature blocks**: replace the rigid 3-up `SubCard` grid in `Feature.jsx` and `KeyFeature.jsx` with alternating left/right blocks (image one side, copy the other). 2 blocks per "screen" instead of 3 cramped.
-4. **Drop the icon `Avatar` circles**. Use 44×44 flat icon tiles with a tinted background.
-5. **Footer**: switch from solid `secondary.dark` block to dark `bg0`/`#03050a` gradient. 4-column layout: brand+blurb / Product / Community / Company.
-6. **AppBar**: enable `backdrop-filter: blur(14px)` always (not just on scroll). The component override in `componentOverrides.js` already does this.
-
-### Acceptance
-
-- [ ] Hero renders crisp at 1×, 2×, and 3× displays. No `scale()` hacks.
-- [ ] Lighthouse "Best Practices" still ≥ 90.
-- [ ] Cumulative Layout Shift < 0.05 on hero load.
+- The original plan called for **two** hero CTAs ("Create your show" + "Watch a live show"). We shipped one. Revisit when the public Shows Map ships and there's a real link target.
+- `KeyFeature.jsx` is dead code — delete in Phase 10.
 
 ---
 
