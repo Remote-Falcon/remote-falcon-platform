@@ -33,8 +33,7 @@ const FOOTER_COLS = [
     title: 'Legal',
     links: [
       { label: 'Privacy policy', href: '/privacy-policy' },
-      { label: 'Terms of service', href: '/terms-and-conditions' },
-      { label: 'Show ownership', href: '/owners' }
+      { label: 'Terms of service', href: '/terms-and-conditions' }
     ]
   }
 ];

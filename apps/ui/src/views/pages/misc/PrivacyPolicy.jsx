@@ -1,226 +1,189 @@
 import MiscPageShell from './MiscPageShell';
 
-const PrivacyPolicy = () => {
-    return (
-        <MiscPageShell title="Privacy Policy">
-            <p>
-                This privacy policy applies to the Remote Falcon app (hereby referred to as
-                "Application") for mobile devices that was created by James Vance (hereby
-                referred to as "Service Provider") as an Open Source service. This service
-                is intended for use "AS IS".
-            </p>
-            <br />
-            <strong>Information Collection and Use</strong>
-            <p>
-                The Application collects information when you download and use it. This
-                information may include information such as{" "}
-            </p>
-            <ul>
-                <li>Your device's Internet Protocol address (e.g. IP address)</li>
-                <li>
-                    The pages of the Application that you visit, the time and date of your
-                    visit, the time spent on those pages
-                </li>
-                <li>The time spent on the Application</li>
-                <li>The operating system you use on your mobile device</li>
-            </ul>
-            <p />
-            <br />
-            <p>
-                The Application does not gather precise information about the location of
-                your mobile device.
-            </p>
-            <div style={{ display: "none" }}>
-                <p>
-                    The Application collects your device's location, which helps the Service
-                    Provider determine your approximate geographical location and make use of
-                    in below ways:
-                </p>
-                <ul>
-                    <li>
-                        Geolocation Services: The Service Provider utilizes location data to
-                        provide features such as personalized content, relevant recommendations,
-                        and location-based services.
-                    </li>
-                    <li>
-                        Analytics and Improvements: Aggregated and anonymized location data
-                        helps the Service Provider to analyze user behavior, identify trends,
-                        and improve the overall performance and functionality of the
-                        Application.
-                    </li>
-                    <li>
-                        Third-Party Services: Periodically, the Service Provider may transmit
-                        anonymized location data to external services. These services assist
-                        them in enhancing the Application and optimizing their offerings.
-                    </li>
-                </ul>
-            </div>
-            <br />
-            <p>
-                The Service Provider may use the information you provided to contact you
-                from time to time to provide you with important information, required
-                notices and marketing promotions.
-            </p>
-            <br />
-            <p>
-                For a better experience, while using the Application, the Service Provider
-                may require you to provide us with certain personally identifiable
-                information. The information that the Service Provider request will be
-                retained by them and used as described in this privacy policy.
-            </p>
-            <br />
-            <strong>Third Party Access</strong>
-            <p>
-                Only aggregated, anonymized data is periodically transmitted to external
-                services to aid the Service Provider in improving the Application and their
-                service. The Service Provider may share your information with third parties
-                in the ways that are described in this privacy statement.
-            </p>
-            <div>
-                <br />
-                <p>
-                    Please note that the Application utilizes third-party services that have
-                    their own Privacy Policy about handling data. Below are the links to the
-                    Privacy Policy of the third-party service providers used by the
-                    Application:
-                </p>
-                <ul>
-                    <li>
-                        <a
-                            href="https://www.google.com/policies/privacy/"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                        >
-                            Google Play Services
-                        </a>
-                    </li>
-                    {/**/}
-                    {/**/}
-                    {/**/}
-                    {/**/}
-                    {/**/}
-                    {/**/}
-                    {/**/}
-                    {/**/}
-                    {/**/}
-                    {/**/}
-                    {/**/}
-                    {/**/}
-                    {/**/}
-                    {/**/}
-                    {/**/}
-                    {/**/}
-                    {/**/}
-                    {/**/}
-                    {/**/}
-                    {/**/}
-                    {/**/}
-                    {/**/}
-                    {/**/}
-                    {/**/}
-                    {/**/}
-                    {/**/}
-                    {/**/}
-                    {/**/}
-                    {/**/}
-                    {/**/}
-                    {/**/}
-                </ul>
-            </div>
-            <br />
-            <p>
-                The Service Provider may disclose User Provided and Automatically Collected
-                Information:
-            </p>
-            <ul>
-                <li>
-                    as required by law, such as to comply with a subpoena, or similar legal
-                    process;
-                </li>
-                <li>
-                    when they believe in good faith that disclosure is necessary to protect
-                    their rights, protect your safety or the safety of others, investigate
-                    fraud, or respond to a government request;
-                </li>
-                <li>
-                    with their trusted services providers who work on their behalf, do not
-                    have an independent use of the information we disclose to them, and have
-                    agreed to adhere to the rules set forth in this privacy statement.
-                </li>
-            </ul>
-            <p />
-            <br />
-            <strong>Opt-Out Rights</strong>
-            <p>
-                You can stop all collection of information by the Application easily by
-                uninstalling it. You may use the standard uninstall processes as may be
-                available as part of your mobile device or via the mobile application
-                marketplace or network.
-            </p>
-            <br />
-            <strong>Data Retention Policy</strong>
-            <p>
-                The Service Provider will retain User Provided data for as long as you use
-                the Application and for a reasonable time thereafter. If you'd like them to
-                delete User Provided Data that you have provided via the Application, please
-                contact them at jvance@remotefalcon.com and they will respond in a
-                reasonable time.
-            </p>
-            <br />
-            <strong>Children</strong>
-            <p>
-                The Service Provider does not use the Application to knowingly solicit data
-                from or market to children under the age of 13.
-            </p>
-            <div>
-                <br />
-                <p>
-                    The Application does not address anyone under the age of 13. The Service
-                    Provider does not knowingly collect personally identifiable information
-                    from children under 13 years of age. In the case the Service Provider
-                    discover that a child under 13 has provided personal information, the
-                    Service Provider will immediately delete this from their servers. If you
-                    are a parent or guardian and you are aware that your child has provided us
-                    with personal information, please contact the Service Provider
-                    (jvance@remotefalcon.com) so that they will be able to take the necessary
-                    actions.
-                </p>
-            </div>
-            {/**/}
-            <br />
-            <strong>Security</strong>
-            <p>
-                The Service Provider is concerned about safeguarding the confidentiality of
-                your information. The Service Provider provides physical, electronic, and
-                procedural safeguards to protect information the Service Provider processes
-                and maintains.
-            </p>
-            <br />
-            <strong>Changes</strong>
-            <p>
-                This Privacy Policy may be updated from time to time for any reason. The
-                Service Provider will notify you of any changes to the Privacy Policy by
-                updating this page with the new Privacy Policy. You are advised to consult
-                this Privacy Policy regularly for any changes, as continued use is deemed
-                approval of all changes.
-            </p>
-            <br />
-            <p>This privacy policy is effective as of 2025-03-21</p>
-            <br />
-            <strong>Your Consent</strong>
-            <p>
-                By using the Application, you are consenting to the processing of your
-                information as set forth in this Privacy Policy now and as amended by us.
-            </p>
-            <br />
-            <strong>Contact Us</strong>
-            <p>
-                If you have any questions regarding privacy while using the Application, or
-                have questions about the practices, please contact the Service Provider via
-                email at jvance@remotefalcon.com.
-            </p>
-        </MiscPageShell>
-    )
-}
+const PrivacyPolicy = () => (
+  <MiscPageShell title="Privacy Policy">
+    <p>
+      <em>Effective May 8, 2026.</em>
+    </p>
+
+    <p>
+      Remote Falcon is a free, open-source service that lets show owners run
+      interactive Christmas light shows. This page explains what we collect when
+      you use it, what we do with that data, and the choices you have. Plain
+      language only — no fine-print lawyering.
+    </p>
+
+    <strong>What we collect</strong>
+    <p>When you create a Remote Falcon account we collect:</p>
+    <ul>
+      <li>
+        <strong>Account details</strong> — your email address, a password
+        (stored hashed, never in plaintext), your show name, and the subdomain
+        you pick.
+      </li>
+      <li>
+        <strong>Show metadata</strong> — sequences you upload, viewer-page
+        HTML/CSS you write, jukebox/voting preferences, and the hours you set
+        for your show.
+      </li>
+      <li>
+        <strong>Optional location</strong> — if you opt in to the public Shows
+        Map, we store the latitude and longitude of the address you provide
+        (rounded to about 11 m so your exact home isn&rsquo;t pinpointed) plus
+        the city and state.
+      </li>
+      <li>
+        <strong>Connection metadata</strong> — your IP address, browser
+        user-agent, and a coarse geolocation derived from the IP. Used for rate
+        limiting, abuse prevention, and aggregate analytics.
+      </li>
+      <li>
+        <strong>Usage analytics</strong> — pages you visit and actions you take
+        in the control panel, captured by PostHog so we can improve the
+        product. No keystrokes, no form values, no session recordings.
+      </li>
+    </ul>
+    <p>We don&rsquo;t collect payment information — Remote Falcon is free.</p>
+
+    <strong>How we use it</strong>
+    <p>We use the data above to:</p>
+    <ul>
+      <li>Run your account and let you sign in</li>
+      <li>Render your viewer page and serve your show metadata to your viewers</li>
+      <li>Show your show on the public Shows Map (only if you opted in)</li>
+      <li>
+        Send transactional emails — sign-up confirmation, forgot-password
+        resets, occasional service notices
+      </li>
+      <li>Improve the product based on aggregate usage patterns</li>
+      <li>Detect and stop abuse</li>
+    </ul>
+    <p>
+      We do not sell your data, share it with advertisers, or use it to
+      profile you outside Remote Falcon.
+    </p>
+
+    <strong>Third parties we use</strong>
+    <p>
+      Running Remote Falcon means a few outside services see slices of your
+      data. We pick them deliberately and treat them as data processors, not
+      partners.
+    </p>
+    <ul>
+      <li>
+        <strong>MailerSend</strong> — sends sign-up and password-reset emails.
+        Sees your email address and show name.
+      </li>
+      <li>
+        <strong>MapTiler</strong> — renders the Shows Map tiles. Sees your IP
+        address (because your browser fetches tiles from them) and, if you
+        opted in, the public lat/lng of your show.
+      </li>
+      <li>
+        <strong>PostHog</strong> — receives usage analytics. Sees your IP,
+        browser metadata, and the actions you took in the control panel.
+      </li>
+      <li>
+        <strong>DigitalOcean Spaces</strong> — stores any images you upload to
+        image-hosting. Behaves like an S3-compatible CDN.
+      </li>
+      <li>
+        <strong>Cloudflare</strong> — sits in front of remotefalcon.com as a
+        CDN and DDoS shield. Sees IP-level connection data.
+      </li>
+    </ul>
+
+    <strong>Cookies &amp; local storage</strong>
+    <p>We use a small number of first-party cookies and localStorage entries:</p>
+    <ul>
+      <li>An auth token that keeps you signed in</li>
+      <li>Your theme preference (light/dark)</li>
+      <li>Any sidebar/layout preferences you&rsquo;ve set</li>
+    </ul>
+    <p>
+      No third-party advertising cookies. PostHog uses a first-party cookie
+      scoped to remotefalcon.com so events from a single visitor stay stitched
+      together.
+    </p>
+
+    <strong>Public viewer pages</strong>
+    <p>
+      The HTML/CSS you write for your viewer page is public — that&rsquo;s the
+      point of having one. Any content you put there (text, images, embedded
+      scripts) is served as-is to anyone who visits your subdomain.
+      You&rsquo;re responsible for what you publish.
+    </p>
+
+    <strong>The Shows Map</strong>
+    <p>
+      Listing on the public Shows Map is opt-in. When you opt in, we publish
+      your show name, hours, status, and a coarsened latitude/longitude.
+      Coordinate precision is capped at four decimal places (~11 m) — enough
+      for navigation, not enough to point at a specific door. You can opt out
+      from the control panel at any time; the pin disappears within five
+      minutes (the cache window).
+    </p>
+
+    <strong>Children</strong>
+    <p>
+      Remote Falcon isn&rsquo;t directed at children under 13, and we
+      don&rsquo;t knowingly collect data from them. If you believe we have,
+      contact us and we&rsquo;ll delete it.
+    </p>
+
+    <strong>Your rights</strong>
+    <p>You can:</p>
+    <ul>
+      <li>See and edit your account details from the control panel</li>
+      <li>
+        Delete your account (which removes your show data and deactivates your
+        subdomain) — this is final
+      </li>
+      <li>Request an export of your show data</li>
+      <li>Opt out of the public Shows Map at any time</li>
+    </ul>
+    <p>
+      If you&rsquo;re in the EU/UK or California, you have additional rights
+      under the GDPR or CCPA respectively — access, rectification, erasure,
+      portability, restriction. Contact us to exercise them and we&rsquo;ll
+      respond within 30 days.
+    </p>
+
+    <strong>Security</strong>
+    <p>
+      Passwords are stored as bcrypt hashes. Authentication uses signed JWT
+      tokens over HTTPS. Database backups are encrypted at rest. No system is
+      perfectly secure, but we operate Remote Falcon with the same care
+      we&rsquo;d want for our own data.
+    </p>
+
+    <strong>Changes to this policy</strong>
+    <p>
+      If we materially change what we collect or how we use it, we&rsquo;ll
+      update this page and notify active accounts by email. The
+      &ldquo;Effective&rdquo; date at the top tells you when this version was
+      published.
+    </p>
+
+    <strong>Contact</strong>
+    <p>Questions about your data?</p>
+    <ul>
+      <li>
+        Open an issue on{' '}
+        <a href="https://github.com/Remote-Falcon" target="_blank" rel="noopener noreferrer">
+          our GitHub org
+        </a>
+        .
+      </li>
+      <li>
+        Post in the{' '}
+        <a href="https://www.facebook.com/groups/remotefalcon" target="_blank" rel="noopener noreferrer">
+          Remote Falcon Facebook group
+        </a>
+        .
+      </li>
+    </ul>
+  </MiscPageShell>
+);
 
 export default PrivacyPolicy;
