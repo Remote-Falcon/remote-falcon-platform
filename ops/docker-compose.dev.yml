@@ -45,6 +45,9 @@ services:
       SPRING_PROFILES_ACTIVE: dev
       SPRING_DATA_MONGODB_URI: mongodb://mongo:27017/remote-falcon
       AUTO_VALIDATE_EMAIL: "true"
+      # Skip outbound MailerSend calls in dev/CI — there's no API key and the
+      # forgot-password regression spec needs a deterministic 202 path.
+      MAILER_DEV_BYPASS: "true"
     ports: ["8081:8080"]
     depends_on:
       mongo: { condition: service_healthy }

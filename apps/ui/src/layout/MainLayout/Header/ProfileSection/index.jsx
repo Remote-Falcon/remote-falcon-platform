@@ -106,6 +106,7 @@ const ProfileSection = () => {
   return (
     <>
       <Chip
+        id="header-profile-trigger"
         sx={{
           height: '48px',
           alignItems: 'center',

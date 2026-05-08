@@ -42,6 +42,13 @@ mailersend:
     forgot-password: ${MAILERSEND_TEMPLATE_FORGOT_PASSWORD:ynrw7gy02w2l2k8e}
     request-api-access: ${MAILERSEND_TEMPLATE_REQUEST_API_ACCESS:yzkq340rd104d796}
 
+mailer:
+  # When true, EmailUtil.sendEmail short-circuits with a synthetic 202 instead
+  # of calling MailerSend. Used by ops/docker-compose.dev.yml + the regression
+  # e2e workflow so flows that depend on a successful email path (forgot
+  # password) work without a real key. NEVER set true in production.
+  dev-bypass: ${MAILER_DEV_BYPASS:false}
+
 images:
   s3:
     bucket: ${IMAGES_S3_BUCKET:remote-falcon-uploads}

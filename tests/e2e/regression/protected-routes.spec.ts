@@ -6,7 +6,7 @@ import { signUpAndSignIn } from './helpers';
 // per page (those views are highly dynamic and depend on backend data the
 // fresh signup doesn't have); instead we assert:
 //   1. The URL stays on the requested route (no AuthGuard bounce).
-//   2. The MainLayout chrome is still mounted (the gravatar avatar/profile chip).
+//   2. The MainLayout chrome is still mounted (the profile chip).
 //
 // Routes come from apps/ui/src/routes/MainRoutes.jsx. /control-panel/admin
 // is excluded — it's gated to admin-role accounts, and a fresh USER account
@@ -28,13 +28,16 @@ test.describe('protected control-panel routes (authenticated)', () => {
     await signUpAndSignIn(page);
 
     for (const route of subRoutes) {
-      await page.goto(route);
+      // domcontentloaded (not the default "load") — image-hosting and a few
+      // other routes pull heavy subresources that don't reliably finish in
+      // firefox/webkit within the 30s test timeout.
+      await page.goto(route, { waitUntil: 'domcontentloaded' });
       await expect(page).toHaveURL(new RegExp(route.replace(/\//g, '\\/')), {
         timeout: 15_000,
       });
-      // Profile chip in the header is rendered by MainLayout and is the
-      // simplest "we are still in the authenticated layout" signal.
-      await expect(page.locator('[aria-haspopup="true"]').first()).toBeVisible({
+      // Profile chip (id from ProfileSection) is rendered by MainLayout and
+      // is the simplest "we are still in the authenticated layout" signal.
+      await expect(page.locator('#header-profile-trigger')).toBeVisible({
         timeout: 15_000,
       });
     }

@@ -14,10 +14,17 @@ test.describe('logout', () => {
   test('clicking Logout in the profile menu signs the user out', async ({ page }) => {
     await signUpAndSignIn(page);
 
-    // The profile chip in the header is the only element with
-    // aria-haspopup="true" + aria-controls toggling on this layout.
-    // Clicking it opens the Popper menu containing the Logout item.
-    await page.locator('[aria-haspopup="true"]').first().click();
+    // The profile chip carries id="header-profile-trigger". The header also
+    // mounts NotificationSection / LocalizationSection / Customization, all
+    // of which advertise aria-haspopup="true" — selecting by haspopup alone
+    // would hit the first one (Notifications) instead.
+    //
+    // force: true skips Playwright's "stable" actionability gate. The chip
+    // contains an Avatar that loads its gravatar from a remote CDN, which
+    // shifts the chip's bounding box on webkit and trips the gate at 30s.
+    const trigger = page.locator('#header-profile-trigger');
+    await trigger.scrollIntoViewIfNeeded();
+    await trigger.click({ force: true });
     await expect(page.getByText('Logout', { exact: true })).toBeVisible();
     await page.getByText('Logout', { exact: true }).click();
 

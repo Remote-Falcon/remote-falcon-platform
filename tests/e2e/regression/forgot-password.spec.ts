@@ -7,7 +7,8 @@ import { buildTestUser, signUp } from './helpers';
 // The Login.jsx route is /forgot (not /forgot-password). JWTContext.sendResetPassword
 // shows snackbars:
 //   success         -> "Forgot password email sent to {email}"
-//   UNAUTHORIZED    -> generic error (showAlertOld({ alert: 'error' }))
+//   UNAUTHORIZED    -> generic error -> "Unexpected Error" (default text from
+//                      globalPageHelpers when alert='error' has no message)
 //   EMAIL_CANNOT_BE_SENT -> "Unable to send password reset email"
 //
 // Note: the UI does NOT use a generic "if an account exists..." pattern —
@@ -60,10 +61,12 @@ test.describe('forgot password', () => {
       .fill(`ghost-${faker.string.alphanumeric(10)}@example.com`);
     await page.getByRole('button', { name: /send mail/i }).click();
 
-    // Either the explicit "unable to send" error or the generic alert; both
-    // are valid distinguishable-from-success outcomes.
+    // UNAUTHORIZED produces the generic "Unexpected Error" snackbar (see
+    // unexpectedErrorMessage in store/constant.jsx). EMAIL_CANNOT_BE_SENT
+    // produces the explicit copy. Either is a distinguishable-from-success
+    // outcome; accept both so this stays robust if the backend swaps codes.
     await expect(
-      page.getByText(/Unable to send password reset email|Something went wrong/i),
+      page.getByText(/Unable to send password reset email|Unexpected Error/i),
     ).toBeVisible({ timeout: 15_000 });
   });
 });
