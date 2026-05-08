@@ -108,16 +108,17 @@ theme.transitions.duration.standard // 250ms
 
 **Don't** introduce a token that's used only once. Tokens earn their place by being reusable.
 
-## Previewing v2
+## Running locally
 
-While migration is in progress, the v2 theme is gated behind an env var:
+The v2 theme is the default. Just:
 
 ```bash
 cd apps/ui
-VITE_USE_DESIGN_SYSTEM_V2=true npm run dev
+npm run dev
 ```
 
-See [`MIGRATION.md`](../../MIGRATION.md) for the full rollout sequence.
+See [`MIGRATION.md`](../../MIGRATION.md) for the rollout history and the
+remaining phases (control-panel layout, settings, palette, etc.).
 
 ## When this directory replaces `themes/`
 
