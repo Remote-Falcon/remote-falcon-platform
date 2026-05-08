@@ -49,6 +49,10 @@ For the full local stack (UI + every backend + Mongo behind the prod-shaped ingr
 
 Coverage thresholds are currently set to 0% (Sprint 2 floor) — they exist to surface real numbers in CI and will be ratcheted up in Sprint 3.
 
+## Design system
+
+[`STYLE_GUIDE.md`](STYLE_GUIDE.md) is the source of truth for visual & interaction standards — color, typography, spacing, components, theme behavior. Token files under [`src/design-system/tokens/`](src/design-system/tokens/) carry the actual values; if you need a value, import the token rather than redefining it.
+
 ## Key directories
 
 - `src/views/pages/controlPanel/` — control-panel screens (sequences, requests, pages, account, admin)

@@ -1,0 +1,1858 @@
+<!doctype html>
+<!--
+  Remote Falcon — UI modernization mock (corrected)
+
+  Scope: external slice E1–E4 + E6 (marketing landing, auth, misc).
+  This file mocks the MARKETING LANDING only (E3) — the other phases
+  borrow the same tokens.
+
+  What this corrects vs the v2 mockup.html:
+   - Hero copy stays current ("Let your viewers take control.")
+   - Single hero CTA — "Watch a live show" dropped, no destination
+   - Inter is the typeface universally (replaces Roboto)
+   - Sticky AppBar with backdrop blur (always on, not scroll-triggered)
+   - AppBar logo: 72px RF monogram + "Remote Falcon" wordmark — matches
+     the existing ui-component/Logo size; footer logo doubled to 64px
+   - Nav links: Features / Shows Map / Docs / Community
+     (Pricing dropped — Remote Falcon is free)
+   - Below-the-fold "device preview" dropped — control-panel content,
+     out of scope for this slice
+   - Hero jukebox enlarged (max 760px, was 520px) — bigger brand presence
+   - Feature blocks expanded with descriptive bullets (per user request)
+     and arranged Jukebox / Viewer Page / Shows Map / Free
+   - Footer columns rewritten to point at routes/links that actually exist
+
+  Color tokens are unchanged from mockup.html — they correctly carry
+  forward theme3 (the deployed default per src/config.jsx).
+-->
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Remote Falcon — marketing mock (corrected)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<style>
+  /* ============================================================
+     DESIGN TOKENS — verbatim from src/design-system/tokens/.
+     Brand: navy + amber + red, drawn from theme3.
+     ============================================================ */
+  :root, [data-theme="dark"] {
+    /* Primary brand — navy (theme3 primary) */
+    --navy-200: #8bacad;
+    --navy-500: #16595a;
+    --navy-600: #1f7778;     /* dark-mode primary */
+    --navy-700: #135152;
+    --navy-800: #0c3e3f;
+
+    /* Secondary brand — amber (theme3 secondary, the warm CTA) */
+    --amber-200: #e3bf91;
+    --amber-500: #c77e23;
+    --amber-700: #c1761f;
+    --amber-800: #b36115;
+
+    /* Tertiary brand — red, matches the rf-icon + jukebox glow */
+    --red-300: #fca5a5;
+    --red-500: #ef2b3d;
+    --red-700: #a8182a;
+
+    /* Dark neutrals — preserved theme3 near-black blue-cast family */
+    --bg-0: #01080d;
+    --bg-1: #010f17;
+    --bg-2: #02131d;
+    --bg-3: #0a1828;
+    --line: rgba(255,255,255,0.07);
+    --line-strong: rgba(255,255,255,0.14);
+
+    --text-1: #ffffff;
+    --text-2: #c2c8d4;
+    --text-3: #8492c4;
+    --text-4: #525a6e;
+
+    --cta-glow:    0 6px 20px rgba(199,126,35,0.30);
+    --cta-glow-hi: 0 8px 28px rgba(199,126,35,0.45);
+
+    --shadow-subtle:   0 1px 2px rgba(0,0,0,0.30);
+    --shadow-medium:   0 6px 18px rgba(0,0,0,0.40);
+    --shadow-elevated: 0 20px 50px rgba(0,0,0,0.55);
+  }
+  [data-theme="light"] {
+    --bg-0: #ffffff;
+    --bg-1: #f8fafc;
+    --bg-2: #ffffff;
+    --bg-3: #f1f5f9;
+    --line: rgba(15,23,42,0.08);
+    --line-strong: rgba(15,23,42,0.16);
+    --text-1: #0f172a;
+    --text-2: #334155;
+    --text-3: #64748b;
+    --text-4: #94a3b8;
+    --navy-600: #16595a;
+    --shadow-medium:   0 4px 12px rgba(15,23,42,0.10);
+    --shadow-elevated: 0 12px 32px rgba(15,23,42,0.18);
+  }
+
+  :root {
+    --r-xs: 4px;  --r-sm: 8px;  --r-md: 12px;
+    --r-lg: 16px; --r-xl: 24px; --r-pill: 999px;
+
+    --t-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    --t-base: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+
+    --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; transition: background-color var(--t-base), color var(--t-base); }
+  body {
+    font-family: var(--font-sans);
+    background: var(--bg-0);
+    color: var(--text-1);
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+  a { color: inherit; text-decoration: none; }
+
+  /* ============================================================
+     RF MONOGRAM
+     Sized to match the existing ui-component/Logo (~70px in nav).
+     ============================================================ */
+  .rf-mark { display: grid; place-items: center; flex-shrink: 0; }
+  .rf-mark img { width: 100%; height: 100%; object-fit: contain; display: block; }
+  .rf-mark.nav { width: 72px; height: 72px; }
+  .rf-mark.footer { width: 64px; height: 64px; }
+
+  /* ============================================================
+     STICKY APPBAR
+     ============================================================ */
+  .landing-nav {
+    /* Frozen to the top — stays in place on scroll. */
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    backdrop-filter: blur(14px) saturate(150%);
+    -webkit-backdrop-filter: blur(14px) saturate(150%);
+    background: color-mix(in srgb, var(--bg-0) 65%, transparent);
+    border-bottom: 1px solid var(--line);
+  }
+  .landing-nav-inner {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 12px 32px;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    min-height: 96px;
+  }
+  .nav-logo {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    color: var(--text-1);
+  }
+  .nav-wordmark {
+    font-weight: 700;
+    font-size: 22px;
+    letter-spacing: -0.01em;
+    line-height: 1;
+    /* Hide the wordmark on small screens so the nav doesn't crowd. */
+  }
+  @media (max-width: 720px) { .nav-wordmark { display: none; } }
+  .nav-links {
+    display: flex;
+    gap: 4px;
+    margin-left: 16px;
+  }
+  @media (max-width: 880px) { .nav-links { display: none; } }
+  .nav-spacer { flex: 1; }
+  .nav-link {
+    color: var(--text-2);
+    font-size: 14px;
+    font-weight: 500;
+    padding: 8px 12px;
+    border-radius: var(--r-sm);
+    transition: color var(--t-fast), background-color var(--t-fast);
+  }
+  .nav-link:hover { color: var(--text-1); background: color-mix(in srgb, var(--text-1) 5%, transparent); }
+
+  .theme-toggle {
+    width: 36px; height: 36px;
+    display: grid; place-items: center;
+    border-radius: var(--r-sm);
+    color: var(--text-2);
+    cursor: pointer;
+    background: transparent;
+    border: 0;
+    transition: background-color var(--t-fast), color var(--t-fast);
+  }
+  .theme-toggle:hover { background: var(--bg-2); color: var(--text-1); }
+  .theme-toggle svg { width: 18px; height: 18px; }
+
+  /* ============================================================
+     BUTTONS
+     ============================================================ */
+  .btn {
+    appearance: none;
+    border: 0;
+    cursor: pointer;
+    font: inherit;
+    font-weight: 600;
+    font-size: 14px;
+    padding: 12px 20px;
+    border-radius: var(--r-md);
+    transition: transform var(--t-fast), background var(--t-fast), box-shadow var(--t-fast);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+  }
+  .btn:hover { transform: translateY(-1px); }
+  .btn-primary {
+    background: var(--amber-500);
+    color: #1a1100;
+    box-shadow: var(--cta-glow);
+  }
+  .btn-primary:hover { background: var(--amber-700); box-shadow: var(--cta-glow-hi); color: #1a1100; }
+  .btn-ghost {
+    background: transparent;
+    color: var(--text-1);
+    border: 1px solid var(--line-strong);
+  }
+  .btn-ghost:hover { background: color-mix(in srgb, var(--text-1) 6%, transparent); }
+  .btn-sm { padding: 8px 14px; font-size: 13px; }
+
+  /* ============================================================
+     HERO
+     ============================================================ */
+  .hero {
+    position: relative;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 80px 32px 96px;
+  }
+  .hero-orb {
+    position: absolute;
+    inset: -120px 0 auto 0;
+    height: 600px;
+    pointer-events: none;
+    z-index: 0;
+    background:
+      radial-gradient(circle at 30% 50%, rgba(31,119,120,0.22), transparent 50%),
+      radial-gradient(circle at 70% 40%, rgba(199,126,35,0.20), transparent 55%),
+      radial-gradient(circle at 50% 80%, rgba(239,43,61,0.10), transparent 60%);
+    filter: blur(40px);
+    animation: drift 14s ease-in-out infinite alternate;
+  }
+  [data-theme="light"] .hero-orb {
+    background:
+      radial-gradient(circle at 30% 50%, rgba(31,119,120,0.18), transparent 50%),
+      radial-gradient(circle at 70% 40%, rgba(199,126,35,0.16), transparent 55%);
+  }
+  @keyframes drift {
+    from { transform: translate(-2%, -2%) scale(1); }
+    to   { transform: translate(3%, 4%) scale(1.05); }
+  }
+
+  .hero-grid {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: 1fr 1.5fr;
+    gap: 56px;
+    align-items: center;
+  }
+  .hero-text { min-width: 0; }
+  .hero-text h1 {
+    font-size: clamp(40px, 5.2vw, 64px);
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+    font-weight: 700;
+    margin: 0 0 24px;
+    max-width: 14ch;
+    color: var(--text-1);
+  }
+  .hero-text h1 .accent {
+    /* "control" — primary navy emphasis (matches current Header.jsx
+       which uses theme.palette.primary.main). Cool/calm — fits "take
+       control" semantics. */
+    color: var(--navy-600);
+  }
+  [data-theme="light"] .hero-text h1 .accent { color: var(--navy-500); }
+  .hero-sub {
+    font-size: 18px;
+    line-height: 1.6;
+    color: var(--text-2);
+    max-width: 50ch;
+    margin: 0 0 36px;
+  }
+  .cta-row { display: flex; gap: 12px; flex-wrap: wrap; }
+
+  .hero-art {
+    display: grid;
+    place-items: center;
+    position: relative;
+  }
+  .hero-art img {
+    /* Fill the image column up to a generous cap. max-height keeps it
+       from outgrowing the text column at narrow widths; width fills
+       the column otherwise. The browser picks whichever binds first. */
+    width: 100%;
+    max-width: 760px;
+    max-height: 600px;
+    height: auto;
+    object-fit: contain;
+    display: block;
+    margin: 0 auto;
+    filter: drop-shadow(0 20px 40px rgba(239,43,61,0.25));
+    animation: hero-float 6s ease-in-out infinite alternate;
+  }
+  @keyframes hero-float {
+    from { transform: translateY(-6px); }
+    to   { transform: translateY(6px); }
+  }
+  @media (max-width: 880px) {
+    .hero { padding: 56px 24px 64px; }
+    .hero-grid { grid-template-columns: 1fr; text-align: center; }
+    .cta-row { justify-content: center; }
+    .hero-text h1 { max-width: none; }
+    .hero-sub { margin-left: auto; margin-right: auto; }
+    /* On mobile (stacked layout), uncap height — let the image breathe. */
+    .hero-art img { max-height: none; max-width: 480px; }
+  }
+
+  /* ============================================================
+     FEATURE SECTIONS
+     ============================================================ */
+  .section {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 80px 32px;
+  }
+  .section-eyebrow {
+    color: var(--amber-500);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+  [data-theme="light"] .section-eyebrow { color: var(--amber-800); }
+  .section h2 {
+    font-size: clamp(28px, 3.5vw, 44px);
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    font-weight: 700;
+    margin: 0 0 16px;
+    max-width: 18ch;
+  }
+  .section-sub {
+    color: var(--text-2);
+    font-size: 17px;
+    line-height: 1.6;
+    max-width: 56ch;
+    margin: 0 0 56px;
+  }
+
+  .feature-block {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 64px;
+    align-items: center;
+    margin-bottom: 80px;
+  }
+  .feature-block:last-child { margin-bottom: 0; }
+  .feature-block.reverse .fb-text { order: 2; }
+
+  .fb-icon {
+    width: 44px; height: 44px;
+    border-radius: var(--r-md);
+    display: grid; place-items: center;
+    margin-bottom: 20px;
+    font-size: 22px;
+    line-height: 1;
+  }
+  .fb-icon.navy {
+    background: color-mix(in srgb, var(--navy-600) 14%, transparent);
+    color: var(--navy-200);
+    border: 1px solid color-mix(in srgb, var(--navy-600) 28%, transparent);
+  }
+  [data-theme="light"] .fb-icon.navy { color: var(--navy-700); border-color: color-mix(in srgb, var(--navy-500) 24%, transparent); }
+  .fb-icon.amber {
+    background: color-mix(in srgb, var(--amber-500) 14%, transparent);
+    color: var(--amber-500);
+    border: 1px solid color-mix(in srgb, var(--amber-500) 28%, transparent);
+  }
+  [data-theme="light"] .fb-icon.amber { color: var(--amber-800); }
+  .fb-icon.red {
+    background: color-mix(in srgb, var(--red-500) 14%, transparent);
+    color: var(--red-500);
+    border: 1px solid color-mix(in srgb, var(--red-500) 28%, transparent);
+  }
+
+  .feature-block h3 {
+    font-size: 28px;
+    margin: 0 0 14px;
+    letter-spacing: -0.02em;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+  .feature-block p {
+    color: var(--text-2);
+    font-size: 16px;
+    line-height: 1.6;
+    margin: 0 0 22px;
+    max-width: 44ch;
+  }
+  .fb-bullets {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: grid;
+    gap: 12px;
+  }
+  .fb-bullets li {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    color: var(--text-2);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .fb-bullets li::before {
+    content: '✓';
+    color: var(--navy-600);
+    font-weight: 700;
+    font-size: 15px;
+    margin-top: 1px;
+  }
+  [data-theme="light"] .fb-bullets li::before { color: var(--navy-500); }
+
+  .fb-visual {
+    aspect-ratio: 4/3;
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-medium);
+    position: relative;
+    overflow: hidden;
+  }
+  .fb-visual.viz-jukebox {
+    background:
+      radial-gradient(circle at 30% 30%, rgba(239,43,61,0.20), transparent 50%),
+      radial-gradient(circle at 70% 70%, rgba(199,126,35,0.20), transparent 55%),
+      var(--bg-2);
+  }
+  .fb-visual.viz-jukebox::after {
+    content: '';
+    position: absolute;
+    inset: 22% 22% 22% 22%;
+    border-radius: 50%;
+    background: conic-gradient(from 0deg, var(--red-500), var(--amber-500), var(--navy-600), var(--red-500));
+    opacity: 0.35;
+    filter: blur(12px);
+    animation: spin 8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .fb-visual.viz-page {
+    background:
+      radial-gradient(circle at 25% 30%, rgba(31,119,120,0.20), transparent 40%),
+      radial-gradient(circle at 75% 70%, rgba(31,119,120,0.16), transparent 40%),
+      var(--bg-2);
+    display: grid;
+    place-items: center;
+  }
+  .viz-page-card {
+    width: 70%;
+    aspect-ratio: 4/3;
+    background: var(--bg-3);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r-md);
+    box-shadow: var(--shadow-elevated);
+    display: grid;
+    grid-template-rows: 24px 1fr;
+    overflow: hidden;
+  }
+  .viz-page-card-bar {
+    background: var(--bg-1);
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 8px;
+  }
+  .viz-page-card-bar span {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--text-4);
+  }
+  .viz-page-card-body {
+    padding: 14px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    align-content: start;
+  }
+  .viz-page-card-body div {
+    height: 22px;
+    border-radius: var(--r-xs);
+    background: color-mix(in srgb, var(--navy-600) 14%, transparent);
+  }
+  .viz-page-card-body div:nth-child(2n) {
+    background: color-mix(in srgb, var(--amber-500) 14%, transparent);
+  }
+
+  .fb-visual.viz-map {
+    background:
+      radial-gradient(circle at 25% 40%, rgba(31,119,120,0.20), transparent 30%),
+      radial-gradient(circle at 65% 60%, rgba(31,119,120,0.18), transparent 30%),
+      radial-gradient(circle at 80% 30%, rgba(239,43,61,0.18), transparent 25%),
+      var(--bg-2);
+  }
+  .fb-visual.viz-map::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+  [data-theme="light"] .fb-visual.viz-map::before {
+    background-image:
+      linear-gradient(rgba(15,23,42,0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(15,23,42,0.05) 1px, transparent 1px);
+  }
+  /* Three glowing pins on the map — one red ("live now"), two amber. */
+  .fb-visual.viz-map::after {
+    content: '';
+    position: absolute;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: var(--red-500);
+    box-shadow:
+      0 0 0 6px color-mix(in srgb, var(--red-500) 25%, transparent),
+      0 0 24px rgba(239,43,61,0.6),
+      /* secondary pins via box-shadow trick */
+      -120px -60px 0 -3px var(--amber-500),
+      -120px -60px 0 1px color-mix(in srgb, var(--amber-500) 35%, transparent),
+      90px 70px 0 -3px var(--amber-500),
+      90px 70px 0 1px color-mix(in srgb, var(--amber-500) 35%, transparent);
+    top: 38%;
+    left: 52%;
+    animation: pin-pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes pin-pulse {
+    0%, 100% { box-shadow:
+      0 0 0 6px color-mix(in srgb, var(--red-500) 25%, transparent),
+      0 0 24px rgba(239,43,61,0.6),
+      -120px -60px 0 -3px var(--amber-500),
+      -120px -60px 0 1px color-mix(in srgb, var(--amber-500) 35%, transparent),
+      90px 70px 0 -3px var(--amber-500),
+      90px 70px 0 1px color-mix(in srgb, var(--amber-500) 35%, transparent); }
+    50%      { box-shadow:
+      0 0 0 12px color-mix(in srgb, var(--red-500) 12%, transparent),
+      0 0 32px rgba(239,43,61,0.8),
+      -120px -60px 0 -3px var(--amber-500),
+      -120px -60px 0 1px color-mix(in srgb, var(--amber-500) 35%, transparent),
+      90px 70px 0 -3px var(--amber-500),
+      90px 70px 0 1px color-mix(in srgb, var(--amber-500) 35%, transparent); }
+  }
+
+  .fb-visual.viz-free {
+    background:
+      radial-gradient(circle at 50% 50%, rgba(239,43,61,0.16), transparent 55%),
+      var(--bg-2);
+    display: grid;
+    place-items: center;
+  }
+  .viz-free-badge {
+    font-size: 56px;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    background: linear-gradient(135deg, var(--amber-500), var(--red-500));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    text-shadow: 0 4px 24px rgba(239,43,61,0.25);
+  }
+  .viz-free-sub {
+    color: var(--text-3);
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-top: 6px;
+  }
+
+  @media (max-width: 880px) {
+    .section { padding: 56px 24px; }
+    .feature-block { grid-template-columns: 1fr; gap: 32px; margin-bottom: 56px; }
+    .feature-block.reverse .fb-text { order: 0; }
+    .feature-block .fb-visual { order: 1; }
+  }
+
+  /* ============================================================
+     FOOTER
+     ============================================================ */
+  footer {
+    border-top: 1px solid var(--line);
+    background: linear-gradient(180deg, var(--bg-0), color-mix(in srgb, var(--bg-0) 85%, #000));
+    padding: 64px 32px 32px;
+  }
+  [data-theme="light"] footer {
+    background: linear-gradient(180deg, var(--bg-0), var(--bg-1));
+  }
+  .footer-inner {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1.6fr 1fr 1fr 1fr;
+    gap: 48px;
+  }
+  .footer-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 700;
+    font-size: 16px;
+    letter-spacing: -0.01em;
+  }
+  .footer-blurb {
+    color: var(--text-3);
+    font-size: 14px;
+    line-height: 1.6;
+    margin-top: 16px;
+    max-width: 38ch;
+  }
+  .footer-col h4 {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-3);
+    margin: 0 0 16px;
+    font-weight: 600;
+  }
+  .footer-col a {
+    display: block;
+    color: var(--text-2);
+    font-size: 14px;
+    padding: 6px 0;
+    transition: color var(--t-fast);
+  }
+  .footer-col a:hover { color: var(--text-1); }
+  .footer-base {
+    max-width: 1200px;
+    margin: 56px auto 0;
+    padding-top: 24px;
+    border-top: 1px solid var(--line);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    color: var(--text-3);
+    font-size: 13px;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .version-chip {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 11px;
+    color: var(--text-3);
+    border: 1px solid var(--line);
+    padding: 3px 8px;
+    border-radius: var(--r-pill);
+  }
+
+  @media (max-width: 880px) {
+    .footer-inner { grid-template-columns: 1fr 1fr; gap: 32px; }
+  }
+  @media (max-width: 540px) {
+    .footer-inner { grid-template-columns: 1fr; }
+  }
+
+  /* ============================================================
+     SCREEN SWITCHER (mock-only — lets you flip between
+     Marketing / Login / Sign up in one tab)
+     ============================================================ */
+  .floating-controls {
+    position: fixed;
+    bottom: 16px;
+    right: 16px;
+    z-index: 100;
+  }
+  .switcher {
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    background: var(--bg-3);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r-pill);
+    box-shadow: var(--shadow-elevated);
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .switcher button {
+    appearance: none;
+    background: transparent;
+    color: var(--text-2);
+    border: 0;
+    padding: 8px 14px;
+    border-radius: var(--r-pill);
+    cursor: pointer;
+    font: inherit;
+    transition: all var(--t-fast);
+  }
+  .switcher button:hover { color: var(--text-1); }
+  .switcher button.active {
+    background: var(--amber-500);
+    color: #1a1100;
+  }
+  .screen { display: none; }
+  .screen.active { display: block; }
+
+  /* ============================================================
+     SPLIT-SCREEN AUTH SHELL (Layout B)
+     - Left panel: brand surface (jukebox + tagline + orb glow)
+     - Right panel: form
+     - No top nav — the split-screen IS the brand experience.
+       Logo in the left panel doubles as the "back to home" link.
+     ============================================================ */
+  .auth {
+    /* Cap to the same 1200px content width as marketing so the brand
+       lockup at top-left lands at the exact same viewport coords on
+       both screens. No jump between marketing → login → signup. */
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    min-height: 100vh;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+  .auth-brand {
+    background: var(--bg-1);
+    /* Matches marketing nav-inner padding (12px 32px) so the logo's
+       top-left edge aligns pixel-for-pixel with the marketing logo. */
+    padding: 12px 32px 32px;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    overflow: hidden;
+    border-right: 1px solid var(--line);
+  }
+  .auth-brand-orb {
+    position: absolute;
+    inset: -10% 0 -10% 0;
+    pointer-events: none;
+    z-index: 0;
+    background:
+      radial-gradient(circle at 30% 50%, rgba(31,119,120,0.20), transparent 50%),
+      radial-gradient(circle at 70% 70%, rgba(199,126,35,0.16), transparent 55%),
+      radial-gradient(circle at 50% 30%, rgba(239,43,61,0.10), transparent 60%);
+    filter: blur(40px);
+    animation: drift 18s ease-in-out infinite alternate;
+  }
+  [data-theme="light"] .auth-brand-orb {
+    background:
+      radial-gradient(circle at 30% 50%, rgba(31,119,120,0.14), transparent 50%),
+      radial-gradient(circle at 70% 70%, rgba(199,126,35,0.12), transparent 55%);
+  }
+  .auth-brand-logo {
+    /* Matches the marketing .nav-logo treatment exactly so the lockup
+       has identical size + weight + spacing on every screen. */
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    color: var(--text-1);
+    font-weight: 700;
+    font-size: 22px;
+    letter-spacing: -0.01em;
+    line-height: 1;
+    min-height: 72px; /* matches .nav-logo height since marketing nav is 96px tall with 12px top/bottom */
+    position: relative;
+    z-index: 1;
+  }
+  .auth-brand-logo .rf-mark { width: 72px; height: 72px; }
+  .auth-brand-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 32px;
+    position: relative;
+    z-index: 1;
+    text-align: center;
+    padding: 32px 16px;
+  }
+  .auth-brand-art {
+    /* Match the marketing hero image scale — same caps, same feel. */
+    width: 100%;
+    max-width: 760px;
+    max-height: 600px;
+    height: auto;
+    object-fit: contain;
+    filter: drop-shadow(0 16px 36px rgba(239,43,61,0.25));
+    animation: hero-float 6s ease-in-out infinite alternate;
+  }
+  .auth-brand-tagline {
+    font-size: 32px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+    color: var(--text-1);
+    margin: 0;
+    max-width: 18ch;
+  }
+  .auth-brand-tagline .accent { color: var(--navy-600); }
+  [data-theme="light"] .auth-brand-tagline .accent { color: var(--navy-500); }
+  .auth-brand-meta {
+    color: var(--text-3);
+    font-size: 13px;
+    margin-top: auto;
+    position: relative;
+    z-index: 1;
+  }
+
+  .auth-form-side {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 48px;
+  }
+  .auth-form {
+    width: 100%;
+    max-width: 400px;
+  }
+  .auth-form-eyebrow {
+    color: var(--amber-500);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+  [data-theme="light"] .auth-form-eyebrow { color: var(--amber-800); }
+  .auth-form h2 {
+    font-size: clamp(28px, 3vw, 36px);
+    letter-spacing: -0.02em;
+    font-weight: 700;
+    margin: 0 0 10px;
+    color: var(--text-1);
+    line-height: 1.15;
+  }
+  .auth-form-sub {
+    color: var(--text-2);
+    font-size: 15px;
+    line-height: 1.6;
+    margin: 0 0 32px;
+  }
+
+  /* Form fields */
+  .form-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 16px;
+  }
+  .form-field-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .form-field label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-2);
+  }
+  .form-input {
+    appearance: none;
+    background: var(--bg-3);
+    border: 1px solid var(--line-strong);
+    color: var(--text-1);
+    font: inherit;
+    font-size: 15px;
+    padding: 12px 14px;
+    border-radius: var(--r-md);
+    transition: border-color var(--t-fast), background-color var(--t-fast);
+    width: 100%;
+  }
+  .form-input:focus {
+    outline: none;
+    border-color: var(--navy-600);
+    background: color-mix(in srgb, var(--bg-3) 70%, var(--navy-600) 12%);
+  }
+  .form-input::placeholder { color: var(--text-4); }
+
+  .form-row {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 24px;
+  }
+  .form-link {
+    color: var(--text-3);
+    font-size: 13px;
+    font-weight: 500;
+    transition: color var(--t-fast);
+  }
+  .form-link:hover { color: var(--text-1); }
+
+  .form-checkbox-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 24px;
+    font-size: 13px;
+    color: var(--text-2);
+    line-height: 1.5;
+  }
+  .form-checkbox-row input[type=checkbox] {
+    margin-top: 3px;
+    accent-color: var(--amber-500);
+    width: 16px;
+    height: 16px;
+  }
+  .form-checkbox-row a { color: var(--text-1); text-decoration: underline; }
+
+  .btn-block {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+    padding: 14px 20px;
+    font-size: 15px;
+  }
+
+  .auth-form-divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 24px 0;
+    color: var(--text-3);
+    font-size: 13px;
+  }
+  .auth-form-divider::before,
+  .auth-form-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--line);
+  }
+
+  .auth-form-switch {
+    text-align: center;
+    color: var(--text-2);
+    font-size: 14px;
+  }
+  .auth-form-switch a {
+    color: var(--amber-500);
+    font-weight: 600;
+    transition: color var(--t-fast);
+  }
+  [data-theme="light"] .auth-form-switch a { color: var(--amber-800); }
+  .auth-form-switch a:hover { color: var(--amber-700); }
+
+  @media (max-width: 880px) {
+    .auth { grid-template-columns: 1fr; }
+    .auth-brand { padding: 24px; border-right: 0; border-bottom: 1px solid var(--line); }
+    .auth-brand-content { flex: 0; padding: 16px 0; gap: 16px; }
+    .auth-brand-art { max-width: 220px; }
+    .auth-brand-tagline { font-size: 22px; }
+    .auth-brand-meta { display: none; }
+    .auth-form-side { padding: 32px 24px; }
+  }
+
+  /* ============================================================
+     SHOWS MAP — public /map route
+     Matches the PRD architecture: MapLibre + GeoJSON + clustering.
+     Pin status colors come from --success/--warning/--text-4.
+     The "map" itself is faked here in CSS — production renders
+     via MapLibre against MapTiler tiles.
+     ============================================================ */
+  .map-screen {
+    position: relative;
+    height: calc(100vh - 96px);  /* viewport minus the AppBar */
+    overflow: hidden;
+    background: var(--bg-1);
+  }
+  .map-canvas {
+    position: absolute;
+    inset: 0;
+    background:
+      /* Soft "geographic" highlights — coastal / metro halos */
+      radial-gradient(ellipse 36% 50% at 14% 50%, rgba(31,119,120,0.18), transparent 60%),
+      radial-gradient(ellipse 28% 40% at 82% 42%, rgba(31,119,120,0.20), transparent 60%),
+      radial-gradient(ellipse 16% 22% at 50% 30%, rgba(255,255,255,0.04), transparent 60%),
+      radial-gradient(ellipse 22% 30% at 65% 75%, rgba(199,126,35,0.06), transparent 60%),
+      var(--bg-1);
+  }
+  [data-theme="light"] .map-canvas {
+    background:
+      radial-gradient(ellipse 36% 50% at 14% 50%, rgba(31,119,120,0.10), transparent 60%),
+      radial-gradient(ellipse 28% 40% at 82% 42%, rgba(31,119,120,0.12), transparent 60%),
+      radial-gradient(ellipse 22% 30% at 65% 75%, rgba(199,126,35,0.06), transparent 60%),
+      var(--bg-1);
+  }
+  .map-canvas::before {
+    /* Light grid — like raster tile gridding at zoom 4 */
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px);
+    background-size: 64px 64px;
+    pointer-events: none;
+  }
+  [data-theme="light"] .map-canvas::before {
+    background-image:
+      linear-gradient(rgba(15,23,42,0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(15,23,42,0.05) 1px, transparent 1px);
+  }
+  .map-canvas::after {
+    /* Big abstract land-mass blob behind everything else */
+    content: '';
+    position: absolute;
+    inset: 14% 8% 18% 12%;
+    background:
+      radial-gradient(ellipse 40% 60% at 32% 50%, rgba(255,255,255,0.030), transparent 70%),
+      radial-gradient(ellipse 50% 70% at 60% 50%, rgba(255,255,255,0.035), transparent 70%);
+    pointer-events: none;
+  }
+  [data-theme="light"] .map-canvas::after {
+    background:
+      radial-gradient(ellipse 40% 60% at 32% 50%, rgba(15,23,42,0.04), transparent 70%),
+      radial-gradient(ellipse 50% 70% at 60% 50%, rgba(15,23,42,0.05), transparent 70%);
+  }
+
+  /* Pins — status-colored, individually positioned */
+  .map-pin {
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 2px solid #fff;
+    transform: translate(-50%, -50%);
+    cursor: pointer;
+    z-index: 2;
+    transition: transform var(--t-fast);
+  }
+  .map-pin:hover { transform: translate(-50%, -50%) scale(1.3); }
+  .map-pin.live {
+    background: #22c55e;
+    box-shadow: 0 0 14px rgba(34,197,94,0.55), 0 0 0 4px rgba(34,197,94,0.18);
+    animation: pin-live-pulse 2.4s ease-in-out infinite;
+  }
+  .map-pin.scheduled {
+    background: var(--amber-500);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--amber-500) 22%, transparent);
+  }
+  .map-pin.off {
+    background: var(--text-4);
+    opacity: 0.55;
+  }
+  @keyframes pin-live-pulse {
+    0%, 100% { box-shadow: 0 0 14px rgba(34,197,94,0.55), 0 0 0 4px rgba(34,197,94,0.18); }
+    50%      { box-shadow: 0 0 22px rgba(34,197,94,0.75), 0 0 0 9px rgba(34,197,94,0.10); }
+  }
+
+  /* Cluster bubbles — MapLibre default look, branded */
+  .map-cluster {
+    position: absolute;
+    display: grid;
+    place-items: center;
+    background: linear-gradient(135deg, var(--red-500), var(--red-700));
+    color: #fff;
+    font-weight: 700;
+    font-size: 13px;
+    border: 2px solid #fff;
+    border-radius: 50%;
+    box-shadow: 0 4px 18px rgba(0,0,0,0.45), 0 0 0 6px rgba(239,43,61,0.18);
+    transform: translate(-50%, -50%);
+    cursor: pointer;
+    z-index: 3;
+    transition: transform var(--t-fast);
+  }
+  .map-cluster:hover { transform: translate(-50%, -50%) scale(1.1); }
+  .map-cluster.sm { width: 36px; height: 36px; }
+  .map-cluster.md { width: 44px; height: 44px; font-size: 14px; }
+  .map-cluster.lg { width: 56px; height: 56px; font-size: 16px; }
+
+  /* Search overlay — top-left, with "use my location" affordance */
+  .map-search {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--bg-2);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r-md);
+    padding: 6px 6px 6px 12px;
+    box-shadow: var(--shadow-elevated);
+    width: min(420px, calc(100vw - 32px));
+    backdrop-filter: blur(8px);
+  }
+  .map-search-icon { color: var(--text-3); display: grid; place-items: center; flex-shrink: 0; }
+  .map-search-icon svg { width: 16px; height: 16px; }
+  .map-search input {
+    flex: 1;
+    border: 0;
+    background: transparent;
+    color: var(--text-1);
+    font: inherit;
+    font-size: 14px;
+    padding: 8px 4px;
+    outline: none;
+  }
+  .map-search input::placeholder { color: var(--text-3); }
+  .map-locate-btn {
+    width: 36px; height: 36px;
+    border: 0;
+    border-radius: var(--r-sm);
+    background: var(--amber-500);
+    color: #1a1100;
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    box-shadow: var(--cta-glow);
+    flex-shrink: 0;
+    transition: background var(--t-fast), transform var(--t-fast);
+  }
+  .map-locate-btn:hover { background: var(--amber-700); transform: translateY(-1px); }
+  .map-locate-btn svg { width: 16px; height: 16px; }
+
+  /* Legend — top-right, status key */
+  .map-legend {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    z-index: 5;
+    background: color-mix(in srgb, var(--bg-2) 88%, transparent);
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+    padding: 12px 14px;
+    font-size: 13px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    box-shadow: var(--shadow-medium);
+    backdrop-filter: blur(8px);
+  }
+  .map-legend h4 {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-3);
+    margin: 0 0 4px;
+  }
+  .legend-item { display: flex; align-items: center; gap: 10px; color: var(--text-2); }
+  .legend-item .dot { width: 10px; height: 10px; border-radius: 50%; border: 2px solid #fff; flex-shrink: 0; }
+  .legend-item .dot.live      { background: #22c55e; box-shadow: 0 0 8px rgba(34,197,94,0.5); }
+  .legend-item .dot.scheduled { background: var(--amber-500); }
+  .legend-item .dot.off       { background: var(--text-4); opacity: 0.55; }
+
+  /* Zoom controls — bottom-right */
+  .map-zoom {
+    position: absolute;
+    bottom: 32px;
+    right: 16px;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-2);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r-md);
+    overflow: hidden;
+    box-shadow: var(--shadow-medium);
+  }
+  .map-zoom button {
+    width: 36px; height: 36px;
+    background: transparent;
+    border: 0;
+    color: var(--text-1);
+    font-size: 18px;
+    cursor: pointer;
+    transition: background var(--t-fast);
+  }
+  .map-zoom button:hover { background: color-mix(in srgb, var(--text-1) 6%, transparent); }
+  .map-zoom button:first-child { border-bottom: 1px solid var(--line); }
+
+  /* Popup — anchored above its pin (FR-11..FR-18) */
+  .map-popup {
+    position: absolute;
+    width: 320px;
+    background: var(--bg-2);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-elevated);
+    padding: 16px;
+    z-index: 4;
+    transform: translate(-50%, calc(-100% - 22px));
+  }
+  .map-popup::after {
+    content: '';
+    position: absolute;
+    bottom: -8px; left: 50%;
+    transform: translateX(-50%) rotate(45deg);
+    width: 14px; height: 14px;
+    background: var(--bg-2);
+    border-right: 1px solid var(--line-strong);
+    border-bottom: 1px solid var(--line-strong);
+  }
+  .map-popup-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .map-popup-title { font-size: 16px; font-weight: 700; line-height: 1.3; margin: 0; color: var(--text-1); }
+  .map-popup-title a { color: inherit; }
+  .map-popup-title a:hover { color: var(--amber-500); }
+  .map-popup-status {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: var(--r-pill);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    flex-shrink: 0;
+    line-height: 1;
+  }
+  .map-popup-status.live      { background: color-mix(in srgb, #22c55e 16%, transparent); color: #22c55e; border: 1px solid color-mix(in srgb, #22c55e 32%, transparent); }
+  .map-popup-status.scheduled { background: color-mix(in srgb, var(--amber-500) 16%, transparent); color: var(--amber-500); border: 1px solid color-mix(in srgb, var(--amber-500) 32%, transparent); }
+  .map-popup-status.off       { background: color-mix(in srgb, var(--text-4) 16%, transparent); color: var(--text-3); border: 1px solid var(--line-strong); }
+  .map-popup-meta {
+    font-size: 13px;
+    margin-bottom: 14px;
+    display: grid;
+    gap: 6px;
+  }
+  .map-popup-meta .row { display: flex; gap: 10px; }
+  .map-popup-meta .label { color: var(--text-3); width: 56px; flex-shrink: 0; }
+  .map-popup-meta .value { color: var(--text-2); }
+  .map-popup-actions { display: flex; gap: 8px; }
+  .map-popup-actions .btn { flex: 1; justify-content: center; padding: 10px 12px; font-size: 13px; }
+  .map-popup-close {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 24px; height: 24px;
+    border: 0;
+    background: transparent;
+    color: var(--text-3);
+    border-radius: var(--r-sm);
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    transition: color var(--t-fast), background var(--t-fast);
+  }
+  .map-popup-close:hover { color: var(--text-1); background: var(--bg-3); }
+
+  /* Attribution — required by MapTiler/OSM tile licenses (FR-5) */
+  .map-attrib {
+    position: absolute;
+    bottom: 6px;
+    left: 12px;
+    z-index: 3;
+    font-size: 11px;
+    color: var(--text-3);
+    background: color-mix(in srgb, var(--bg-1) 75%, transparent);
+    padding: 3px 8px;
+    border-radius: var(--r-pill);
+    backdrop-filter: blur(4px);
+    border: 1px solid var(--line);
+  }
+  .map-attrib a { color: inherit; text-decoration: underline; }
+
+  /* Marketing nav: highlight the active route's link */
+  .nav-link.active {
+    color: var(--text-1);
+    background: color-mix(in srgb, var(--text-1) 8%, transparent);
+  }
+
+  /* "Coming soon" badge — sits inline with a nav link */
+  .soon-badge {
+    display: inline-block;
+    margin-left: 8px;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    border-radius: var(--r-pill);
+    background: color-mix(in srgb, var(--amber-500) 18%, transparent);
+    color: var(--amber-500);
+    border: 1px solid color-mix(in srgb, var(--amber-500) 32%, transparent);
+    vertical-align: middle;
+    line-height: 1.2;
+  }
+  [data-theme="light"] .soon-badge { color: var(--amber-800); }
+
+  /* Preview banner on the map screen — flags "this design is mocked,
+     the public map ships in a later release" */
+  .map-preview-banner {
+    position: absolute;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 5;
+    background: color-mix(in srgb, var(--amber-500) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--amber-500) 32%, transparent);
+    color: var(--amber-500);
+    padding: 8px 18px;
+    border-radius: var(--r-pill);
+    font-size: 12px;
+    font-weight: 500;
+    backdrop-filter: blur(8px);
+    box-shadow: var(--shadow-medium);
+    pointer-events: none;
+  }
+  [data-theme="light"] .map-preview-banner { color: var(--amber-800); }
+  .map-preview-banner strong { font-weight: 700; margin-right: 6px; letter-spacing: 0.04em; text-transform: uppercase; font-size: 11px; }
+  @media (max-width: 1100px) {
+    /* On narrower viewports the search bar grabs the top space; hide
+       the banner there — the nav badge still signals "Soon". */
+    .map-preview-banner { display: none; }
+  }
+
+  /* Mobile: search full-width, legend hides, popup becomes bottom-sheet (FR-18) */
+  @media (max-width: 720px) {
+    .map-search { width: calc(100vw - 32px); }
+    .map-legend { display: none; }
+    .map-zoom { bottom: 16px; right: 12px; }
+    .map-popup {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      width: auto;
+      transform: none;
+      border-radius: var(--r-lg) var(--r-lg) 0 0;
+      border-bottom: 0;
+      padding: 16px 20px 24px;
+    }
+    .map-popup::after { display: none; }
+  }
+
+</style>
+</head>
+<body>
+
+<!-- ICONS (inline so the file is self-contained) -->
+<svg width="0" height="0" style="position:absolute;">
+  <defs>
+    <symbol id="ico-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="4"/>
+      <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>
+    </symbol>
+    <symbol id="ico-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+    </symbol>
+  </defs>
+</svg>
+
+<!-- ============================================================
+     SCREEN SWITCHER (mock-only — flip between mocked surfaces)
+     ============================================================ -->
+<div class="floating-controls">
+  <div class="switcher" role="tablist">
+    <button data-screen="marketing" class="active">Marketing</button>
+    <button data-screen="map">Map</button>
+    <button data-screen="login">Login</button>
+    <button data-screen="signup">Sign up</button>
+  </div>
+</div>
+
+<!-- ============================================================
+     MARKETING SCREEN (default)
+     ============================================================ -->
+<div class="screen active" id="screen-marketing">
+
+<!-- ============================================================
+     STICKY APPBAR
+     - Logo: 72px RF monogram + "Remote Falcon" wordmark (matches
+       size of existing ui-component/Logo)
+     - Middle: Features / Shows Map / Docs / Community
+       (Pricing dropped — Remote Falcon is free.)
+     - Right: theme toggle / Sign in / Sign up
+     ============================================================ -->
+<nav class="landing-nav">
+  <div class="landing-nav-inner">
+    <a class="nav-logo" href="#" aria-label="Remote Falcon home">
+      <span class="rf-mark nav"><img src="../../public/rf-icon.png" alt="Remote Falcon" /></span>
+      <span class="nav-wordmark">Remote Falcon</span>
+    </a>
+    <div class="nav-links">
+      <a class="nav-link" href="#features">Features</a>
+      <a class="nav-link" href="#" data-screen="map">Shows Map<span class="soon-badge">Soon</span></a>
+      <a class="nav-link" href="https://docs.remotefalcon.com" target="_blank" rel="noopener">Docs</a>
+      <a class="nav-link" href="https://www.facebook.com/groups/remotefalcon" target="_blank" rel="noopener">Community</a>
+    </div>
+    <div class="nav-spacer"></div>
+    <button class="theme-toggle js-theme-toggle" title="Toggle light / dark" aria-label="Toggle theme">
+      <svg class="theme-toggle-ico"><use href="#ico-sun"/></svg>
+    </button>
+    <a class="btn btn-ghost btn-sm" href="/signin">Sign in</a>
+    <a class="btn btn-primary btn-sm" href="/signup">Sign up</a>
+  </div>
+</nav>
+
+<!-- ============================================================
+     HERO
+     - Copy preserved from current Header.jsx
+     - Single CTA only (no "watch a live show" — no destination)
+     - Jukebox at natural size (no scale(1.7))
+     - alt="Remote Falcon" (was "Berry")
+     ============================================================ -->
+<section class="hero">
+  <div class="hero-orb"></div>
+  <div class="hero-grid">
+    <div class="hero-text">
+      <h1>Let your viewers take <span class="accent">control.</span></h1>
+      <p class="hero-sub">
+        Remote Falcon allows your viewers to take control of your light show in order
+        to provide an immersive and interactive experience.
+      </p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="/signup">Create your show — free →</a>
+      </div>
+    </div>
+    <div class="hero-art">
+      <img src="../../public/jukebox.png" alt="Remote Falcon" />
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     FEATURES
+     - Section eyebrow + headline preserved from Feature.jsx
+     - Three blocks restored to live content (Request Sequences /
+       Custom Viewer Page / Totally Free) — Shows Map block dropped
+       (control-panel feature, not yet a marketing-ready directory)
+     - Alternating left/right blocks instead of rigid 3-up grid
+     - 44×44 flat tinted icon tiles instead of Avatar circles
+     ============================================================ -->
+<section class="section" id="features">
+  <div class="section-eyebrow">Top features</div>
+  <h2>Everything you need to run an interactive show.</h2>
+  <p class="section-sub">From the first vote to the final song, give your viewers a reason to come back every night.</p>
+
+  <div class="feature-block">
+    <div class="fb-text">
+      <div class="fb-icon navy">♪</div>
+      <h3>Jukebox queue &amp; live voting</h3>
+      <p>Pick the mode that fits the night &mdash; viewers either request the next song (Jukebox) or vote on what plays (Voting).</p>
+      <ul class="fb-bullets">
+        <li>Jukebox queue with sequence-request limits and queue-depth caps so one viewer can&apos;t hog the show</li>
+        <li>Voting rounds let viewers pick what plays next &mdash; highest tally wins the round</li>
+        <li>Group sequences into categories, control visibility per sequence, hide a song after it plays</li>
+      </ul>
+    </div>
+    <div class="fb-visual viz-jukebox"></div>
+  </div>
+
+  <div class="feature-block reverse">
+    <div class="fb-text">
+      <div class="fb-icon amber">▥</div>
+      <h3>A viewer page you actually own</h3>
+      <p>Start from a template, or write your own HTML/CSS. The editor validates your markup as you go.</p>
+      <ul class="fb-bullets">
+        <li>Templates included &mdash; pick one and tweak, or start from scratch</li>
+        <li>Inline HTML validation flags mistakes as you type</li>
+        <li>Your own subdomain on remotefalcon.com (auto-created from your show name)</li>
+      </ul>
+    </div>
+    <div class="fb-visual viz-page">
+      <div class="viz-page-card">
+        <div class="viz-page-card-bar"><span></span><span></span><span></span></div>
+        <div class="viz-page-card-body">
+          <div></div><div></div><div></div>
+          <div></div><div></div><div></div>
+          <div></div><div></div><div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="feature-block" id="shows-map">
+    <div class="fb-text">
+      <div class="fb-icon navy">◉</div>
+      <h3>Find &amp; be found on the Shows Map</h3>
+      <p>Opt in to the global Remote Falcon shows map and let viewers discover light shows nearby.</p>
+      <ul class="fb-bullets">
+        <li>Pin your show with a single toggle in the control panel</li>
+        <li>Map auto-clusters shows by region as viewers pan and zoom</li>
+        <li>100% opt-in &mdash; you control whether your show appears</li>
+      </ul>
+    </div>
+    <div class="fb-visual viz-map"></div>
+  </div>
+
+  <div class="feature-block reverse">
+    <div class="fb-text">
+      <div class="fb-icon red">★</div>
+      <h3>Open source &amp; community-driven</h3>
+      <p>Free to get started, open source for anyone to audit or contribute, and supported by a community of show owners helping each other.</p>
+      <ul class="fb-bullets">
+        <li>Free to start &mdash; no credit card required</li>
+        <li>Open source on GitHub &mdash; fork it, audit it, contribute back</li>
+        <li>Community-supported via the Remote Falcon Facebook group and Patreon</li>
+      </ul>
+    </div>
+    <div class="fb-visual viz-free">
+      <div style="text-align:center;">
+        <div class="viz-free-badge">&lt;/&gt;</div>
+        <div class="viz-free-sub">Open source</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     FOOTER
+     - 4 columns: brand+blurb / Product / Community / Legal
+     - All links point at routes/destinations that actually exist
+     - Proposed blurb echoes "take control" voice from the hero
+     ============================================================ -->
+<footer>
+  <div class="footer-inner">
+    <div class="footer-col">
+      <a class="footer-brand" href="#">
+        <span class="rf-mark footer"><img src="../../public/rf-icon.png" alt="Remote Falcon" /></span>
+        Remote Falcon
+      </a>
+      <p class="footer-blurb">
+        Open-source software that lets your viewers take control of your light show.
+        Built by show owners, for show owners.
+      </p>
+    </div>
+    <div class="footer-col">
+      <h4>Product</h4>
+      <a href="https://docs.remotefalcon.com" target="_blank" rel="noopener">Documentation</a>
+      <a href="/signup">Sign up</a>
+      <a href="/signin">Sign in</a>
+    </div>
+    <div class="footer-col">
+      <h4>Community</h4>
+      <a href="https://www.facebook.com/groups/remotefalcon" target="_blank" rel="noopener">Facebook group</a>
+      <a href="https://github.com/Remote-Falcon" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://www.patreon.com/RemoteFalcon" target="_blank" rel="noopener">Patreon</a>
+    </div>
+    <div class="footer-col">
+      <h4>Legal</h4>
+      <a href="/privacy-policy">Privacy policy</a>
+      <a href="/terms-and-conditions">Terms of service</a>
+      <a href="/owners">Show ownership</a>
+    </div>
+  </div>
+  <div class="footer-base">
+    <span>© 2026 Remote Falcon</span>
+    <span class="version-chip">v{VERSION}</span>
+  </div>
+</footer>
+
+</div><!-- /#screen-marketing -->
+
+<!-- ============================================================
+     LOGIN SCREEN — split-screen, immersive (Layout B)
+     ============================================================ -->
+<div class="screen" id="screen-login">
+  <section class="auth">
+    <div class="auth-brand">
+      <div class="auth-brand-orb"></div>
+      <a class="auth-brand-logo" href="#" data-screen="marketing" aria-label="Back to home">
+        <span class="rf-mark"><img src="../../public/rf-icon.png" alt="Remote Falcon" /></span>
+        <span class="nav-wordmark">Remote Falcon</span>
+      </a>
+      <div class="auth-brand-content">
+        <img class="auth-brand-art" src="../../public/jukebox.png" alt="Remote Falcon" />
+        <h2 class="auth-brand-tagline">
+          Let your viewers take <span class="accent">control.</span>
+        </h2>
+      </div>
+      <div class="auth-brand-meta">Open source &nbsp;·&nbsp; Community-built</div>
+    </div>
+
+    <div class="auth-form-side">
+      <div class="auth-form">
+        <div class="auth-form-eyebrow">Sign in</div>
+        <h2>So glad you came back!</h2>
+        <p class="auth-form-sub">Sign in to manage your show, sequences, and viewer page.</p>
+
+        <form onsubmit="event.preventDefault();">
+          <div class="form-field">
+            <label for="login-email">Email</label>
+            <input class="form-input" id="login-email" type="email" placeholder="you@example.com" autocomplete="email" />
+          </div>
+          <div class="form-field">
+            <label for="login-password">Password</label>
+            <input class="form-input" id="login-password" type="password" placeholder="••••••••" autocomplete="current-password" />
+          </div>
+
+          <div class="form-row">
+            <a class="form-link" href="#">Forgot password?</a>
+          </div>
+
+          <button class="btn btn-primary btn-block" type="submit">Sign in &rarr;</button>
+
+          <div class="auth-form-divider">or</div>
+
+          <p class="auth-form-switch">
+            Don&apos;t have an account? <a href="#" data-screen="signup">Sign up</a>
+          </p>
+        </form>
+      </div>
+    </div>
+  </section>
+</div><!-- /#screen-login -->
+
+<!-- ============================================================
+     SIGN UP SCREEN — split-screen, immersive (Layout B)
+     ============================================================ -->
+<div class="screen" id="screen-signup">
+  <section class="auth">
+    <div class="auth-brand">
+      <div class="auth-brand-orb"></div>
+      <a class="auth-brand-logo" href="#" data-screen="marketing" aria-label="Back to home">
+        <span class="rf-mark"><img src="../../public/rf-icon.png" alt="Remote Falcon" /></span>
+        <span class="nav-wordmark">Remote Falcon</span>
+      </a>
+      <div class="auth-brand-content">
+        <img class="auth-brand-art" src="../../public/jukebox.png" alt="Remote Falcon" />
+        <h2 class="auth-brand-tagline">
+          Bring your show <span class="accent">online</span> in under a minute.
+        </h2>
+      </div>
+      <div class="auth-brand-meta">Free to start &nbsp;·&nbsp; No credit card required</div>
+    </div>
+
+    <div class="auth-form-side">
+      <div class="auth-form">
+        <div class="auth-form-eyebrow">Create your show</div>
+        <h2>Let&apos;s get the lights on.</h2>
+        <p class="auth-form-sub">Sign up and start taking song requests in minutes.</p>
+
+        <form onsubmit="event.preventDefault();">
+          <div class="form-field-row">
+            <div class="form-field">
+              <label for="signup-first">First name</label>
+              <input class="form-input" id="signup-first" type="text" autocomplete="given-name" />
+            </div>
+            <div class="form-field">
+              <label for="signup-last">Last name</label>
+              <input class="form-input" id="signup-last" type="text" autocomplete="family-name" />
+            </div>
+          </div>
+          <div class="form-field">
+            <label for="signup-show">Show name</label>
+            <input class="form-input" id="signup-show" type="text" placeholder="The Jingle Lights at Maple Lane" />
+          </div>
+          <div class="form-field">
+            <label for="signup-email">Email</label>
+            <input class="form-input" id="signup-email" type="email" placeholder="you@example.com" autocomplete="email" />
+          </div>
+          <div class="form-field">
+            <label for="signup-pw">Password</label>
+            <input class="form-input" id="signup-pw" type="password" placeholder="At least 8 characters" autocomplete="new-password" />
+          </div>
+
+          <label class="form-checkbox-row">
+            <input type="checkbox" />
+            <span>
+              I agree to the <a href="/terms-and-conditions">Terms of Service</a> and <a href="/privacy-policy">Privacy Policy</a>.
+            </span>
+          </label>
+
+          <button class="btn btn-primary btn-block" type="submit">Create my show &rarr;</button>
+
+          <div class="auth-form-divider">or</div>
+
+          <p class="auth-form-switch">
+            Already have an account? <a href="#" data-screen="login">Sign in</a>
+          </p>
+        </form>
+      </div>
+    </div>
+  </section>
+</div><!-- /#screen-signup -->
+
+<!-- ============================================================
+     SHOWS MAP SCREEN — public /map route
+     Wired to PRD: MapLibre cluster-style bubbles, status-coded pins,
+     search + geolocate, popup matching FR-11..FR-18.
+     ============================================================ -->
+<div class="screen" id="screen-map">
+
+  <!-- Same sticky AppBar pattern as marketing, with "Shows Map" active.
+       Theme toggle is class-based so multiple instances can coexist. -->
+  <nav class="landing-nav">
+    <div class="landing-nav-inner">
+      <a class="nav-logo" href="#" data-screen="marketing" aria-label="Remote Falcon home">
+        <span class="rf-mark nav"><img src="../../public/rf-icon.png" alt="Remote Falcon" /></span>
+        <span class="nav-wordmark">Remote Falcon</span>
+      </a>
+      <div class="nav-links">
+        <a class="nav-link" href="#" data-screen="marketing">Features</a>
+        <a class="nav-link active" href="#" data-screen="map">Shows Map<span class="soon-badge">Soon</span></a>
+        <a class="nav-link" href="https://docs.remotefalcon.com" target="_blank" rel="noopener">Docs</a>
+        <a class="nav-link" href="https://www.facebook.com/groups/remotefalcon" target="_blank" rel="noopener">Community</a>
+      </div>
+      <div class="nav-spacer"></div>
+      <button class="theme-toggle js-theme-toggle" title="Toggle light / dark" aria-label="Toggle theme">
+        <svg class="theme-toggle-ico"><use href="#ico-sun"/></svg>
+      </button>
+      <a class="btn btn-ghost btn-sm" href="#" data-screen="login">Sign in</a>
+      <a class="btn btn-primary btn-sm" href="#" data-screen="signup">Sign up</a>
+    </div>
+  </nav>
+
+  <div class="map-screen">
+    <div class="map-preview-banner">
+      <strong>Preview</strong>This design is mocked &mdash; the public map ships in a later release.
+    </div>
+    <div class="map-canvas">
+
+      <!-- Cluster bubbles at high-density metro areas -->
+      <div class="map-cluster lg" style="top: 36%; left: 89%;">87</div>
+      <div class="map-cluster lg" style="top: 60%; left: 11%;">64</div>
+      <div class="map-cluster md" style="top: 38%; left: 65%;">41</div>
+      <div class="map-cluster md" style="top: 80%; left: 82%;">28</div>
+      <div class="map-cluster md" style="top: 60%; left: 76%;">23</div>
+      <div class="map-cluster sm" style="top: 65%; left: 58%;">19</div>
+
+      <!-- Live pins (green, glowing) -->
+      <div class="map-pin live" style="top: 28%; left: 14%;" title="Seattle"></div>
+      <div class="map-pin live" style="top: 50%; left: 38%;" title="Denver"></div>
+      <div class="map-pin live" style="top: 45%; left: 26%;" title="Salt Lake"></div>
+      <div class="map-pin live" style="top: 64%; left: 22%;" title="Phoenix"></div>
+      <div class="map-pin live" style="top: 32%; left: 60%;" title="Minneapolis"></div>
+      <div class="map-pin live" style="top: 55%; left: 70%;" title="Nashville"></div>
+
+      <!-- Scheduled pins (amber) -->
+      <div class="map-pin scheduled" style="top: 34%; left: 12%;" title="Portland"></div>
+      <div class="map-pin scheduled" style="top: 38%; left: 22%;" title="Boise"></div>
+      <div class="map-pin scheduled" style="top: 50%; left: 56%;" title="Kansas City"></div>
+      <div class="map-pin scheduled" style="top: 56%; left: 81%;" title="Charlotte"></div>
+
+      <!-- Offline pins (muted gray) -->
+      <div class="map-pin off" style="top: 60%; left: 33%;" title="Albuquerque"></div>
+      <div class="map-pin off" style="top: 45%; left: 70%;" title="Indianapolis"></div>
+      <div class="map-pin off" style="top: 56%; left: 64%;" title="Memphis"></div>
+      <div class="map-pin off" style="top: 76%; left: 65%;" title="New Orleans"></div>
+      <div class="map-pin off" style="top: 28%; left: 22%;" title="Spokane"></div>
+
+      <!-- Highlighted pin with open popup (anchor coords match) -->
+      <div class="map-pin live" style="top: 56%; left: 50%;"></div>
+      <div class="map-popup" style="top: 56%; left: 50%;">
+        <button class="map-popup-close" aria-label="Close popup">×</button>
+        <div class="map-popup-header">
+          <h3 class="map-popup-title">
+            <a href="#">The Smith Family Christmas</a>
+          </h3>
+          <span class="map-popup-status live">Live</span>
+        </div>
+        <div class="map-popup-meta">
+          <div class="row"><span class="label">Hours</span><span class="value">Sun&ndash;Thu 6&ndash;9pm, Fri&ndash;Sat 6&ndash;10pm</span></div>
+          <div class="row"><span class="label">City</span><span class="value">Alpharetta, GA</span></div>
+          <div class="row"><span class="label">Tune to</span><span class="value">FM 88.3</span></div>
+        </div>
+        <div class="map-popup-actions">
+          <a class="btn btn-primary" href="#">Visit show &rarr;</a>
+          <a class="btn btn-ghost" href="#">Get directions</a>
+        </div>
+      </div>
+
+    </div><!-- /.map-canvas -->
+
+    <!-- SEARCH + GEOLOCATE (FR-19, FR-20) -->
+    <div class="map-search" role="search">
+      <span class="map-search-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="7"/><path d="m20 20-3-3"/>
+        </svg>
+      </span>
+      <input type="search" placeholder="Search by city or ZIP" aria-label="Search shows by city or ZIP" />
+      <button class="map-locate-btn" title="Use my location" aria-label="Use my location">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- LEGEND (status key) -->
+    <div class="map-legend" aria-label="Map legend">
+      <h4>Show status</h4>
+      <div class="legend-item"><span class="dot live"></span>Live now</div>
+      <div class="legend-item"><span class="dot scheduled"></span>Coming up</div>
+      <div class="legend-item"><span class="dot off"></span>Offline</div>
+    </div>
+
+    <!-- ZOOM CONTROLS -->
+    <div class="map-zoom" aria-label="Zoom">
+      <button title="Zoom in">+</button>
+      <button title="Zoom out">&minus;</button>
+    </div>
+
+    <!-- ATTRIBUTION (FR-5) -->
+    <div class="map-attrib">
+      © <a href="https://www.maptiler.com/" target="_blank" rel="noopener">MapTiler</a>
+      &nbsp;·&nbsp;
+      © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors
+    </div>
+  </div>
+</div><!-- /#screen-map -->
+
+<script>
+  // Theme toggle — drives the whole page off [data-theme="light|dark"]
+  // and persists to localStorage. Class-based so multiple toggle
+  // instances (one per AppBar) all stay in sync.
+  (function () {
+    const KEY = 'rf-mock-theme';
+    const root = document.documentElement;
+    const buttons = document.querySelectorAll('.js-theme-toggle');
+    const icons   = document.querySelectorAll('.theme-toggle-ico');
+
+    const apply = (mode) => {
+      root.setAttribute('data-theme', mode);
+      const iconId = mode === 'dark' ? 'ico-sun' : 'ico-moon';
+      icons.forEach((i) => { i.innerHTML = `<use href="#${iconId}"/>`; });
+    };
+    const saved = localStorage.getItem(KEY) || 'dark';
+    apply(saved);
+
+    buttons.forEach((b) => b.addEventListener('click', () => {
+      const next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+      localStorage.setItem(KEY, next);
+      apply(next);
+    }));
+  })();
+
+  // Screen switcher — flip between Marketing / Login / Sign up.
+  (function () {
+    const KEY = 'rf-mock-screen';
+    const screens  = document.querySelectorAll('.screen');
+    const switches = document.querySelectorAll('.switcher button');
+
+    const showScreen = (id) => {
+      screens.forEach(s => s.classList.toggle('active', s.id === `screen-${id}`));
+      switches.forEach(b => b.classList.toggle('active', b.dataset.screen === id));
+      localStorage.setItem(KEY, id);
+      window.scrollTo(0, 0);
+    };
+
+    // Wire up every element with data-screen — switcher buttons,
+    // brand-panel logo (back to marketing), and form-toggle links.
+    document.querySelectorAll('[data-screen]').forEach((el) => {
+      el.addEventListener('click', (e) => {
+        e.preventDefault();
+        showScreen(el.dataset.screen);
+      });
+    });
+
+    showScreen(localStorage.getItem(KEY) || 'marketing');
+  })();
+</script>
+
+</body>
+</html>
