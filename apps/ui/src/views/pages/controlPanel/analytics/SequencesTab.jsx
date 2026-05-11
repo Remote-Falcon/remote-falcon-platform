@@ -430,12 +430,17 @@ const CategoryMix = () => {
         </Typography>
       }
     >
-      <Stack direction={{ xs: 'column', md: 'row' }} spacing={3} alignItems="center">
+      {/* Donut on top, legend below — the card sits in a narrow lg=4
+          column so a side-by-side legend gets truncated to "C…/M…/N…"
+          even with a flexible width. Stacking keeps full category names
+          readable at every breakpoint. */}
+      <Stack spacing={2.5} alignItems="stretch">
         <Box
           sx={{
             position: 'relative',
             width: 180,
             height: 180,
+            mx: 'auto',
             borderRadius: '50%',
             background: `conic-gradient(${stops.join(', ')})`,
             flexShrink: 0,
@@ -470,7 +475,7 @@ const CategoryMix = () => {
             </Typography>
           </Stack>
         </Box>
-        <Stack spacing={0.75} sx={{ flex: 1, minWidth: 0 }}>
+        <Stack spacing={0.75}>
           {segments.entries.map(([cat, value], i) => {
             const pct = Math.round((value / segments.total) * 100);
             return (
@@ -484,7 +489,7 @@ const CategoryMix = () => {
                     flexShrink: 0
                   }}
                 />
-                <Typography variant="body2" sx={{ flex: 1, fontWeight: 500 }} noWrap>
+                <Typography variant="body2" sx={{ flex: 1, fontWeight: 500, minWidth: 0 }} noWrap>
                   {cat}
                 </Typography>
                 <Typography
@@ -492,8 +497,7 @@ const CategoryMix = () => {
                   sx={{
                     color: 'text.secondary',
                     fontVariantNumeric: 'tabular-nums',
-                    minWidth: 70,
-                    textAlign: 'right'
+                    flexShrink: 0
                   }}
                 >
                   {value} · {pct}%

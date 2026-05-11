@@ -2,7 +2,7 @@ import * as React from 'react';
 
 import { Box, Stack } from '@mui/material';
 import PropTypes from 'prop-types';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 
 // v2 horizontal sub-nav pattern. Sits below the PageHead on any page that
 // has multiple sub-views (settings, admin, templates, etc.). Each item is
@@ -10,9 +10,17 @@ import { NavLink } from 'react-router-dom';
 // works, and ⌘K can target each sub-view directly because they're real
 // routes.
 //
+// Search-string preservation: sub-tab navigation carries the current
+// query string forward (`?range=last-christmas`, `?group=Trans-Siberian`,
+// etc.) so picking a date range on Analytics → Overview keeps the same
+// range when you click into Audience or Sequences. Without this, the
+// fresh URL strips the params and useSearchParams falls back to defaults.
+//
 // Items shape:
 //   { label: 'Viewer Control', to: '/control-panel/settings/viewer-control' }
-const SubNav = ({ items }) => (
+const SubNav = ({ items }) => {
+  const location = useLocation();
+  return (
   <Box
     sx={{
       mb: 3,
@@ -38,7 +46,7 @@ const SubNav = ({ items }) => (
         <Box
           key={item.to}
           component={NavLink}
-          to={item.to}
+          to={{ pathname: item.to, search: location.search }}
           end={item.end}
           sx={{
             position: 'relative',
@@ -64,7 +72,8 @@ const SubNav = ({ items }) => (
       ))}
     </Stack>
   </Box>
-);
+  );
+};
 
 SubNav.propTypes = {
   items: PropTypes.arrayOf(

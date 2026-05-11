@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 
 import moment from 'moment-timezone';
 import { useSearchParams } from 'react-router-dom';
@@ -6,6 +6,26 @@ import { useSearchParams } from 'react-router-dom';
 import { useSelector } from '../../../../store';
 
 import { DEFAULT_PRESET_ID, buildPresets } from './dateRange';
+
+// Persist the most-recent preset choice across navigation. Without this,
+// leaving Analytics and returning (e.g. via the sidebar) drops back to
+// the default preset — the URL search string doesn't survive a route
+// outside this subtree. Survival path: URL > localStorage > default.
+const LS_KEY = 'rf-analytics-last-preset';
+const readLastPreset = () => {
+  try {
+    return localStorage.getItem(LS_KEY) || null;
+  } catch {
+    return null;
+  }
+};
+const writeLastPreset = (id) => {
+  try {
+    if (id) localStorage.setItem(LS_KEY, id);
+  } catch {
+    /* storage blocked */
+  }
+};
 
 // All analytics filter state is URL-encoded so views are shareable and
 // bookmarkable. Single source of truth for: date range (preset or custom),
@@ -26,10 +46,24 @@ const useAnalyticsFilters = () => {
     [timezone]
   );
 
-  const presetId = searchParams.get('range') || DEFAULT_PRESET_ID;
+  // URL has priority; falling back to the last localStorage choice means
+  // returning to Analytics via the sidebar preserves what the user picked.
+  const presetId = searchParams.get('range') || readLastPreset() || DEFAULT_PRESET_ID;
   const customStart = searchParams.get('start');
   const customEnd = searchParams.get('end');
   const compareToPrior = searchParams.get('compare') === 'prior';
+
+  // Backfill the URL on first render so deep-links + browser back work
+  // consistently with the persisted preset. Without this, the URL says
+  // "no preset" while the page renders the persisted one — confusing.
+  useEffect(() => {
+    if (!searchParams.get('range') && presetId !== DEFAULT_PRESET_ID) {
+      const next = new URLSearchParams(searchParams);
+      next.set('range', presetId);
+      setSearchParams(next, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const range = useMemo(() => {
     if (presetId === 'custom' && customStart && customEnd) {
@@ -46,40 +80,40 @@ const useAnalyticsFilters = () => {
     return { start: range.start - length, end: range.start };
   }, [range]);
 
+  // react-router-dom 6.2 doesn't support the (prev => next) functional form
+  // of setSearchParams — that landed in 6.4. On 6.2 the function gets
+  // stringified into the URL instead of called, so updates silently no-op.
+  // Use the value form, reading from searchParams directly.
   const setPreset = useCallback(
     (id) => {
-      setSearchParams((prev) => {
-        const next = new URLSearchParams(prev);
-        next.set('range', id);
-        next.delete('start');
-        next.delete('end');
-        return next;
-      });
+      writeLastPreset(id);
+      const next = new URLSearchParams(searchParams);
+      next.set('range', id);
+      next.delete('start');
+      next.delete('end');
+      setSearchParams(next);
     },
-    [setSearchParams]
+    [searchParams, setSearchParams]
   );
 
   const setCustomRange = useCallback(
     (start, end) => {
-      setSearchParams((prev) => {
-        const next = new URLSearchParams(prev);
-        next.set('range', 'custom');
-        next.set('start', String(start));
-        next.set('end', String(end));
-        return next;
-      });
+      writeLastPreset('custom');
+      const next = new URLSearchParams(searchParams);
+      next.set('range', 'custom');
+      next.set('start', String(start));
+      next.set('end', String(end));
+      setSearchParams(next);
     },
-    [setSearchParams]
+    [searchParams, setSearchParams]
   );
 
   const toggleCompareToPrior = useCallback(() => {
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      if (compareToPrior) next.delete('compare');
-      else next.set('compare', 'prior');
-      return next;
-    });
-  }, [compareToPrior, setSearchParams]);
+    const next = new URLSearchParams(searchParams);
+    if (compareToPrior) next.delete('compare');
+    else next.set('compare', 'prior');
+    setSearchParams(next);
+  }, [searchParams, compareToPrior, setSearchParams]);
 
   const presetLabel = useMemo(() => {
     if (presetId === 'custom') return 'Custom';
