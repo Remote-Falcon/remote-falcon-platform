@@ -26,7 +26,8 @@ public class RestController {
           request.getShowSubdomain(),
           request.getSequence(),
           request.getViewerLatitude(),
-          request.getViewerLongitude());
+          request.getViewerLongitude(),
+          request.getViewerId());
       return RequestVoteResponse.builder().build();
     } catch (CustomGraphQLExceptionResolver e) {
       Object messageObj = e.getExtensions().get("message");
@@ -46,7 +47,8 @@ public class RestController {
           request.getShowSubdomain(),
           request.getSequence(),
           request.getViewerLatitude(),
-          request.getViewerLongitude());
+          request.getViewerLongitude(),
+          request.getViewerId());
       return RequestVoteResponse.builder().build();
     } catch (CustomGraphQLExceptionResolver e) {
       Object messageObj = e.getExtensions().get("message");

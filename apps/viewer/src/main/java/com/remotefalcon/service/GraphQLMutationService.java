@@ -17,6 +17,7 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.BooleanUtils;
 import org.apache.commons.lang3.StringUtils;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -35,7 +36,7 @@ public class GraphQLMutationService {
   @Inject
   ViewerMetrics viewerMetrics;
 
-  public Boolean insertViewerPageStats(String showSubdomain, LocalDateTime date) {
+  public Boolean insertViewerPageStats(String showSubdomain, LocalDateTime date, String viewerId) {
     String clientIp = ClientUtil.getClientIP(context);
     if (StringUtils.isEmpty(clientIp)) {
       return true; // Skip if no IP available
@@ -45,20 +46,36 @@ public class GraphQLMutationService {
     // Use atomic operation to avoid reading entire document
     Stat.Page pageStat = Stat.Page.builder()
         .ip(clientIp)
+        .viewerId(viewerId)
         .dateTime(date)
         .build();
 
     long modifiedCount = this.showRepository.appendPageStatIfNotOwner(showSubdomain, clientIp, pageStat);
-    return modifiedCount > 0; // Returns true if stat was added
+    if (modifiedCount > 0) {
+      // Maintain viewer session window (PRD A1) — fire-and-forget; failure
+      // here doesn't block the page-view stat insert that just succeeded.
+      try {
+        this.showRepository.upsertViewerSession(showSubdomain, clientIp, viewerId, date);
+      } catch (Exception e) {
+        log.warnf("upsertViewerSession failed for showSubdomain=%s: %s", showSubdomain, e.getMessage());
+      }
+    }
+    return modifiedCount > 0;
   }
 
-  public Boolean updateActiveViewers(String showSubdomain) {
+  public Boolean updateActiveViewers(String showSubdomain, String viewerId) {
     Optional<Show> show = this.showRepository.findByShowSubdomain(showSubdomain);
     if (show.isPresent()) {
       Show existingShow = show.get();
       String clientIp = ClientUtil.getClientIP(context);
       if (!StringUtils.equalsIgnoreCase(existingShow.getLastLoginIp(), clientIp)) {
-        this.showRepository.updateActiveViewer(showSubdomain, clientIp, LocalDateTime.now());
+        LocalDateTime now = LocalDateTime.now();
+        this.showRepository.updateActiveViewer(showSubdomain, clientIp, viewerId, now);
+        try {
+          this.showRepository.upsertViewerSession(showSubdomain, clientIp, viewerId, now);
+        } catch (Exception e) {
+          log.warnf("upsertViewerSession failed for showSubdomain=%s: %s", showSubdomain, e.getMessage());
+        }
       }
       return true;
     }
@@ -110,7 +127,7 @@ public class GraphQLMutationService {
     throw new CustomGraphQLExceptionResolver(StatusResponse.UNEXPECTED_ERROR.name());
   }
 
-  public Boolean addSequenceToQueue(String showSubdomain, String name, Float latitude, Float longitude) {
+  public Boolean addSequenceToQueue(String showSubdomain, String name, Float latitude, Float longitude, String viewerId) {
     // Use optimized query that excludes large stats but keeps fields needed for validation
     Optional<Show> show = this.showRepository.findByShowSubdomainForMutations(showSubdomain);
     if (show.isPresent()) {
@@ -121,15 +138,19 @@ public class GraphQLMutationService {
         throw new CustomGraphQLExceptionResolver(StatusResponse.UNEXPECTED_ERROR.name());
       }
       if (this.isIpBlocked(clientIp, show.get())) {
+        this.logRejectedRequest(showSubdomain, name, viewerId, StatusResponse.NAUGHTY.name());
         throw new CustomGraphQLExceptionResolver(StatusResponse.NAUGHTY.name());
       }
       if (this.hasViewerRequested(show.get(), clientIp)) {
+        this.logRejectedRequest(showSubdomain, name, viewerId, StatusResponse.ALREADY_REQUESTED.name());
         throw new CustomGraphQLExceptionResolver(StatusResponse.ALREADY_REQUESTED.name());
       }
       if (this.isQueueFull(existingShow)) {
+        this.logRejectedRequest(showSubdomain, name, viewerId, StatusResponse.QUEUE_FULL.name());
         throw new CustomGraphQLExceptionResolver(StatusResponse.QUEUE_FULL.name());
       }
       if (!this.isViewerPresent(existingShow, latitude, longitude)) {
+        this.logRejectedRequest(showSubdomain, name, viewerId, StatusResponse.INVALID_LOCATION.name());
         throw new CustomGraphQLExceptionResolver(StatusResponse.INVALID_LOCATION.name());
       }
       Optional<Sequence> requestedSequence = show.get().getSequences().stream()
@@ -149,10 +170,18 @@ public class GraphQLMutationService {
         Stat.Jukebox jukeboxStat = Stat.Jukebox.builder()
             .dateTime(LocalDateTime.now())
             .name(requestedSequence.get().getName())
+            .viewerId(viewerId)
             .build();
 
         // Batched write: single DB call for both request and stat
         this.showRepository.appendRequestAndJukeboxStat(showSubdomain, request, jukeboxStat);
+
+        // Bump session window so the request counts toward dwell tracking
+        try {
+          this.showRepository.upsertViewerSession(showSubdomain, clientIp, viewerId, LocalDateTime.now());
+        } catch (Exception e) {
+          log.warnf("upsertViewerSession failed for showSubdomain=%s: %s", showSubdomain, e.getMessage());
+        }
 
         // Update in-memory list so PSA position calculation sees this request
         if (show.get().getRequests() == null) {
@@ -205,10 +234,17 @@ public class GraphQLMutationService {
           Stat.Jukebox jukeboxStat = Stat.Jukebox.builder()
               .dateTime(LocalDateTime.now())
               .name(requestedSequenceGroup.get().getName())
+              .viewerId(viewerId)
               .build();
 
           // Batched write: single DB call for all requests and stat
           this.showRepository.appendMultipleRequestsAndJukeboxStat(showSubdomain, requests, jukeboxStat);
+
+          try {
+            this.showRepository.upsertViewerSession(showSubdomain, clientIp, viewerId, LocalDateTime.now());
+          } catch (Exception e) {
+            log.warnf("upsertViewerSession failed for showSubdomain=%s: %s", showSubdomain, e.getMessage());
+          }
 
           // Update in-memory list so PSA position calculation sees these requests
           if (show.get().getRequests() == null) {
@@ -237,7 +273,7 @@ public class GraphQLMutationService {
     throw new CustomGraphQLExceptionResolver(StatusResponse.UNEXPECTED_ERROR.name());
   }
 
-  public Boolean voteForSequence(String showSubdomain, String name, Float latitude, Float longitude) {
+  public Boolean voteForSequence(String showSubdomain, String name, Float latitude, Float longitude, String viewerId) {
     // Use optimized query that excludes large stats
     Optional<Show> show = this.showRepository.findByShowSubdomainForMutations(showSubdomain);
     if (show.isPresent()) {
@@ -260,7 +296,12 @@ public class GraphQLMutationService {
           .filter(seq -> StringUtils.equalsIgnoreCase(seq.getName(), name))
           .findFirst();
       if (requestedSequence.isPresent()) {
-        this.saveSequenceVote(existingShow, requestedSequence.get(), clientIp, false);
+        this.saveSequenceVote(existingShow, requestedSequence.get(), clientIp, viewerId, false);
+        try {
+          this.showRepository.upsertViewerSession(showSubdomain, clientIp, viewerId, LocalDateTime.now());
+        } catch (Exception e) {
+          log.warnf("upsertViewerSession failed for showSubdomain=%s: %s", showSubdomain, e.getMessage());
+        }
         viewerMetrics.recordVoteSuccess();
         return true;
       } else { // It's a sequence group
@@ -268,7 +309,12 @@ public class GraphQLMutationService {
             .filter(seq -> StringUtils.equalsIgnoreCase(seq.getName(), name))
             .findFirst();
         if (votedSequenceGroup.isPresent()) {
-          this.saveSequenceGroupVote(existingShow, votedSequenceGroup.get(), clientIp);
+          this.saveSequenceGroupVote(existingShow, votedSequenceGroup.get(), clientIp, viewerId);
+          try {
+            this.showRepository.upsertViewerSession(showSubdomain, clientIp, viewerId, LocalDateTime.now());
+          } catch (Exception e) {
+            log.warnf("upsertViewerSession failed for showSubdomain=%s: %s", showSubdomain, e.getMessage());
+          }
           viewerMetrics.recordVoteSuccess();
           return true;
         }
@@ -327,14 +373,35 @@ public class GraphQLMutationService {
     return true;
   }
 
+  // V15 — log a refused addSequenceToQueue attempt for the conversion funnel.
+  // Best-effort: failures here must not block the rejection path.
+  private void logRejectedRequest(String showSubdomain, String sequenceName, String viewerId, String reason) {
+    try {
+      this.showRepository.appendRejectedRequestStat(
+          showSubdomain,
+          Stat.RejectedRequest.builder()
+              .name(sequenceName)
+              .viewerId(viewerId)
+              .reason(reason)
+              .dateTime(LocalDateTime.now())
+              .build()
+      );
+    } catch (Exception e) {
+      log.warnf("appendRejectedRequestStat failed for showSubdomain=%s reason=%s: %s", showSubdomain, reason, e.getMessage());
+    }
+  }
+
   private void checkIfSequenceRequested(Show show, Sequence requestedSequence) {
     if (this.isRequestedSequencePlayingNow(show, requestedSequence)) {
+      this.logRejectedRequest(show.getShowSubdomain(), requestedSequence.getName(), null, StatusResponse.SEQUENCE_REQUESTED.name());
       throw new CustomGraphQLExceptionResolver(StatusResponse.SEQUENCE_REQUESTED.name());
     }
     if (this.isRequestedSequencePlayingNext(show, requestedSequence)) {
+      this.logRejectedRequest(show.getShowSubdomain(), requestedSequence.getName(), null, StatusResponse.SEQUENCE_REQUESTED.name());
       throw new CustomGraphQLExceptionResolver(StatusResponse.SEQUENCE_REQUESTED.name());
     }
     if (this.isRequestedSequenceWithinRequestLimit(show, requestedSequence)) {
+      this.logRejectedRequest(show.getShowSubdomain(), requestedSequence.getName(), null, StatusResponse.SEQUENCE_REQUESTED.name());
       throw new CustomGraphQLExceptionResolver(StatusResponse.SEQUENCE_REQUESTED.name());
     }
   }
@@ -397,7 +464,7 @@ public class GraphQLMutationService {
     }
   }
 
-  private void saveSequenceVote(Show show, Sequence votedSequence, String ipAddress, Boolean isGrouped) {
+  private void saveSequenceVote(Show show, Sequence votedSequence, String ipAddress, String viewerId, Boolean isGrouped) {
     Optional<Vote> sequenceVotes = show.getVotes().stream()
         .filter(vote -> vote.getSequence() != null)
         .filter(vote -> StringUtils.equalsIgnoreCase(vote.getSequence().getName(), votedSequence.getName()))
@@ -411,6 +478,7 @@ public class GraphQLMutationService {
       Stat.Voting votingStat = isGrouped ? null : Stat.Voting.builder()
           .dateTime(voteTime)
           .name(votedSequence.getName())
+          .viewerId(viewerId)
           .build();
 
       if (isGrouped) {
@@ -432,13 +500,14 @@ public class GraphQLMutationService {
       Stat.Voting votingStat = isGrouped ? null : Stat.Voting.builder()
           .dateTime(voteTime)
           .name(votedSequence.getName())
+          .viewerId(viewerId)
           .build();
 
       this.showRepository.addNewVoteAndStat(show.getShowSubdomain(), newVote, votingStat);
     }
   }
 
-  private void saveSequenceGroupVote(Show show, SequenceGroup votedSequenceGroup, String ipAddress) {
+  private void saveSequenceGroupVote(Show show, SequenceGroup votedSequenceGroup, String ipAddress, String viewerId) {
     Optional<Vote> sequenceVotes = show.getVotes().stream()
         .filter(vote -> vote.getSequenceGroup() != null)
         .filter(vote -> StringUtils.equalsIgnoreCase(vote.getSequenceGroup().getName(), votedSequenceGroup.getName()))
@@ -448,6 +517,7 @@ public class GraphQLMutationService {
     Stat.Voting votingStat = Stat.Voting.builder()
         .dateTime(voteTime)
         .name(votedSequenceGroup.getName())
+        .viewerId(viewerId)
         .build();
 
     if (sequenceVotes.isPresent()) {

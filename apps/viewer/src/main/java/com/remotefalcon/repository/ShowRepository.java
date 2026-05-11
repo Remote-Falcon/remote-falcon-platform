@@ -4,10 +4,14 @@ import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.Updates;
 import com.remotefalcon.library.models.Request;
 import com.remotefalcon.library.models.Stat;
+import com.remotefalcon.library.models.ViewerSession;
 import com.remotefalcon.library.quarkus.entity.Show;
 import io.quarkus.mongodb.panache.PanacheMongoRepository;
 import jakarta.enterprise.context.ApplicationScoped;
+import org.bson.conversions.Bson;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.Optional;
 
 @ApplicationScoped
@@ -111,6 +115,12 @@ public class ShowRepository implements PanacheMongoRepository<Show> {
     mongoCollection().updateOne(Filters.eq("showSubdomain", showSubdomain), Updates.push("stats.jukebox", stat));
   }
 
+  // V15 — log a refused addSequenceToQueue attempt for the conversion
+  // funnel on the Sequences analytics tab.
+  public void appendRejectedRequestStat(String showSubdomain, Stat.RejectedRequest stat) {
+    mongoCollection().updateOne(Filters.eq("showSubdomain", showSubdomain), Updates.push("stats.rejectedRequests", stat));
+  }
+
   public void appendPageStat(String showSubdomain, Stat.Page stat) {
     mongoCollection().updateOne(Filters.eq("showSubdomain", showSubdomain), Updates.push("stats.page", stat));
   }
@@ -176,23 +186,83 @@ public class ShowRepository implements PanacheMongoRepository<Show> {
     );
   }
 
-  public void updateActiveViewer(String showSubdomain, String ipAddress, java.time.LocalDateTime visitTime) {
-    // First, remove any existing entry with this IP
+  public void updateActiveViewer(String showSubdomain, String ipAddress, String viewerId, java.time.LocalDateTime visitTime) {
+    // Dedupe by either viewerId (preferred) or IP. We pull on both keys
+    // so a viewer who clears localStorage and gets a new viewerId doesn't
+    // appear twice in the active list while still on the same IP.
+    Bson identityMatch = viewerId != null
+        ? Filters.or(Filters.eq("ipAddress", ipAddress), Filters.eq("viewerId", viewerId))
+        : Filters.eq("ipAddress", ipAddress);
+
     mongoCollection().updateOne(
         Filters.eq("showSubdomain", showSubdomain),
-        Updates.pull("activeViewers", Filters.eq("ipAddress", ipAddress))
+        Updates.pull("activeViewers", identityMatch)
     );
 
-    // Then add the new entry
     mongoCollection().updateOne(
         Filters.eq("showSubdomain", showSubdomain),
         Updates.push("activeViewers",
             com.remotefalcon.library.models.ActiveViewer.builder()
                 .ipAddress(ipAddress)
+                .viewerId(viewerId)
                 .visitDateTime(visitTime)
                 .build()
         )
     );
+  }
+
+  /**
+   * PRD A1 — viewer session window upsert.
+   *
+   * Tries to extend an existing open session for this visitor (matched on
+   * viewerId if present, else IP) where lastSeen is within {@value #SESSION_WINDOW_MINUTES}
+   * minutes. If no open session exists, appends a new one tagged with
+   * today's local date.
+   *
+   * Two-step (find-then-act) — there's a benign race window where two
+   * near-simultaneous events from the same visitor could each push a new
+   * session. Acceptable noise for v1; the rollup deduplicates downstream.
+   */
+  public void upsertViewerSession(String showSubdomain, String ipAddress, String viewerId, LocalDateTime now) {
+    final long SESSION_WINDOW_MINUTES = 5L;
+    LocalDateTime windowStart = now.minusMinutes(SESSION_WINDOW_MINUTES);
+
+    // Identity match: viewerId-first, IP fallback for legacy / cleared-storage events.
+    Bson identityFilter = viewerId != null
+        ? Filters.eq("viewerSessions.viewerId", viewerId)
+        : Filters.and(
+            Filters.eq("viewerSessions.viewerId", null),
+            Filters.eq("viewerSessions.ip", ipAddress));
+
+    // Try to bump an existing open session in-place. The positional `$`
+    // operator targets the first matching array element.
+    var bumpResult = mongoCollection().updateOne(
+        Filters.and(
+            Filters.eq("showSubdomain", showSubdomain),
+            identityFilter,
+            Filters.gte("viewerSessions.lastSeen", windowStart)
+        ),
+        Updates.combine(
+            Updates.set("viewerSessions.$.lastSeen", now),
+            Updates.inc("viewerSessions.$.eventCount", 1)
+        )
+    );
+
+    if (bumpResult.getModifiedCount() == 0) {
+      // No open session to extend → append a new one.
+      ViewerSession newSession = ViewerSession.builder()
+          .ip(ipAddress)
+          .viewerId(viewerId)
+          .nightDate(now.toLocalDate())
+          .firstSeen(now)
+          .lastSeen(now)
+          .eventCount(1)
+          .build();
+      mongoCollection().updateOne(
+          Filters.eq("showSubdomain", showSubdomain),
+          Updates.push("viewerSessions", newSession)
+      );
+    }
   }
 
   public void updatePlayingNow(String showSubdomain, String playingNow) {
