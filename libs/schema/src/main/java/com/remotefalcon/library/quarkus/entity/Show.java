@@ -50,6 +50,8 @@ public class Show extends PanacheMongoEntity {
     private List<Request> requests;
     private List<Vote> votes;
     private List<ActiveViewer> activeViewers;
+    // PRD A1 — viewer session history (see ViewerSession + Show.java).
+    private List<ViewerSession> viewerSessions;
     private String playingNow;
     private String playingNext;
     private String playingNextFromSchedule;

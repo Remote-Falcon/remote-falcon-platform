@@ -41,4 +41,8 @@ public class Preference {
     private String selfHostedRedirectUrl;
     private Set<String> blockedViewerIps;
     private NotificationPreference notificationPreferences;
+    // PRD Phase 1 — beta opt-in for the experimental analytics views
+    // (Audience tab Concurrent/Dwell/Returning/Regulars + future P2 work).
+    // Defaults to false; owners flip it from Account Settings → Notifications.
+    private Boolean analyticsBetaOptIn;
 }
