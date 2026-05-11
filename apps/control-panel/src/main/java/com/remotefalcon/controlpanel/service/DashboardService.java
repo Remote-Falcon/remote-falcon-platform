@@ -18,8 +18,11 @@ import org.springframework.stereotype.Service;
 import com.remotefalcon.controlpanel.dto.TokenDTO;
 import com.remotefalcon.controlpanel.repository.ShowRepository;
 import com.remotefalcon.controlpanel.request.DownloadStatsToExcelRequest;
+import com.remotefalcon.controlpanel.response.dashboard.DashboardHourlyStatsResponse;
 import com.remotefalcon.controlpanel.response.dashboard.DashboardLiveStatsResponse;
 import com.remotefalcon.controlpanel.response.dashboard.DashboardStatsResponse;
+import com.remotefalcon.controlpanel.response.dashboard.ViewerSessionsResponse;
+import com.remotefalcon.controlpanel.response.dashboard.WrappedSummaryResponse;
 import com.remotefalcon.controlpanel.util.AuthUtil;
 import com.remotefalcon.controlpanel.util.ExcelUtil;
 import com.remotefalcon.library.documents.Show;
@@ -65,6 +68,456 @@ public class DashboardService {
             .build();
   }
 
+  // V15 — request → play conversion funnel for the Sequences analytics tab.
+  // Compares accepted requests (Stat.jukebox) against rejected attempts
+  // (Stat.rejectedRequests) within the date range, broken down by reason.
+  public com.remotefalcon.controlpanel.response.dashboard.RequestConversionResponse requestConversion(
+          Long startDate, Long endDate, String timezone) {
+    TokenDTO tokenDTO = this.jwtUtil.getJwtPayload();
+    Optional<Show> show = this.showRepository.findByShowToken(tokenDTO.getShowToken());
+    if (show.isEmpty()) {
+      throw new RuntimeException(StatusResponse.SHOW_NOT_FOUND.name());
+    }
+
+    ZoneId userZone = ZoneId.of(timezone);
+    ZonedDateTime startDateAtZone = ZonedDateTime.ofInstant(Instant.ofEpochMilli(startDate), userZone);
+    ZonedDateTime endDateAtZone = ZonedDateTime.ofInstant(Instant.ofEpochMilli(endDate), userZone).plusDays(2);
+
+    Show s = show.get();
+    int accepted = 0;
+    if (s.getStats() != null && s.getStats().getJukebox() != null) {
+      accepted = (int) s.getStats().getJukebox().stream()
+              .filter(j -> j.getDateTime() != null)
+              .filter(j -> {
+                ZonedDateTime t = j.getDateTime().atZone(userZone);
+                return t.isAfter(startDateAtZone) && t.isBefore(endDateAtZone);
+              })
+              .count();
+    }
+
+    java.util.Map<String, Long> byReason = new java.util.HashMap<>();
+    int rejected = 0;
+    if (s.getStats() != null && s.getStats().getRejectedRequests() != null) {
+      var inRange = s.getStats().getRejectedRequests().stream()
+              .filter(r -> r.getDateTime() != null)
+              .filter(r -> {
+                ZonedDateTime t = r.getDateTime().atZone(userZone);
+                return t.isAfter(startDateAtZone) && t.isBefore(endDateAtZone);
+              })
+              .collect(Collectors.toList());
+      rejected = inRange.size();
+      for (var r : inRange) {
+        String reason = r.getReason() != null ? r.getReason() : "UNKNOWN";
+        byReason.merge(reason, 1L, Long::sum);
+      }
+    }
+
+    int attempted = accepted + rejected;
+    Double rate = attempted > 0 ? ((double) accepted) / attempted : null;
+    var buckets = byReason.entrySet().stream()
+            .sorted(java.util.Map.Entry.<String, Long>comparingByValue().reversed())
+            .map(e -> com.remotefalcon.controlpanel.response.dashboard.RequestConversionResponse.RejectionBucket.builder()
+                    .reason(e.getKey())
+                    .count(e.getValue().intValue())
+                    .build())
+            .collect(Collectors.toList());
+
+    return com.remotefalcon.controlpanel.response.dashboard.RequestConversionResponse.builder()
+            .attempted(attempted)
+            .accepted(accepted)
+            .rejected(rejected)
+            .conversionRate(rate)
+            .rejectionsByReason(buckets)
+            .build();
+  }
+
+  // V16 — PSA effectiveness. For each configured PSA, returns the most
+  // recent play and what happened in a ±5-minute window: how many unique
+  // viewers were active, and how many requests came in before vs after
+  // the play (so an owner can see if requesting dipped — bad — or held
+  // steady — good — through the PSA).
+  public com.remotefalcon.controlpanel.response.dashboard.PsaEffectivenessResponse psaEffectiveness(String timezone) {
+    TokenDTO tokenDTO = this.jwtUtil.getJwtPayload();
+    Optional<Show> show = this.showRepository.findByShowToken(tokenDTO.getShowToken());
+    if (show.isEmpty()) {
+      throw new RuntimeException(StatusResponse.SHOW_NOT_FOUND.name());
+    }
+    Show s = show.get();
+
+    if (s.getPsaSequences() == null || s.getPsaSequences().isEmpty()) {
+      return com.remotefalcon.controlpanel.response.dashboard.PsaEffectivenessResponse.builder()
+              .psaPlays(java.util.Collections.emptyList())
+              .build();
+    }
+
+    final long WINDOW_MIN = 5L;
+    java.util.List<com.remotefalcon.controlpanel.response.dashboard.PsaEffectivenessResponse.PsaPlay> plays =
+            new java.util.ArrayList<>();
+
+    for (var psa : s.getPsaSequences()) {
+      if (psa.getName() == null) continue;
+      if (psa.getLastPlayed() == null) {
+        plays.add(com.remotefalcon.controlpanel.response.dashboard.PsaEffectivenessResponse.PsaPlay.builder()
+                .name(psa.getName())
+                .lastPlayedMs(null)
+                .viewersAround(0)
+                .requestsBefore(0)
+                .requestsAfter(0)
+                .build());
+        continue;
+      }
+
+      java.time.LocalDateTime lp = psa.getLastPlayed();
+      java.time.LocalDateTime windowStart = lp.minusMinutes(WINDOW_MIN);
+      java.time.LocalDateTime windowEnd = lp.plusMinutes(WINDOW_MIN);
+
+      int viewers = 0;
+      if (s.getStats() != null && s.getStats().getPage() != null) {
+        viewers = (int) s.getStats().getPage().stream()
+                .filter(p -> p.getDateTime() != null && p.getIp() != null)
+                .filter(p -> !p.getDateTime().isBefore(windowStart) && p.getDateTime().isBefore(windowEnd))
+                .map(com.remotefalcon.library.models.Stat.Page::getIp)
+                .distinct()
+                .count();
+      }
+
+      int reqsBefore = 0;
+      int reqsAfter = 0;
+      if (s.getStats() != null && s.getStats().getJukebox() != null) {
+        for (var j : s.getStats().getJukebox()) {
+          if (j.getDateTime() == null) continue;
+          if (!j.getDateTime().isBefore(windowStart) && j.getDateTime().isBefore(lp)) reqsBefore++;
+          else if (!j.getDateTime().isBefore(lp) && j.getDateTime().isBefore(windowEnd)) reqsAfter++;
+        }
+      }
+
+      plays.add(com.remotefalcon.controlpanel.response.dashboard.PsaEffectivenessResponse.PsaPlay.builder()
+              .name(psa.getName())
+              .lastPlayedMs(lp.toInstant(java.time.ZoneOffset.UTC).toEpochMilli())
+              .viewersAround(viewers)
+              .requestsBefore(reqsBefore)
+              .requestsAfter(reqsAfter)
+              .build());
+    }
+
+    // Most recently played first so the actionable PSA is at the top.
+    plays.sort((a, b) -> {
+      Long am = a.getLastPlayedMs(), bm = b.getLastPlayedMs();
+      if (am == null && bm == null) return 0;
+      if (am == null) return 1;
+      if (bm == null) return -1;
+      return Long.compare(bm, am);
+    });
+
+    return com.remotefalcon.controlpanel.response.dashboard.PsaEffectivenessResponse.builder()
+            .psaPlays(plays)
+            .build();
+  }
+
+  // PRD A1 — viewer session retrieval for the audience-tab views (V5/V6/V7/V8).
+  //
+  // Returns sessions in the requested date range, with IPs converted to
+  // a stable per-show hash so the frontend never sees raw addresses.
+  // Identity grouping for "regulars" / "returning" uses
+  // `viewerId || ipHash` on the client side.
+  public ViewerSessionsResponse viewerSessions(Long startDate, Long endDate, String timezone) {
+    TokenDTO tokenDTO = this.jwtUtil.getJwtPayload();
+    Optional<Show> show = this.showRepository.findByShowToken(tokenDTO.getShowToken());
+    if (show.isEmpty()) {
+      throw new RuntimeException(StatusResponse.SHOW_NOT_FOUND.name());
+    }
+
+    Show existingShow = show.get();
+    if (existingShow.getViewerSessions() == null || existingShow.getViewerSessions().isEmpty()) {
+      return ViewerSessionsResponse.builder().sessions(new ArrayList<>()).build();
+    }
+
+    ZoneId userZone = ZoneId.of(timezone);
+    ZonedDateTime startDateAtZone = ZonedDateTime.ofInstant(Instant.ofEpochMilli(startDate), userZone);
+    ZonedDateTime endDateAtZone = ZonedDateTime.ofInstant(Instant.ofEpochMilli(endDate), userZone).plusDays(2);
+
+    String saltSeed = existingShow.getShowToken() == null ? existingShow.getShowSubdomain() : existingShow.getShowToken();
+
+    List<ViewerSessionsResponse.Session> sessions = existingShow.getViewerSessions().stream()
+            .filter(s -> s.getLastSeen() != null && s.getFirstSeen() != null)
+            .filter(s -> {
+              ZonedDateTime first = s.getFirstSeen().atZone(userZone);
+              return first.isAfter(startDateAtZone) && first.isBefore(endDateAtZone);
+            })
+            .map(s -> ViewerSessionsResponse.Session.builder()
+                    .viewerId(s.getViewerId())
+                    .ipHash(hashIpForShow(s.getIp(), saltSeed))
+                    .nightDate(s.getNightDate() == null ? null
+                            : s.getNightDate().atStartOfDay(userZone).toInstant().toEpochMilli())
+                    .firstSeen(s.getFirstSeen().atZone(userZone).toInstant().toEpochMilli())
+                    .lastSeen(s.getLastSeen().atZone(userZone).toInstant().toEpochMilli())
+                    .eventCount(s.getEventCount())
+                    .durationSeconds(java.time.Duration.between(s.getFirstSeen(), s.getLastSeen()).getSeconds())
+                    .build())
+            .sorted(Comparator.comparing(ViewerSessionsResponse.Session::getFirstSeen))
+            .collect(Collectors.toList());
+
+    return ViewerSessionsResponse.builder().sessions(sessions).build();
+  }
+
+  private static String hashIpForShow(String ip, String salt) {
+    if (ip == null) return null;
+    try {
+      java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+      byte[] digest = md.digest((salt + ":" + ip).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+      // First 16 hex chars is plenty of identity space for a per-show
+      // bucket; full 64 chars is overkill in the network payload.
+      StringBuilder sb = new StringBuilder();
+      for (int i = 0; i < 8; i++) sb.append(String.format("%02x", digest[i]));
+      return sb.toString();
+    } catch (java.security.NoSuchAlgorithmException e) {
+      return null;
+    }
+  }
+
+  // PRD V21 — End-of-Season Wrapped public summary.
+  //
+  // Public endpoint (NO auth) — looked up by showSubdomain, scoped to a
+  // built-in season window for the given year. Returns only aggregate
+  // stats; never raw events, IPs, or sequence-level details beyond the
+  // top-1 names.
+  public WrappedSummaryResponse wrappedSummary(String showSubdomain, String season, Integer year, String timezone) {
+    Optional<Show> showOpt = this.showRepository.findByShowSubdomain(showSubdomain);
+    if (showOpt.isEmpty()) {
+      throw new RuntimeException(StatusResponse.SHOW_NOT_FOUND.name());
+    }
+    Show show = showOpt.get();
+
+    // Resolve season window. Built-in: halloween (Oct 1 – Nov 7) and
+    // christmas (Nov 15 – Jan 7, wraps to next year). Bad season strings
+    // throw — let the frontend show a friendly fallback.
+    //
+    // Show.timezone isn't stored on the document — clients pass their
+    // browser-detected timezone. For Wrapped we accept the same arg and
+    // fall back to America/New_York when callers don't provide one.
+    String tz = (timezone != null && !timezone.isEmpty()) ? timezone : "America/New_York";
+    ZoneId userZone = ZoneId.of(tz);
+    LocalDate startLocal;
+    LocalDate endLocal;
+    String seasonLower = season == null ? "" : season.toLowerCase();
+    if (seasonLower.equals("halloween")) {
+      startLocal = LocalDate.of(year, 10, 1);
+      endLocal = LocalDate.of(year, 11, 7);
+    } else if (seasonLower.equals("christmas")) {
+      startLocal = LocalDate.of(year, 11, 15);
+      endLocal = LocalDate.of(year + 1, 1, 7);
+    } else {
+      throw new RuntimeException("UNKNOWN_SEASON");
+    }
+
+    ZonedDateTime startZdt = startLocal.atStartOfDay(userZone);
+    ZonedDateTime endZdt = endLocal.plusDays(1).atStartOfDay(userZone);
+    long startMs = startZdt.toInstant().toEpochMilli();
+    long endMs = endZdt.toInstant().toEpochMilli();
+    boolean seasonComplete = ZonedDateTime.now(userZone).isAfter(endZdt);
+
+    WrappedSummaryResponse.WrappedSummaryResponseBuilder b = WrappedSummaryResponse.builder()
+            .showName(show.getShowName())
+            .season(seasonLower)
+            .year(year)
+            .startDate(startMs)
+            .endDate(endMs)
+            .seasonComplete(seasonComplete);
+
+    // Page stats — active nights, unique viewers (page-IP-based), peak night,
+    // total page hits.
+    if (show.getStats() != null && show.getStats().getPage() != null) {
+      List<Stat.Page> pageInRange = show.getStats().getPage().stream()
+              .filter(p -> p.getDateTime() != null)
+              .filter(p -> {
+                ZonedDateTime t = p.getDateTime().atZone(userZone);
+                return !t.isBefore(startZdt) && t.isBefore(endZdt);
+              })
+              .collect(Collectors.toList());
+
+      Map<LocalDate, List<Stat.Page>> byDate = pageInRange.stream()
+              .collect(Collectors.groupingBy(p -> p.getDateTime().atZone(userZone).toLocalDate()));
+
+      int activeNights = (int) byDate.values().stream().filter(l -> !l.isEmpty()).count();
+      int totalPageHits = pageInRange.size();
+
+      // Peak night by unique IPs that day
+      Map.Entry<LocalDate, Long> peakEntry = byDate.entrySet().stream()
+              .map(e -> Map.entry(e.getKey(),
+                      e.getValue().stream().map(Stat.Page::getIp).filter(Objects::nonNull).distinct().count()))
+              .max(Map.Entry.comparingByValue())
+              .orElse(null);
+
+      b.activeNights(activeNights).totalPageHits(totalPageHits);
+      if (peakEntry != null) {
+        b.peakNightDate(peakEntry.getKey().atStartOfDay(userZone).toInstant().toEpochMilli())
+                .peakNightViewers(peakEntry.getValue().intValue());
+      }
+
+      // Peak hour-of-day across the season (most viewers in any hour bucket)
+      Map<Integer, Long> hourBuckets = pageInRange.stream()
+              .collect(Collectors.groupingBy(p -> p.getDateTime().atZone(userZone).getHour(),
+                      Collectors.counting()));
+      hourBuckets.entrySet().stream()
+              .max(Map.Entry.comparingByValue())
+              .ifPresent(e -> b.peakHour(e.getKey()));
+
+      // Day-of-week with highest avg viewers
+      Map<java.time.DayOfWeek, List<Long>> dowGroups = byDate.entrySet().stream()
+              .collect(Collectors.groupingBy(
+                      e -> e.getKey().getDayOfWeek(),
+                      Collectors.mapping(
+                              e -> e.getValue().stream().map(Stat.Page::getIp).filter(Objects::nonNull).distinct().count(),
+                              Collectors.toList())));
+      dowGroups.entrySet().stream()
+              .map(e -> Map.entry(e.getKey(),
+                      (int) Math.round(e.getValue().stream().mapToLong(Long::longValue).average().orElse(0))))
+              .max(Map.Entry.comparingByValue())
+              .ifPresent(e -> {
+                b.peakDayOfWeek(e.getKey().toString().substring(0, 1)
+                        + e.getKey().toString().substring(1).toLowerCase());
+                b.peakDayOfWeekAvg(e.getValue());
+              });
+    }
+
+    // Session-derived stats — dwell, regulars, unique-by-identity.
+    if (show.getViewerSessions() != null) {
+      List<com.remotefalcon.library.models.ViewerSession> sessionsInRange = show.getViewerSessions().stream()
+              .filter(s -> s.getFirstSeen() != null && s.getLastSeen() != null)
+              .filter(s -> {
+                ZonedDateTime t = s.getFirstSeen().atZone(userZone);
+                return !t.isBefore(startZdt) && t.isBefore(endZdt);
+              })
+              .collect(Collectors.toList());
+
+      // Unique viewers by identityKey (viewerId or "ip:" prefix)
+      java.util.Set<String> identities = sessionsInRange.stream()
+              .map(s -> s.getViewerId() != null ? "vid:" + s.getViewerId() : "ip:" + s.getIp())
+              .collect(Collectors.toSet());
+      b.uniqueViewers(identities.size());
+
+      // Dwell — median + max
+      List<Long> durationsSec = sessionsInRange.stream()
+              .map(s -> java.time.Duration.between(s.getFirstSeen(), s.getLastSeen()).getSeconds())
+              .filter(d -> d >= 0)
+              .sorted()
+              .collect(Collectors.toList());
+      if (!durationsSec.isEmpty()) {
+        b.medianDwellSeconds(durationsSec.get(durationsSec.size() / 2));
+        b.longestDwellSeconds(durationsSec.get(durationsSec.size() - 1));
+      }
+
+      // Regulars — count distinct nights per identity
+      Map<String, java.util.Set<LocalDate>> nightsPerIdentity = new HashMap<>();
+      sessionsInRange.forEach(s -> {
+        String id = s.getViewerId() != null ? "vid:" + s.getViewerId() : "ip:" + s.getIp();
+        nightsPerIdentity.computeIfAbsent(id, k -> new HashSet<>())
+                .add(s.getFirstSeen().atZone(userZone).toLocalDate());
+      });
+      int loyalNights = nightsPerIdentity.values().stream().mapToInt(java.util.Set::size).max().orElse(0);
+      int regulars = (int) nightsPerIdentity.values().stream().filter(set -> set.size() >= 2).count();
+      b.mostLoyalRegularNights(loyalNights).regularsCount(regulars);
+    }
+
+    // Top requested + total play time (request count × sequence duration)
+    if (show.getStats() != null && show.getStats().getJukebox() != null) {
+      Map<String, Long> requestsByName = show.getStats().getJukebox().stream()
+              .filter(j -> j.getDateTime() != null)
+              .filter(j -> {
+                ZonedDateTime t = j.getDateTime().atZone(userZone);
+                return !t.isBefore(startZdt) && t.isBefore(endZdt);
+              })
+              .filter(j -> j.getName() != null)
+              .collect(Collectors.groupingBy(Stat.Jukebox::getName, Collectors.counting()));
+
+      requestsByName.entrySet().stream()
+              .max(Map.Entry.comparingByValue())
+              .ifPresent(top -> {
+                b.topRequestedSequence(top.getKey()).topRequestedCount(top.getValue().intValue());
+                // Find the duration on Show.sequences for this name
+                if (show.getSequences() != null) {
+                  show.getSequences().stream()
+                          .filter(seq -> top.getKey().equalsIgnoreCase(seq.getName()))
+                          .findFirst()
+                          .ifPresent(seq -> {
+                            int dur = seq.getDuration() != null ? seq.getDuration() : 0;
+                            b.topRequestedTotalPlaySeconds((long) dur * top.getValue());
+                          });
+                }
+              });
+    }
+
+    // Top voted
+    if (show.getStats() != null && show.getStats().getVoting() != null) {
+      Map<String, Long> votesByName = show.getStats().getVoting().stream()
+              .filter(v -> v.getDateTime() != null)
+              .filter(v -> {
+                ZonedDateTime t = v.getDateTime().atZone(userZone);
+                return !t.isBefore(startZdt) && t.isBefore(endZdt);
+              })
+              .filter(v -> v.getName() != null)
+              .collect(Collectors.groupingBy(Stat.Voting::getName, Collectors.counting()));
+
+      votesByName.entrySet().stream()
+              .max(Map.Entry.comparingByValue())
+              .ifPresent(top ->
+                      b.topVotedSequence(top.getKey()).topVotedCount(top.getValue().intValue()));
+    }
+
+    return b.build();
+  }
+
+  // Hourly engagement aggregation for the analytics page (heatmap V4 +
+  // active-hour distribution V9). Returns one bucket per (date, hour)
+  // pair where there was at least one page event — empty hours are
+  // omitted to keep the payload small. Client pivots / fills gaps.
+  public DashboardHourlyStatsResponse dashboardStatsByHour(Long startDate, Long endDate, String timezone) {
+    TokenDTO tokenDTO = this.jwtUtil.getJwtPayload();
+    Optional<Show> show = this.showRepository.findByShowToken(tokenDTO.getShowToken());
+    if(show.isEmpty()) {
+      throw new RuntimeException(StatusResponse.SHOW_NOT_FOUND.name());
+    }
+
+    Show existingShow = show.get();
+    if(existingShow.getStats() == null || existingShow.getStats().getPage() == null) {
+      return DashboardHourlyStatsResponse.builder().buckets(new ArrayList<>()).build();
+    }
+
+    ZoneId userZone = ZoneId.of(timezone);
+    ZonedDateTime startDateAtZone = ZonedDateTime.ofInstant(Instant.ofEpochMilli(startDate), userZone);
+    ZonedDateTime endDateAtZone = ZonedDateTime.ofInstant(Instant.ofEpochMilli(endDate), userZone).plusDays(2);
+
+    // Group events by (LocalDate, hour) pair, deduping IPs within each pair.
+    Map<String, List<Stat.Page>> grouped = existingShow.getStats().getPage().stream()
+            .map(stat -> Map.entry(stat, convertStatDateTime(stat.getDateTime(), userZone)))
+            .filter(stat -> stat.getValue().isAfter(startDateAtZone))
+            .filter(stat -> stat.getValue().isBefore(endDateAtZone))
+            .filter(stat -> stat.getKey().getIp() != null)
+            .collect(Collectors.groupingBy(
+                    e -> e.getValue().toLocalDate() + "|" + e.getValue().getHour(),
+                    Collectors.mapping(Map.Entry::getKey, Collectors.toList())));
+
+    List<DashboardHourlyStatsResponse.Bucket> buckets = grouped.entrySet().stream()
+            .map(entry -> {
+                String[] parts = entry.getKey().split("\\|");
+                LocalDate date = LocalDate.parse(parts[0]);
+                int hour = Integer.parseInt(parts[1]);
+                List<Stat.Page> events = entry.getValue();
+                long dateMillis = ZonedDateTime.of(date, date.atStartOfDay().toLocalTime(), userZone).toInstant().toEpochMilli();
+                return DashboardHourlyStatsResponse.Bucket.builder()
+                        .date(dateMillis)
+                        .hour(hour)
+                        .total(events.size())
+                        .unique(events.stream().collect(Collectors.groupingBy(Stat.Page::getIp)).size())
+                        .build();
+            })
+            .sorted(Comparator.comparing(DashboardHourlyStatsResponse.Bucket::getDate)
+                    .thenComparing(DashboardHourlyStatsResponse.Bucket::getHour))
+            .collect(Collectors.toList());
+
+    return DashboardHourlyStatsResponse.builder().buckets(buckets).build();
+  }
+
   public DashboardLiveStatsResponse dashboardLiveStats(Long startDate, Long endDate, String timezone) {
     TokenDTO tokenDTO = this.jwtUtil.getJwtPayload();
     Optional<Show> show = this.showRepository.findByShowToken(tokenDTO.getShowToken());
@@ -78,6 +531,68 @@ public class DashboardService {
     ZonedDateTime startDateAtZone = ZonedDateTime.now(userZone).toLocalDate().atStartOfDay(userZone);
     ZonedDateTime endDateAtZone = startDateAtZone.plusDays(1);
 
+    // V22 — current viewer count (deduped by viewerId-or-IP, last 5 min)
+    Integer currentViewers = null;
+    if (existingShow.getActiveViewers() != null) {
+      java.time.LocalDateTime cutoff = java.time.LocalDateTime.now().minusMinutes(5);
+      java.util.Set<String> liveIdentities = existingShow.getActiveViewers().stream()
+              .filter(av -> av.getVisitDateTime() != null && av.getVisitDateTime().isAfter(cutoff))
+              .map(av -> av.getViewerId() != null ? "vid:" + av.getViewerId() : "ip:" + av.getIpAddress())
+              .collect(Collectors.toSet());
+      currentViewers = liveIdentities.size();
+    }
+
+    // V22 — median dwell among sessions started today in the user's tz.
+    // Returns null when there's nothing to median (frontend renders "—").
+    Long medianDwellTonight = null;
+    if (existingShow.getViewerSessions() != null) {
+      List<Long> tonightDurations = existingShow.getViewerSessions().stream()
+              .filter(s -> s.getFirstSeen() != null && s.getLastSeen() != null)
+              .filter(s -> {
+                ZonedDateTime t = s.getFirstSeen().atZone(userZone);
+                return !t.isBefore(startDateAtZone) && t.isBefore(endDateAtZone);
+              })
+              .map(s -> java.time.Duration.between(s.getFirstSeen(), s.getLastSeen()).getSeconds())
+              .filter(d -> d >= 0)
+              .sorted()
+              .collect(Collectors.toList());
+      if (!tonightDurations.isEmpty()) {
+        medianDwellTonight = tonightDurations.get(tonightDurations.size() / 2);
+      }
+    }
+
+    // V17 — heartbeat health. lastFppHeartbeat is written as LocalDateTime
+    // by plugins-api on a UTC JVM, so interpret it as UTC for the round-trip
+    // back to epoch ms. heartbeatGaps mirror the same convention.
+    Long lastHeartbeatMs = null;
+    if (existingShow.getLastFppHeartbeat() != null) {
+      lastHeartbeatMs = existingShow.getLastFppHeartbeat().toInstant(java.time.ZoneOffset.UTC).toEpochMilli();
+    }
+    java.util.List<DashboardLiveStatsResponse.HeartbeatGapDto> gapDtos = null;
+    if (existingShow.getHeartbeatGaps() != null) {
+      gapDtos = existingShow.getHeartbeatGaps().stream()
+              .filter(g -> g.getStartedAt() != null && g.getEndedAt() != null)
+              .map(g -> DashboardLiveStatsResponse.HeartbeatGapDto.builder()
+                      .startedAtMs(g.getStartedAt().toInstant(java.time.ZoneOffset.UTC).toEpochMilli())
+                      .endedAtMs(g.getEndedAt().toInstant(java.time.ZoneOffset.UTC).toEpochMilli())
+                      .build())
+              .collect(Collectors.toList());
+    }
+
+    // V18 — version-change history (most recent first)
+    java.util.List<DashboardLiveStatsResponse.VersionChangeDto> versionChangeDtos = null;
+    if (existingShow.getVersionChanges() != null) {
+      versionChangeDtos = existingShow.getVersionChanges().stream()
+              .filter(v -> v.getAt() != null)
+              .map(v -> DashboardLiveStatsResponse.VersionChangeDto.builder()
+                      .atMs(v.getAt().toInstant(java.time.ZoneOffset.UTC).toEpochMilli())
+                      .pluginVersion(v.getPluginVersion())
+                      .fppVersion(v.getFppVersion())
+                      .build())
+              .sorted((a, b) -> Long.compare(b.getAtMs(), a.getAtMs()))
+              .collect(Collectors.toList());
+    }
+
     return DashboardLiveStatsResponse.builder()
             .currentRequests(show.get().getRequests() != null ? show.get().getRequests().size() : 0)
             .totalRequests(this.buildTotalRequestsLiveStat(startDateAtZone, endDateAtZone, timezone, show.get(), false))
@@ -85,6 +600,11 @@ public class DashboardService {
             .totalVotes(this.buildTotalVotesLiveStat(startDateAtZone, endDateAtZone, timezone, show.get(), false))
             .playingNow(getPlayingNow(existingShow))
             .playingNext(getPlayingNext(existingShow))
+            .currentViewers(currentViewers)
+            .medianDwellSecondsTonight(medianDwellTonight)
+            .lastHeartbeatMs(lastHeartbeatMs)
+            .heartbeatGaps(gapDtos)
+            .versionChanges(versionChangeDtos)
             .build();
   }
 

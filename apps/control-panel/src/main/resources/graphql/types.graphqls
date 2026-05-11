@@ -9,6 +9,7 @@ type Show {
     expireDate: String
     pluginVersion: String
     fppVersion: String
+    lastFppHeartbeat: String
     lastLoginIp: String
     showRole: String
 
@@ -70,6 +71,7 @@ type Preference {
     selfHostedRedirectUrl: String
     blockedViewerIps: [String]
     notificationPreferences: NotificationPreference
+    analyticsBetaOptIn: Boolean
 }
 
 type NotificationPreference {
@@ -142,6 +144,82 @@ type DashboardStats {
     votingWinBySequence: Stat
 }
 
+type DashboardHourlyStats {
+    buckets: [HourlyBucket]
+}
+
+type ViewerSessions {
+    sessions: [ViewerSession]
+}
+
+type ViewerSession {
+    viewerId: String
+    ipHash: String
+    nightDate: Long
+    firstSeen: Long
+    lastSeen: Long
+    eventCount: Int
+    durationSeconds: Long
+}
+
+type RequestConversion {
+    attempted: Int
+    accepted: Int
+    rejected: Int
+    conversionRate: Float
+    rejectionsByReason: [RejectionBucket]
+}
+
+type RejectionBucket {
+    reason: String
+    count: Int
+}
+
+type PsaEffectiveness {
+    psaPlays: [PsaPlay]
+}
+
+type PsaPlay {
+    name: String
+    lastPlayedMs: Long
+    viewersAround: Int
+    requestsBefore: Int
+    requestsAfter: Int
+}
+
+type WrappedSummary {
+    showName: String
+    season: String
+    year: Int
+    startDate: Long
+    endDate: Long
+    seasonComplete: Boolean
+    activeNights: Int
+    uniqueViewers: Int
+    totalPageHits: Int
+    medianDwellSeconds: Long
+    longestDwellSeconds: Long
+    mostLoyalRegularNights: Int
+    regularsCount: Int
+    topRequestedSequence: String
+    topRequestedCount: Int
+    topRequestedTotalPlaySeconds: Long
+    topVotedSequence: String
+    topVotedCount: Int
+    peakNightDate: Long
+    peakNightViewers: Int
+    peakHour: Int
+    peakDayOfWeek: String
+    peakDayOfWeekAvg: Int
+}
+
+type HourlyBucket {
+    date: Long
+    hour: Int
+    total: Int
+    unique: Int
+}
+
 type DashboardLiveStats {
     playingNow: String
     playingNext: String
@@ -149,6 +227,22 @@ type DashboardLiveStats {
     totalRequests: Int
     currentVotes: Int
     totalVotes: Int
+    currentViewers: Int
+    medianDwellSecondsTonight: Long
+    lastHeartbeatMs: Long
+    heartbeatGaps: [HeartbeatGapDto]
+    versionChanges: [VersionChangeDto]
+}
+
+type HeartbeatGapDto {
+    startedAtMs: Long
+    endedAtMs: Long
+}
+
+type VersionChangeDto {
+    atMs: Long
+    pluginVersion: String
+    fppVersion: String
 }
 
 type Stat {

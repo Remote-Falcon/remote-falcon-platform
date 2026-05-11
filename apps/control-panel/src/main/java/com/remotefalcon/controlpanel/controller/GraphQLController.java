@@ -249,6 +249,43 @@ public class GraphQLController {
 
     @QueryMapping
     @RequiresAccess()
+    public com.remotefalcon.controlpanel.response.dashboard.DashboardHourlyStatsResponse dashboardStatsByHour(@Argument Long startDate, @Argument Long endDate, @Argument String timezone) {
+        return dashboardService.dashboardStatsByHour(startDate, endDate, timezone);
+    }
+
+    @QueryMapping
+    @RequiresAccess()
+    public com.remotefalcon.controlpanel.response.dashboard.ViewerSessionsResponse viewerSessions(@Argument Long startDate, @Argument Long endDate, @Argument String timezone) {
+        return dashboardService.viewerSessions(startDate, endDate, timezone);
+    }
+
+    // V15 — request → play conversion funnel for the Sequences analytics tab.
+    @QueryMapping
+    @RequiresAccess()
+    public com.remotefalcon.controlpanel.response.dashboard.RequestConversionResponse requestConversion(@Argument Long startDate, @Argument Long endDate, @Argument String timezone) {
+        return dashboardService.requestConversion(startDate, endDate, timezone);
+    }
+
+    // V16 — PSA effectiveness panel for the Sequences analytics tab.
+    @QueryMapping
+    @RequiresAccess()
+    public com.remotefalcon.controlpanel.response.dashboard.PsaEffectivenessResponse psaEffectiveness(@Argument String timezone) {
+        return dashboardService.psaEffectiveness(timezone);
+    }
+
+    // PUBLIC — no @RequiresAccess. Anyone with the show subdomain can
+    // pull the season Wrapped summary; that's the whole point.
+    @QueryMapping
+    public com.remotefalcon.controlpanel.response.dashboard.WrappedSummaryResponse wrappedSummary(
+            @Argument String showSubdomain,
+            @Argument String season,
+            @Argument Integer year,
+            @Argument String timezone) {
+        return dashboardService.wrappedSummary(showSubdomain, season, year, timezone);
+    }
+
+    @QueryMapping
+    @RequiresAccess()
     public List<ShowsOnAMap> showsOnAMap() {
         return graphQLQueryService.showsOnAMap();
     }
