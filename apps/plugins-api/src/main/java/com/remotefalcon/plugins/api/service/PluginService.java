@@ -692,14 +692,38 @@ public class PluginService {
     return null;
   }
 
+  // V18 — when the reported plugin/FPP version differs from what's stored,
+  // append a VersionChange record so the dashboard can show "last upgraded
+  // N days ago" + a history popover. Pruned to the last 365 days in the
+  // same atomic update.
+  private static final long VERSION_CHANGE_RETENTION_DAYS = 365L;
+
   public PluginResponse pluginVersion(PluginVersion request) {
     Show show = showContext.getShow();
+    String newPluginVer = request.getPluginVersion();
+    String newFppVer = request.getFppVersion();
+    boolean pluginChanged = newPluginVer != null && !java.util.Objects.equals(newPluginVer, show.getPluginVersion());
+    boolean fppChanged = newFppVer != null && !java.util.Objects.equals(newFppVer, show.getFppVersion());
+
+    var updates = new java.util.ArrayList<org.bson.conversions.Bson>();
+    updates.add(Updates.set("pluginVersion", newPluginVer));
+    updates.add(Updates.set("fppVersion", newFppVer));
+
+    if (pluginChanged || fppChanged) {
+      LocalDateTime now = LocalDateTime.now();
+      LocalDateTime cutoff = now.minusDays(VERSION_CHANGE_RETENTION_DAYS);
+      updates.add(Updates.pull("versionChanges", Filters.lt("at", cutoff)));
+      updates.add(Updates.push("versionChanges",
+          VersionChange.builder()
+              .at(now)
+              .pluginVersion(newPluginVer)
+              .fppVersion(newFppVer)
+              .build()));
+    }
+
     Show.mongoCollection().updateOne(
         Filters.eq("showToken", show.getShowToken()),
-        Updates.combine(
-            Updates.set("pluginVersion", request.getPluginVersion()),
-            Updates.set("fppVersion", request.getFppVersion())
-        )
+        Updates.combine(updates)
     );
     return PluginResponse.builder().message("Success").build();
   }
@@ -782,8 +806,38 @@ public class PluginService {
     return PluginResponse.builder().managedPsaEnabled(enabled).build();
   }
 
+  // Threshold for what counts as "the plugin dropped." Plugin heartbeats
+  // every ~30s in steady state; 5 min is comfortably outside normal jitter
+  // but tight enough to catch real outages worth visualizing.
+  private static final long HEARTBEAT_GAP_THRESHOLD_MINUTES = 5L;
+  private static final long HEARTBEAT_GAP_RETENTION_DAYS = 30L;
+
   public void fppHeartbeat() {
     Show show = showContext.getShow();
-    Show.mongoCollection().updateOne(Filters.eq("showToken", show.getShowToken()), Updates.set("lastFppHeartbeat", LocalDateTime.now()));
+    LocalDateTime now = LocalDateTime.now();
+    LocalDateTime previous = show.getLastFppHeartbeat();
+
+    // V17 — gap detection. If the previous heartbeat was more than the
+    // threshold ago, we just came back from an outage; record the gap window.
+    HeartbeatGap newGap = null;
+    if (previous != null && previous.isBefore(now.minusMinutes(HEARTBEAT_GAP_THRESHOLD_MINUTES))) {
+      newGap = HeartbeatGap.builder().startedAt(previous).endedAt(now).build();
+    }
+
+    // Always prune anything older than the retention window — keeps the
+    // embedded list bounded over a long-running show that's been up for years.
+    LocalDateTime cutoff = now.minusDays(HEARTBEAT_GAP_RETENTION_DAYS);
+
+    var updates = new java.util.ArrayList<org.bson.conversions.Bson>();
+    updates.add(Updates.set("lastFppHeartbeat", now));
+    updates.add(Updates.pull("heartbeatGaps", Filters.lt("endedAt", cutoff)));
+    if (newGap != null) {
+      updates.add(Updates.push("heartbeatGaps", newGap));
+    }
+
+    Show.mongoCollection().updateOne(
+        Filters.eq("showToken", show.getShowToken()),
+        Updates.combine(updates)
+    );
   }
 }

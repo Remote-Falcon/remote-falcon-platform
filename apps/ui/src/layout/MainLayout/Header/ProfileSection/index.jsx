@@ -1,272 +1,155 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import * as React from 'react';
 
 import {
   Avatar,
   Box,
-  Chip,
-  ClickAwayListener,
+  Button,
   Divider,
-  List,
-  ListItemButton,
+  IconButton,
   ListItemIcon,
   ListItemText,
-  Paper,
-  Popper,
+  Menu,
+  MenuItem,
   Stack,
-  Typography,
-  Button
+  Tooltip,
+  Typography
 } from '@mui/material';
-import { useTheme } from '@mui/material/styles';
-import {IconLogout, IconSettings, IconBook, IconBug, IconAi} from '@tabler/icons-react';
+import { IconLogout } from '@tabler/icons-react';
 import md5 from 'md5';
-import { useNavigate } from 'react-router-dom';
 
 import useAuth from '../../../../hooks/useAuth';
-import useConfig from '../../../../hooks/useConfig';
 import { useSelector } from '../../../../store';
-import MainCard from '../../../../ui-component/cards/MainCard';
-import Transitions from '../../../../ui-component/extended/Transitions';
 
-import { Environments } from '../../../../utils/enum';
-
+// v2 identity menu — slim popover that owns identity-only concerns.
+// Navigation (Account Settings, Tracker, Docs) lives in the sidebar now.
+// Show URL actions (open / copy) moved to the Dashboard's "View Public
+// Page" split button — this menu is identity-only.
+// What stays here:
+//   • Header card: name / email
+//   • Stop Impersonating (admin support tool, only when active)
+//   • Sign out
 const ProfileSection = () => {
-  const theme = useTheme();
-  const { borderRadius } = useConfig();
-  const navigate = useNavigate();
-
-  const [selectedIndex, setSelectedIndex] = useState(-1);
   const { logout } = useAuth();
   const { show } = useSelector((state) => state.show);
-  const [open, setOpen] = useState(false);
-  const [gravatar, setGravatar] = useState();
-  const [showNameUrl, setShowNameUrl] = useState();
-  const [isImpersonating, setIsImpersonating] = useState(false);
 
   const anchorRef = useRef(null);
+  const [open, setOpen] = useState(false);
+  const [isImpersonating, setIsImpersonating] = useState(false);
+
+  const gravatar = useMemo(() => {
+    const hashedEmail = show?.email ? md5(show.email, { encoding: 'binary' }) : '';
+    return `//www.gravatar.com/avatar/${hashedEmail}?r=pg&d=identicon`;
+  }, [show?.email]);
+
+  useEffect(() => {
+    setIsImpersonating(!!localStorage.getItem('isImpersonating'));
+  }, [open]);
+
+  const fullName = [show?.userProfile?.firstName, show?.userProfile?.lastName].filter(Boolean).join(' ') || show?.showName;
+
+  const handleClose = () => setOpen(false);
+
   const handleLogout = async () => {
     try {
       await logout();
     } catch (err) {
+      // logout() can throw if already-expired session — fine to ignore
       console.error(err);
     }
-  };
-
-  const handleClose = (event) => {
-    if (anchorRef.current && anchorRef.current.contains(event.target)) {
-      return;
-    }
-    setOpen(false);
-  };
-  const handleListItemClick = (event, index, route = '') => {
-    setSelectedIndex(index);
-    handleClose(event);
-
-    if (route && route !== '') {
-      navigate(route);
-    }
-  };
-  const handleToggle = () => {
-    setOpen((prevOpen) => !prevOpen);
   };
 
   const stopImpersonating = () => {
     localStorage.removeItem('isImpersonating');
     localStorage.removeItem('impersonationServiceToken');
     window.location.reload();
-  }
-
-  const prevOpen = useRef(open);
-  useEffect(() => {
-    const isImpersonating = localStorage.getItem('isImpersonating');
-    setIsImpersonating(!!isImpersonating);
-    const swapCP = import.meta.env.VITE_SWAP_CP === 'true';
-    let showUrl = `https://${show?.showSubdomain}.remotefalcon.com`;
-    if (import.meta.env.VITE_HOST_ENV === Environments.LOCAL) {
-      showUrl = swapCP ? 'http://localhost:5173' : `http://${show?.showSubdomain}.localhost:5173`;
-    } else if (import.meta.env.VITE_HOST_ENV === Environments.TEST) {
-      showUrl = `https://${show?.showSubdomain}.remotefalcon.dev`;
-    }
-    setShowNameUrl(showUrl);
-
-    if (prevOpen.current === true && open === false) {
-      anchorRef.current.focus();
-    }
-
-    const hashedEmail = show?.email ? md5(show?.email, { encoding: 'binary' }) : '';
-    const gravatar = `//www.gravatar.com/avatar/${hashedEmail}?r=pg&d=identicon`;
-    setGravatar(gravatar);
-
-    prevOpen.current = open;
-  }, [open, show]);
-
-  const handleShowNameClick = () => {
-    window.open(showNameUrl, '_blank', 'noreferrer');
   };
 
   return (
     <>
-      <Chip
-        id="header-profile-trigger"
-        sx={{
-          height: '48px',
-          alignItems: 'center',
-          borderRadius: '27px',
-          transition: 'all .2s ease-in-out',
-          borderColor: theme.palette.mode === 'dark' ? theme.palette.dark.main : theme.palette.primary.light,
-          backgroundColor: theme.palette.mode === 'dark' ? theme.palette.dark.main : theme.palette.primary.light,
-          '&[aria-controls="menu-list-grow"], &:hover': {
-            borderColor: theme.palette.primary.main,
-            background: `${theme.palette.primary.main}!important`,
-            color: theme.palette.primary.light,
-            '& svg': {
-              stroke: theme.palette.primary.light
-            }
-          },
-          '& .MuiChip-label': {
-            lineHeight: 0
+      <Tooltip title={fullName || 'Account'}>
+        <IconButton
+          ref={anchorRef}
+          onClick={() => setOpen((v) => !v)}
+          aria-label="Open account menu"
+          aria-haspopup="true"
+          aria-expanded={open ? 'true' : undefined}
+          sx={{
+            p: 0.25,
+            border: (t) =>
+              isImpersonating
+                ? `2px solid ${t.palette.warning.main}`
+                : `2px solid ${t.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
+            transition: 'border-color 150ms ease',
+            '&:hover': { borderColor: (t) => t.palette.primary.main }
+          }}
+        >
+          <Avatar src={gravatar} sx={{ width: 32, height: 32 }} />
+        </IconButton>
+      </Tooltip>
+
+      <Menu
+        id="account-menu"
+        anchorEl={anchorRef.current}
+        open={open}
+        onClose={handleClose}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+        PaperProps={{
+          sx: {
+            mt: 1,
+            minWidth: 280,
+            borderRadius: 2,
+            border: (t) =>
+              t.palette.mode === 'dark'
+                ? '1px solid rgba(255,255,255,0.06)'
+                : `1px solid ${t.palette.divider}`,
+            boxShadow: (t) =>
+              t.palette.mode === 'dark'
+                ? '0 8px 24px rgba(0,0,0,0.5)'
+                : '0 8px 24px rgba(0,0,0,0.12)'
           }
         }}
-        icon={
-          <Avatar
-            src={gravatar}
-            sx={{
-              ...theme.typography.mediumAvatar,
-              margin: '8px 0 8px 8px !important',
-              cursor: 'pointer'
-            }}
-            ref={anchorRef}
-            aria-controls={open ? 'menu-list-grow' : undefined}
-            aria-haspopup="true"
-            color="inherit"
-          />
-        }
-        label={<IconSettings stroke={1.5} size="24px" color={theme.palette.primary.main} />}
-        variant="outlined"
-        ref={anchorRef}
-        aria-controls={open ? 'menu-list-grow' : undefined}
-        aria-haspopup="true"
-        onClick={handleToggle}
-        color="primary"
-      />
-
-      <Popper
-        placement="bottom"
-        open={open}
-        anchorEl={anchorRef.current}
-        role={undefined}
-        transition
-        disablePortal
-        popperOptions={{
-          modifiers: [
-            {
-              name: 'offset',
-              options: {
-                offset: [0, 14]
-              }
-            }
-          ]
-        }}
       >
-        {({ TransitionProps }) => (
-          <ClickAwayListener onClickAway={handleClose}>
-            <Transitions in={open} {...TransitionProps}>
-              <Paper>
-                {open && (
-                  <MainCard border={false} elevation={16} content={false} boxShadow shadow={theme.shadows[16]}>
-                    <Box sx={{ p: 2, pb: 2 }}>
-                      <Stack>
-                        <Stack direction="row" spacing={0.5} alignItems="center">
-                          <Typography
-                            component="span"
-                            variant="h2"
-                            color={theme.palette.mode === 'dark' ? theme.palette.secondary.main : theme.palette.secondary.dark}
-                            sx={{ fontWeight: 400, cursor: 'pointer', justifyContent: 'center' }}
-                            onClick={() => handleShowNameClick()}
-                          >
-                            {show?.showName}
-                          </Typography>
-                        </Stack>
-                        <Stack direction="row" spacing={0.5} alignItems="center" sx={{ pt: 1 }}>
-                          <Typography
-                            component="span"
-                            variant="h5"
-                            color={theme.palette.mode === 'dark' ? theme.palette.primary.main : theme.palette.primary.dark}
-                          >
-                            {showNameUrl}
-                          </Typography>
-                        </Stack>
-                        {isImpersonating && (
-                          <Stack direction="row" spacing={0.5} alignItems="center" sx={{ pt: 1 }}>
-                            <Button size="small" variant="contained" color="error" onClick={stopImpersonating}>
-                              Stop Impersonating
-                            </Button>
-                          </Stack>
-                        )}
-                      </Stack>
-                    </Box>
-                    <Divider />
-                    <Box sx={{ p: 2, pt: 0 }}>
-                      <List
-                        component="nav"
-                        sx={{
-                          width: '100%',
-                          maxWidth: 350,
-                          minWidth: 300,
-                          backgroundColor: theme.palette.background.paper,
-                          borderRadius: '10px',
-                          [theme.breakpoints.down('md')]: {
-                            minWidth: '100%'
-                          },
-                          '& .MuiListItemButton-root': {
-                            mt: 0.5
-                          }
-                        }}
-                      >
-                        <ListItemButton
-                          sx={{ borderRadius: `${borderRadius}px` }}
-                          selected={selectedIndex === 0}
-                          onClick={(event) => handleListItemClick(event, 0, '/control-panel/account-settings')}
-                        >
-                          <ListItemIcon>
-                            <IconSettings stroke={1.5} size="20px" />
-                          </ListItemIcon>
-                          <ListItemText primary={<Typography variant="body2">Account Settings</Typography>} />
-                        </ListItemButton>
-                        <ListItemButton
-                          sx={{ borderRadius: `${borderRadius}px` }}
-                          selected={selectedIndex === 1}
-                          onClick={(event) => handleListItemClick(event, 0, '/control-panel/remote-falcon-tracker')}
-                        >
-                          <ListItemIcon>
-                            <IconBug stroke={1.5} size="20px" />
-                          </ListItemIcon>
-                          <ListItemText primary={<Typography variant="body2">Work Item Tracker</Typography>} />
-                        </ListItemButton>
-                        <ListItemButton
-                          sx={{ borderRadius: `${borderRadius}px` }}
-                          selected={selectedIndex === 2}
-                          onClick={() => window.open('https://docs.remotefalcon.com', '_blank', 'noreferrer')}
-                        >
-                          <ListItemIcon>
-                            <IconBook stroke={1.5} size="20px" />
-                          </ListItemIcon>
-                          <ListItemText primary={<Typography variant="body2">Docs</Typography>} />
-                        </ListItemButton>
-                        <ListItemButton sx={{ borderRadius: `${borderRadius}px` }} selected={selectedIndex === 3} onClick={handleLogout}>
-                          <ListItemIcon>
-                            <IconLogout stroke={1.5} size="20px" />
-                          </ListItemIcon>
-                          <ListItemText primary={<Typography variant="body2">Logout</Typography>} />
-                        </ListItemButton>
-                      </List>
-                    </Box>
-                  </MainCard>
-                )}
-              </Paper>
-            </Transitions>
-          </ClickAwayListener>
-        )}
-      </Popper>
+        {/* Identity card — read-only header. Not a menu item, not focusable. */}
+        <Box sx={{ px: 2, py: 1.5 }} tabIndex={-1}>
+          <Stack direction="row" spacing={1.5} alignItems="center">
+            <Avatar src={gravatar} sx={{ width: 40, height: 40 }} />
+            <Box sx={{ minWidth: 0, flex: 1 }}>
+              <Typography variant="subtitle1" sx={{ fontWeight: 600, lineHeight: 1.2 }} noWrap>
+                {fullName}
+              </Typography>
+              {show?.email && (
+                <Typography variant="caption" sx={{ color: 'text.secondary' }} noWrap>
+                  {show.email}
+                </Typography>
+              )}
+            </Box>
+          </Stack>
+
+          {isImpersonating && (
+            <Button
+              fullWidth
+              size="small"
+              variant="contained"
+              color="warning"
+              onClick={stopImpersonating}
+              sx={{ mt: 1.5 }}
+            >
+              Stop Impersonating
+            </Button>
+          )}
+        </Box>
+
+        <Divider />
+
+        <MenuItem onClick={() => { handleClose(); handleLogout(); }}>
+          <ListItemIcon>
+            <IconLogout size={18} stroke={1.75} />
+          </ListItemIcon>
+          <ListItemText primary="Sign out" />
+        </MenuItem>
+      </Menu>
     </>
   );
 };
