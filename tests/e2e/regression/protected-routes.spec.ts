@@ -35,9 +35,9 @@ test.describe('protected control-panel routes (authenticated)', () => {
       await expect(page).toHaveURL(new RegExp(route.replace(/\//g, '\\/')), {
         timeout: 15_000,
       });
-      // Profile chip (id from ProfileSection) is rendered by MainLayout and
+      // Profile menu trigger (v2 IconButton) is rendered by MainLayout and
       // is the simplest "we are still in the authenticated layout" signal.
-      await expect(page.locator('#header-profile-trigger')).toBeVisible({
+      await expect(page.locator('button[aria-label="Open account menu"]')).toBeVisible({
         timeout: 15_000,
       });
     }

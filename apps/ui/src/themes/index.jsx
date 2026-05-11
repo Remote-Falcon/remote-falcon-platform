@@ -24,12 +24,21 @@ export default function ThemeCustomization({ children }) {
     () => ({
       direction: rtlLayout ? 'rtl' : 'ltr',
       palette: theme.palette,
+      // v2 dashboard topbar (56px) per the mockup. The Toolbar mixin sets
+      // both the default minHeight and the horizontal padding for any
+      // `<Toolbar>` in the app — control panel + auth chrome both pick
+      // this up. The 16px vertical padding the Berry default applied is
+      // dropped because it pushed our 40-48px chip + button rows past
+      // 80px of total bar height.
       mixins: {
         toolbar: {
-          minHeight: '48px',
-          padding: '16px',
+          minHeight: '56px',
+          paddingLeft: '16px',
+          paddingRight: '16px',
           '@media (min-width: 600px)': {
-            minHeight: '48px'
+            minHeight: '56px',
+            paddingLeft: '24px',
+            paddingRight: '24px'
           }
         }
       },

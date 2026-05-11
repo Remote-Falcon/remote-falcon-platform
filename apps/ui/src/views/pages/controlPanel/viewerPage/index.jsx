@@ -8,6 +8,7 @@ import { HtmlValidate } from 'html-validate';
 import { useDispatch, useSelector } from '../../../../store';
 import { gridSpacing } from '../../../../store/constant';
 import MainCard from '../../../../ui-component/cards/MainCard';
+import PageHead from '../../../../ui-component/PageHead';
 
 import HtmlValidationSkeleton from '../../../../ui-component/cards/Skeleton/HtmlValidationSkeleton';
 import { showAlertOld } from '../../globalPageHelpers';
@@ -140,10 +141,14 @@ const ViewerPage = () => {
   );
 
   return (
-    <Box sx={{ mt: 2 }}>
+    <Box>
+      <PageHead
+        title="Viewer Page"
+        description="Edit the HTML that runs the viewer-facing show page."
+      />
       <Grid container spacing={gridSpacing}>
         <Grid item xs={12}>
-          <MainCard title="Viewer Page" content={false}>
+          <MainCard content={false}>
             <Box sx={{ m: 2 }}>
               <ViewerPageActions
                 activeViewerPageHtml={activeViewerPageHtml}

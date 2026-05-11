@@ -12,6 +12,7 @@ import _ from 'lodash';
 import { useDispatch, useSelector } from '../../../../store';
 import { gridSpacing } from '../../../../store/constant';
 import MainCard from '../../../../ui-component/cards/MainCard';
+import PageHead from '../../../../ui-component/PageHead';
 import TrackerSkeleton from '../../../../ui-component/cards/Skeleton/TrackerSkeleton';
 
 import { savePreferencesService } from '../../../../services/controlPanel/mutations.service';
@@ -232,10 +233,14 @@ const ShowsMap = () => {
   }, [detectLocation, getShowsOnMap]);
 
   return (
-    <Box sx={{ mt: 2 }}>
+    <Box>
+      <PageHead
+        title="Shows Map"
+        description="See other Remote Falcon shows on the map. Opt in to share your show's location."
+      />
       <Grid container spacing={gridSpacing}>
         <Grid item xs={12}>
-          <MainCard title="Remote Falcon Shows Map" content={false}>
+          <MainCard content={false}>
             {isLoading ? (
               <TrackerSkeleton />
             ) : (

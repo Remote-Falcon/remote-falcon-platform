@@ -34,11 +34,15 @@ const ThemeToggle = ({ variant = 'icon', size = 20, sx }) => {
   };
 
   if (variant === 'rail') {
+    // Padding + gap + icon size match the sidebar Collapse button so the
+    // sun/moon and the chevron sit at the same x position. Visual anchor
+    // for both states: collapsed shows just the icon, expanded shows the
+    // icon at the exact same offset with a label beside it.
     return (
       <Stack
         direction="row"
         alignItems="center"
-        spacing={1}
+        spacing={1.5}
         onClick={handleClick}
         role="button"
         aria-label={label}
@@ -46,8 +50,8 @@ const ThemeToggle = ({ variant = 'icon', size = 20, sx }) => {
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleClick(); }}
         sx={{
           cursor: 'pointer',
-          color: 'text.muted',
-          px: 2.5,
+          color: 'text.secondary',
+          px: 1.25,
           py: 1,
           borderRadius: 1,
           transition: (theme) => theme.transitions.create(['color', 'background-color']),
@@ -55,8 +59,8 @@ const ThemeToggle = ({ variant = 'icon', size = 20, sx }) => {
           ...sx
         }}
       >
-        {isDark ? <IconSun size={size} /> : <IconMoon size={size} />}
-        <Typography variant="body2" sx={{ fontWeight: 500 }}>
+        {isDark ? <IconSun size={18} stroke={1.75} /> : <IconMoon size={18} stroke={1.75} />}
+        <Typography variant="body2" data-rail-label sx={{ fontSize: 14, fontWeight: 500 }}>
           {isDark ? 'Light mode' : 'Dark mode'}
         </Typography>
       </Stack>

@@ -4,7 +4,7 @@ import MainCard from '../../../../ui-component/cards/MainCard';
 
 const PremiumTemplates = () => (
   <Grid item xs={12}>
-    <MainCard title="Premium Templates" content={false}>
+    <MainCard content={false}>
       <CardActions>
         <List>
           <ListItem disablePadding>

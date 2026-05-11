@@ -14,19 +14,17 @@ test.describe('logout', () => {
   test('clicking Logout in the profile menu signs the user out', async ({ page }) => {
     await signUpAndSignIn(page);
 
-    // The profile chip carries id="header-profile-trigger". The header also
-    // mounts NotificationSection / LocalizationSection / Customization, all
-    // of which advertise aria-haspopup="true" — selecting by haspopup alone
-    // would hit the first one (Notifications) instead.
+    // v2 ProfileSection is now an IconButton with aria-label="Open account
+    // menu". Click it, then "Sign out" in the popped Menu.
     //
-    // force: true skips Playwright's "stable" actionability gate. The chip
-    // contains an Avatar that loads its gravatar from a remote CDN, which
-    // shifts the chip's bounding box on webkit and trips the gate at 30s.
-    const trigger = page.locator('#header-profile-trigger');
+    // force: true skips Playwright's "stable" actionability gate. The
+    // IconButton wraps an Avatar that loads its gravatar from a remote CDN,
+    // which can shift the bounding box and trip the gate at 30s.
+    const trigger = page.locator('button[aria-label="Open account menu"]');
     await trigger.scrollIntoViewIfNeeded();
     await trigger.click({ force: true });
-    await expect(page.getByText('Logout', { exact: true })).toBeVisible();
-    await page.getByText('Logout', { exact: true }).click();
+    await expect(page.getByText('Sign out', { exact: true })).toBeVisible();
+    await page.getByText('Sign out', { exact: true }).click();
 
     // After logout the AuthGuard kicks any further /control-panel access back
     // to "/". Land page is either "/" or "/signin" depending on routing.

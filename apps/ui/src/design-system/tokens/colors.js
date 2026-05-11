@@ -101,20 +101,29 @@ export const dark = {
 };
 
 // 2b. Neutrals — light mode ---------------------------------------------------
-
+//
+// Page (bg0) is intentionally OFF-white so cards (bg2 = pure white) pop
+// against it. Earlier iteration used #ffffff for both, which made the
+// page-vs-card boundary disappear — surfaces blended together and
+// section structure was hard to read.
+//
+// Slate-100/200 ramp chosen for a cool, neutral undertone that doesn't
+// fight the navy/amber brand colors.
 export const light = {
-  bg0: '#ffffff',
-  bg1: '#f8fafc',
-  bg2: '#ffffff',
-  bg3: '#f1f5f9',
+  bg0: '#eef2f7', // page — slate-100ish, gives cards something to sit on
+  bg1: '#e2e8f0', // sidebar / shell — slate-200, slightly deeper than page
+  bg2: '#ffffff', // cards — true white
+  bg3: '#f8fafc', // elevated cards / popovers — barely off-white
 
   text1: '#0f172a',
   text2: '#334155',
   text3: '#64748b',
   text4: '#94a3b8',
 
-  line:        'rgba(15,23,42,0.08)',
-  lineStrong:  'rgba(15,23,42,0.16)'
+  // Bumped from 0.08/0.16 — cards on bg0 need a visible 1px edge or they
+  // lose their boundary, especially at the card-to-card seam.
+  line:        'rgba(15,23,42,0.12)',
+  lineStrong:  'rgba(15,23,42,0.22)'
 };
 
 // 3. Semantic -----------------------------------------------------------------

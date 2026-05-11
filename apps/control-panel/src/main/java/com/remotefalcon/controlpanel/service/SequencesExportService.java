@@ -162,23 +162,51 @@ public class SequencesExportService {
   }
 
   private void updateSequences(Show show, List<Sequence> incomingSequences) {
+    // Upsert: existing sequences (matched by lowercased name) get their
+    // CSV-editable fields refreshed; sequences not yet in the show get
+    // appended with sane defaults so the user can bootstrap from a CSV
+    // exported elsewhere. The FPP plugin's next push will fill in
+    // playback-time fields (index, duration) for the new entries.
     List<Sequence> existing = show.getSequences() == null ? new ArrayList<>() : show.getSequences();
     Map<String, Sequence> existingByName = new java.util.HashMap<>();
+    int maxOrder = -1;
     for (Sequence seq : existing) {
       if (seq != null && seq.getName() != null) {
         existingByName.put(seq.getName().toLowerCase(), seq);
+        if (seq.getOrder() != null && seq.getOrder() > maxOrder) {
+          maxOrder = seq.getOrder();
+        }
       }
     }
 
     for (Sequence incoming : incomingSequences) {
       String key = incoming.getName().toLowerCase();
-      if (existingByName.containsKey(key)) {
-        Sequence target = existingByName.get(key);
+      Sequence target = existingByName.get(key);
+      if (target != null) {
         target.setDisplayName(incoming.getDisplayName());
         target.setArtist(incoming.getArtist());
         target.setGroup(incoming.getGroup());
         target.setImageUrl(incoming.getImageUrl());
         target.setCategory(incoming.getCategory());
+      } else {
+        maxOrder++;
+        Sequence created = Sequence.builder()
+            .name(incoming.getName())
+            .displayName(incoming.getDisplayName())
+            .artist(incoming.getArtist())
+            .group(incoming.getGroup())
+            .imageUrl(incoming.getImageUrl())
+            .category(incoming.getCategory())
+            .duration(0)
+            .visible(true)
+            .index(0)
+            .order(maxOrder)
+            .active(false)
+            .visibilityCount(0)
+            .type("SEQUENCE")
+            .build();
+        existing.add(created);
+        existingByName.put(key, created);
       }
     }
 

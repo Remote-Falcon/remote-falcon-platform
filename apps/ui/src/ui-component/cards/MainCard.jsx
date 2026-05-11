@@ -5,14 +5,19 @@ import { useTheme } from '@mui/material/styles';
 import PropTypes from 'prop-types';
 
 const headerSX = {
+  p: 2,
   '& .MuiCardHeader-action': { mr: 0 }
 };
 
+// v2 cards default to no border and no hover shadow per the dashboard
+// mockup — visual hierarchy comes from spacing, not chrome. Use
+// `<MainCard border boxShadow>` (or `variant="outlined"`) when you
+// genuinely need an outlined callout.
 const MainCard = React.forwardRef(
   (
     {
-      border = true,
-      boxShadow,
+      border = false,
+      boxShadow = false,
       children,
       content = true,
       contentClass = '',
@@ -43,14 +48,11 @@ const MainCard = React.forwardRef(
           ...sx
         }}
       >
-        {/* card header and action */}
         {!darkTitle && title && <CardHeader sx={headerSX} title={title} action={secondary} />}
         {darkTitle && title && <CardHeader sx={headerSX} title={<Typography variant="h3">{title}</Typography>} action={secondary} />}
 
-        {/* content & header divider */}
         {title && <Divider />}
 
-        {/* card content */}
         {content && (
           <CardContent sx={contentSX} className={contentClass}>
             {children}

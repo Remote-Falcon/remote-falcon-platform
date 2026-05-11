@@ -22,9 +22,13 @@ import { useTheme } from '@mui/material/styles';
 import _ from 'lodash';
 import { useDropzone } from 'react-dropzone';
 
+import { IconPhotoUp } from '@tabler/icons-react';
+
 import { useDispatch, useSelector } from '../../../../store';
 import { gridSpacing } from '../../../../store/constant';
 import MainCard from '../../../../ui-component/cards/MainCard';
+import EmptyState from '../../../../ui-component/EmptyState';
+import PageHead from '../../../../ui-component/PageHead';
 
 import { showAlert } from '../../globalPageHelpers';
 import { uploadImageService, getImagesService, deleteImageService } from './index.service';
@@ -166,10 +170,14 @@ const ImageHosting = () => {
   }, [getImages]);
 
   return (
-    <Box sx={{ mt: 2 }}>
+    <Box>
+      <PageHead
+        title="Image Hosting"
+        description={`Host images for use on your viewer page. ${images.length} of ${MAX_IMAGES} used.`}
+      />
       <Grid container spacing={gridSpacing}>
         <Grid item xs={12}>
-          <MainCard title={`Image Hosting - ${images.length} of ${MAX_IMAGES}`} content={false}>
+          <MainCard content={false}>
             <Grid item xs={12}>
               {showLinearProgress && <LinearProgress />}
             </Grid>
@@ -180,7 +188,14 @@ const ImageHosting = () => {
                   <p>Drag image here or click to select (1MB limit)</p>
                 </div>
               </Stack>
-              <TableContainer>
+              {!showLinearProgress && images.length === 0 ? (
+                <EmptyState
+                  icon={<IconPhotoUp size={32} stroke={1.5} />}
+                  title="No images uploaded yet"
+                  description="Drop an image into the area above (or click to browse) to host it on Remote Falcon. Up to 1MB per image."
+                />
+              ) : null}
+              <TableContainer sx={{ display: images.length === 0 ? 'none' : 'block' }}>
                 <Table size="small" aria-label="collapsible table">
                   <TableHead sx={{ '& th,& td': { whiteSpace: 'nowrap' } }}>
                     <TableRow>

@@ -82,13 +82,15 @@ const buildPalette = (mode = 'dark') => {
     },
 
     // Action overrides — affect MUI's hover/selected/disabled states --------
+    // Light hover bumped from 0.04 → 0.07 because cards-on-near-white
+    // background swallowed the lower opacity.
     action: {
-      hover:        isDark ? 'rgba(255,255,255,0.04)' : 'rgba(15,23,42,0.04)',
+      hover:        isDark ? 'rgba(255,255,255,0.04)' : 'rgba(15,23,42,0.07)',
       // Selected state uses amber tint (the brand CTA color).
-      selected:     isDark ? 'rgba(199,126,35,0.14)'  : 'rgba(199,126,35,0.10)',
+      selected:     isDark ? 'rgba(199,126,35,0.14)'  : 'rgba(199,126,35,0.14)',
       disabled:     neutrals.text4,
-      disabledBackground: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(15,23,42,0.06)',
-      focus:        isDark ? 'rgba(199,126,35,0.22)'  : 'rgba(199,126,35,0.18)'
+      disabledBackground: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(15,23,42,0.08)',
+      focus:        isDark ? 'rgba(199,126,35,0.22)'  : 'rgba(199,126,35,0.22)'
     }
   };
 };

@@ -4,12 +4,16 @@ import {
   IconAdjustmentsHorizontal,
   IconAi,
   IconBlockquote,
+  IconBook,
+  IconBug,
+  IconChartHistogram,
   IconDashboard,
   IconFileUpload,
   IconManualGearbox,
   IconMap,
   IconPalette,
-  IconPlaylist
+  IconPlaylist,
+  IconUserCog
 } from '@tabler/icons-react';
 import { FormattedMessage } from 'react-intl';
 
@@ -30,6 +34,14 @@ const showGroup = {
       type: 'item',
       url: '/control-panel/dashboard',
       icon: IconDashboard,
+      breadcrumbs: false
+    },
+    {
+      id: 'analytics',
+      title: 'Analytics',
+      type: 'item',
+      url: '/control-panel/analytics',
+      icon: IconChartHistogram,
       breadcrumbs: false
     },
     {
@@ -64,6 +76,14 @@ const accountGroup = {
   type: 'group',
   title: 'Account',
   children: [
+    {
+      id: 'account-settings',
+      title: 'Account Settings',
+      type: 'item',
+      url: '/control-panel/account-settings',
+      icon: IconUserCog,
+      breadcrumbs: false
+    },
     {
       id: 'remote-falcon-settings',
       title: <FormattedMessage id="remote-falcon-settings" />,
@@ -107,6 +127,32 @@ const communityGroup = {
   ]
 };
 
+const helpGroup = {
+  id: 'control-panel-help',
+  type: 'group',
+  title: 'Help',
+  children: [
+    {
+      id: 'remote-falcon-tracker',
+      title: 'Work Item Tracker',
+      type: 'item',
+      url: '/control-panel/remote-falcon-tracker',
+      icon: IconBug,
+      breadcrumbs: false
+    },
+    {
+      id: 'docs',
+      title: 'Docs',
+      type: 'item',
+      url: 'https://docs.remotefalcon.com',
+      icon: IconBook,
+      external: true,
+      target: true,
+      breadcrumbs: false
+    }
+  ]
+};
+
 const adminGroup = {
   id: 'control-panel-admin',
   type: 'group',
@@ -123,6 +169,6 @@ const adminGroup = {
   ]
 };
 
-export const controlPanelGroups = [showGroup, accountGroup, communityGroup, adminGroup];
+export const controlPanelGroups = [showGroup, accountGroup, communityGroup, helpGroup, adminGroup];
 
 export default controlPanelGroups;

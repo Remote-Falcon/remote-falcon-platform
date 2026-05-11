@@ -81,12 +81,15 @@ const Typography = (theme, borderRadius, fontFamily) => ({
     }
   },
   mainContent: {
+    // v2 dashboard shell: 56px slim topbar (was 88px). The marginTop /
+    // minHeight subtraction has to track the AppBar height or the main
+    // content sits underneath the bar.
     backgroundColor: theme.palette.mode === 'dark' ? theme.palette.dark[800] : theme.palette.primary.light,
     width: '100%',
-    minHeight: 'calc(100vh - 88px)',
+    minHeight: 'calc(100vh - 56px)',
     flexGrow: 1,
     padding: '20px',
-    marginTop: '88px',
+    marginTop: '56px',
     marginRight: '20px',
     borderRadius: `${borderRadius}px`
   },

@@ -9,6 +9,7 @@ import { fetchGitHubIssuesService } from '../../../../services/controlPanel/trac
 import { useDispatch, useSelector } from '../../../../store';
 import { gridSpacing } from '../../../../store/constant';
 import MainCard from '../../../../ui-component/cards/MainCard';
+import PageHead from '../../../../ui-component/PageHead';
 import TrackerSkeleton from '../../../../ui-component/cards/Skeleton/TrackerSkeleton';
 import { showAlertOld } from '../../globalPageHelpers';
 
@@ -45,10 +46,14 @@ const Tracker = () => {
   }, [dispatch, fetchWorkItems, show]);
 
   return (
-    <Box sx={{ mt: 2 }}>
+    <Box>
+      <PageHead
+        title="Work Item Tracker"
+        description="Browse open Remote Falcon issues + feature requests on GitHub."
+      />
       <Grid container spacing={gridSpacing}>
         <Grid item xs={12}>
-          <MainCard title="Work Item Tracker" content={false}>
+          <MainCard content={false}>
             {isLoading ? (
               <TrackerSkeleton />
             ) : (

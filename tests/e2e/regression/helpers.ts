@@ -58,7 +58,7 @@ export const signUpAndSignIn = async (page: Page): Promise<TestUser> => {
   await signUp(page, user);
   await signIn(page, user.email, user.password);
   await expect(page).toHaveURL(/\/control-panel/, { timeout: 20_000 });
-  await expect(page.locator('body')).toContainText(/Active Requests|Playing Now/i, {
+  await expect(page.locator('body')).toContainText(/Tonight's show|Now playing/i, {
     timeout: 15_000,
   });
   return user;

@@ -14,7 +14,8 @@ const initialState = {
   onChangeContainer: () => {},
   onChangeFontFamily: () => {},
   onChangeBorderRadius: () => {},
-  onChangeOutlinedField: () => {}
+  onChangeOutlinedField: () => {},
+  onToggleSidebar: () => {}
 };
 
 const ConfigContext = createContext(initialState);
@@ -27,7 +28,8 @@ function ConfigProvider({ children }) {
     navType: initialState.navType,
     presetColor: initialState.presetColor,
     locale: initialState.locale,
-    rtlLayout: initialState.rtlLayout
+    rtlLayout: initialState.rtlLayout,
+    sidebarCollapsed: initialState.sidebarCollapsed
   });
 
   const onChangeMenuType = (navType) => {
@@ -86,6 +88,13 @@ function ConfigProvider({ children }) {
     });
   };
 
+  const onToggleSidebar = () => {
+    setConfig({
+      ...config,
+      sidebarCollapsed: !config.sidebarCollapsed
+    });
+  };
+
   return (
     <ConfigContext.Provider
       value={{
@@ -97,7 +106,8 @@ function ConfigProvider({ children }) {
         onChangeContainer,
         onChangeFontFamily,
         onChangeBorderRadius,
-        onChangeOutlinedField
+        onChangeOutlinedField,
+        onToggleSidebar
       }}
     >
       {children}

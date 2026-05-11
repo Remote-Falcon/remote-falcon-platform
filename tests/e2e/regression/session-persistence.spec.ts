@@ -14,7 +14,7 @@ test.describe('session persistence', () => {
     await page.reload();
 
     await expect(page).toHaveURL(/\/control-panel/, { timeout: 20_000 });
-    await expect(page.locator('body')).toContainText(/Active Requests|Playing Now/i, {
+    await expect(page.locator('body')).toContainText(/Tonight's show|Now playing/i, {
       timeout: 15_000,
     });
   });

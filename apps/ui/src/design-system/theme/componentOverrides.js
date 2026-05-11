@@ -114,9 +114,11 @@ const buildComponentOverrides = (theme) => {
         root: {
           borderRadius: radius.md,
           backgroundColor: theme.palette.background.paper,
-          // No default border — borders are reserved for inputs and dividers.
-          // Use shadow only on hover or when explicitly elevated.
+          // Light mode: a hairline border so white cards have a defined edge
+          // against the (now slightly tinted) page background. Dark mode keeps
+          // the borderless look — the bg-step between page and card is enough.
           boxShadow: 'none',
+          border: theme.palette.mode === 'light' ? `1px solid ${surfaces.line}` : 'none',
           transition: `background-color ${t}, transform ${t}, box-shadow ${t}`
         }
       }

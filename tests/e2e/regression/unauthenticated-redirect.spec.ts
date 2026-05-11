@@ -32,7 +32,7 @@ test.describe('unauthenticated route protection', () => {
       await expect(page).toHaveURL(/^http:\/\/localhost:\d+\/(signin)?$/, {
         timeout: 10_000,
       });
-      await expect(page.locator('body')).not.toContainText(/Active Requests/i);
+      await expect(page.locator('body')).not.toContainText(/Tonight's show/i);
     });
   }
 });

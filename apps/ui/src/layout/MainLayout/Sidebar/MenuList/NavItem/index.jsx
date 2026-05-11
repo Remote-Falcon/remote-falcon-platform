@@ -47,43 +47,92 @@ const NavItem = ({ item, level }) => {
     if (matchesSM) dispatch(openDrawer(false));
   };
 
-  // active menu item on page load
+  // active menu item on page load.
+  //
+  // Uses a strict URL-prefix match: the item is active when the current
+  // pathname is exactly its url, or starts with `<url>/`. Segment-by-id
+  // matching (the prior approach) caused prefix collisions — e.g.
+  // /control-panel/analytics/sequences matched both the Analytics item AND
+  // the top-level Sequences item via the trailing "sequences" segment,
+  // and both fired activeItem so the wrong one ended up highlighted.
   useEffect(() => {
-    const currentIndex = document.location.pathname
-      .toString()
-      .split('/')
-      .findIndex((id) => id === item.id);
-    if (currentIndex > -1) {
+    if (!item?.url || item?.external) return;
+    const path = (pathname || document.location.pathname).toString();
+    if (path === item.url || path.startsWith(`${item.url}/`)) {
       dispatch(activeItem([item.id]));
     }
     // eslint-disable-next-line
     }, [pathname]);
+
+  // v2 rail item per the dashboard mockup `.rail-item` block:
+  //   • compact 8px y / 14px x padding (down from Berry's 10px / 16px)
+  //   • 14px font, 500 weight
+  //   • 4px radius (down from Berry's 8px) — feels tighter at small size
+  //   • active state: amber left border + warm gradient + amber icon
+  //   • icon column is 22px wide so labels align in collapsed/expanded
+  const isActive = selectedItem?.findIndex((id) => id === item.id) > -1;
 
   return (
     <ListItemButton
       {...listItemProps}
       disabled={item.disabled}
       sx={{
-        borderRadius: `${borderRadius}px`,
-        mb: 0.5,
-        alignItems: 'flex-start',
+        borderRadius: 1,
+        mb: 0.25,
+        alignItems: 'center',
         backgroundColor: level > 1 ? 'transparent !important' : 'inherit',
-        py: level > 1 ? 1 : 1.25,
-        pl: `${level * 24}px`
+        py: 1,
+        pl: level > 1 ? `${level * 16}px` : 1.25,
+        pr: 1.25,
+        position: 'relative',
+        borderLeft: '2px solid transparent',
+        ...(isActive && {
+          borderLeftColor: (t) => t.palette.warning.main,
+          background: (t) =>
+            `linear-gradient(90deg, ${
+              t.palette.mode === 'dark' ? 'rgba(255,167,38,0.10)' : 'rgba(255,152,0,0.10)'
+            }, transparent 80%)`,
+          '&.Mui-selected, &.Mui-selected:hover': {
+            background: (t) =>
+              `linear-gradient(90deg, ${
+                t.palette.mode === 'dark' ? 'rgba(255,167,38,0.14)' : 'rgba(255,152,0,0.14)'
+              }, transparent 80%)`
+          }
+        }),
+        '&:hover': {
+          background: (t) =>
+            t.palette.mode === 'dark' ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)'
+        }
       }}
-      selected={selectedItem?.findIndex((id) => id === item.id) > -1}
+      selected={isActive}
       onClick={() => itemHandler(item.id)}
     >
-      <ListItemIcon sx={{ my: 'auto', minWidth: !item?.icon ? 18 : 36 }}>{itemIcon}</ListItemIcon>
+      <ListItemIcon
+        sx={{
+          my: 'auto',
+          minWidth: 30,
+          color: isActive ? 'warning.main' : 'text.secondary'
+        }}
+      >
+        {itemIcon}
+      </ListItemIcon>
       <ListItemText
+        sx={{ my: 0 }}
         primary={
-          <Typography variant={selectedItem?.findIndex((id) => id === item.id) > -1 ? 'h5' : 'body1'} color="inherit">
+          <Typography
+            sx={{
+              fontSize: 14,
+              fontWeight: 500,
+              color: isActive ? 'text.primary' : 'text.secondary',
+              lineHeight: 1.4
+            }}
+          >
             {item.title}
           </Typography>
         }
         secondary={
           item.caption && (
-            <Typography variant="caption" sx={{ ...theme.typography.subMenuCaption }} display="block" gutterBottom>
+            <Typography variant="caption" sx={{ ...theme.typography.subMenuCaption }} display="block">
               {item.caption}
             </Typography>
           )

@@ -17,7 +17,10 @@ const config = {
   presetColor: 'theme3',
   locale: 'en',
   rtlLayout: false,
-  container: true
+  container: true,
+  // v2 dashboard sidebar — collapsed = 72px icon rail, expanded = 248px.
+  // Persisted via the ConfigContext localStorage key (`rf-config`).
+  sidebarCollapsed: false
 };
 
 export default config;

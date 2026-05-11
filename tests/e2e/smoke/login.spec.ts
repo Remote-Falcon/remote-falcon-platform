@@ -66,18 +66,11 @@ test.describe('signup + login smoke', () => {
     await expect(page).toHaveURL(/\/control-panel/, { timeout: 20_000 });
 
     // 7. Confirm we're really authenticated (not just bounced to a /control-panel
-    //    redirect that subsequently kicks back to /signin). The dashboard always
-    //    shows "Active Requests" or "Playing Now" widgets in the header strip;
-    //    presence of either is a strong signal we've rendered the authenticated
-    //    layout, not the auth-routing intermediate.
-    //
-    //    Show name lives in MainLayout's ProfileSection avatar dropdown
-    //    (apps/ui/src/layout/MainLayout/Header/ProfileSection/index.jsx) which
-    //    is inside a closed Popper — body text won't include it without
-    //    clicking. Skipped here; URL match + dashboard widget is sufficient
-    //    for the smoke tier. A regression spec in Sprint 3 can click the
-    //    avatar and assert the show name in the open menu.
-    await expect(page.locator('body')).toContainText(/Active Requests|Playing Now/i, {
+    //    redirect that subsequently kicks back to /signin). The v2 dashboard
+    //    renders "Tonight's show" as the PageHead title — a stable anchor
+    //    for the authenticated layout. Backed up by "Now playing" which the
+    //    Now Playing card always shows whether the show is live or paused.
+    await expect(page.locator('body')).toContainText(/Tonight's show|Now playing/i, {
       timeout: 15_000,
     });
   });

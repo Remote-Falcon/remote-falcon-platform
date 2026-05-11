@@ -1,67 +1,23 @@
 import React, { useMemo, useState } from 'react';
 
 import { Alert, AppBar, Box, Container, CssBaseline, Modal, Toolbar, useMediaQuery } from '@mui/material';
-import { styled, useTheme } from '@mui/material/styles';
-import { IconChevronRight } from '@tabler/icons-react';
+import { useTheme } from '@mui/material/styles';
 import { Outlet } from 'react-router-dom';
 
 import useConfig from '../../hooks/useConfig';
-import navigation from '../../menu-items';
 import { useDispatch, useSelector } from '../../store';
-import { drawerWidth } from '../../store/constant';
 import { openDrawer } from '../../store/slices/menu';
-import Breadcrumbs from '../../ui-component/extended/Breadcrumbs';
+import CommandPalette from '../../ui-component/CommandPalette';
 
 import Header from './Header';
 import Sidebar from './Sidebar';
 import WhatsNew from './WhatsNew.modal';
 import _ from 'lodash';
 
-const Main = styled('main', { shouldForwardProp: (prop) => prop !== 'open' })(({ theme, open }) => ({
-  ...theme.typography.mainContent,
-  ...(!open && {
-    borderBottomLeftRadius: 0,
-    borderBottomRightRadius: 0,
-    transition: theme.transitions.create('margin', {
-      easing: theme.transitions.easing.sharp,
-      duration: theme.transitions.duration.shorter
-    }),
-    [theme.breakpoints.up('md')]: {
-      marginLeft: -(drawerWidth - 20),
-      width: `calc(100% - ${drawerWidth}px)`
-    },
-    [theme.breakpoints.down('md')]: {
-      marginLeft: '20px',
-      width: `calc(100% - ${drawerWidth}px)`,
-      padding: '16px'
-    },
-    [theme.breakpoints.down('sm')]: {
-      marginLeft: '10px',
-      width: `calc(100% - ${drawerWidth}px)`,
-      padding: '16px',
-      marginRight: '10px'
-    }
-  }),
-  ...(open && {
-    transition: theme.transitions.create('margin', {
-      easing: theme.transitions.easing.easeOut,
-      duration: theme.transitions.duration.shorter
-    }),
-    marginLeft: 0,
-    borderBottomLeftRadius: 0,
-    borderBottomRightRadius: 0,
-    width: `calc(100% - ${drawerWidth}px)`,
-    [theme.breakpoints.down('md')]: {
-      marginLeft: '20px'
-    },
-    [theme.breakpoints.down('sm')]: {
-      marginLeft: '10px'
-    }
-  })
-}));
-
-// ==============================|| MAIN LAYOUT ||============================== //
-
+// v2 layout: full-height sidebar (logo at top, footer at bottom) with the
+// AppBar living inside the content column — not spanning the viewport.
+// This matches the mockup's `.app` CSS grid (rail | content), where the
+// topbar starts after the rail and only spans the content area.
 const MainLayout = () => {
   const theme = useTheme();
   const matchDownMd = useMediaQuery(theme.breakpoints.down('lg'));
@@ -88,6 +44,9 @@ const MainLayout = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [matchDownMd, show]);
 
+  // 56px topbar height comes from `theme.mixins.toolbar` in
+  // themes/index.jsx. Toolbar is sticky inside the content column so it
+  // stays visible as the user scrolls long pages.
   const header = useMemo(
     () => (
       <Toolbar>
@@ -105,69 +64,88 @@ const MainLayout = () => {
   const checkErrorsAndWarnings = () => {
     setErrors([]);
     setWarnings([]);
-    if(show?.preferences?.locationCheckMethod === 'GEO' && !show?.preferences?.allowedRadius) {
+    if (show?.preferences?.locationCheckMethod === 'GEO' && !show?.preferences?.allowedRadius) {
       setErrors((prev) => [...prev, 'Check Radius is not set.']);
     }
-    if(!show?.pages || show?.pages?.length === 0) {
+    if (!show?.pages || show?.pages?.length === 0) {
       setErrors((prev) => [...prev, 'No Viewer Pages have been created.']);
     }
-
-    if(show?.preferences?.viewerPageViewOnly) {
+    if (show?.preferences?.viewerPageViewOnly) {
       setWarnings((prev) => [...prev, 'Viewer Page is set to View Only.']);
     }
-  }
+  };
 
   return (
-    <Box sx={{ display: 'flex' }}>
+    <Box sx={{ display: 'flex', minHeight: '100vh' }}>
       <CssBaseline />
-      {/* header */}
-      <AppBar
-        enableColorOnDark
-        position="fixed"
-        color="inherit"
-        elevation={0}
-        sx={{
-          bgcolor: theme.palette.background.default,
-          transition: drawerOpen ? theme.transitions.create('width') : 'none'
-        }}
-      >
-        {header}
-      </AppBar>
 
-      {/* drawer */}
       <Sidebar />
 
-      {/* main content */}
-      <Main theme={theme} open={drawerOpen}>
+      {/* Content column — owns its own AppBar, scrollable main area */}
+      <Box
+        sx={{
+          flexGrow: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          minWidth: 0,
+          bgcolor: theme.palette.background.default
+        }}
+      >
+        <AppBar
+          enableColorOnDark
+          position="sticky"
+          color="inherit"
+          elevation={0}
+          sx={{
+            top: 0,
+            bgcolor: theme.palette.background.default,
+            // Dark mode: nearly-invisible hairline. Bright `palette.divider`
+            // values create a "stitched panes" look that the v2 mockup
+            // deliberately avoids. Light mode still gets a visible line
+            // for separation against the lighter content bg.
+            borderBottom: (t) =>
+              t.palette.mode === 'dark'
+                ? '1px solid rgba(255,255,255,0.04)'
+                : `1px solid ${t.palette.divider}`
+          }}
+        >
+          {header}
+        </AppBar>
 
-        {_.map(errors, (err, index) => (
-          <Alert key={index} severity="error" sx={{ mb: 1 }}>
-            {err}
-          </Alert>
-        ))}
-        {_.map(warnings, (warn, index) => (
-          <Alert key={index} severity="warning" sx={{ mb: 1 }}>
-            {warn}
-          </Alert>
-        ))}
-        
-        <Modal open={whatsNewOpen} aria-labelledby="simple-modal-title" aria-describedby="simple-modal-description">
-          <WhatsNew handleClose={() => closeWhatsNew()} />
-        </Modal>
-        {/* breadcrumb */}
-        {container && (
-          <Container maxWidth="lg">
-            <Breadcrumbs separator={IconChevronRight} navigation={navigation} icon title rightAlign />
+        <Box
+          component="main"
+          sx={{
+            flex: 1,
+            minWidth: 0,
+            p: { xs: 2, md: 3 }
+          }}
+        >
+          {_.map(errors, (err, index) => (
+            <Alert key={index} severity="error" sx={{ mb: 1 }}>
+              {err}
+            </Alert>
+          ))}
+          {_.map(warnings, (warn, index) => (
+            <Alert key={index} severity="warning" sx={{ mb: 1 }}>
+              {warn}
+            </Alert>
+          ))}
+
+          <Modal open={whatsNewOpen} aria-labelledby="simple-modal-title" aria-describedby="simple-modal-description">
+            <WhatsNew handleClose={() => closeWhatsNew()} />
+          </Modal>
+
+          {container ? (
+            <Container maxWidth="lg" disableGutters>
+              <Outlet />
+            </Container>
+          ) : (
             <Outlet />
-          </Container>
-        )}
-        {!container && (
-          <>
-            <Breadcrumbs separator={IconChevronRight} navigation={navigation} icon title rightAlign />
-            <Outlet />
-          </>
-        )}
-      </Main>
+          )}
+        </Box>
+      </Box>
+
+      <CommandPalette />
     </Box>
   );
 };

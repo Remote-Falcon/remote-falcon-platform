@@ -4,6 +4,9 @@ import { Card, CardContent, CardHeader, Divider, Typography } from '@mui/materia
 import { useTheme } from '@mui/material/styles';
 import PropTypes from 'prop-types';
 
+// v2 SubCard: no default border (was a redundant second border when
+// nested inside a MainCard). 16px header/content padding instead of
+// 20px to match the v2 spacing rhythm.
 const SubCard = React.forwardRef(
   ({ children, content, contentClass, darkTitle, secondary, sx = {}, contentSX = {}, title, ...others }, ref) => {
     const theme = useTheme();
@@ -12,20 +15,14 @@ const SubCard = React.forwardRef(
       <Card
         ref={ref}
         sx={{
-          border: '1px solid',
-          borderColor: theme.palette.mode === 'dark' ? theme.palette.dark.light + 15 : theme.palette.primary.light,
-          ':hover': {
-            boxShadow: theme.palette.mode === 'dark' ? '0 2px 14px 0 rgb(33 150 243 / 10%)' : '0 2px 14px 0 rgb(32 40 45 / 8%)'
-          },
+          border: 'none',
           ...sx
         }}
         {...others}
       >
-        {/* card header and action */}
-        {!darkTitle && title && <CardHeader sx={{ p: 2.5 }} title={<Typography variant="h5">{title}</Typography>} action={secondary} />}
-        {darkTitle && title && <CardHeader sx={{ p: 2.5 }} title={<Typography variant="h4">{title}</Typography>} action={secondary} />}
+        {!darkTitle && title && <CardHeader sx={{ p: 2 }} title={<Typography variant="h5">{title}</Typography>} action={secondary} />}
+        {darkTitle && title && <CardHeader sx={{ p: 2 }} title={<Typography variant="h4">{title}</Typography>} action={secondary} />}
 
-        {/* content & header divider */}
         {title && (
           <Divider
             sx={{
@@ -35,9 +32,8 @@ const SubCard = React.forwardRef(
           />
         )}
 
-        {/* card content */}
         {content && (
-          <CardContent sx={{ p: 2.5, ...contentSX }} className={contentClass || ''}>
+          <CardContent sx={{ p: 2, ...contentSX }} className={contentClass || ''}>
             {children}
           </CardContent>
         )}

@@ -1,12 +1,13 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { useMutation } from '@apollo/client';
 import InfoTwoToneIcon from '@mui/icons-material/InfoTwoTone';
 import { Grid, CardActions, Divider, Typography, TextField, Stack, Switch } from '@mui/material';
 import _ from 'lodash';
-import PropTypes from 'prop-types';
 
 import MainCard from '../../../../ui-component/cards/MainCard';
+import StickyFormBar from '../../../../ui-component/StickyFormBar';
+import useAutoSave from '../../../../hooks/useAutoSave';
 
 import { savePreferencesService } from '../../../../services/controlPanel/mutations.service';
 import { useDispatch, useSelector } from '../../../../store';
@@ -14,167 +15,166 @@ import { setShow } from '../../../../store/slices/show';
 import { UPDATE_PREFERENCES } from '../../../../utils/graphql/controlPanel/mutations';
 import { showAlert } from '../../globalPageHelpers';
 
-const JukeboxSettings = ({ setShowLinearProgress }) => {
+const JukeboxSettings = () => {
   const dispatch = useDispatch();
   const { show } = useSelector((state) => state.show);
 
-  const [jukeboxDepth, setJukeboxDepth] = useState(show?.preferences?.jukeboxDepth);
-  const [jukeboxRequestLimit, setJukeboxRequestLimit] = useState(show?.preferences?.jukeboxRequestLimit);
-
   const [updatePreferencesMutation] = useMutation(UPDATE_PREFERENCES);
 
-  const handleCheckIfRequestedSwitch = (event, value) => {
-    setShowLinearProgress(true);
-    const updatedPreferences = _.cloneDeep({
-      ...show?.preferences,
-      checkIfRequested: value
-    });
-    savePreferencesService(updatedPreferences, updatePreferencesMutation, (response) => {
-      dispatch(
-        setShow({
-          ...show,
-          preferences: {
-            ...updatedPreferences
-          }
-        })
-      );
-      showAlert(dispatch, response?.toast);
-      setShowLinearProgress(false);
-    });
-  };
+  const [values, setValues] = useState({
+    jukeboxDepth: show?.preferences?.jukeboxDepth ?? 0,
+    jukeboxRequestLimit: show?.preferences?.jukeboxRequestLimit ?? 0,
+    checkIfRequested: !!show?.preferences?.checkIfRequested
+  });
 
-  const savePreferences = () => {
-    setShowLinearProgress(true);
-    const updatedPreferences = _.cloneDeep({
-      ...show?.preferences,
-      jukeboxDepth,
-      jukeboxRequestLimit
+  useEffect(() => {
+    setValues({
+      jukeboxDepth: show?.preferences?.jukeboxDepth ?? 0,
+      jukeboxRequestLimit: show?.preferences?.jukeboxRequestLimit ?? 0,
+      checkIfRequested: !!show?.preferences?.checkIfRequested
     });
-    savePreferencesService(updatedPreferences, updatePreferencesMutation, (response) => {
-      if (response?.success) {
-        dispatch(
-          setShow({
-            ...show,
-            preferences: {
-              ...updatedPreferences
-            }
-          })
-        );
-      }
-      showAlert(dispatch, response?.toast);
-      setShowLinearProgress(false);
-    });
-  };
+  }, [
+    show?.preferences?.jukeboxDepth,
+    show?.preferences?.jukeboxRequestLimit,
+    show?.preferences?.checkIfRequested
+  ]);
+
+  const save = useCallback(
+    (snapshot) =>
+      new Promise((resolve, reject) => {
+        const updatedPreferences = _.cloneDeep({ ...show?.preferences, ...snapshot });
+        savePreferencesService(updatedPreferences, updatePreferencesMutation, (response) => {
+          if (response?.success) {
+            dispatch(setShow({ ...show, preferences: updatedPreferences }));
+            resolve();
+          } else {
+            showAlert(dispatch, response?.toast);
+            reject(new Error('save failed'));
+          }
+        });
+      }),
+    [dispatch, show, updatePreferencesMutation]
+  );
+
+  // Numeric fields can briefly hold NaN as the user clears the input —
+  // skip auto-save while that's the case so we don't write garbage.
+  const isValid = useCallback(
+    () => Number.isFinite(values.jukeboxDepth) && Number.isFinite(values.jukeboxRequestLimit),
+    [values]
+  );
+
+  const status = useAutoSave(values, save, { isValid });
 
   return (
-    <Grid item xs={12}>
-      <MainCard content={false}>
-        <Divider />
-        <CardActions>
-          <Grid container alignItems="center" justifyContent="space-between" spacing={2}>
-            <Grid item xs={12} md={6} lg={4}>
-              <Stack direction="row" spacing={2} pb={1}>
-                <Typography variant="h4">Jukebox Queue Depth</Typography>
-                <InfoTwoToneIcon
-                  onClick={() =>
-                    window.open(
-                      'https://docs.remotefalcon.com/docs/docs/control-panel/remote-falcon-settings#jukebox-queue-depth',
-                      '_blank',
-                      'noreferrer'
-                    )
+    <>
+      <Grid item xs={12}>
+        <MainCard content={false}>
+          <Divider />
+          <CardActions>
+            <Grid container alignItems="center" justifyContent="space-between" spacing={2}>
+              <Grid item xs={12} md={6} lg={4}>
+                <Stack direction="row" spacing={2} pb={1}>
+                  <Typography variant="h4">Jukebox Queue Depth</Typography>
+                  <InfoTwoToneIcon
+                    onClick={() =>
+                      window.open(
+                        'https://docs.remotefalcon.com/docs/docs/control-panel/remote-falcon-settings#jukebox-queue-depth',
+                        '_blank',
+                        'noreferrer'
+                      )
+                    }
+                    fontSize="small"
+                  />
+                </Stack>
+                <Typography component="div" variant="caption">
+                  Controls how many sequences can be in the Jukebox Queue (use 0 for unlimited queue depth).
+                </Typography>
+              </Grid>
+              <Grid item xs={12} md={6} lg={4}>
+                <TextField
+                  type="number"
+                  fullWidth
+                  label="Jukebox Queue Depth"
+                  value={Number.isFinite(values.jukeboxDepth) ? values.jukeboxDepth : ''}
+                  onChange={(e) =>
+                    setValues((prev) => ({ ...prev, jukeboxDepth: parseInt(e.target.value, 10) }))
                   }
-                  fontSize="small"
                 />
-              </Stack>
-              <Typography component="div" variant="caption">
-                Controls how many sequences can be in the Jukebox Queue (use 0 for unlimited queue depth).
-              </Typography>
+              </Grid>
             </Grid>
-            <Grid item xs={12} md={6} lg={4}>
-              <TextField
-                type="number"
-                fullWidth
-                label="Jukebox Queue Depth"
-                onChange={(e) => setJukeboxDepth(parseInt(e?.target?.value, 10))}
-                value={jukeboxDepth}
-                onBlur={savePreferences}
-              />
-            </Grid>
-          </Grid>
-        </CardActions>
-        <Divider />
-        <CardActions>
-          <Grid container alignItems="center" justifyContent="space-between" spacing={2}>
-            <Grid item xs={12} md={6} lg={4}>
-              <Stack direction="row" spacing={2} pb={1}>
-                <Typography variant="h4">Jukebox Sequence Request Limit</Typography>
-                <InfoTwoToneIcon
-                  onClick={() =>
-                    window.open(
-                      'https://docs.remotefalcon.com/docs/docs/control-panel/remote-falcon-settings#jukebox-sequence-request-limit',
-                      '_blank',
-                      'noreferrer'
-                    )
+          </CardActions>
+          <Divider />
+          <CardActions>
+            <Grid container alignItems="center" justifyContent="space-between" spacing={2}>
+              <Grid item xs={12} md={6} lg={4}>
+                <Stack direction="row" spacing={2} pb={1}>
+                  <Typography variant="h4">Jukebox Sequence Request Limit</Typography>
+                  <InfoTwoToneIcon
+                    onClick={() =>
+                      window.open(
+                        'https://docs.remotefalcon.com/docs/docs/control-panel/remote-falcon-settings#jukebox-sequence-request-limit',
+                        '_blank',
+                        'noreferrer'
+                      )
+                    }
+                    fontSize="small"
+                  />
+                </Stack>
+                <Typography component="div" variant="caption">
+                  Controls when a sequence can be requested if it already exists in the queue. Use 0 to allow any sequence to be requested at
+                  any time.
+                </Typography>
+              </Grid>
+              <Grid item xs={12} md={6} lg={4}>
+                <TextField
+                  type="number"
+                  fullWidth
+                  label="Jukebox Sequence Request Limit"
+                  value={Number.isFinite(values.jukeboxRequestLimit) ? values.jukeboxRequestLimit : ''}
+                  onChange={(e) =>
+                    setValues((prev) => ({ ...prev, jukeboxRequestLimit: parseInt(e.target.value, 10) }))
                   }
-                  fontSize="small"
                 />
-              </Stack>
-              <Typography component="div" variant="caption">
-                Controls when a sequence can be requested if it already exists in the queue. Use 0 to allow any sequence to be requested at
-                any time.
-              </Typography>
+              </Grid>
             </Grid>
-            <Grid item xs={12} md={6} lg={4}>
-              <TextField
-                type="number"
-                fullWidth
-                label="Jukebox Sequence Request Limit"
-                onChange={(e) => setJukeboxRequestLimit(parseInt(e?.target?.value, 10))}
-                value={jukeboxRequestLimit}
-                onBlur={savePreferences}
-              />
-            </Grid>
-          </Grid>
-        </CardActions>
-        <Divider />
-        <CardActions>
-          <Grid container alignItems="center" justifyContent="space-between" spacing={2}>
-            <Grid item xs={12} md={6} lg={4}>
-              <Stack direction="row" spacing={2} pb={1}>
-                <Typography variant="h4">Prevent Multiple Requests</Typography>
-                <InfoTwoToneIcon
-                  onClick={() =>
-                    window.open(
-                      'https://docs.remotefalcon.com/docs/docs/control-panel/remote-falcon-settings#prevent-multiple-requests',
-                      '_blank',
-                      'noreferrer'
-                    )
-                  }
-                  fontSize="small"
+          </CardActions>
+          <Divider />
+          <CardActions>
+            <Grid container alignItems="center" justifyContent="space-between" spacing={2}>
+              <Grid item xs={12} md={6} lg={4}>
+                <Stack direction="row" spacing={2} pb={1}>
+                  <Typography variant="h4">Prevent Multiple Requests</Typography>
+                  <InfoTwoToneIcon
+                    onClick={() =>
+                      window.open(
+                        'https://docs.remotefalcon.com/docs/docs/control-panel/remote-falcon-settings#prevent-multiple-requests',
+                        '_blank',
+                        'noreferrer'
+                      )
+                    }
+                    fontSize="small"
+                  />
+                </Stack>
+                <Typography component="div" variant="caption">
+                  Prevents a viewer from requesting more than one sequence while a song is currently playing.
+                </Typography>
+              </Grid>
+              <Grid item xs={12} md={6} lg={4}>
+                <Switch
+                  name="checkIfRequested"
+                  color="primary"
+                  checked={values.checkIfRequested}
+                  onChange={(_e, v) => setValues((prev) => ({ ...prev, checkIfRequested: v }))}
                 />
-              </Stack>
-              <Typography component="div" variant="caption">
-                Prevents a viewer from requesting more than one sequence while a song is currently playing.
-              </Typography>
+              </Grid>
             </Grid>
-            <Grid item xs={12} md={6} lg={4}>
-              <Switch
-                name="checkIfRequested"
-                color="primary"
-                checked={show?.preferences?.checkIfRequested}
-                onChange={handleCheckIfRequestedSwitch}
-              />
-            </Grid>
-          </Grid>
-        </CardActions>
-        <Divider />
-      </MainCard>
-    </Grid>
+          </CardActions>
+          <Divider />
+        </MainCard>
+      </Grid>
+      <StickyFormBar status={status} />
+    </>
   );
-};
-
-JukeboxSettings.propTypes = {
-  setShowLinearProgress: PropTypes.func
 };
 
 export default JukeboxSettings;
