@@ -5,7 +5,8 @@ import {
   IconAi,
   IconBlockquote,
   IconBook,
-  IconBug,
+  IconBrandDiscord,
+  IconBrandFacebook,
   IconChartHistogram,
   IconDashboard,
   IconFileUpload,
@@ -127,25 +128,41 @@ const communityGroup = {
   ]
 };
 
+// Help group bundles the docs + community channels. All three open in a
+// new tab — the external-link affordance on NavItem flags that visually.
+// Discord + Facebook moved here from the sidebar footer so they have a
+// proper home alongside the rest of the support resources.
 const helpGroup = {
   id: 'control-panel-help',
   type: 'group',
   title: 'Help',
   children: [
     {
-      id: 'remote-falcon-tracker',
-      title: 'Work Item Tracker',
-      type: 'item',
-      url: '/control-panel/remote-falcon-tracker',
-      icon: IconBug,
-      breadcrumbs: false
-    },
-    {
       id: 'docs',
       title: 'Docs',
       type: 'item',
       url: 'https://docs.remotefalcon.com',
       icon: IconBook,
+      external: true,
+      target: true,
+      breadcrumbs: false
+    },
+    {
+      id: 'discord',
+      title: 'Discord',
+      type: 'item',
+      url: 'https://discord.gg/sTsVtYzUyz',
+      icon: IconBrandDiscord,
+      external: true,
+      target: true,
+      breadcrumbs: false
+    },
+    {
+      id: 'facebook',
+      title: 'Facebook Group',
+      type: 'item',
+      url: 'https://www.facebook.com/groups/remotefalcon',
+      icon: IconBrandFacebook,
       external: true,
       target: true,
       breadcrumbs: false

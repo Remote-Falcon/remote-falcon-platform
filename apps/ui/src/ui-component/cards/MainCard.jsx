@@ -9,14 +9,15 @@ const headerSX = {
   '& .MuiCardHeader-action': { mr: 0 }
 };
 
-// v2 cards default to no border and no hover shadow per the dashboard
-// mockup — visual hierarchy comes from spacing, not chrome. Use
-// `<MainCard border boxShadow>` (or `variant="outlined"`) when you
-// genuinely need an outlined callout.
+// v2 cards default to a 1px divider-toned border for consistent
+// card-to-card separation across the platform. Visual hierarchy still
+// comes from spacing — the border is just enough to keep adjacent
+// cards from blending together. Pass `border={false}` to opt out, or
+// `boxShadow` to add a hover lift on interactive cards.
 const MainCard = React.forwardRef(
   (
     {
-      border = false,
+      border = true,
       boxShadow = false,
       children,
       content = true,
@@ -39,7 +40,7 @@ const MainCard = React.forwardRef(
         {...others}
         sx={{
           border: border ? '1px solid' : 'none',
-          borderColor: theme.palette.mode === 'dark' ? theme.palette.background.default : theme.palette.primary[200] + 75,
+          borderColor: 'divider',
           ':hover': {
             boxShadow: boxShadow
               ? shadow || (theme.palette.mode === 'dark' ? '0 2px 14px 0 rgb(33 150 243 / 10%)' : '0 2px 14px 0 rgb(32 40 45 / 8%)')

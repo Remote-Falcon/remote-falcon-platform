@@ -8,20 +8,23 @@ import {
   ClickAwayListener,
   Grid,
   Grow,
+  IconButton,
   MenuItem,
   MenuList,
   Paper,
   Popper,
   Stack,
-  Typography
+  Tooltip
 } from '@mui/material';
-import { IconCheck, IconChevronDown, IconCopy, IconExternalLink } from '@tabler/icons-react';
+import { IconCheck, IconChevronDown, IconCopy, IconEraser, IconExternalLink } from '@tabler/icons-react';
 import PropTypes from 'prop-types';
 
 import useShowPublicUrl from '../../../../hooks/useShowPublicUrl';
 import { useDispatch, useSelector } from '../../../../store';
 import { gridSpacing } from '../../../../store/constant';
+import LiveIndicator from '../../../../ui-component/LiveIndicator';
 import PageHead from '../../../../ui-component/PageHead';
+import SectionHeader from '../../../../ui-component/SectionHeader';
 import { ViewerControlMode } from '../../../../utils/enum';
 import { DELETE_NOW_PLAYING, RESET_ALL_VOTES } from '../../../../utils/graphql/controlPanel/mutations';
 import { showAlert } from '../../globalPageHelpers';
@@ -30,25 +33,6 @@ import HealthRow from './HealthRow';
 import LiveStatsRow from './LiveStatsRow';
 import NowPlayingCard from './NowPlayingCard';
 import PreShowChecklist from './PreShowChecklist';
-
-// Section header shared across the dashboard rows. Kept inline because
-// the only user is this page; promote to ui-component if anyone else
-// reaches for the same treatment.
-const SectionHeader = ({ label }) => (
-  <Typography
-    variant="overline"
-    sx={{
-      display: 'block',
-      color: 'text.secondary',
-      letterSpacing: '0.08em',
-      fontWeight: 600,
-      mb: 1,
-      mt: 2.5
-    }}
-  >
-    {label}
-  </Typography>
-);
 
 // View public page split button. Primary action opens the URL in a new
 // tab; the chevron opens a one-item menu to copy the URL. Avatar profile
@@ -151,17 +135,8 @@ const Dashboard = () => {
       <PageHead
         eyebrow={
           <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}>
-            <Box
-              component="span"
-              sx={{
-                width: 7,
-                height: 7,
-                borderRadius: '50%',
-                bgcolor: isLive ? 'success.main' : 'text.disabled',
-                boxShadow: isLive ? '0 0 0 3px rgba(76,175,80,0.18)' : 'none'
-              }}
-            />
-            {show?.showName ? `Show · ${show.showName}` : 'Show'}
+            <LiveIndicator active={isLive} size="sm" />
+            {`${show?.showName ? `Show · ${show.showName}` : 'Show'} · ${isJukebox ? 'Jukebox' : 'Voting'} Mode`}
           </Box>
         }
         title="Tonight's show"
@@ -180,19 +155,31 @@ const Dashboard = () => {
         }
       />
 
-      <SectionHeader label="Right now" />
+      {/* Section headers live inside each column so "Right now" and
+          "Now playing" align horizontally — the NowPlayingCard's
+          internal header was dropped in favor of this. */}
       <Grid container spacing={gridSpacing}>
         <Grid item xs={12} lg={8}>
-          {/* LiveStatsRow + HealthRow stack vertically in the left column,
-              filling the empty space below the 4 stat tiles next to the
-              NowPlayingCard on the right. */}
+          <SectionHeader label="Right now" />
           <Stack spacing={2}>
             <LiveStatsRow />
             <HealthRow />
           </Stack>
         </Grid>
         <Grid item xs={12} lg={4}>
-          <NowPlayingCard onClearNowPlaying={deleteNowPlaying} />
+          <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ minHeight: 32 }}>
+            <SectionHeader label="Now playing" sx={{ mb: 0 }} />
+            <Tooltip title="Clear Now Playing / Up Next">
+              <IconButton
+                size="small"
+                onClick={deleteNowPlaying}
+                sx={{ color: 'text.secondary', mt: 2.5, mb: 1, '&:hover': { color: 'error.main' } }}
+              >
+                <IconEraser size={16} stroke={1.75} />
+              </IconButton>
+            </Tooltip>
+          </Stack>
+          <NowPlayingCard />
         </Grid>
       </Grid>
 

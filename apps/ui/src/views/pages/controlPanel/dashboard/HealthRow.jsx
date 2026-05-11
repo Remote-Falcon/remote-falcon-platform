@@ -1,20 +1,19 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import * as React from 'react';
 
-import { useLazyQuery } from '@apollo/client';
 import { Box, Chip, Popover, Skeleton, Stack, Tooltip, Typography } from '@mui/material';
 import { IconActivityHeartbeat, IconHistory, IconPlugConnected, IconPlugConnectedX } from '@tabler/icons-react';
 import moment from 'moment';
 
-import useInterval from '../../../../hooks/useInterval';
+import useDashboardLiveStats from '../../../../hooks/useDashboardLiveStats';
 import { useSelector } from '../../../../store';
 import MainCard from '../../../../ui-component/cards/MainCard';
-import { DASHBOARD_LIVE_STATS } from '../../../../utils/graphql/controlPanel/queries';
 
 // Dashboard Health row (V17 + V18-lite).
 //
 // Pulls FPP heartbeat health and current plugin/FPP versions from the
-// already-polled dashboardLiveStats query. Renders:
+// shared `useDashboardLiveStats` hook (5s poll, single source of truth
+// across the dashboard). Renders:
 //   • Status pill — Connected / Disconnected (with how-long-ago)
 //   • Version chips — plugin / FPP versions reported by the most recent connect
 //   • Heartbeat strip — last 7 days as a horizontal bar; green for healthy,
@@ -74,39 +73,10 @@ const GapSegment = ({ stripStartMs, stripEndMs, gap }) => {
 
 const HealthRow = () => {
   const { show } = useSelector((state) => state.show);
-  const [stats, setStats] = useState(null);
-  const [loading, setLoading] = useState(true);
   // V18 — popover anchor for the version-change timeline
   const [versionAnchor, setVersionAnchor] = useState(null);
 
-  const [liveStatsQuery] = useLazyQuery(DASHBOARD_LIVE_STATS);
-
-  const fetch = useCallback(async () => {
-    if (!show?.timezone) return;
-    await liveStatsQuery({
-      context: { headers: { Route: 'Control-Panel' } },
-      variables: {
-        startDate: new Date().setHours(0, 0, 0),
-        endDate: new Date().setHours(23, 59, 59),
-        timezone: show.timezone
-      },
-      onCompleted: (data) => {
-        setStats(data?.dashboardLiveStats || {});
-        setLoading(false);
-      },
-      onError: () => setLoading(false)
-    });
-  }, [liveStatsQuery, show?.timezone]);
-
-  useEffect(() => {
-    setLoading(true);
-    fetch();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [show?.timezone]);
-
-  // Heartbeat health doesn't change minute-to-minute; 30s is fine here even
-  // though LiveStatsRow polls dashboardLiveStats at 5s.
-  useInterval(fetch, 30 * 1000);
+  const { data: stats, loading } = useDashboardLiveStats();
 
   const stripWindow = useMemo(() => {
     const now = Date.now();
@@ -131,9 +101,6 @@ const HealthRow = () => {
 
   return (
     <MainCard
-      sx={{
-        bgcolor: (t) => (t.palette.mode === 'dark' ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)')
-      }}
       contentSX={{ p: 2.25, '&:last-child': { pb: 2.25 } }}
     >
       <Stack
@@ -150,7 +117,7 @@ const HealthRow = () => {
                 display: 'inline-flex'
               }}
             >
-              {isConnected ? <IconPlugConnected size={20} stroke={1.75} /> : <IconPlugConnectedX size={20} stroke={1.75} />}
+              {isConnected ? <IconPlugConnected size={18} stroke={1.75} /> : <IconPlugConnectedX size={18} stroke={1.75} />}
             </Box>
             <Typography variant="overline" sx={{ color: 'text.secondary', letterSpacing: '0.06em', lineHeight: 1.2 }}>
               FPP plugin
@@ -183,7 +150,7 @@ const HealthRow = () => {
                   <Tooltip title="View version history">
                     <Chip
                       size="small"
-                      icon={<IconHistory size={12} stroke={1.75} />}
+                      icon={<IconHistory size={16} stroke={1.75} />}
                       label={`${versionChanges.length}`}
                       onClick={(e) => setVersionAnchor(e.currentTarget)}
                       sx={{ height: 22, fontSize: 11, cursor: 'pointer', '& .MuiChip-icon': { ml: 0.5 } }}
@@ -204,7 +171,7 @@ const HealthRow = () => {
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 0.75 }}>
             <Stack direction="row" spacing={0.75} alignItems="center">
-              <IconActivityHeartbeat size={14} stroke={1.75} />
+              <IconActivityHeartbeat size={16} stroke={1.75} />
               <Typography variant="overline" sx={{ color: 'text.secondary', letterSpacing: '0.06em', lineHeight: 1.2 }}>
                 Last {STRIP_DAYS} days
               </Typography>

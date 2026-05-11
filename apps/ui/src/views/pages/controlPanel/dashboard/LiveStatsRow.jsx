@@ -1,8 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
 import * as React from 'react';
 
-import { useLazyQuery } from '@apollo/client';
-import { Box, Grid, Skeleton, Typography } from '@mui/material';
+import { Box, Grid, Skeleton, Stack, Typography } from '@mui/material';
 import {
   IconBolt,
   IconHeadphones,
@@ -12,23 +10,16 @@ import {
 import PropTypes from 'prop-types';
 
 import MainCard from '../../../../ui-component/cards/MainCard';
+import LiveIndicator from '../../../../ui-component/LiveIndicator';
 import { useSelector } from '../../../../store';
 import { ViewerControlMode } from '../../../../utils/enum';
-import { DASHBOARD_LIVE_STATS } from '../../../../utils/graphql/controlPanel/queries';
-import useInterval from '../../../../hooks/useInterval';
+import useDashboardLiveStats from '../../../../hooks/useDashboardLiveStats';
 
 // Single stat tile per the v2 mockup `.stat` block. Borderless card with
 // generous padding, label on top, large value, sub-line for trend/context.
 const StatTile = ({ label, value, sub, icon, accent = 'text.secondary' }) => (
   <MainCard
-    sx={{
-      height: '100%',
-      bgcolor: (t) => (t.palette.mode === 'dark' ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)'),
-      transition: 'background-color 200ms ease',
-      '&:hover': {
-        bgcolor: (t) => (t.palette.mode === 'dark' ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)')
-      }
-    }}
+    sx={{ height: '100%' }}
     contentSX={{ p: 2.25, '&:last-child': { pb: 2.25 } }}
   >
     <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
@@ -68,42 +59,7 @@ StatTile.propTypes = {
 
 const LiveStatsRow = () => {
   const { show } = useSelector((state) => state.show);
-
-  const [stats, setStats] = useState({
-    totalVotes: 0,
-    totalRequests: 0,
-    currentRequests: 0,
-    currentViewers: null,
-    medianDwellSecondsTonight: null
-  });
-  const [loading, setLoading] = useState(true);
-
-  const [dashboardLiveStatsQuery] = useLazyQuery(DASHBOARD_LIVE_STATS);
-
-  const fetch = useCallback(async () => {
-    if (!show?.timezone) return;
-    await dashboardLiveStatsQuery({
-      context: { headers: { Route: 'Control-Panel' } },
-      variables: {
-        startDate: new Date().setHours(0, 0, 0),
-        endDate: new Date().setHours(23, 59, 59),
-        timezone: show.timezone
-      },
-      onCompleted: (data) => {
-        setStats(data?.dashboardLiveStats || {});
-        setLoading(false);
-      },
-      onError: () => setLoading(false)
-    });
-  }, [dashboardLiveStatsQuery, show?.timezone]);
-
-  useEffect(() => {
-    setLoading(true);
-    fetch();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [show?.timezone]);
-
-  useInterval(fetch, 5000);
+  const { data: stats, loading } = useDashboardLiveStats();
 
   const isJukebox = show?.preferences?.viewerControlMode === ViewerControlMode.JUKEBOX;
   // Prefer the deduped, 5-min-fresh count from the backend over the raw
@@ -135,14 +91,18 @@ const LiveStatsRow = () => {
           label="Viewers right now"
           value={viewersNow}
           sub={
-            viewersNow > 0
-              ? dwellMin
-                ? `Live · ${dwellMin}m median dwell tonight`
-                : 'Live'
-              : 'No active viewers'
+            viewersNow > 0 ? (
+              <Stack direction="row" alignItems="center" spacing={0.5}>
+                <LiveIndicator active size="xs" />
+                <Typography component="span" variant="body2" sx={{ fontSize: 12 }}>
+                  {dwellMin ? `${dwellMin}m median dwell tonight` : 'Live'}
+                </Typography>
+              </Stack>
+            ) : (
+              'No active viewers'
+            )
           }
           icon={<IconUsers size={28} stroke={1.5} />}
-          accent={viewersNow > 0 ? 'success.main' : 'text.secondary'}
         />
       </Grid>
       <Grid item xs={12} sm={6} md={3}>
@@ -151,7 +111,6 @@ const LiveStatsRow = () => {
           value={queuedNow}
           sub={isJukebox ? 'In the jukebox now' : 'Across active sequences'}
           icon={<IconHeadphones size={28} stroke={1.5} />}
-          accent="primary.main"
         />
       </Grid>
       <Grid item xs={12} sm={6} md={3}>
@@ -160,7 +119,6 @@ const LiveStatsRow = () => {
           value={interactionsToday}
           sub={`Since midnight (${show?.timezone || 'show timezone'})`}
           icon={<IconBolt size={28} stroke={1.5} />}
-          accent="warning.main"
         />
       </Grid>
       <Grid item xs={12} sm={6} md={3}>
@@ -169,7 +127,6 @@ const LiveStatsRow = () => {
           value={activeSequences}
           sub={`${(show?.sequences || []).length} total`}
           icon={<IconPlaylist size={28} stroke={1.5} />}
-          accent="text.secondary"
         />
       </Grid>
     </Grid>

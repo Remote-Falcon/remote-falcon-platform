@@ -1,32 +1,34 @@
-import { useCallback, useEffect, useState } from 'react';
 import * as React from 'react';
 
-import { useLazyQuery, useMutation } from '@apollo/client';
-import { Box, Divider, IconButton, Link as MuiLink, Stack, Tooltip, Typography } from '@mui/material';
-import { IconEraser, IconMusic, IconX } from '@tabler/icons-react';
+import { useMutation } from '@apollo/client';
+import { Box, IconButton, Link as MuiLink, Stack, Tooltip, Typography } from '@mui/material';
+import { alpha } from '@mui/material/styles';
+import { IconMusic, IconX } from '@tabler/icons-react';
 import _ from 'lodash';
-import PropTypes from 'prop-types';
 
 import MainCard from '../../../../ui-component/cards/MainCard';
-import useInterval from '../../../../hooks/useInterval';
+import useDashboardLiveStats from '../../../../hooks/useDashboardLiveStats';
 import { useDispatch, useSelector } from '../../../../store';
 import { setShow } from '../../../../store/slices/show';
 import { ViewerControlMode } from '../../../../utils/enum';
 import { DELETE_ALL_REQUESTS, DELETE_SINGLE_REQUEST } from '../../../../utils/graphql/controlPanel/mutations';
-import { DASHBOARD_LIVE_STATS } from '../../../../utils/graphql/controlPanel/queries';
 import { showAlert } from '../../globalPageHelpers';
 
 // Mockup `.now-playing` + full queue list. Renders the currently playing
 // sequence as a hero row, then the full queue (jukebox) or top votes
 // (voting) below. Per-row delete + Clear all inline — replaces what the
 // View Queue modal used to do, so the SplitButton no longer needs that
-// option. The optional `onClearNowPlaying` prop renders a small icon
-// button in the header that calls back to the page-level mutation.
-const NowPlayingCard = ({ onClearNowPlaying }) => {
+// option. The "Now playing" section label + clear-all-icon live in
+// dashboard/index.jsx so they align horizontally with the "Right now"
+// section header on the left column.
+const NowPlayingCard = () => {
   const dispatch = useDispatch();
   const { show } = useSelector((state) => state.show);
-  const [stats, setStats] = useState({ playingNow: '--', playingNext: '--' });
-  const [dashboardLiveStatsQuery] = useLazyQuery(DASHBOARD_LIVE_STATS);
+  const { data: liveStats } = useDashboardLiveStats();
+  const stats = {
+    playingNow: liveStats?.playingNow || '--',
+    playingNext: liveStats?.playingNext || '--'
+  };
   const [deleteSingleRequestMutation] = useMutation(DELETE_SINGLE_REQUEST);
   const [deleteAllRequestsMutation] = useMutation(DELETE_ALL_REQUESTS);
 
@@ -58,30 +60,6 @@ const NowPlayingCard = ({ onClearNowPlaying }) => {
     });
   };
 
-  const fetch = useCallback(async () => {
-    if (!show?.timezone) return;
-    await dashboardLiveStatsQuery({
-      context: { headers: { Route: 'Control-Panel' } },
-      variables: {
-        startDate: new Date().setHours(0, 0, 0),
-        endDate: new Date().setHours(23, 59, 59),
-        timezone: show.timezone
-      },
-      onCompleted: (data) =>
-        setStats({
-          playingNow: data?.dashboardLiveStats?.playingNow || '--',
-          playingNext: data?.dashboardLiveStats?.playingNext || '--'
-        })
-    });
-  }, [dashboardLiveStatsQuery, show?.timezone]);
-
-  useEffect(() => {
-    fetch();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [show?.timezone]);
-
-  useInterval(fetch, 5000);
-
   // Full queue (jukebox) or top 10 votes (voting). Inline-scrolls past
   // ~6 rows so the card height stays bounded; the dashboard layout
   // doesn't try to grow with every viewer-added request.
@@ -102,52 +80,11 @@ const NowPlayingCard = ({ onClearNowPlaying }) => {
           canDelete: false
         }));
 
-  const isLive = !!show?.preferences?.viewerControlEnabled;
-
   return (
     <MainCard
       sx={{ height: '100%' }}
       contentSX={{ p: 0, '&:last-child': { pb: 0 } }}
     >
-      <Stack
-        direction="row"
-        alignItems="center"
-        justifyContent="space-between"
-        sx={{ px: 2.25, py: 2 }}
-      >
-        <Typography variant="h4" sx={{ fontWeight: 600 }}>
-          Now playing
-        </Typography>
-        <Stack direction="row" spacing={1.25} alignItems="center">
-          <Stack direction="row" spacing={0.75} alignItems="center">
-            <Box
-              sx={{
-                width: 8,
-                height: 8,
-                borderRadius: '50%',
-                bgcolor: isLive ? 'success.main' : 'text.disabled'
-              }}
-            />
-            <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'lowercase' }}>
-              {isLive ? 'live' : 'paused'}
-            </Typography>
-          </Stack>
-          {onClearNowPlaying && (
-            <Tooltip title="Clear Now Playing / Up Next">
-              <IconButton
-                size="small"
-                onClick={onClearNowPlaying}
-                sx={{ color: 'text.secondary', '&:hover': { color: 'error.main' } }}
-              >
-                <IconEraser size={16} stroke={1.75} />
-              </IconButton>
-            </Tooltip>
-          )}
-        </Stack>
-      </Stack>
-
-      <Divider />
-
       <Stack direction="row" spacing={2} alignItems="center" sx={{ px: 2.25, py: 2.25 }}>
         <Box
           sx={{
@@ -156,8 +93,7 @@ const NowPlayingCard = ({ onClearNowPlaying }) => {
             borderRadius: 1.5,
             display: 'grid',
             placeItems: 'center',
-            bgcolor: (t) =>
-              t.palette.mode === 'dark' ? 'rgba(255,167,38,0.18)' : 'rgba(255,152,0,0.16)',
+            bgcolor: (t) => alpha(t.palette.warning.main, t.palette.mode === 'dark' ? 0.18 : 0.16),
             color: 'warning.main',
             flexShrink: 0
           }}
@@ -219,8 +155,7 @@ const NowPlayingCard = ({ onClearNowPlaying }) => {
                     px: 1,
                     borderRadius: 1,
                     '&:hover': {
-                      bgcolor: (t) =>
-                        t.palette.mode === 'dark' ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+                      bgcolor: 'action.hover',
                       '& .row-delete': { opacity: 1 }
                     }
                   }}
@@ -232,8 +167,7 @@ const NowPlayingCard = ({ onClearNowPlaying }) => {
                       borderRadius: '50%',
                       display: 'grid',
                       placeItems: 'center',
-                      bgcolor: (t) =>
-                        t.palette.mode === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
+                      bgcolor: 'action.selected',
                       fontSize: 12,
                       fontWeight: 600,
                       color: 'text.secondary',
@@ -280,10 +214,6 @@ const NowPlayingCard = ({ onClearNowPlaying }) => {
       </Box>
     </MainCard>
   );
-};
-
-NowPlayingCard.propTypes = {
-  onClearNowPlaying: PropTypes.func
 };
 
 export default NowPlayingCard;

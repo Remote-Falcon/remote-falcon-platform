@@ -1,8 +1,9 @@
 import { forwardRef, useEffect } from 'react';
 
 import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
-import { Avatar, Chip, ListItemButton, ListItemIcon, ListItemText, Typography, useMediaQuery } from '@mui/material';
+import { Avatar, Box, Chip, ListItemButton, ListItemIcon, ListItemText, Tooltip, Typography, useMediaQuery } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
+import { IconExternalLink } from '@tabler/icons-react';
 import PropTypes from 'prop-types';
 import { Link, useLocation } from 'react-router-dom';
 
@@ -146,6 +147,24 @@ const NavItem = ({ item, level }) => {
           label={item.chip.label}
           avatar={item.chip.avatar && <Avatar>{item.chip.avatar}</Avatar>}
         />
+      )}
+      {/* External-link affordance — appears on any row that opens in a
+          new tab (set via item.target: true in the menu config). Reassures
+          the user that the click will leave the app. */}
+      {itemTarget === '_blank' && (
+        <Tooltip title="Opens in a new tab">
+          <Box
+            sx={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              color: isActive ? 'warning.main' : 'text.disabled',
+              opacity: 0.85,
+              ml: 0.5
+            }}
+          >
+            <IconExternalLink size={13} stroke={1.75} />
+          </Box>
+        </Tooltip>
       )}
     </ListItemButton>
   );

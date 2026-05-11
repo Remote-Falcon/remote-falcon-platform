@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import * as React from 'react';
 
 import { Box, Collapse, IconButton, Stack, Typography } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import {
   IconAlertTriangle,
   IconCheck,
@@ -29,17 +30,17 @@ const STATUS = {
   ok: {
     icon: <IconCheck size={18} stroke={2} />,
     color: 'success.main',
-    bg: (t) => (t.palette.mode === 'dark' ? 'rgba(76,175,80,0.10)' : 'rgba(76,175,80,0.08)')
+    bg: (t) => alpha(t.palette.success.main, t.palette.mode === 'dark' ? 0.1 : 0.08)
   },
   warn: {
     icon: <IconAlertTriangle size={18} stroke={1.75} />,
     color: 'warning.main',
-    bg: (t) => (t.palette.mode === 'dark' ? 'rgba(255,167,38,0.12)' : 'rgba(255,152,0,0.10)')
+    bg: (t) => alpha(t.palette.warning.main, t.palette.mode === 'dark' ? 0.12 : 0.1)
   },
   blocker: {
     icon: <IconCircleX size={18} stroke={1.75} />,
     color: 'error.main',
-    bg: (t) => (t.palette.mode === 'dark' ? 'rgba(244,67,54,0.12)' : 'rgba(244,67,54,0.10)')
+    bg: (t) => alpha(t.palette.error.main, t.palette.mode === 'dark' ? 0.12 : 0.1)
   }
 };
 
@@ -200,19 +201,19 @@ const PreShowChecklist = () => {
 
   const headerCfg =
     worst === 'blocker'
-      ? { icon: <IconCircleX size={20} stroke={1.75} />, color: 'error.main', label: `${blockers} blocker${blockers === 1 ? '' : 's'} · ${warnings} warning${warnings === 1 ? '' : 's'}` }
+      ? { icon: <IconCircleX size={18} stroke={1.75} />, color: 'error.main', label: `${blockers} blocker${blockers === 1 ? '' : 's'} · ${warnings} warning${warnings === 1 ? '' : 's'}` }
       : worst === 'warn'
-        ? { icon: <IconAlertTriangle size={20} stroke={1.75} />, color: 'warning.main', label: `${warnings} warning${warnings === 1 ? '' : 's'}` }
-        : { icon: <IconCircleCheck size={20} stroke={1.75} />, color: 'success.main', label: `All ${passing} pre-show checks passing` };
+        ? { icon: <IconAlertTriangle size={18} stroke={1.75} />, color: 'warning.main', label: `${warnings} warning${warnings === 1 ? '' : 's'}` }
+        : { icon: <IconCircleCheck size={18} stroke={1.75} />, color: 'success.main', label: `All ${passing} pre-show checks passing` };
 
   return (
     <MainCard
       sx={{
         bgcolor: (t) =>
           worst === 'blocker'
-            ? t.palette.mode === 'dark' ? 'rgba(244,67,54,0.06)' : 'rgba(244,67,54,0.04)'
+            ? alpha(t.palette.error.main, t.palette.mode === 'dark' ? 0.06 : 0.04)
             : worst === 'warn'
-              ? t.palette.mode === 'dark' ? 'rgba(255,167,38,0.06)' : 'rgba(255,152,0,0.04)'
+              ? alpha(t.palette.warning.main, t.palette.mode === 'dark' ? 0.06 : 0.04)
               : 'transparent'
       }}
       contentSX={{ p: 0, '&:last-child': { pb: 0 } }}
@@ -246,7 +247,7 @@ const PreShowChecklist = () => {
         </IconButton>
       </Stack>
       <Collapse in={open}>
-        <Stack spacing={1} sx={{ p: 2, pt: 0 }}>
+        <Stack spacing={1.5} sx={{ p: 2, pt: 0 }}>
           {checks.map((c, i) => (
             <StatusRow key={i} status={c.status} label={c.label} detail={c.detail} />
           ))}

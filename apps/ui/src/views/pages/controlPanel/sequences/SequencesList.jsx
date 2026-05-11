@@ -41,6 +41,7 @@ import {
   IconMovie,
   IconPlayerPlay,
   IconPlaylist,
+  IconPlus,
   IconSearch,
   IconTrash,
   IconX
@@ -51,6 +52,7 @@ import { useSearchParams } from 'react-router-dom';
 
 import {
   playSequenceFromControlPanelService,
+  saveSequenceGroupsService,
   saveSequencesService
 } from '../../../../services/controlPanel/mutations.service';
 import { useDispatch, useSelector } from '../../../../store';
@@ -60,7 +62,8 @@ import MainCard from '../../../../ui-component/cards/MainCard';
 import useCoalescedSave from '../../../../hooks/useCoalescedSave';
 import {
   PLAY_SEQUENCE_FROM_CONTROL_PANEL,
-  UPDATE_SEQUENCES
+  UPDATE_SEQUENCES,
+  UPDATE_SEQUENCE_GROUPS
 } from '../../../../utils/graphql/controlPanel/mutations';
 import { showAlert } from '../../globalPageHelpers';
 
@@ -165,6 +168,7 @@ const SequencesList = () => {
   const { show } = useSelector((state) => state.show);
 
   const [updateSequencesMutation] = useMutation(UPDATE_SEQUENCES);
+  const [updateSequenceGroupsMutation] = useMutation(UPDATE_SEQUENCE_GROUPS);
   const [playSequenceFromControlPanelMutation] = useMutation(PLAY_SEQUENCE_FROM_CONTROL_PANEL);
 
   // View state. Group filter is URL-encoded so the Groups tab can deep-link
@@ -198,6 +202,12 @@ const SequencesList = () => {
   const [confirm, setConfirm] = useState(null);
   const [bulkAnchor, setBulkAnchor] = useState(null);
   const [groupMenuAnchor, setGroupMenuAnchor] = useState(null);
+  // Inline "create new group" state lives inside the Set-group menu so
+  // an owner with no groups yet doesn't have to leave the bulk-assign
+  // flow to add one — they type a name, click Create, and the new group
+  // is created + assigned to the selection in one step.
+  const [newGroupName, setNewGroupName] = useState('');
+  const [creatingGroup, setCreatingGroup] = useState(false);
 
   const totalCount = show?.sequences?.length || 0;
   const sequenceGroups = show?.sequenceGroups || [];
@@ -389,6 +399,47 @@ const SequencesList = () => {
     setSelected(new Set());
   };
 
+  // Create a new group, then bulk-assign the current selection to it.
+  // Sequential writes (groups first, then sequences) so a partial failure
+  // doesn't leave sequences pointing at a non-existent group.
+  const createGroupAndAssign = () => {
+    const name = newGroupName.trim();
+    if (!name) return;
+    if (sequenceGroups.some((g) => g?.name === name)) {
+      showAlert(dispatch, { alert: 'error', message: `A group named "${name}" already exists.` });
+      return;
+    }
+    setCreatingGroup(true);
+    const updatedGroups = [...sequenceGroups, { name, visibilityCount: 0 }];
+    saveSequenceGroupsService(updatedGroups, updateSequenceGroupsMutation, (gResponse) => {
+      if (!gResponse?.success) {
+        showAlert(dispatch, gResponse?.toast);
+        setCreatingGroup(false);
+        return;
+      }
+      const updatedSequences = _.cloneDeep(show?.sequences || []);
+      updatedSequences.forEach((s) => {
+        if (selected.has(rowKey(s))) s.group = name;
+      });
+      // Both writes land in one dispatch — sequential setShow calls would
+      // otherwise clobber sequenceGroups via stale-closure show state.
+      saveSequencesService(updatedSequences, updateSequencesMutation, (sResponse) => {
+        if (sResponse?.success) {
+          dispatch(setShow({ ...show, sequenceGroups: updatedGroups, sequences: updatedSequences }));
+          showAlert(dispatch, {
+            message: `Created "${name}" and assigned ${selected.size} ${selected.size === 1 ? 'sequence' : 'sequences'}`
+          });
+        } else {
+          showAlert(dispatch, sResponse?.toast);
+        }
+        setSelected(new Set());
+        setNewGroupName('');
+        setCreatingGroup(false);
+        setGroupMenuAnchor(null);
+      });
+    });
+  };
+
   const bulkDelete = () => {
     const updated = (show?.sequences || []).filter((s) => !selected.has(rowKey(s)));
     persistSequences(updated, `${selected.size} ${selected.size === 1 ? 'sequence' : 'sequences'} deleted`);
@@ -570,16 +621,73 @@ const SequencesList = () => {
             <Menu
               open={Boolean(groupMenuAnchor)}
               anchorEl={groupMenuAnchor}
-              onClose={() => setGroupMenuAnchor(null)}
+              onClose={() => {
+                setGroupMenuAnchor(null);
+                setNewGroupName('');
+              }}
+              slotProps={{ paper: { sx: { minWidth: 240 } } }}
             >
-              <MenuItem onClick={() => { bulkSetGroup(null); setGroupMenuAnchor(null); }}>
-                <em>None</em>
-              </MenuItem>
+              {sequenceGroups.length === 0 && (
+                <Typography
+                  variant="caption"
+                  sx={{ display: 'block', px: 2, py: 1, color: 'text.disabled', fontStyle: 'italic' }}
+                >
+                  No groups yet — add one below.
+                </Typography>
+              )}
+              {sequenceGroups.length > 0 && (
+                <MenuItem onClick={() => { bulkSetGroup(null); setGroupMenuAnchor(null); }}>
+                  <em>None</em>
+                </MenuItem>
+              )}
               {sequenceGroups.map((g) => (
                 <MenuItem key={g?.name} onClick={() => { bulkSetGroup(g?.name); setGroupMenuAnchor(null); }}>
                   {g?.name}
                 </MenuItem>
               ))}
+              {/* Inline "create new group" form. Keeps the bulk-assign
+                  flow self-contained — typical first-run experience is
+                  "I just selected 12 sequences and want to call them
+                  Christmas Hits" without bouncing to the Groups tab. */}
+              <Box
+                sx={{
+                  borderTop: sequenceGroups.length > 0 ? '1px solid' : 'none',
+                  borderColor: 'divider',
+                  px: 1.5,
+                  py: 1.25
+                }}
+                onKeyDown={(e) => e.stopPropagation()}
+              >
+                <Typography
+                  variant="caption"
+                  sx={{ display: 'block', mb: 0.75, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.06em' }}
+                >
+                  Create new group
+                </Typography>
+                <Stack direction="row" spacing={0.75}>
+                  <TextField
+                    size="small"
+                    placeholder="Group name"
+                    value={newGroupName}
+                    onChange={(e) => setNewGroupName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') createGroupAndAssign();
+                    }}
+                    autoFocus={sequenceGroups.length === 0}
+                    disabled={creatingGroup}
+                    fullWidth
+                  />
+                  <Button
+                    size="small"
+                    variant="contained"
+                    startIcon={<IconPlus size={14} stroke={1.75} />}
+                    disabled={!newGroupName.trim() || creatingGroup}
+                    onClick={createGroupAndAssign}
+                  >
+                    Create
+                  </Button>
+                </Stack>
+              </Box>
             </Menu>
             <Button
               size="small"
