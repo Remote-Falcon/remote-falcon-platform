@@ -1,15 +1,14 @@
 import { memo } from 'react';
 import * as React from 'react';
 
-import { Box, Divider, Drawer, Stack, Tooltip, useMediaQuery } from '@mui/material';
+import { Box, Drawer, Tooltip, useMediaQuery } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import { IconChevronLeft, IconChevronRight } from '@tabler/icons-react';
 import PropTypes from 'prop-types';
 import PerfectScrollbar from 'react-perfect-scrollbar';
 
-import { VERSION } from '../../../config';
+import SupportLinks from '../../../design-system/components/SupportLinks';
 import ThemeToggle from '../../../design-system/components/ThemeToggle';
-import useAuth from '../../../hooks/useAuth';
 import useConfig from '../../../hooks/useConfig';
 import { useDispatch, useSelector } from '../../../store';
 import {
@@ -17,7 +16,6 @@ import {
   drawerWidthExpanded
 } from '../../../store/constant';
 import { openDrawer } from '../../../store/slices/menu';
-import Chip from '../../../ui-component/extended/Chip';
 
 import MenuList from './MenuList';
 import SidebarLogo from './SidebarLogo';
@@ -41,9 +39,6 @@ const Sidebar = ({ window }) => {
   const { drawerOpen } = useSelector((state) => state.menu);
 
   const { sidebarCollapsed, onToggleSidebar } = useConfig();
-  const { isDemo } = useAuth();
-
-  const chipLabel = `${isDemo ? 'DEMO - ' : ''} ${VERSION}`;
 
   // Effective rail width: collapsed only matters at md+ (desktop).
   // Mobile is always the temporary full-width drawer.
@@ -81,6 +76,9 @@ const Sidebar = ({ window }) => {
       <Box
         sx={{
           mt: 'auto',
+          position: 'relative',
+          zIndex: 1,
+          bgcolor: 'background.default',
           borderTop: (t) =>
             t.palette.mode === 'dark'
               ? '1px solid rgba(255,255,255,0.04)'
@@ -89,27 +87,15 @@ const Sidebar = ({ window }) => {
           py: 1
         }}
       >
-        {/* Discord + Facebook icons used to live here as a row above the
-            theme toggle. They moved into the Help nav group so they have
-            a proper home alongside Docs, and the icon-only buttons (which
-            had no labels) now carry the network's name. The version chip
-            stays at the bottom of the footer. */}
-        {!railCollapsed && (
-          <>
-            <Stack direction="row" justifyContent="center" sx={{ mt: 0.5 }}>
-              <Chip label={chipLabel} chipcolor="primary" size="small" />
-            </Stack>
-            <Divider
-              sx={{
-                my: 1,
-                borderColor: (t) =>
-                  t.palette.mode === 'dark' ? 'rgba(255,255,255,0.04)' : 'divider'
-              }}
-            />
-          </>
-        )}
+        {/* Discord + Facebook icons used to live here. They moved into the
+            Help nav group so they have a proper home alongside Docs. The
+            version chip used to live here too — moved into the avatar
+            dropdown to keep the gutter clean. SupportLinks renders its own
+            label + divider treatment so it slots between the menu and the
+            theme toggle without needing extra chrome. */}
+        <SupportLinks variant={railCollapsed ? 'collapsed' : 'expanded'} />
 
-        <Box sx={{ display: { xs: 'none', md: 'block' } }}>
+        <Box sx={{ display: { xs: 'none', md: 'block' }, mt: 1 }}>
           <ThemeToggle variant="rail" />
         </Box>
 

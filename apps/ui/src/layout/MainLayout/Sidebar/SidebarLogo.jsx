@@ -1,15 +1,17 @@
 import * as React from 'react';
 
-import { Box, Link, Typography } from '@mui/material';
+import { Link, Typography } from '@mui/material';
 import PropTypes from 'prop-types';
 import { Link as RouterLink } from 'react-router-dom';
 
-import logo from '../../../assets/images/rf-icon.png';
+import LogoMark from '../../../design-system/components/LogoMark';
 import { CONTROL_PANEL_PATH } from '../../../config';
 
 // v2 sidebar logo lockup. Matches the mockup's `.rail .logo` block:
 // 32px icon flush-left, "Remote Falcon" wordmark to the right, hidden
-// when the rail is collapsed.
+// when the rail is collapsed. Icon is sourced from the design-system
+// LogoMark so the sidebar matches the marketing surfaces (which read
+// from public/rf-icon.png — the canonical brand mark).
 const SidebarLogo = ({ collapsed }) => (
   <Link
     component={RouterLink}
@@ -24,12 +26,7 @@ const SidebarLogo = ({ collapsed }) => (
       color: 'text.primary'
     }}
   >
-    <Box
-      component="img"
-      src={logo}
-      alt="Remote Falcon"
-      sx={{ width: 32, height: 32, flexShrink: 0 }}
-    />
+    <LogoMark size={32} />
     {!collapsed && (
       <Typography
         variant="subtitle1"

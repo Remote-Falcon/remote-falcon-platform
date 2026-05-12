@@ -18,6 +18,7 @@ import {
 import { IconLogout } from '@tabler/icons-react';
 import md5 from 'md5';
 
+import { VERSION } from '../../../../config';
 import useAuth from '../../../../hooks/useAuth';
 import { useSelector } from '../../../../store';
 
@@ -30,7 +31,7 @@ import { useSelector } from '../../../../store';
 //   • Stop Impersonating (admin support tool, only when active)
 //   • Sign out
 const ProfileSection = () => {
-  const { logout } = useAuth();
+  const { logout, isDemo } = useAuth();
   const { show } = useSelector((state) => state.show);
 
   const anchorRef = useRef(null);
@@ -149,6 +150,16 @@ const ProfileSection = () => {
           </ListItemIcon>
           <ListItemText primary="Sign out" />
         </MenuItem>
+
+        {/* Version line — non-interactive caption pinned to the bottom of
+            the menu. Used to live as a chip in the sidebar footer but moved
+            here so the sidebar gutter stays uncluttered. */}
+        <Divider sx={{ my: 0.5 }} />
+        <Box sx={{ px: 2, py: 1, textAlign: 'center' }} tabIndex={-1}>
+          <Typography variant="caption" sx={{ color: 'text.disabled', letterSpacing: '0.04em' }}>
+            {isDemo ? `DEMO · ${VERSION}` : VERSION}
+          </Typography>
+        </Box>
       </Menu>
     </>
   );
