@@ -1,0 +1,7 @@
+# Self-host runtime artifacts that should never land in git.
+# `.env` is already covered by the root .gitignore, but listing it again here
+# is a useful reminder for self-hosters reading this directory.
+
+.env
+nginx/ssl/*
+!nginx/ssl/.gitkeep

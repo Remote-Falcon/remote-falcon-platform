@@ -30,6 +30,7 @@ All architecture, operational, and migration documentation lives in [`docs/`](do
 
 | Doc | Purpose | Lifespan |
 |---|---|---|
+| [`docs/SELF-HOST.md`](docs/SELF-HOST.md) | Canonical "run your own Remote Falcon" guide. Reads `ops/self-host/` artifacts. | Permanent |
 | [`docs/SERVICES.md`](docs/SERVICES.md) | Operator's catalog: each service's deploy mechanics, secrets matrix, cluster prerequisites, bring-up order | Permanent |
 | [`docs/TESTING.md`](docs/TESTING.md) | Per-service test inventory, cross-cutting findings, phased improvement plan | Permanent |
 | [`docs/CONSOLIDATION-PLAN.md`](docs/CONSOLIDATION-PLAN.md) | Migration roadmap: 24 repos → 1 monorepo, 8 services → 5, no test gating → release-validated pipeline | Transient (~3 months) |

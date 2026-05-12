@@ -1,0 +1,134 @@
+# Self-host Docker Compose for Remote Falcon.
+#
+# Brings up the 5 services a hobbyist needs to run their own show:
+#   mongo, control-panel, viewer, plugins-api, ui
+# plus an nginx reverse-proxy that mirrors the prod ingress routing rules.
+#
+# This file is the canonical self-host deployment target. It lives in the
+# monorepo (under ops/self-host/) so the build artifacts (Dockerfiles, libs/
+# schema, app source) and the deployment recipe are version-locked together.
+#
+# Build mode:
+#   We use the apps/<svc>/Dockerfile.dev variants for the Quarkus services
+#   (plugins-api, viewer) and for control-panel. These build JVM-mode JARs
+#   instead of GraalVM native images. The "DEV ONLY" label on those files is
+#   an internal convention for our SaaS prod -- for self-host, JVM mode is
+#   the right default: same Quarkus/Spring runtime, ~10x faster build,
+#   ~5x lower RAM at build time. A hobbyist on a $24 DO droplet will OOM
+#   on native builds; on JVM the whole stack builds in ~5 min on 4 GB RAM.
+#
+# Bring-up:
+#   1. Copy .env.example to .env and fill in your domain + secrets.
+#   2. Generate SSL certs into ./nginx/ssl/ (or use Let's Encrypt -- see README).
+#   3. docker compose -f ops/self-host/docker-compose.yaml up -d --build
+#
+# Upgrade:
+#   git pull && docker compose -f ops/self-host/docker-compose.yaml up -d --build
+#
+# Build context is `../..` for every service so the monorepo root is visible
+# to each Dockerfile (libs/schema must be reachable for the multi-stage build).
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USERNAME:-root}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-root}
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  control-panel:
+    build:
+      context: ../..
+      dockerfile: apps/control-panel/Dockerfile.dev
+    restart: unless-stopped
+    ports:
+      - "8081:8080"
+    environment:
+      SPRING_DATA_MONGODB_URI: mongodb://${MONGO_USERNAME:-root}:${MONGO_PASSWORD:-root}@mongo:27017/remote-falcon?authSource=admin
+      WEB_URL: ${WEB_URL}
+      JWT_USER: ${JWT_USER}
+      AUTO_VALIDATE_EMAIL: ${AUTO_VALIDATE_EMAIL:-true}
+      CLIENT_HEADER: ${CLIENT_HEADER:-X-Forwarded-For}
+      GITHUB_PAT: ${GITHUB_PAT:-}
+      SENDGRID_KEY: ${SENDGRID_KEY:-}
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_ACCESSKEY: ${S3_ACCESSKEY:-}
+      S3_SECRETKEY: ${S3_SECRETKEY:-}
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  viewer:
+    build:
+      context: ../..
+      dockerfile: apps/viewer/Dockerfile.dev
+    restart: unless-stopped
+    ports:
+      - "8082:8080"
+    environment:
+      MONGO_URI: mongodb://${MONGO_USERNAME:-root}:${MONGO_PASSWORD:-root}@mongo:27017/remote-falcon?authSource=admin
+      CLIENT_HEADER: ${CLIENT_HEADER:-X-Forwarded-For}
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  plugins-api:
+    build:
+      context: ../..
+      dockerfile: apps/plugins-api/Dockerfile.dev
+    restart: unless-stopped
+    ports:
+      - "8083:8080"
+    environment:
+      MONGO_URI: mongodb://${MONGO_USERNAME:-root}:${MONGO_PASSWORD:-root}@mongo:27017/remote-falcon?authSource=admin
+      SEQUENCE_LIMIT: ${SEQUENCE_LIMIT:-200}
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  ui:
+    build:
+      context: ../../apps/ui
+      args:
+        HOST_ENV: prod
+        VERSION: ${VERSION:-self-host}
+        CONTROL_PANEL_API: ${WEB_URL}/remote-falcon-control-panel
+        VIEWER_API: ${WEB_URL}/remote-falcon-viewer
+        VIEWER_JWT_KEY: ${JWT_VIEWER}
+        GOOGLE_MAPS_KEY: ${GOOGLE_MAPS_KEY:-}
+        PUBLIC_POSTHOG_KEY: ${PUBLIC_POSTHOG_KEY:-}
+        GA_TRACKING_ID: ${GA_TRACKING_ID:-}
+        HOSTNAME_PARTS: ${HOSTNAME_PARTS:-2}
+        SWAP_CP: ${SWAP_CP:-false}
+        VIEWER_PAGE_SUBDOMAIN: ${VIEWER_PAGE_SUBDOMAIN:-}
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - control-panel
+      - viewer
+
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/ssl:/etc/ssl/rf:ro
+    depends_on:
+      - ui
+      - control-panel
+      - viewer
+      - plugins-api
+
+volumes:
+  mongo-data:
