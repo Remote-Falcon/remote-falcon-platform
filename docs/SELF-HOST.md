@@ -212,6 +212,6 @@ Plugin is hitting the SaaS, not your self-host. See
 | [ops/self-host/.env.example](../ops/self-host/.env.example) | All env vars with inline notes |
 | [docs/SERVICES.md](SERVICES.md) | Full service catalog (for understanding what each container does) |
 
-For questions, file an issue at
-`github.com/Remote-Falcon/remote-falcon-platform/issues` or hop into the
-Discord (link in the control-panel's Help menu).
+For questions, file an issue in the public issue tracker at
+[`github.com/Remote-Falcon/remote-falcon-issue-tracker`](https://github.com/Remote-Falcon/remote-falcon-issue-tracker)
+or hop into the Discord (link in the control-panel's Help menu).
