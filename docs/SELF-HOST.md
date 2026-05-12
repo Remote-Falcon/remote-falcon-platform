@@ -150,6 +150,57 @@ Restore: reverse the tar with `tar xzf` into the volume after a `docker compose 
 
 ---
 
+## Cloud-provider notes
+
+The deployment is just Docker + Compose + nginx + TLS, so anywhere you can
+get a Linux host with Docker installed will work. Three knobs change
+depending on which cloud you pick:
+
+### 1. `CLIENT_HEADER`
+
+Which header carries the real viewer IP into the app. Set in `.env`.
+
+| Sitting behind… | `CLIENT_HEADER` |
+|---|---|
+| Cloudflare proxy | `CF-Connecting-IP` |
+| AWS Application Load Balancer | `X-Forwarded-For` |
+| GCP Cloud Load Balancer | `X-Forwarded-For` |
+| Raw nginx (this stack only, no extra proxy) | `X-Forwarded-For` |
+
+Get this wrong and every viewer looks like they came from `127.0.0.1`, which
+breaks per-viewer rate limits and the "viewers right now" tile.
+
+### 2. S3-compatible object storage (optional)
+
+Only needed if you want in-product image upload. The app speaks the S3 API,
+so any S3-compatible storage works:
+
+| Provider | `S3_ENDPOINT` |
+|---|---|
+| DigitalOcean Spaces | `https://<region>.digitaloceanspaces.com` |
+| AWS S3 | leave blank (uses the AWS SDK default) |
+| GCP Cloud Storage | `https://storage.googleapis.com` (S3 interop on) |
+| MinIO (self-hosted) | `http://minio:9000` or your URL |
+
+Leave all three S3 vars blank to disable image upload entirely.
+
+### 3. Mongo backups
+
+The `docker run + tar` example above works on any host. The *cloud-native*
+backup is a block-storage snapshot — much faster and atomic. Take a
+snapshot of whatever disk backs the Docker volume:
+
+- **DigitalOcean:** Volume snapshots (`doctl compute volume-action snapshot`)
+- **AWS:** EBS snapshots (`aws ec2 create-snapshot`)
+- **GCP:** Persistent Disk snapshots (`gcloud compute disks snapshot`)
+
+For any provider, schedule it nightly via cron + the provider's CLI. The
+block-storage snapshot captures the entire Docker volume including any
+in-flight writes (Mongo's WAL handles a crash-consistent restore on
+startup).
+
+---
+
 ## Wiring up the FPP plugin
 
 Your FPP controller runs the Remote Falcon FPP plugin to report heartbeats
