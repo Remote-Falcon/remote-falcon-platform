@@ -2,7 +2,6 @@ package com.remotefalcon.controlpanel.service;
 
 import com.remotefalcon.controlpanel.repository.NotificationRepository;
 import com.remotefalcon.controlpanel.repository.ShowRepository;
-import com.remotefalcon.controlpanel.repository.WattsonRepository;
 import com.remotefalcon.controlpanel.util.AuthUtil;
 import com.remotefalcon.controlpanel.util.ClientUtil;
 import com.remotefalcon.controlpanel.util.EmailUtil;
@@ -42,7 +41,6 @@ class PurgeStatsForShowTest {
     @Mock private AuthUtil authUtil;
     @Mock private ShowRepository showRepository;
     @Mock private NotificationRepository notificationRepository;
-    @Mock private WattsonRepository wattsonRepository;
     @Mock private ClientUtil clientUtil;
 
     @InjectMocks private GraphQLMutationService service;

@@ -143,9 +143,3 @@ export const DELETE_NOTIFICATION_FOR_USER = gql`
     deleteNotificationForUser(uuid: $uuid)
   }
 `;
-
-export const WATTSON_FEEDBACK = gql`
-  mutation ($responseId: String!, $feedback: String!) @api(name: controlPanel) {
-    wattsonFeedback(responseId: $responseId, feedback: $feedback)
-  }
-`;

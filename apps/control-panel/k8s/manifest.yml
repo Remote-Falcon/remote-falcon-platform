@@ -93,21 +93,6 @@ spec:
           value: remote-falcon-uploads
         - name: IMAGES_CDN_ENDPOINT
           value: https://remote-falcon-uploads.nyc3.cdn.digitaloceanspaces.com
-        - name: WATTSON_KEY
-          valueFrom:
-            secretKeyRef:
-              name: remote-falcon-control-panel
-              key: wattson-key
-        - name: OPENAI_MODEL
-          valueFrom:
-            secretKeyRef:
-              name: remote-falcon-control-panel
-              key: openai-model
-        - name: WATTSON_MAX_OUTPUT_TOKENS
-          valueFrom:
-            secretKeyRef:
-              name: remote-falcon-control-panel
-              key: max-output-tokens
         startupProbe:
           httpGet:
             path: /remote-falcon-control-panel/actuator/health

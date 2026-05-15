@@ -8,8 +8,7 @@ import PageHead from '../../../../ui-component/PageHead';
 import SubNav from '../../../../ui-component/SubNav';
 
 export const adminRoutes = [
-  { label: 'Account Maintenance', to: '/control-panel/admin/accounts' },
-  { label: 'Wattson Feedback', to: '/control-panel/admin/wattson-feedback' }
+  { label: 'Account Maintenance', to: '/control-panel/admin/accounts' }
 ];
 
 const Admin = () => {
@@ -19,7 +18,7 @@ const Admin = () => {
 
   return (
     <Box>
-      <PageHead title="Remote Falcon Admin" description="Internal account maintenance and Ask Wattson feedback review." />
+      <PageHead title="Remote Falcon Admin" description="Internal account maintenance." />
       <SubNav items={adminRoutes} />
       <Outlet />
     </Box>

@@ -2,12 +2,9 @@ package com.remotefalcon.controlpanel.controller;
 
 import com.remotefalcon.controlpanel.aop.RequiresAccess;
 import com.remotefalcon.controlpanel.aop.RequiresAdminAccess;
-import com.remotefalcon.controlpanel.model.AskWattson;
-import com.remotefalcon.controlpanel.model.WattsonResponse;
 import com.remotefalcon.controlpanel.response.ShowsOnAMap;
 import com.remotefalcon.library.documents.Notification;
 import com.remotefalcon.library.documents.Show;
-import com.remotefalcon.library.documents.Wattson;
 import com.remotefalcon.library.models.*;
 import com.remotefalcon.controlpanel.response.dashboard.DashboardLiveStatsResponse;
 import com.remotefalcon.controlpanel.response.dashboard.DashboardStatsResponse;
@@ -197,11 +194,6 @@ public class GraphQLController {
         return this.graphQLMutationService.deleteNotification(uuid);
     }
 
-    @MutationMapping
-    @RequiresAccess
-    public Boolean wattsonFeedback(@Argument String responseId, @Argument String feedback) {
-        return this.graphQLMutationService.wattsonFeedback(responseId, feedback);
-    }
 
 
     /*******
@@ -302,21 +294,4 @@ public class GraphQLController {
         return this.graphQLQueryService.getNotifications();
     }
 
-    @QueryMapping
-    @RequiresAccess
-    public AskWattson askWattson(@Argument String prompt, @Argument String previousResponseId) {
-        return this.graphQLQueryService.askWattson(prompt, previousResponseId);
-    }
-
-    @QueryMapping
-    @RequiresAdminAccess
-    public WattsonResponse getWattsonResponse(@Argument String responseId) {
-        return this.graphQLQueryService.getWattsonResponse(responseId);
-    }
-
-    @QueryMapping
-    @RequiresAdminAccess
-    public List<Wattson> getWattsonFeedback(@Argument String filterBy) {
-        return this.graphQLQueryService.getWattsonFeedback(filterBy);
-    }
 }

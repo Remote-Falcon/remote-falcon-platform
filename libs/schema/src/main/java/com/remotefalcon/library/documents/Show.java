@@ -16,7 +16,7 @@ import java.util.List;
 @Data
 @Builder
 // @NoArgsConstructor + @AllArgsConstructor brought in line with every other
-// document and nested model in libs/schema (Notification, Wattson, Preference,
+// document and nested model in libs/schema (Notification, Preference,
 // Sequence, etc all carry both). Without an explicit no-args constructor here
 // Jackson cannot deserialize a Show from JSON -- Lombok's @Builder generates a
 // package-private all-args constructor which suppresses @Data's no-args

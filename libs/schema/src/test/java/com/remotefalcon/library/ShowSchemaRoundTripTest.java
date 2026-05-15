@@ -5,7 +5,6 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.remotefalcon.library.documents.Notification;
 import com.remotefalcon.library.documents.Show;
-import com.remotefalcon.library.documents.Wattson;
 import com.remotefalcon.library.enums.LocationCheckMethod;
 import com.remotefalcon.library.enums.NotificationType;
 import com.remotefalcon.library.enums.ShowRole;
@@ -93,21 +92,6 @@ class ShowSchemaRoundTripTest {
                 "@JsonIgnore on serviceToken must keep it out of the JSON payload");
         assertNotNull(original.getServiceToken(),
                 "sanity: original still holds the value, only the serialized copy drops it");
-    }
-
-    @Test
-    void wattson_roundTrips_throughJackson() throws Exception {
-        Wattson original = Wattson.builder()
-                .id("wattson-id-1")
-                .responseId("resp-1")
-                .showSubdomain("test-show")
-                .feedback("This is feedback text.")
-                .build();
-
-        String json = mapper.writeValueAsString(original);
-        Wattson roundTripped = mapper.readValue(json, Wattson.class);
-
-        assertEquals(original, roundTripped);
     }
 
     @Test

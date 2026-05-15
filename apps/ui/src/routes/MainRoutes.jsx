@@ -42,10 +42,8 @@ const ShowsMap = Loadable(lazy(() => import('../views/pages/controlPanel/showsMa
 
 const Admin = Loadable(lazy(() => import('../views/pages/controlPanel/admin')));
 const AccountDetails = Loadable(lazy(() => import('../views/pages/controlPanel/admin/AccountDetails')));
-const WattsonFeedback = Loadable(lazy(() => import('../views/pages/controlPanel/admin/WattsonFeedback')));
 
 const ImageHosting = Loadable(lazy(() => import('../views/pages/controlPanel/imageHosting')));
-const AskWattson = Loadable(lazy(() => import('../views/pages/controlPanel/askWattson')));
 
 const MainRoutes = {
   path: '/',
@@ -79,10 +77,6 @@ const MainRoutes = {
     {
       path: '/control-panel/dashboard',
       element: <Dashboard />
-    },
-    {
-      path: '/control-panel/ask-wattson',
-      element: <AskWattson />
     },
     {
       path: '/control-panel/remote-falcon-settings',
@@ -154,8 +148,7 @@ const MainRoutes = {
       element: <Admin />,
       children: [
         { index: true, element: <Navigate to="accounts" replace /> },
-        { path: 'accounts', element: <AccountDetails /> },
-        { path: 'wattson-feedback', element: <WattsonFeedback /> }
+        { path: 'accounts', element: <AccountDetails /> }
       ]
     }
   ]

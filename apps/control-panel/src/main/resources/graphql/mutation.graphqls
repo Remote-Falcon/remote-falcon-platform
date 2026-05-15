@@ -27,5 +27,4 @@ type Mutation {
     markNotificationsAsRead(uuids: [String]!): Boolean
     deleteNotificationForUser(uuid: String!): Boolean
     updateExpoPushToken(expoPushToken: String!): Boolean
-    wattsonFeedback(responseId: String!, feedback: String!): Boolean
 }

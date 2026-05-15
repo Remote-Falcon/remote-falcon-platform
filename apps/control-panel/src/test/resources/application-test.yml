@@ -2,7 +2,7 @@
 #
 # This file is loaded when @ActiveProfiles("test") is active. It supplies the
 # minimal set of properties required for an @SpringBootTest context to start
-# without a real Mongo, S3, MailerSend, GitHub, or OpenAI dependency.
+# without a real Mongo, S3, MailerSend, or GitHub dependency.
 #
 # JWT key MUST stay in sync with libs/test-fixtures' TestSecrets.JWT_KEY so
 # tokens minted by JwtFactory validate against AuthUtil's signer. The
@@ -61,11 +61,6 @@ images:
 # context bootstraps cleanly. Real values are not exercised in this test.
 github:
   pat: test-github-pat
-wattson:
-  key: test-wattson-key
-  max_output_tokens: 0
-openai:
-  model: ""
 auto-validate-email: false
 expo-push-url: http://expo.test.local
 web:

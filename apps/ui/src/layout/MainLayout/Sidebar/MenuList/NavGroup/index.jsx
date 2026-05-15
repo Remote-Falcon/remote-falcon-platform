@@ -10,7 +10,6 @@ import { useSelector } from '../../../../../store';
 
 import NavCollapse from '../NavCollapse';
 import NavItem from '../NavItem';
-import { useIsFeatureFlagEnabled } from '../../../../../utils/featureFlags';
 
 // Per-section collapse state lives in localStorage so the user's choice
 // survives reloads. One key per group id; default = expanded.
@@ -35,8 +34,6 @@ const NavGroup = ({ item }) => {
   const theme = useTheme();
   const { show } = useSelector((state) => state.show);
 
-  const isAskWattsonEnabled = useIsFeatureFlagEnabled('ask-wattson', show?.showSubdomain);
-
   const [collapsed, setCollapsed] = useState(() => !!readCollapsed()[item.id]);
 
   // Sync if some other group toggled (multi-tab / multi-mount edge case)
@@ -60,9 +57,6 @@ const NavGroup = ({ item }) => {
       if (show?.showRole !== 'ADMIN') {
         return <></>;
       }
-    }
-    if (menu.id === 'ask-wattson' && !isAskWattsonEnabled) {
-      return <></>;
     }
     switch (menu.type) {
       case 'collapse':

@@ -2,7 +2,6 @@ import * as React from 'react';
 
 import {
   IconAdjustmentsHorizontal,
-  IconAi,
   IconBlockquote,
   IconBook,
   IconBrandDiscord,
@@ -115,14 +114,6 @@ const communityGroup = {
       type: 'item',
       url: '/control-panel/shows-map',
       icon: IconMap,
-      breadcrumbs: false
-    },
-    {
-      id: 'ask-wattson',
-      title: 'Ask Wattson',
-      type: 'item',
-      url: '/control-panel/ask-wattson',
-      icon: IconAi,
       breadcrumbs: false
     }
   ]

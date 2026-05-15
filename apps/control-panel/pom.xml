@@ -157,11 +157,6 @@
             <artifactId>url-connection-client</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.openai</groupId>
-            <artifactId>openai-java</artifactId>
-            <version>3.1.2</version>
-        </dependency>
-        <dependency>
             <groupId>com.remotefalcon</groupId>
             <artifactId>remote-falcon-library</artifactId>
             <version>1.0.0-LOCAL</version>

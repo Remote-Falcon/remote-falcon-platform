@@ -539,34 +539,6 @@ export const GET_NOTIFICATIONS = gql`
   }
 `;
 
-export const ASK_WATTSON = gql`
-  query($prompt: String!, $previousResponseId: String) @api(name: controlPanel) {
-    askWattson(prompt: $prompt, previousResponseId: $previousResponseId) {
-        responseId
-        text
-    }
-}
-`;
-
-export const GET_WATTSON_FEEDBACK = gql `
-  query($filterBy: String) @api(name: controlPanel) {
-    getWattsonFeedback(filterBy: $filterBy) {
-      showSubdomain
-      responseId
-      feedback
-    }
-  }
-`;
-
-export const GET_WATTSON_RESPONSE = gql `
-  query($responseId: String!) @api(name: controlPanel) {
-    getWattsonResponse(responseId: $responseId) {
-      prompt
-      response
-    }
-  }
-`;
-
 export const IMPERSONATE = gql`
   query($showSubdomain: String!) @api(name: controlPanel) {
     impersonateShow(showSubdomain: $showSubdomain) {

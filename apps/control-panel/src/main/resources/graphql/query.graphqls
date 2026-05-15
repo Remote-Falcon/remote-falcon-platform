@@ -13,8 +13,5 @@ type Query {
     getShowsAutoSuggest(showName: String!): [String]
     getShowByShowName(showName: String!): Show
     getNotifications: [ShowNotification]
-    askWattson(prompt: String!, previousResponseId: String): AskWattson
-    getWattsonResponse(responseId: String!): WattsonResponse
-    getWattsonFeedback(filterBy: String): [Wattson]
     impersonateShow(showSubdomain: String!): Show
 }

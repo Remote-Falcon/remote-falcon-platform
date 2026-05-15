@@ -2,7 +2,6 @@ package com.remotefalcon.controlpanel.service;
 
 import com.remotefalcon.controlpanel.repository.NotificationRepository;
 import com.remotefalcon.controlpanel.repository.ShowRepository;
-import com.remotefalcon.controlpanel.repository.WattsonRepository;
 import com.remotefalcon.controlpanel.util.AuthUtil;
 import com.remotefalcon.controlpanel.util.ClientUtil;
 import com.remotefalcon.controlpanel.util.EmailUtil;
@@ -70,7 +69,6 @@ class RetentionSweepIntegrationTest {
     @MockBean private EmailUtil emailUtil;
     @MockBean private AuthUtil authUtil;
     @MockBean private NotificationRepository notificationRepository;
-    @MockBean private WattsonRepository wattsonRepository;
     @MockBean private ClientUtil clientUtil;
     @MockBean private ExpoNotificationService expoNotificationService;
 
@@ -82,7 +80,7 @@ class RetentionSweepIntegrationTest {
         mongoTemplate.dropCollection(Show.class);
         graphQLMutationService = new GraphQLMutationService(
                 emailUtil, authUtil, showRepository, notificationRepository,
-                wattsonRepository, clientUtil);
+                clientUtil);
         // @Value("${auto-validate-email}") field — not relevant to purge logic but
         // populated to avoid null surprises if other code paths ever touch it.
         ReflectionTestUtils.setField(graphQLMutationService, "autoValidateEmail", Boolean.TRUE);
