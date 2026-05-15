@@ -13,8 +13,14 @@ import {
 } from '@tabler/icons-react';
 
 import MainCard from '../../../../ui-component/cards/MainCard';
+import useDashboardLiveStats from '../../../../hooks/useDashboardLiveStats';
 import { useSelector } from '../../../../store';
 import { LocationCheckMethod } from '../../../../utils/enum';
+
+// Plugin is "connected" if a heartbeat landed within this window. Matches
+// HealthRow's HEARTBEAT_FRESH_MS and the backend's HEARTBEAT_GAP_THRESHOLD_MINUTES
+// so the readiness checklist and the live status widget can never disagree.
+const HEARTBEAT_FRESH_MS = 5 * 60 * 1000;
 
 // Operational readiness card for the Dashboard. "Is my show ready to run
 // tonight?" — sister to the live stats. Sits above LiveStatsRow.
@@ -70,6 +76,11 @@ const StatusRow = ({ status, label, detail }) => {
 
 const useChecks = () => {
   const { show } = useSelector((state) => state.show);
+  // Live-polled (5s) heartbeat — same source HealthRow uses. Reading the
+  // frozen value off `show.lastFppHeartbeat` in Redux drifts stale the
+  // longer the dashboard stays open, so we let the hook keep it fresh.
+  const { data: liveStats } = useDashboardLiveStats();
+  const lastHeartbeatMs = liveStats?.lastHeartbeatMs;
 
   return useMemo(() => {
     const out = [];
@@ -153,24 +164,19 @@ const useChecks = () => {
       });
     }
 
-    if (!show?.lastFppHeartbeat) {
+    if (!lastHeartbeatMs) {
       out.push({
         status: 'warn',
         label: 'No FPP plugin heartbeat received yet',
         detail: 'Install or restart the Remote Falcon FPP plugin to start syncing.'
       });
     } else {
-      // Backend serializes LocalDateTime as "yyyy-MM-ddTHH:mm:ss.SSS" with
-      // no timezone marker. JVM writes those components in UTC, so append 'Z'
-      // to parse correctly — without it, JS reads it as browser-local and
-      // produces a timestamp 4-5 hours in the future.
-      const raw = show.lastFppHeartbeat;
-      const utcStr = /[zZ]|[+-]\d{2}:?\d{2}$/.test(raw) ? raw : `${raw}Z`;
-      const minutesAgo = Math.max(0, Math.floor((Date.now() - new Date(utcStr).getTime()) / 60000));
-      if (minutesAgo > 60) {
+      const ageMs = Math.max(0, Date.now() - lastHeartbeatMs);
+      const minutesAgo = Math.floor(ageMs / 60000);
+      if (ageMs >= HEARTBEAT_FRESH_MS) {
         out.push({
           status: 'warn',
-          label: `FPP plugin last connected ${minutesAgo} minutes ago`,
+          label: `FPP plugin offline (last heartbeat ${minutesAgo} min ago)`,
           detail: 'Show may not be running. Check the FPP controller.'
         });
       } else {
@@ -184,7 +190,7 @@ const useChecks = () => {
     const order = { blocker: 0, warn: 1, ok: 2 };
     out.sort((a, b) => order[a.status] - order[b.status]);
     return out;
-  }, [show]);
+  }, [show, lastHeartbeatMs]);
 };
 
 const PreShowChecklist = () => {
