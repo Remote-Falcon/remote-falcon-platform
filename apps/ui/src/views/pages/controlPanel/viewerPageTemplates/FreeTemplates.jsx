@@ -30,6 +30,7 @@ import { setRemoteViewerPageTemplates } from '../../../../store/slices/controlPa
 import { setShow } from '../../../../store/slices/show';
 import MainCard from '../../../../ui-component/cards/MainCard';
 import ViewerPageTemplatesSkeleton from '../../../../ui-component/cards/Skeleton/ViewerPageTemplatesSkeleton';
+import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
 import { UPDATE_PAGES } from '../../../../utils/graphql/controlPanel/mutations';
 import { showAlert } from '../../globalPageHelpers';
 
@@ -126,6 +127,12 @@ const FreeTemplates = () => {
         setCreateOpen(false);
         setCreateName('');
         showAlert(dispatch, { message: `Created "${name}" — set it live from the Viewer Page editor` });
+        trackPosthogEvent('template_applied', {
+          template_name: template?.title,
+          template_id: template?.key,
+          tier: 'free',
+          page_count_after: updated.length
+        });
         navigate('/control-panel/viewer-page');
       } else {
         showAlert(dispatch, response?.toast || { alert: 'error' });

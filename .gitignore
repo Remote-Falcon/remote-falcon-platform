@@ -4,6 +4,12 @@
 !.env.*.example
 !.env.example
 
+# Ad-hoc credential / scratch notes (e.g., posthog.md with API key)
+posthog.md
+secrets.md
+*.creds
+*.secrets
+
 # Build outputs
 **/target/
 **/build/

@@ -56,6 +56,7 @@ import ConfirmDialog from '../../../../ui-component/ConfirmDialog';
 import EmptyState from '../../../../ui-component/EmptyState';
 import MainCard from '../../../../ui-component/cards/MainCard';
 import useCoalescedSave from '../../../../hooks/useCoalescedSave';
+import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
 import {
   PLAY_SEQUENCE_FROM_CONTROL_PANEL,
   UPDATE_SEQUENCES,
@@ -288,6 +289,12 @@ const SequencesList = () => {
     const k = rowKey(sequence);
     setRowStatus((rs) => ({ ...rs, [k]: 'dirty' }));
     enqueue({ key: k, patch: { [field]: value } });
+    if (field === 'active') {
+      trackPosthogEvent(value ? 'sequence_activated' : 'sequence_deactivated', {
+        sequence_name: sequence?.name,
+        sequence_artist: sequence?.artist
+      });
+    }
   };
 
   // Filtered + sorted view
@@ -365,6 +372,10 @@ const SequencesList = () => {
 
   const playSequence = (sequence) => {
     setBusy(true);
+    trackPosthogEvent('sequence_play_now', {
+      sequence_name: sequence?.name,
+      sequence_artist: sequence?.artist
+    });
     playSequenceFromControlPanelService(sequence, playSequenceFromControlPanelMutation, (response) => {
       showAlert(dispatch, response?.toast);
       setBusy(false);

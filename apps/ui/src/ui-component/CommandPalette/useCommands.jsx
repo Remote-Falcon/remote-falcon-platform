@@ -18,6 +18,7 @@ import controlPanelGroups from '../../menu-items/controlPanel';
 import { savePreferencesService } from '../../services/controlPanel/mutations.service';
 import { useDispatch, useSelector } from '../../store';
 import { setShow } from '../../store/slices/show';
+import { trackPosthogEvent } from '../../utils/analytics/posthog';
 import { ViewerControlMode } from '../../utils/enum';
 import { DELETE_NOW_PLAYING, RESET_ALL_VOTES, UPDATE_PREFERENCES } from '../../utils/graphql/controlPanel/mutations';
 import { showAlert } from '../../views/pages/globalPageHelpers';
@@ -138,12 +139,15 @@ const useCommands = () => {
       hint: 'Action · Show',
       group: 'Actions',
       icon: <IconPower size={18} stroke={1.75} />,
-      run: () =>
+      run: () => {
+        const next = !viewerControlEnabled;
         togglePreference(
           'viewerControlEnabled',
-          !viewerControlEnabled,
+          next,
           viewerControlEnabled ? 'Viewer Control Disabled' : 'Viewer Control Enabled'
-        )
+        );
+        trackPosthogEvent('viewer_control_toggled', { enabled: next, source: 'command_palette' });
+      }
     });
 
     commands.push({
@@ -152,12 +156,19 @@ const useCommands = () => {
       hint: 'Action · Show',
       group: 'Actions',
       icon: <IconArrowsShuffle size={18} stroke={1.75} />,
-      run: () =>
+      run: () => {
+        const next = isJukebox ? ViewerControlMode.VOTING : ViewerControlMode.JUKEBOX;
         togglePreference(
           'viewerControlMode',
-          isJukebox ? ViewerControlMode.VOTING : ViewerControlMode.JUKEBOX,
+          next,
           isJukebox ? 'Switched to Voting mode' : 'Switched to Jukebox mode'
-        )
+        );
+        trackPosthogEvent('control_mode_changed', {
+          from: isJukebox ? 'JUKEBOX' : 'VOTING',
+          to: next,
+          source: 'command_palette'
+        });
+      }
     });
 
     if (!isJukebox) {

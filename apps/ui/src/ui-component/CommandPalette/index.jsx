@@ -10,6 +10,8 @@ import {
 } from '@mui/material';
 import { IconCornerDownLeft, IconSearch } from '@tabler/icons-react';
 
+import { trackPosthogEvent } from '../../utils/analytics/posthog';
+
 import useCommands from './useCommands';
 
 // Custom event the topbar SearchTrigger and any other "open palette"
@@ -108,6 +110,11 @@ const CommandPalette = () => {
   const runActive = () => {
     const cmd = flat[activeIndex];
     if (!cmd) return;
+    trackPosthogEvent('command_palette_used', {
+      command_id: cmd.id,
+      command_group: cmd.group,
+      query_length: query.length
+    });
     close();
     // defer so the dialog has a chance to unmount before any nav
     setTimeout(() => cmd.run(), 0);

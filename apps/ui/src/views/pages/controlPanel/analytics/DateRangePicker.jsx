@@ -13,6 +13,8 @@ import {
 } from '@mui/material';
 import { IconCalendar, IconChevronDown } from '@tabler/icons-react';
 
+import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
+
 import useAnalyticsFilters from './useAnalyticsFilters';
 
 // Compact preset picker for the PageHead actions slot. Renders as a
@@ -52,6 +54,12 @@ const DateRangePicker = () => {
             key={preset.id}
             selected={preset.id === presetId}
             onClick={() => {
+              if (preset.id !== presetId) {
+                trackPosthogEvent('analytics_preset_changed', {
+                  preset_id: preset.id,
+                  prior_preset_id: presetId
+                });
+              }
               setPreset(preset.id);
               setOpen(false);
             }}

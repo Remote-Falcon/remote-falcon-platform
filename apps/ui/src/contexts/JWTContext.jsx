@@ -165,6 +165,10 @@ export const JWTProvider = ({ children }) => {
             });
           }
         } catch (_) {}
+        trackPosthogEvent('signin', {
+          show_name: showData?.showName,
+          show_role: showData?.showRole
+        });
       },
       onError: (error) => {
         if (error?.message === StatusResponse.UNAUTHORIZED) {
@@ -225,6 +229,7 @@ export const JWTProvider = ({ children }) => {
         showToken
       },
       onCompleted: () => {
+        trackPosthogEvent('email_verified');
         showAlert(dispatch, { message: 'Email successfully verified' });
         setTimeout(() => {
           navigate('/signin', { replace: true });

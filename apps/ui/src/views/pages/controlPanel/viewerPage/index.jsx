@@ -26,6 +26,7 @@ import { useDispatch, useSelector } from '../../../../store';
 import { setShow } from '../../../../store/slices/show';
 import { setRemoteViewerPageTemplates } from '../../../../store/slices/controlPanel';
 import { Environments } from '../../../../utils/enum';
+import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
 import ConfirmDialog from '../../../../ui-component/ConfirmDialog';
 import MainCard from '../../../../ui-component/cards/MainCard';
 import PageHead from '../../../../ui-component/PageHead';
@@ -191,6 +192,10 @@ const ViewerPage = () => {
           if (response?.success) {
             dispatch(setShow({ ...show, pages: [...updated] }));
             if (successMessage) showAlert(dispatch, { message: successMessage });
+            trackPosthogEvent('viewer_page_saved', {
+              page_count: (updated || []).length,
+              active_page_count: (updated || []).filter((p) => p?.active).length
+            });
             resolve(true);
           } else {
             showAlert(dispatch, response?.toast);

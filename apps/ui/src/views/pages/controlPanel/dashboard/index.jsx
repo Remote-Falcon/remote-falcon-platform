@@ -25,6 +25,7 @@ import { gridSpacing } from '../../../../store/constant';
 import LiveIndicator from '../../../../ui-component/LiveIndicator';
 import PageHead from '../../../../ui-component/PageHead';
 import SectionHeader from '../../../../ui-component/SectionHeader';
+import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
 import { ViewerControlMode } from '../../../../utils/enum';
 import { DELETE_NOW_PLAYING, RESET_ALL_VOTES } from '../../../../utils/graphql/controlPanel/mutations';
 import { showAlert } from '../../globalPageHelpers';
@@ -45,11 +46,15 @@ const ViewPublicPageButton = ({ publicUrl }) => {
 
   if (!publicUrl) return null;
 
-  const open_ = () => window.open(publicUrl, '_blank', 'noreferrer');
+  const open_ = () => {
+    trackPosthogEvent('dashboard_quick_action', { action: 'view_public_page' });
+    window.open(publicUrl, '_blank', 'noreferrer');
+  };
   const copy_ = async () => {
     try {
       await navigator.clipboard.writeText(publicUrl);
       setCopied(true);
+      trackPosthogEvent('dashboard_quick_action', { action: 'copy_public_url' });
       setTimeout(() => setCopied(false), 1500);
     } catch {
       /* clipboard blocked */
@@ -115,6 +120,7 @@ const Dashboard = () => {
   const isJukebox = show?.preferences?.viewerControlMode === ViewerControlMode.JUKEBOX;
 
   const resetAllVotes = () => {
+    trackPosthogEvent('dashboard_quick_action', { action: 'reset_votes' });
     resetAllVotesMutation({
       context: { headers: { Route: 'Control-Panel' } },
       onCompleted: () => showAlert(dispatch, { message: 'All Votes Reset' }),
@@ -123,6 +129,7 @@ const Dashboard = () => {
   };
 
   const deleteNowPlaying = () => {
+    trackPosthogEvent('dashboard_quick_action', { action: 'clear_now_playing' });
     deleteNowPlayingMutation({
       context: { headers: { Route: 'Control-Panel' } },
       onCompleted: () => showAlert(dispatch, { message: 'Now Playing/Up next Cleared' }),

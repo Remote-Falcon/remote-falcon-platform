@@ -13,6 +13,7 @@ import { ViewerControlMode } from '../../../../utils/enum';
 import { savePreferencesService } from '../../../../services/controlPanel/mutations.service';
 import { useDispatch, useSelector } from '../../../../store';
 import { setShow } from '../../../../store/slices/show';
+import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
 import { UPDATE_PREFERENCES } from '../../../../utils/graphql/controlPanel/mutations';
 import { showAlert } from '../../globalPageHelpers';
 
@@ -52,6 +53,20 @@ const MainSettings = () => {
         savePreferencesService(updatedPreferences, updatePreferencesMutation, (response) => {
           if (response?.success) {
             dispatch(setShow({ ...show, preferences: updatedPreferences }));
+            // Funnel events for changes that just landed.
+            if (snapshot.viewerControlMode !== show?.preferences?.viewerControlMode) {
+              trackPosthogEvent('control_mode_changed', {
+                from: show?.preferences?.viewerControlMode,
+                to: snapshot.viewerControlMode,
+                source: 'settings'
+              });
+            }
+            if (!!snapshot.viewerControlEnabled !== !!show?.preferences?.viewerControlEnabled) {
+              trackPosthogEvent('viewer_control_toggled', {
+                enabled: !!snapshot.viewerControlEnabled,
+                source: 'settings'
+              });
+            }
             resolve();
           } else {
             showAlert(dispatch, response?.toast);

@@ -10,6 +10,7 @@ import { useDispatch } from '../../../../store';
 import { setShow } from '../../../../store/slices/show';
 import PageHead from '../../../../ui-component/PageHead';
 import SubNav from '../../../../ui-component/SubNav';
+import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
 import { GET_SHOW } from '../../../../utils/graphql/controlPanel/queries';
 import { showAlert } from '../../globalPageHelpers';
 
@@ -71,6 +72,10 @@ const Sequences = () => {
         showAlert(dispatch, { message: 'Sequences imported successfully.' });
         const { data } = await getShowQuery();
         if (data?.getShow) dispatch(setShow(data.getShow));
+        trackPosthogEvent('sequences_imported', {
+          source: 'excel_upload',
+          sequence_count: data?.getShow?.sequences?.length || 0
+        });
       } else {
         showAlert(dispatch, { alert: 'error', message: response?.data || 'Unable to import sequences' });
       }
