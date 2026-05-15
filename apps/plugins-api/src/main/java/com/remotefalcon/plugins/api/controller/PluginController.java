@@ -122,7 +122,7 @@ public class PluginController {
   @Produces(MediaType.APPLICATION_JSON)
   @Consumes(MediaType.APPLICATION_JSON)
   public void fppHeartbeat() {
-    // this.pluginService.fppHeartbeat();
+    this.pluginService.fppHeartbeat();
   }
 
   @GET

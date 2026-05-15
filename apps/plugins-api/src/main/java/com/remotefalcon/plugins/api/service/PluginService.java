@@ -694,8 +694,8 @@ public class PluginService {
 
   // V18 — when the reported plugin/FPP version differs from what's stored,
   // append a VersionChange record so the dashboard can show "last upgraded
-  // N days ago" + a history popover. Pruned to the last 365 days in the
-  // same atomic update.
+  // N days ago" + a history popover. Prune + push run as two updates because
+  // Mongo rejects $pull and $push on the same field path in one operation.
   private static final long VERSION_CHANGE_RETENTION_DAYS = 365L;
 
   public PluginResponse pluginVersion(PluginVersion request) {
@@ -705,26 +705,32 @@ public class PluginService {
     boolean pluginChanged = newPluginVer != null && !java.util.Objects.equals(newPluginVer, show.getPluginVersion());
     boolean fppChanged = newFppVer != null && !java.util.Objects.equals(newFppVer, show.getFppVersion());
 
-    var updates = new java.util.ArrayList<org.bson.conversions.Bson>();
-    updates.add(Updates.set("pluginVersion", newPluginVer));
-    updates.add(Updates.set("fppVersion", newFppVer));
+    Show.mongoCollection().updateOne(
+        Filters.eq("showToken", show.getShowToken()),
+        Updates.combine(
+            Updates.set("pluginVersion", newPluginVer),
+            Updates.set("fppVersion", newFppVer)
+        )
+    );
 
     if (pluginChanged || fppChanged) {
       LocalDateTime now = LocalDateTime.now();
       LocalDateTime cutoff = now.minusDays(VERSION_CHANGE_RETENTION_DAYS);
-      updates.add(Updates.pull("versionChanges", Filters.lt("at", cutoff)));
-      updates.add(Updates.push("versionChanges",
-          VersionChange.builder()
-              .at(now)
-              .pluginVersion(newPluginVer)
-              .fppVersion(newFppVer)
-              .build()));
+      Show.mongoCollection().updateOne(
+          Filters.eq("showToken", show.getShowToken()),
+          Updates.pull("versionChanges", Filters.lt("at", cutoff))
+      );
+      Show.mongoCollection().updateOne(
+          Filters.eq("showToken", show.getShowToken()),
+          Updates.push("versionChanges",
+              VersionChange.builder()
+                  .at(now)
+                  .pluginVersion(newPluginVer)
+                  .fppVersion(newFppVer)
+                  .build())
+      );
     }
 
-    Show.mongoCollection().updateOne(
-        Filters.eq("showToken", show.getShowToken()),
-        Updates.combine(updates)
-    );
     return PluginResponse.builder().message("Success").build();
   }
 
@@ -826,18 +832,21 @@ public class PluginService {
 
     // Always prune anything older than the retention window — keeps the
     // embedded list bounded over a long-running show that's been up for years.
+    // Pull + push on heartbeatGaps must be two separate updates because Mongo
+    // rejects both modifiers on the same field path in one operation.
     LocalDateTime cutoff = now.minusDays(HEARTBEAT_GAP_RETENTION_DAYS);
-
-    var updates = new java.util.ArrayList<org.bson.conversions.Bson>();
-    updates.add(Updates.set("lastFppHeartbeat", now));
-    updates.add(Updates.pull("heartbeatGaps", Filters.lt("endedAt", cutoff)));
-    if (newGap != null) {
-      updates.add(Updates.push("heartbeatGaps", newGap));
-    }
+    var filter = Filters.eq("showToken", show.getShowToken());
 
     Show.mongoCollection().updateOne(
-        Filters.eq("showToken", show.getShowToken()),
-        Updates.combine(updates)
+        filter,
+        Updates.combine(
+            Updates.set("lastFppHeartbeat", now),
+            Updates.pull("heartbeatGaps", Filters.lt("endedAt", cutoff))
+        )
     );
+
+    if (newGap != null) {
+      Show.mongoCollection().updateOne(filter, Updates.push("heartbeatGaps", newGap));
+    }
   }
 }
