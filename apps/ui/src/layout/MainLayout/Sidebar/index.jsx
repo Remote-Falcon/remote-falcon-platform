@@ -34,6 +34,7 @@ const COLLAPSED_PAPER_OVERRIDES = {
 const Sidebar = ({ window }) => {
   const theme = useTheme();
   const matchUpMd = useMediaQuery(theme.breakpoints.up('md'));
+  const matchUpLg = useMediaQuery(theme.breakpoints.up('lg'));
 
   const dispatch = useDispatch();
   const { drawerOpen } = useSelector((state) => state.menu);
@@ -42,7 +43,10 @@ const Sidebar = ({ window }) => {
 
   // Effective rail width: collapsed only matters at md+ (desktop).
   // Mobile is always the temporary full-width drawer.
-  const railCollapsed = matchUpMd && sidebarCollapsed;
+  // Between md and lg (900–1199px) there's no room for the full sidebar
+  // without crowding content, so force rail mode in that range. User's
+  // manual collapse preference still applies at lg+.
+  const railCollapsed = matchUpMd && (sidebarCollapsed || !matchUpLg);
   const paperWidth = railCollapsed ? drawerWidthCollapsed : drawerWidthExpanded;
 
   // The drawer paper is a flex column. Logo pinned to the top, scrollable
@@ -105,7 +109,9 @@ const Sidebar = ({ window }) => {
             type="button"
             onClick={onToggleSidebar}
             sx={{
-              display: { xs: 'none', md: 'flex' },
+              // Toggle is only meaningful at lg+, where the user can actually
+              // choose between rail and full. Below lg, the rail is forced.
+              display: { xs: 'none', lg: 'flex' },
               width: '100%',
               alignItems: 'center',
               gap: 1.5,

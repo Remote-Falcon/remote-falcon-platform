@@ -20,7 +20,10 @@ import _ from 'lodash';
 // topbar starts after the rail and only spans the content area.
 const MainLayout = () => {
   const theme = useTheme();
-  const matchDownMd = useMediaQuery(theme.breakpoints.down('lg'));
+  // Drawer is persistent (open) at md+ and switches to temporary
+  // (closed, opened via the header hamburger) below md. Sidebar handles
+  // auto-railing between md and lg internally.
+  const matchDownMd = useMediaQuery(theme.breakpoints.down('md'));
 
   const dispatch = useDispatch();
   const { drawerOpen } = useSelector((state) => state.menu);

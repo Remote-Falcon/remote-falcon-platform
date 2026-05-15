@@ -14,7 +14,9 @@ import { activeItem, openDrawer } from '../../../../../store/slices/menu';
 const NavItem = ({ item, level }) => {
   const theme = useTheme();
   const { pathname } = useLocation();
-  const matchesSM = useMediaQuery(theme.breakpoints.down('lg'));
+  // Auto-close drawer after navigation only on mobile (temporary drawer).
+  // At md+ the rail stays visible (full at lg+, auto-railed between md–lg).
+  const matchesSM = useMediaQuery(theme.breakpoints.down('md'));
 
   const { borderRadius } = useConfig();
   const dispatch = useDispatch();
