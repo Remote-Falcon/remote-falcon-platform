@@ -76,6 +76,28 @@ metadata:
   namespace: #{Namespace}#
   annotations:
     kubernetes.io/ingress.class: nginx
+    # PostHog reverse proxy. ~25-30% of real users (Brave, NextDNS,
+    # Pi-hole, AdGuard, uBlock with strict lists) block requests by URL
+    # pattern to us.i.posthog.com — bypass by routing through our own
+    # origin. Matches the same `/ingest/` routes in ops/dev-nginx.conf
+    # so the SDK config (api_host: '/ingest') is identical in dev + prod.
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      location ^~ /ingest/static/ {
+        resolver 1.1.1.1 1.0.0.1 valid=300s;
+        proxy_pass            https://us-assets.i.posthog.com/static/;
+        proxy_ssl_server_name on;
+        proxy_set_header      Host us-assets.i.posthog.com;
+        proxy_redirect        off;
+        proxy_buffering       on;
+      }
+      location ^~ /ingest/ {
+        resolver 1.1.1.1 1.0.0.1 valid=300s;
+        proxy_pass            https://us.i.posthog.com/;
+        proxy_ssl_server_name on;
+        proxy_set_header      Host us.i.posthog.com;
+        proxy_redirect        off;
+        proxy_buffering       on;
+      }
 spec:
   tls:
   - hosts:

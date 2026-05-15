@@ -47,8 +47,14 @@ if (missingEnv.length > 0) {
   throw new Error(message);
 }
 
+// api_host is a SAME-ORIGIN relative path that nginx (dev + prod ingress)
+// reverse-proxies to PostHog. This dodges the ~25-30% of real users running
+// ad-blockers / DNS filters that block requests by URL pattern to known
+// analytics hosts. ui_host stays absolute so "View in PostHog" links from
+// the SDK (debug overlay etc.) still point at the real app.
 const posthogOptions = {
-  api_host: 'https://us.i.posthog.com',
+  api_host: '/ingest',
+  ui_host: 'https://us.posthog.com',
   person_profiles: 'identified_only'
 };
 
