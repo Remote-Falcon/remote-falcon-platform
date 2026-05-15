@@ -6,6 +6,7 @@ import {
   IconBook,
   IconBrandDiscord,
   IconBrandFacebook,
+  IconBug,
   IconChartHistogram,
   IconDashboard,
   IconFileUpload,
@@ -154,6 +155,19 @@ const helpGroup = {
       type: 'item',
       url: 'https://www.facebook.com/groups/remotefalcon',
       icon: IconBrandFacebook,
+      external: true,
+      target: true,
+      breadcrumbs: false
+    },
+    {
+      // URL + onClick handler are injected at render time by MenuList so
+      // the body can include live show/plugin/browser context. Keeping
+      // the entry declarative here means the menu config stays a pure
+      // export with no Redux dependency.
+      id: 'report-bug',
+      title: 'Report a bug',
+      type: 'item',
+      icon: IconBug,
       external: true,
       target: true,
       breadcrumbs: false

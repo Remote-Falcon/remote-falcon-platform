@@ -44,8 +44,22 @@ const NavItem = ({ item, level }) => {
   if (item?.external) {
     listItemProps = { component: 'a', href: item.url, target: itemTarget };
   }
+  // onClick-driven items (e.g. the "Report a bug" entry that needs to build
+  // a URL from live Redux state at click time) opt out of routed/href
+  // navigation entirely. MenuList injects the handler — the menu config
+  // itself stays declarative. The actual click dispatch happens in
+  // itemHandler below so it composes cleanly with the activeItem call
+  // (the explicit onClick on ListItemButton would otherwise clobber any
+  // onClick we tried to put in listItemProps).
+  if (item?.onClick) {
+    listItemProps = { component: 'a', href: '#' };
+  }
 
-  const itemHandler = (id) => {
+  const itemHandler = (id, e) => {
+    if (item?.onClick) {
+      e?.preventDefault();
+      item.onClick();
+    }
     dispatch(activeItem([id]));
     if (matchesSM) dispatch(openDrawer(false));
   };
@@ -108,7 +122,7 @@ const NavItem = ({ item, level }) => {
         }
       }}
       selected={isActive}
-      onClick={() => itemHandler(item.id)}
+      onClick={(e) => itemHandler(item.id, e)}
     >
       <ListItemIcon
         sx={{
