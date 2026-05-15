@@ -1,18 +1,19 @@
 import { useMemo } from 'react';
-import * as React from 'react';
 
 import { Box, Grid, Skeleton, Stack, Typography } from '@mui/material';
 import { IconArrowLeft, IconCalendar, IconMusic, IconTrendingUp } from '@tabler/icons-react';
-import _ from 'lodash';
 import moment from 'moment-timezone';
-import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom';
+import { Link as RouterLink, useParams } from 'react-router-dom';
 
 import EmptyState from '../../../../ui-component/EmptyState';
 import MainCard from '../../../../ui-component/cards/MainCard';
 import PageHead from '../../../../ui-component/PageHead';
+import StatTile from '../../../../ui-component/StatTile';
 import { useSelector } from '../../../../store';
 import { ViewerControlMode } from '../../../../utils/enum';
+import ApexLineChart from '../dashboard/ApexLineChart';
 
+import DateRangePicker from './DateRangePicker';
 import useAnalyticsFilters from './useAnalyticsFilters';
 import useDashboardStats from './useDashboardStats';
 
@@ -29,108 +30,9 @@ import useDashboardStats from './useDashboardStats';
 // nice follow-ups but require a sequence-aware backend aggregator —
 // deferred to P1 alongside the session work.
 
-const StatTile = ({ label, value, sub, icon, accent = 'text.secondary' }) => (
-  <MainCard
-    sx={{
-      height: '100%',
-      bgcolor: (t) => (t.palette.mode === 'dark' ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)')
-    }}
-    contentSX={{ p: 2.25, '&:last-child': { pb: 2.25 } }}
-  >
-    <Stack direction="row" alignItems="flex-start" justifyContent="space-between">
-      <Box sx={{ minWidth: 0 }}>
-        <Typography variant="overline" sx={{ color: 'text.secondary', letterSpacing: '0.06em', lineHeight: 1.4 }}>
-          {label}
-        </Typography>
-        <Typography variant="h2" sx={{ mt: 0.5, fontWeight: 700, fontSize: 28, lineHeight: 1.1 }}>
-          {value}
-        </Typography>
-        {sub && (
-          <Typography variant="caption" sx={{ color: accent, fontSize: 12 }}>
-            {sub}
-          </Typography>
-        )}
-      </Box>
-      {icon && <Box sx={{ color: accent, opacity: 0.4 }}>{icon}</Box>}
-    </Stack>
-  </MainCard>
-);
-
-const TimeSeriesSparkline = ({ days, timezone }) => {
-  if (days.length === 0) return null;
-  const max = Math.max(1, ...days.map((d) => d.value));
-  const width = 800;
-  const height = 200;
-  const stepX = days.length > 1 ? width / (days.length - 1) : width;
-  const points = days
-    .map((d, i) => {
-      const x = i * stepX;
-      const y = height - (d.value / max) * (height - 20) - 10;
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    })
-    .join(' ');
-  // Build the area-fill path
-  const areaPath = `M0,${height} L${points.split(' ').join(' L')} L${width},${height} Z`;
-
-  return (
-    <Box sx={{ position: 'relative', width: '100%', overflow: 'hidden' }}>
-      <Box sx={{ width: '100%', overflowX: 'auto' }}>
-        <svg
-          width="100%"
-          height={height + 32}
-          viewBox={`0 0 ${width} ${height + 32}`}
-          preserveAspectRatio="none"
-          role="img"
-          aria-label="Per-day time series"
-          style={{ display: 'block', minWidth: 320 }}
-        >
-          <defs>
-            <linearGradient id="seqDetailFill" x1="0" x2="0" y1="0" y2="1">
-              <stop offset="0%" stopColor="rgb(31,119,120)" stopOpacity="0.45" />
-              <stop offset="100%" stopColor="rgb(31,119,120)" stopOpacity="0" />
-            </linearGradient>
-          </defs>
-          <path d={areaPath} fill="url(#seqDetailFill)" />
-          <polyline points={points} fill="none" stroke="rgb(31,119,120)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-          {days.map((d, i) => {
-            const x = i * stepX;
-            const y = height - (d.value / max) * (height - 20) - 10;
-            return (
-              <g key={i}>
-                <circle cx={x} cy={y} r="3" fill="rgb(31,119,120)">
-                  <title>{`${moment.tz(d.date, timezone).format('ddd MMM D')} — ${d.value}`}</title>
-                </circle>
-              </g>
-            );
-          })}
-          {/* X-axis labels: first, last, middle */}
-          {[0, Math.floor(days.length / 2), days.length - 1].map((idx, i) => {
-            if (days[idx] == null) return null;
-            const x = idx * stepX;
-            return (
-              <text
-                key={i}
-                x={x}
-                y={height + 22}
-                fontSize="11"
-                textAnchor={idx === 0 ? 'start' : idx === days.length - 1 ? 'end' : 'middle'}
-                fill="currentColor"
-                opacity="0.55"
-              >
-                {moment.tz(days[idx].date, timezone).format('MMM D')}
-              </text>
-            );
-          })}
-        </svg>
-      </Box>
-    </Box>
-  );
-};
-
 const SequenceDetail = () => {
   const { sequenceName: encodedName } = useParams();
   const sequenceName = decodeURIComponent(encodedName);
-  const navigate = useNavigate();
   const { range, timezone, presetLabel } = useAnalyticsFilters();
   const { show } = useSelector((state) => state.show);
   const stats = useDashboardStats(range);
@@ -163,6 +65,15 @@ const SequenceDetail = () => {
   );
   const activeDays = useMemo(() => dailySeries.filter((d) => d.value > 0).length, [dailySeries]);
 
+  const chartData = useMemo(
+    () => ({
+      name: isJukebox ? 'Requests' : 'Votes',
+      yValue: isJukebox ? 'Total Requests: ' : 'Total Votes: ',
+      data: dailySeries.map((d) => [d.date, d.value])
+    }),
+    [dailySeries, isJukebox]
+  );
+
   const displayName = sequence?.displayName || sequenceName;
 
   if (stats.loading) {
@@ -180,26 +91,28 @@ const SequenceDetail = () => {
 
   return (
     <Box>
-      <Stack
-        direction="row"
-        alignItems="center"
-        spacing={1}
-        sx={{
-          mb: 2,
-          color: 'text.secondary',
-          fontSize: 13,
-          cursor: 'pointer',
-          width: 'fit-content',
-          '&:hover': { color: 'text.primary' }
-        }}
-        component={RouterLink}
-        to="/control-panel/analytics/sequences"
-        style={{ textDecoration: 'none' }}
-      >
-        <IconArrowLeft size={16} stroke={1.75} />
-        <Typography variant="body2" sx={{ color: 'inherit' }}>
-          Back to sequences
-        </Typography>
+      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
+        <Stack
+          direction="row"
+          alignItems="center"
+          spacing={1}
+          sx={{
+            color: 'text.secondary',
+            fontSize: 13,
+            cursor: 'pointer',
+            width: 'fit-content',
+            '&:hover': { color: 'text.primary' }
+          }}
+          component={RouterLink}
+          to="/control-panel/analytics/sequences"
+          style={{ textDecoration: 'none' }}
+        >
+          <IconArrowLeft size={16} stroke={1.75} />
+          <Typography variant="body2" sx={{ color: 'inherit' }}>
+            Back to sequences
+          </Typography>
+        </Stack>
+        <DateRangePicker />
       </Stack>
 
       <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 3 }}>
@@ -268,6 +181,7 @@ const SequenceDetail = () => {
                 sub={`across ${dailySeries.length} ${dailySeries.length === 1 ? 'day' : 'days'} in range`}
                 icon={<IconTrendingUp size={28} stroke={1.5} />}
                 accent="primary.main"
+                subtle
               />
             </Grid>
             <Grid item xs={12} sm={4}>
@@ -281,6 +195,7 @@ const SequenceDetail = () => {
                 }
                 icon={<IconCalendar size={28} stroke={1.5} />}
                 accent="warning.main"
+                subtle
               />
             </Grid>
             <Grid item xs={12} sm={4}>
@@ -290,6 +205,7 @@ const SequenceDetail = () => {
                 sub={`of ${dailySeries.length} in range`}
                 icon={<IconCalendar size={28} stroke={1.5} />}
                 accent="success.main"
+                subtle
               />
             </Grid>
           </Grid>
@@ -302,7 +218,7 @@ const SequenceDetail = () => {
               </Typography>
             }
           >
-            <TimeSeriesSparkline days={dailySeries} timezone={timezone} />
+            <ApexLineChart chartData={chartData} timezone={timezone} />
           </MainCard>
         </Stack>
       )}

@@ -7,11 +7,6 @@ import {
   Button,
   Checkbox,
   Chip,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogContentText,
-  DialogTitle,
   IconButton,
   InputAdornment,
   LinearProgress,
@@ -57,6 +52,7 @@ import {
 } from '../../../../services/controlPanel/mutations.service';
 import { useDispatch, useSelector } from '../../../../store';
 import { setShow } from '../../../../store/slices/show';
+import ConfirmDialog from '../../../../ui-component/ConfirmDialog';
 import EmptyState from '../../../../ui-component/EmptyState';
 import MainCard from '../../../../ui-component/cards/MainCard';
 import useCoalescedSave from '../../../../hooks/useCoalescedSave';
@@ -969,25 +965,7 @@ const SequencesList = () => {
         )}
       </MainCard>
 
-      <Dialog open={!!confirm} onClose={() => setConfirm(null)} maxWidth="xs" fullWidth>
-        <DialogTitle>{confirm?.title}</DialogTitle>
-        <DialogContent>
-          <DialogContentText>{confirm?.message}</DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setConfirm(null)}>Cancel</Button>
-          <Button
-            color="error"
-            variant="contained"
-            onClick={() => {
-              confirm?.action?.();
-              setConfirm(null);
-            }}
-          >
-            {confirm?.confirmLabel || 'Confirm'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      <ConfirmDialog confirm={confirm} onClose={() => setConfirm(null)} />
     </Box>
   );
 };

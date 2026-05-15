@@ -29,7 +29,7 @@ import AnimateButton from '../../../../ui-component/extended/AnimateButton';
 import { StatusResponse } from '../../../../utils/enum';
 import { VERIFY_PASSWORD_RESET_LINK } from '../../../../utils/graphql/controlPanel/queries';
 import { strengthColor, strengthIndicatorNumFunc } from '../../../../utils/password-strength';
-import { showAlertOld } from '../../../../views/pages/globalPageHelpers';
+import { showAlert } from '../../../../views/pages/globalPageHelpers';
 
 const AuthResetPassword = ({ ...others }) => {
   const theme = useTheme();
@@ -78,13 +78,12 @@ const AuthResetPassword = ({ ...others }) => {
       },
       onError: (error) => {
         if (error?.message === StatusResponse.UNAUTHORIZED) {
-          showAlertOld({
-            dispatch,
+          showAlert(dispatch, {
             message: 'Invalid Password Reset Link',
             alert: 'error'
           });
         } else {
-          showAlertOld({ dispatch, alert: 'error' });
+          showAlert(dispatch, { alert: 'error' });
         }
         setTimeout(() => {
           navigate('/signin', { replace: true });

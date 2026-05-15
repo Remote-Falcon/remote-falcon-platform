@@ -16,7 +16,7 @@ import axios from '../utils/axios';
 import { StatusResponse } from '../utils/enum';
 import { SIGN_UP, VERIFY_EMAIL, FORGOT_PASSWORD, RESET_PASSWORD } from '../utils/graphql/controlPanel/mutations';
 import { SIGN_IN, GET_SHOW } from '../utils/graphql/controlPanel/queries';
-import { showAlert, showAlertOld } from '../views/pages/globalPageHelpers';
+import { showAlert } from '../views/pages/globalPageHelpers';
 import { trackPosthogEvent } from '../utils/analytics/posthog';
 
 const verifyToken = (serviceToken) => {
@@ -168,13 +168,13 @@ export const JWTProvider = ({ children }) => {
       },
       onError: (error) => {
         if (error?.message === StatusResponse.UNAUTHORIZED) {
-          showAlertOld({ dispatch, message: 'Invalid Credentials', alert: 'warning' });
+          showAlert(dispatch, { message: 'Invalid Credentials', alert: 'warning' });
         } else if (error?.message === StatusResponse.SHOW_NOT_FOUND) {
-          showAlertOld({ dispatch, message: 'Show could not be found!', alert: 'error' });
+          showAlert(dispatch, { message: 'Show could not be found!', alert: 'error' });
         } else if (error?.message === StatusResponse.EMAIL_NOT_VERIFIED) {
-          showAlertOld({ dispatch, message: 'Email has not been verified', alert: 'warning' });
+          showAlert(dispatch, { message: 'Email has not been verified', alert: 'warning' });
         } else {
-          showAlertOld({ dispatch, alert: 'error' });
+          showAlert(dispatch, { alert: 'error' });
         }
       }
     });
@@ -225,13 +225,13 @@ export const JWTProvider = ({ children }) => {
         showToken
       },
       onCompleted: () => {
-        showAlertOld({ dispatch, message: 'Email successfully verified' });
+        showAlert(dispatch, { message: 'Email successfully verified' });
         setTimeout(() => {
           navigate('/signin', { replace: true });
         }, 3000);
       },
       onError: () => {
-        showAlertOld({ dispatch, alert: 'error' });
+        showAlert(dispatch, { alert: 'error' });
       }
     });
   };
@@ -247,18 +247,18 @@ export const JWTProvider = ({ children }) => {
         email
       },
       onCompleted: () => {
-        showAlertOld({ dispatch, message: `Forgot password email sent to ${email}` });
+        showAlert(dispatch, { message: `Forgot password email sent to ${email}` });
         setTimeout(() => {
           navigate('/signin', { replace: true });
         }, 3000);
       },
       onError: (error) => {
         if (error?.message === StatusResponse.UNAUTHORIZED) {
-          showAlertOld({ dispatch, alert: 'error' });
+          showAlert(dispatch, { alert: 'error' });
         } else if (error?.message === StatusResponse.EMAIL_CANNOT_BE_SENT) {
-          showAlertOld({ dispatch, message: 'Unable to send password reset email', alert: 'error' });
+          showAlert(dispatch, { message: 'Unable to send password reset email', alert: 'error' });
         } else {
-          showAlertOld({ dispatch, alert: 'error' });
+          showAlert(dispatch, { alert: 'error' });
         }
       }
     });
@@ -274,13 +274,13 @@ export const JWTProvider = ({ children }) => {
         }
       },
       onCompleted: () => {
-        showAlertOld({ dispatch, message: 'Password Reset' });
+        showAlert(dispatch, { message: 'Password Reset' });
         setTimeout(() => {
           navigate('/signin', { replace: true });
         }, 3000);
       },
       onError: () => {
-        showAlertOld({ dispatch, alert: 'error' });
+        showAlert(dispatch, { alert: 'error' });
       }
     });
   };

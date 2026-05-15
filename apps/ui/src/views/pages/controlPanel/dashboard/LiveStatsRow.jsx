@@ -1,61 +1,16 @@
-import * as React from 'react';
-
-import { Box, Grid, Skeleton, Stack, Typography } from '@mui/material';
+import { Grid, Skeleton, Stack, Typography } from '@mui/material';
 import {
   IconBolt,
   IconHeadphones,
   IconPlaylist,
   IconUsers
 } from '@tabler/icons-react';
-import PropTypes from 'prop-types';
 
-import MainCard from '../../../../ui-component/cards/MainCard';
 import LiveIndicator from '../../../../ui-component/LiveIndicator';
+import StatTile from '../../../../ui-component/StatTile';
 import { useSelector } from '../../../../store';
 import { ViewerControlMode } from '../../../../utils/enum';
 import useDashboardLiveStats from '../../../../hooks/useDashboardLiveStats';
-
-// Single stat tile per the v2 mockup `.stat` block. Borderless card with
-// generous padding, label on top, large value, sub-line for trend/context.
-const StatTile = ({ label, value, sub, icon, accent = 'text.secondary' }) => (
-  <MainCard
-    sx={{ height: '100%' }}
-    contentSX={{ p: 2.25, '&:last-child': { pb: 2.25 } }}
-  >
-    <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-      <Box sx={{ minWidth: 0 }}>
-        <Typography
-          variant="overline"
-          sx={{
-            display: 'block',
-            color: 'text.secondary',
-            letterSpacing: '0.06em',
-            lineHeight: 1.4
-          }}
-        >
-          {label}
-        </Typography>
-        <Typography variant="h2" sx={{ mt: 0.5, fontWeight: 700, fontSize: 32, lineHeight: 1.1 }}>
-          {value}
-        </Typography>
-        {sub && (
-          <Typography variant="body2" sx={{ mt: 0.5, color: accent, fontSize: 12 }}>
-            {sub}
-          </Typography>
-        )}
-      </Box>
-      {icon && <Box sx={{ color: accent, opacity: 0.4 }}>{icon}</Box>}
-    </Box>
-  </MainCard>
-);
-
-StatTile.propTypes = {
-  label: PropTypes.string.isRequired,
-  value: PropTypes.node.isRequired,
-  sub: PropTypes.node,
-  icon: PropTypes.node,
-  accent: PropTypes.string
-};
 
 const LiveStatsRow = () => {
   const { show } = useSelector((state) => state.show);

@@ -11,7 +11,7 @@ import { gridSpacing } from '../../../../store/constant';
 import MainCard from '../../../../ui-component/cards/MainCard';
 import PageHead from '../../../../ui-component/PageHead';
 import TrackerSkeleton from '../../../../ui-component/cards/Skeleton/TrackerSkeleton';
-import { showAlertOld } from '../../globalPageHelpers';
+import { showAlert } from '../../globalPageHelpers';
 
 import TrackerRow from './TrackerRow';
 
@@ -30,7 +30,7 @@ const Tracker = () => {
       const workItems = workItemsResponse.data;
       setWorkItems(workItems);
     } catch (err) {
-      showAlertOld({ dispatch, alert: 'error' });
+      showAlert(dispatch, { alert: 'error' });
     }
     setIsLoading(false);
   }, [dispatch]);

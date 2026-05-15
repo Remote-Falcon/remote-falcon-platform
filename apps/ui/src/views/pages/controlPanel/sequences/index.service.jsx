@@ -2,7 +2,7 @@ import fileDownload from 'js-file-download';
 import _ from 'lodash';
 
 import axios from '../../../../utils/axios';
-import { showAlertOld } from '../../../../views/pages/globalPageHelpers';
+import { showAlert } from '../../../../views/pages/globalPageHelpers';
 
 export const downloadSequencesToExcelService = async () => {
   const response = await axios.post(
@@ -31,9 +31,9 @@ export const downloadSequencesToExcel = async (dispatch, setIsDownloadingSequenc
   const response = await downloadSequencesToExcelService();
   if (response?.status === 200) {
     fileDownload(response.data, 'Remote Falcon Sequences.xlsx');
-    showAlertOld({ dispatch, message: 'Sequences Exported Successfully' });
+    showAlert(dispatch, { message: 'Sequences Exported Successfully' });
   } else {
-    showAlertOld({ dispatch, alert: 'error' });
+    showAlert(dispatch, { alert: 'error' });
   }
   setIsDownloadingSequences(false);
 };

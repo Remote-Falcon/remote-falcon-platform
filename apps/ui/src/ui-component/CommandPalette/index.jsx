@@ -17,8 +17,6 @@ import useCommands from './useCommands';
 // click came from.
 export const COMMAND_PALETTE_OPEN_EVENT = 'rf:open-command-palette';
 
-const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
-
 const score = (label, query) => {
   if (!query) return 1;
   const lowerLabel = label.toLowerCase();
@@ -164,7 +162,7 @@ const CommandPalette = () => {
           endAdornment: (
             <InputAdornment position="end">
               <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                {isMac ? 'Esc' : 'Esc'}
+                Esc
               </Typography>
             </InputAdornment>
           ),
@@ -231,7 +229,7 @@ const CommandPalette = () => {
                     >
                       <Box sx={{ color: 'text.secondary', display: 'inline-flex' }}>{cmd.icon}</Box>
                       <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-                        <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 500, noWrap: true }} noWrap>
+                        <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 500 }} noWrap>
                           {cmd.label}
                         </Typography>
                         {cmd.hint && (

@@ -1,11 +1,8 @@
 import { useMemo } from 'react';
-import * as React from 'react';
 
-import { Box, Grid, Skeleton, Stack, Typography } from '@mui/material';
-import _ from 'lodash';
-import moment from 'moment-timezone';
+import { Grid, Skeleton, Stack } from '@mui/material';
 
-import MainCard from '../../../../ui-component/cards/MainCard';
+import StatTile from '../../../../ui-component/StatTile';
 import { useSelector } from '../../../../store';
 import { ViewerControlMode } from '../../../../utils/enum';
 
@@ -32,68 +29,6 @@ const formatPctDelta = (current, prior) => {
     color: pct > 0 ? 'success.main' : 'error.main'
   };
 };
-
-// Sparkline — tiny CSS/SVG chart ---------------------------------------
-
-const Sparkline = ({ values, color = 'currentColor', height = 28 }) => {
-  const max = Math.max(1, ...values);
-  const width = 80;
-  const points = values
-    .map((v, i) => {
-      const x = (i / Math.max(values.length - 1, 1)) * width;
-      const y = height - (v / max) * height;
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    })
-    .join(' ');
-  return (
-    <svg
-      width={width}
-      height={height}
-      viewBox={`0 0 ${width} ${height}`}
-      preserveAspectRatio="none"
-      style={{ display: 'block' }}
-      aria-hidden
-    >
-      <polyline points={points} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-};
-
-// V2 — 4-stat hero row -------------------------------------------------
-
-const StatTile = ({ label, value, sparkValues, delta, accent }) => (
-  <MainCard
-    sx={{
-      height: '100%',
-      bgcolor: (t) => (t.palette.mode === 'dark' ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)')
-    }}
-    contentSX={{ p: 2.25, '&:last-child': { pb: 2.25 } }}
-  >
-    <Stack spacing={1}>
-      <Typography
-        variant="overline"
-        sx={{ color: 'text.secondary', letterSpacing: '0.06em', lineHeight: 1.4 }}
-      >
-        {label}
-      </Typography>
-      <Stack direction="row" alignItems="flex-end" spacing={1.5}>
-        <Typography variant="h2" sx={{ fontWeight: 700, fontSize: 28, lineHeight: 1.1 }}>
-          {value}
-        </Typography>
-        {sparkValues && sparkValues.length > 1 && (
-          <Box sx={{ color: accent || 'primary.main', mb: 0.25 }}>
-            <Sparkline values={sparkValues} />
-          </Box>
-        )}
-      </Stack>
-      {delta && (
-        <Typography variant="caption" sx={{ color: delta.color, fontSize: 12 }}>
-          {delta.text}
-        </Typography>
-      )}
-    </Stack>
-  </MainCard>
-);
 
 const HeroStatsRow = () => {
   const { range, priorRange, compareToPrior } = useAnalyticsFilters();
@@ -150,6 +85,7 @@ const HeroStatsRow = () => {
           value={stats.uniqueViewers}
           sparkValues={stats.sparkUnique}
           accent="primary.main"
+          subtle
           delta={compareToPrior && priorStats ? formatPctDelta(stats.uniqueViewers, priorStats.uniqueViewers) : null}
         />
       </Grid>
@@ -159,6 +95,7 @@ const HeroStatsRow = () => {
           value={stats.totalViewers}
           sparkValues={(current.data.page || []).map((d) => d.total || 0)}
           accent="success.main"
+          subtle
           delta={compareToPrior && priorStats ? formatPctDelta(stats.totalViewers, priorStats.totalViewers) : null}
         />
       </Grid>
@@ -167,6 +104,7 @@ const HeroStatsRow = () => {
           label={interactionLabel}
           value={stats.interactions}
           accent="warning.main"
+          subtle
           delta={compareToPrior && priorStats ? formatPctDelta(stats.interactions, priorStats.interactions) : null}
         />
       </Grid>
@@ -175,6 +113,7 @@ const HeroStatsRow = () => {
           label="Active nights"
           value={stats.activeNights}
           accent="text.secondary"
+          subtle
           delta={compareToPrior && priorStats ? formatPctDelta(stats.activeNights, priorStats.activeNights) : null}
         />
       </Grid>

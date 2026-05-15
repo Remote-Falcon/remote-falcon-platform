@@ -13,7 +13,7 @@ import DashboardStatsSkeleton from '../../../../ui-component/cards/Skeleton/Dash
 import { ViewerControlMode } from '../../../../utils/enum';
 import { DASHBOARD_LIVE_STATS } from '../../../../utils/graphql/controlPanel/queries';
 
-import { showAlertOld } from '../../globalPageHelpers';
+import { showAlert } from '../../globalPageHelpers';
 
 const DashboardHeader = () => {
   const theme = useTheme();
@@ -53,7 +53,7 @@ const DashboardHeader = () => {
         }
       },
       onError: () => {
-        showAlertOld({ dispatch, alert: 'error' });
+        showAlert(dispatch, { alert: 'error' });
       }
     });
   }, [dashboardLiveStatsQuery, dispatch, show?.timezone]);

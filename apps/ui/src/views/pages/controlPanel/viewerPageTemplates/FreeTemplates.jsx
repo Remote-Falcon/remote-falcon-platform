@@ -26,10 +26,8 @@ import { useNavigate } from 'react-router-dom';
 import { savePagesService } from '../../../../services/controlPanel/mutations.service';
 import { getRemoteViewerPageTemplatesFromGithubService } from '../../../../services/controlPanel/viewerPage.service';
 import { useDispatch, useSelector } from '../../../../store';
-import { unexpectedErrorMessage } from '../../../../store/constant';
 import { setRemoteViewerPageTemplates } from '../../../../store/slices/controlPanel';
 import { setShow } from '../../../../store/slices/show';
-import { openSnackbar } from '../../../../store/slices/snackbar';
 import MainCard from '../../../../ui-component/cards/MainCard';
 import ViewerPageTemplatesSkeleton from '../../../../ui-component/cards/Skeleton/ViewerPageTemplatesSkeleton';
 import { UPDATE_PAGES } from '../../../../utils/graphql/controlPanel/mutations';
@@ -82,15 +80,7 @@ const FreeTemplates = () => {
       setSelectedTemplateBase64(`data:text/html;base64,${btoa(unescape(encodeURIComponent(templates[0]?.content)))}`);
       setSelectedTemplate(options[0]);
     } catch (err) {
-      dispatch(
-        openSnackbar({
-          open: true,
-          message: unexpectedErrorMessage,
-          variant: 'alert',
-          alert: { color: 'error' },
-          close: true
-        })
-      );
+      showAlert(dispatch, { alert: 'error' });
     }
     setShowSkeletonLoader(false);
   }, [dispatch]);

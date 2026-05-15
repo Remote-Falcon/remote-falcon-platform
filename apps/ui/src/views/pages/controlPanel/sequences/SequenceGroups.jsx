@@ -6,11 +6,6 @@ import {
   Box,
   Button,
   Chip,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogContentText,
-  DialogTitle,
   IconButton,
   LinearProgress,
   Stack,
@@ -34,6 +29,7 @@ import {
 } from '../../../../services/controlPanel/mutations.service';
 import { useDispatch, useSelector } from '../../../../store';
 import { setShow } from '../../../../store/slices/show';
+import ConfirmDialog from '../../../../ui-component/ConfirmDialog';
 import EmptyState from '../../../../ui-component/EmptyState';
 import MainCard from '../../../../ui-component/cards/MainCard';
 import {
@@ -293,25 +289,7 @@ const SequenceGroups = () => {
         </Typography>
       )}
 
-      <Dialog open={!!confirm} onClose={() => setConfirm(null)} maxWidth="xs" fullWidth>
-        <DialogTitle>{confirm?.title}</DialogTitle>
-        <DialogContent>
-          <DialogContentText>{confirm?.message}</DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setConfirm(null)}>Cancel</Button>
-          <Button
-            color="error"
-            variant="contained"
-            onClick={() => {
-              confirm?.action?.();
-              setConfirm(null);
-            }}
-          >
-            {confirm?.confirmLabel || 'Confirm'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      <ConfirmDialog confirm={confirm} onClose={() => setConfirm(null)} />
     </Box>
   );
 };

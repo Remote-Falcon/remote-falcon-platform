@@ -1,17 +1,20 @@
 import { createSlice } from '@reduxjs/toolkit';
 
+// Single global snackbar state. `showAlert` (views/pages/globalPageHelpers)
+// is the only callsite that should dispatch `openSnackbar`. Defaults here
+// match showAlert's defaults so a partial payload still renders consistently.
 const initialState = {
   id: 'snackbar',
   action: false,
   open: false,
-  message: 'Note archived',
+  message: '',
   anchorOrigin: {
     vertical: 'top',
     horizontal: 'center'
   },
   variant: 'alert',
   alert: {
-    color: 'primary',
+    color: 'success',
     variant: 'filled'
   },
   transition: 'Fade',
@@ -33,8 +36,8 @@ const snackbar = createSlice({
       state.anchorOrigin = anchorOrigin || initialState.anchorOrigin;
       state.variant = variant || initialState.variant;
       state.alert = {
-        color: alert?.color || initialState.alert.color,
-        variant: alert?.variant || initialState.alert.variant
+        color: alert?.color || initialState.alert.color, // 'success'
+        variant: alert?.variant || initialState.alert.variant // 'filled'
       };
       state.transition = transition || initialState.transition;
       state.close = initialState.close;

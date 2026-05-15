@@ -26,6 +26,7 @@ import { useDispatch, useSelector } from '../../../../store';
 import { setShow } from '../../../../store/slices/show';
 import { setRemoteViewerPageTemplates } from '../../../../store/slices/controlPanel';
 import { Environments } from '../../../../utils/enum';
+import ConfirmDialog from '../../../../ui-component/ConfirmDialog';
 import MainCard from '../../../../ui-component/cards/MainCard';
 import PageHead from '../../../../ui-component/PageHead';
 import { UPDATE_PAGES } from '../../../../utils/graphql/controlPanel/mutations';
@@ -456,27 +457,7 @@ const ViewerPage = () => {
         </DialogActions>
       </Dialog>
 
-      {/* Confirm dialog — reused across delete + future destructive actions */}
-      <Dialog open={!!confirm} onClose={() => setConfirm(null)} maxWidth="xs" fullWidth>
-        <DialogTitle>{confirm?.title}</DialogTitle>
-        <DialogContent>
-          <DialogContentText>{confirm?.message}</DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setConfirm(null)}>Cancel</Button>
-          <Button
-            color="error"
-            variant="contained"
-            onClick={async () => {
-              const action = confirm?.action;
-              setConfirm(null);
-              if (action) await action();
-            }}
-          >
-            {confirm?.confirmLabel || 'Confirm'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      <ConfirmDialog confirm={confirm} onClose={() => setConfirm(null)} />
     </Box>
   );
 };

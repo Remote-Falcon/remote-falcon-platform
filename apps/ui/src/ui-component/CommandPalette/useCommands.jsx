@@ -2,8 +2,10 @@ import { useMemo } from 'react';
 
 import { useMutation } from '@apollo/client';
 import {
+  IconArrowRight,
   IconArrowsShuffle,
   IconLogout,
+  IconMusic,
   IconPower,
   IconSearch,
   IconTrash
@@ -92,21 +94,25 @@ const useCommands = () => {
           label: item.label,
           hint: `Navigate · ${parent}`,
           group: 'Navigation',
-          icon: <IconSearch size={18} stroke={1.75} />,
+          icon: <IconArrowRight size={18} stroke={1.75} />,
           run: () => navigate(item.to)
         });
       });
     });
 
-    // Sequences — each becomes "Go to {name}" landing on the sequences table
+    // Sequences — deep-link straight to the analytics drill-down for the
+    // selected sequence. The route is `/control-panel/analytics/sequence/:name`
+    // (singular "sequence" by design — see MainRoutes.jsx note re: sidebar
+    // active-item matcher). Name is encoded because owner-authored names
+    // commonly contain spaces, slashes, and apostrophes.
     (show?.sequences || []).forEach((sequence) => {
       commands.push({
         id: `seq:${sequence.name}`,
         label: sequence.displayName || sequence.name,
         hint: `Sequence${sequence.artist ? ` · ${sequence.artist}` : ''}`,
         group: 'Sequences',
-        icon: <IconSearch size={18} stroke={1.75} />,
-        run: () => navigate('/control-panel/sequences')
+        icon: <IconMusic size={18} stroke={1.75} />,
+        run: () => navigate(`/control-panel/analytics/sequence/${encodeURIComponent(sequence.name)}`)
       });
     });
 

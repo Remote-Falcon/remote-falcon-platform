@@ -3,7 +3,7 @@ import _ from 'lodash';
 import moment from 'moment-timezone';
 
 import axios from '../../../../utils/axios';
-import { showAlertOld } from '../../../../views/pages/globalPageHelpers';
+import { showAlert } from '../../../../views/pages/globalPageHelpers';
 
 export const uniqueViewersByDate = (dashboardStats) => {
   const data = [];
@@ -144,9 +144,9 @@ export const downloadStatsToExcel = async (dispatch, timezone, dateFilterStart, 
   const response = await downloadStatsToExcelService(timezone, dateFilterStart, dateFilterEnd);
   if (response?.status === 200) {
     fileDownload(response.data, 'Remote Falcon Stats.csv');
-    showAlertOld({ dispatch, message: 'Dashboard Stats Downloaded' });
+    showAlert(dispatch, { message: 'Dashboard Stats Downloaded' });
   } else {
-    showAlertOld({ dispatch, alert: 'error' });
+    showAlert(dispatch, { alert: 'error' });
   }
   setIsDownloadingStats(false);
 };
@@ -166,9 +166,9 @@ export const validateDatePicker = (dispatch, startDate, endDate, setDateFilterSt
       setDateFilterStart(startDate);
       setDateFilterEnd(endDate);
     } else {
-      showAlertOld({ dispatch, message: `Date must be after ${moment(date2YearsAgo).format('YYYY-MM-DD')}`, alert: 'warning' });
+      showAlert(dispatch, { message: `Date must be after ${moment(date2YearsAgo).format('YYYY-MM-DD')}`, alert: 'warning' });
     }
   } else {
-    showAlertOld({ dispatch, message: 'Invalid Date Range', alert: 'warning' });
+    showAlert(dispatch, { message: 'Invalid Date Range', alert: 'warning' });
   }
 };
