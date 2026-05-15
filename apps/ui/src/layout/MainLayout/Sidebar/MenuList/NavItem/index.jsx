@@ -17,8 +17,15 @@ const NavItem = ({ item, level }) => {
   // Auto-close drawer after navigation only on mobile (temporary drawer).
   // At md+ the rail stays visible (full at lg+, auto-railed between md–lg).
   const matchesSM = useMediaQuery(theme.breakpoints.down('md'));
+  // Mirror the rail-collapsed predicate from Sidebar so this row knows
+  // when its label is hidden and a tooltip is the only way for the user
+  // to identify what the icon does.
+  const matchUpMd = useMediaQuery(theme.breakpoints.up('md'));
+  const matchUpLg = useMediaQuery(theme.breakpoints.up('lg'));
 
-  const { borderRadius } = useConfig();
+  const { borderRadius, sidebarCollapsed } = useConfig();
+  const railCollapsed = matchUpMd && (sidebarCollapsed || !matchUpLg);
+
   const dispatch = useDispatch();
   const { selectedItem } = useSelector((state) => state.menu);
 
@@ -89,7 +96,21 @@ const NavItem = ({ item, level }) => {
   //   • icon column is 22px wide so labels align in collapsed/expanded
   const isActive = selectedItem?.findIndex((id) => id === item.id) > -1;
 
+  // Tooltip only triggers when the rail is collapsed — in expanded mode
+  // the label is already visible alongside the icon and a hover tooltip
+  // would be noisy. PopperProps offset nudges it clear of the rail's
+  // right edge so the arrow doesn't overlap the icon.
+  const tooltipTitle = railCollapsed ? item.title : '';
+
   return (
+    <Tooltip
+      title={tooltipTitle}
+      placement="right"
+      enterDelay={300}
+      arrow
+      disableInteractive
+      PopperProps={{ modifiers: [{ name: 'offset', options: { offset: [0, 8] } }] }}
+    >
     <ListItemButton
       {...listItemProps}
       disabled={item.disabled}
@@ -183,6 +204,7 @@ const NavItem = ({ item, level }) => {
         </Tooltip>
       )}
     </ListItemButton>
+    </Tooltip>
   );
 };
 
