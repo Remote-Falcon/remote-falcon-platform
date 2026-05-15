@@ -124,7 +124,12 @@ const FILTERS = {
 
 const SORTABLE_COLUMNS = [
   { key: 'active', label: 'Status' },
-  { key: 'index', label: 'Index', align: 'center' },
+  // "FPP Index" rather than "Index" — this is the sequence's position in
+  // the FPP playlist on the device, set by the plugin's Sync Playlists
+  // action. Not the drag-reorder position (that's the `order` field).
+  // Narrow column: values are short integers (typically 0–200), so the
+  // header text is wider than any cell would be.
+  { key: 'index', label: 'FPP Index', align: 'center', width: 96 },
   { key: 'name', label: 'Name' },
   { key: 'displayName', label: 'Display name' },
   { key: 'artist', label: 'Artist' },
@@ -323,6 +328,17 @@ const SequencesList = () => {
   // Drag is meaningful only when nothing is masking the canonical order.
   const dndEnabled = filter === 'all' && !groupFilter && !search && orderBy === 'order';
 
+  // One-click escape hatch back to the dnd-enabled view — clears all four
+  // pieces of view state at once so the user doesn't have to hunt for which
+  // chip / column header / search box is still blocking drag.
+  const resetFiltersAndSort = () => {
+    setFilter('all');
+    setGroupFilter(null);
+    setSearch('');
+    setOrderBy('order');
+    setOrder('asc');
+  };
+
   useEffect(() => {
     setPage(0);
   }, [filter, groupFilter, search, rowsPerPage]);
@@ -361,7 +377,23 @@ const SequencesList = () => {
     updated.forEach((s, i) => {
       s.order = i;
     });
-    persistSequences(updated, 'Sequences Order Updated');
+    // Optimistic update — dispatch Redux immediately so @hello-pangea/dnd
+    // sees the new ordering before its drop animation finishes. Without
+    // this the library renders the dragged item back to its original
+    // position while the save round-trip is in flight, causing the
+    // "snap back then re-render" flicker the user sees as the row
+    // "reverting". On save failure the toast surfaces — a refresh
+    // resyncs from the server.
+    dispatch(setShow({ ...show, sequences: [...updated] }));
+    setBusy(true);
+    saveSequencesService(updated, updateSequencesMutation, (response) => {
+      if (!response?.success) {
+        showAlert(dispatch, response?.toast);
+      } else {
+        showAlert(dispatch, { message: 'Sequences Order Updated' });
+      }
+      setBusy(false);
+    });
   };
 
   const deleteOne = (sequence) => {
@@ -390,10 +422,34 @@ const SequencesList = () => {
 
   const bulkSetActive = (active) => {
     const updated = _.cloneDeep(show?.sequences || []);
+    // Activating a sequence with no FPP playlist index would show it to
+    // viewers but a request would silently fail at FPPD (the plugin's
+    // Insert-Playlist call needs a numeric index). Skip those rows and
+    // tell the user to sync FPP first. Deactivation is always allowed.
+    const blocked = [];
     updated.forEach((s) => {
-      if (selected.has(rowKey(s))) s.active = active;
+      if (!selected.has(rowKey(s))) return;
+      if (active && (s.index === null || s.index === undefined || s.index < 0)) {
+        blocked.push(s.name);
+        return;
+      }
+      s.active = active;
     });
-    persistSequences(updated, `${selected.size} ${selected.size === 1 ? 'sequence' : 'sequences'} ${active ? 'activated' : 'deactivated'}`);
+    const applied = selected.size - blocked.length;
+    if (blocked.length > 0) {
+      const preview = blocked.slice(0, 3).join(', ');
+      const more = blocked.length > 3 ? ` (+${blocked.length - 3} more)` : '';
+      showAlert(dispatch, {
+        alert: 'warning',
+        message: `${blocked.length} not synced to FPP — run "Sync Playlists" in the FPP plugin first: ${preview}${more}`
+      });
+    }
+    if (applied > 0) {
+      persistSequences(
+        updated,
+        `${applied} ${applied === 1 ? 'sequence' : 'sequences'} ${active ? 'activated' : 'deactivated'}`
+      );
+    }
     setSelected(new Set());
   };
 
@@ -554,6 +610,18 @@ const SequencesList = () => {
                   size="small"
                   color="secondary"
                 />
+              )}
+              {!dndEnabled && (
+                <Tooltip title="Clears filters, search, and sort so you can drag-reorder">
+                  <Chip
+                    label="Reset"
+                    onClick={resetFiltersAndSort}
+                    icon={<IconX size={12} />}
+                    size="small"
+                    variant="outlined"
+                    sx={{ ml: 'auto' }}
+                  />
+                </Tooltip>
               )}
             </Stack>
 
@@ -758,7 +826,11 @@ const SequencesList = () => {
                     {/* drag handle column has no header */}
                     <TableCell sx={{ width: 28, p: 0 }} />
                     {SORTABLE_COLUMNS.map((col) => (
-                      <TableCell key={col.key} align={col.align || 'left'}>
+                      <TableCell
+                        key={col.key}
+                        align={col.align || 'left'}
+                        sx={col.width ? { width: col.width } : undefined}
+                      >
                         <TableSortLabel
                           active={orderBy === col.key}
                           direction={orderBy === col.key ? order : 'asc'}

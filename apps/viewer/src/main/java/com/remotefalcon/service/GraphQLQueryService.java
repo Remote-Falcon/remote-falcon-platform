@@ -89,6 +89,14 @@ public class GraphQLQueryService {
     return sequences.stream()
         .filter(sequence -> sequence.getVisibilityCount() == 0)
         .filter(Sequence::getActive)
+        // A sequence with no FPP playlist index can't actually play: the
+        // plugin's Insert-Playlist call to FPPD requires a numeric index,
+        // and a null/negative one either silently fails or (worse) inserts
+        // the wrong sequence at FPPD's index 0. Hide unsynced sequences
+        // from viewers so requests can't be drained on something that
+        // won't play. plugins-api uses -1 as the "not in playlist" marker
+        // when the FPP-side index is missing.
+        .filter(sequence -> sequence.getIndex() != null && sequence.getIndex() >= 0)
         .toList();
   }
 
