@@ -13,7 +13,7 @@ import {
   Tooltip,
   Typography
 } from '@mui/material';
-import { alpha } from '@mui/material/styles';
+import { alpha, useTheme } from '@mui/material/styles';
 import {
   IconBrandPatreon,
   IconCoffee,
@@ -35,6 +35,12 @@ import PropTypes from 'prop-types';
 // Each button uses a low-alpha background in its brand color so the row reads
 // as a coordinated set rather than three random hues.
 
+// `color` drives the brand-tinted background + border (recognizable as
+// the brand). `textColorLight` (optional) overrides the icon foreground
+// in light mode when the brand color is too pale to read on white —
+// e.g. BMAC's #FFDD00 is invisible at any reasonable foreground use,
+// so we render the icon in a darker amber while keeping the brand
+// yellow visible behind it. Dark mode always uses the raw brand color.
 const LINKS = [
   {
     key: 'patreon',
@@ -55,6 +61,7 @@ const LINKS = [
     label: 'Buy Me a Coffee',
     href: 'https://buymeacoffee.com/mattshorts',
     color: '#FFDD00',
+    textColorLight: '#A07A00',
     Icon: IconCoffee
   }
 ];
@@ -63,7 +70,9 @@ const LINKS = [
 // buttons each take ~1/3 of the rail width). Fixed-width variant uses a
 // 36px square — kept available for non-row contexts.
 const BrandLinkButton = ({ link, fullWidth = false }) => {
-  const { label, href, color, Icon } = link;
+  const theme = useTheme();
+  const { label, href, color, textColorLight, Icon } = link;
+  const iconColor = theme.palette.mode === 'dark' ? color : textColorLight || color;
   return (
     <Tooltip title={`Support on ${label}`} placement="top">
       <IconButton
@@ -76,7 +85,7 @@ const BrandLinkButton = ({ link, fullWidth = false }) => {
           width: fullWidth ? '100%' : 36,
           height: 34,
           borderRadius: 1.25,
-          color,
+          color: iconColor,
           bgcolor: alpha(color, 0.10),
           border: '1px solid',
           borderColor: alpha(color, 0.22),
@@ -104,8 +113,10 @@ BrandLinkButton.propTypes = {
 };
 
 const SupportLinks = ({ variant = 'expanded' }) => {
+  const theme = useTheme();
   const anchorRef = useRef(null);
   const [open, setOpen] = useState(false);
+  const iconColor = (link) => (theme.palette.mode === 'dark' ? link.color : link.textColorLight || link.color);
 
   if (variant === 'collapsed') {
     return (
@@ -188,7 +199,7 @@ const SupportLinks = ({ variant = 'expanded' }) => {
                         display: 'inline-flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        color: link.color,
+                        color: iconColor(link),
                         bgcolor: alpha(link.color, 0.12),
                         border: '1px solid',
                         borderColor: alpha(link.color, 0.22)
