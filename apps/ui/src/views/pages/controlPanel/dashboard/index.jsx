@@ -6,6 +6,7 @@ import {
   Button,
   ButtonGroup,
   ClickAwayListener,
+  FormControlLabel,
   Grid,
   Grow,
   IconButton,
@@ -14,20 +15,28 @@ import {
   Paper,
   Popper,
   Stack,
+  Switch,
   Tooltip
 } from '@mui/material';
 import { IconCheck, IconChevronDown, IconCopy, IconEraser, IconExternalLink } from '@tabler/icons-react';
+import _ from 'lodash';
 import PropTypes from 'prop-types';
 
+import { savePreferencesService } from '../../../../services/controlPanel/mutations.service';
 import useShowPublicUrl from '../../../../hooks/useShowPublicUrl';
 import { useDispatch, useSelector } from '../../../../store';
+import { setShow } from '../../../../store/slices/show';
 import { gridSpacing } from '../../../../store/constant';
 import LiveIndicator from '../../../../ui-component/LiveIndicator';
 import PageHead from '../../../../ui-component/PageHead';
 import SectionHeader from '../../../../ui-component/SectionHeader';
 import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
 import { ViewerControlMode } from '../../../../utils/enum';
-import { DELETE_NOW_PLAYING, RESET_ALL_VOTES } from '../../../../utils/graphql/controlPanel/mutations';
+import {
+  DELETE_NOW_PLAYING,
+  RESET_ALL_VOTES,
+  UPDATE_PREFERENCES
+} from '../../../../utils/graphql/controlPanel/mutations';
 import { showAlert } from '../../globalPageHelpers';
 
 import HealthRow from './HealthRow';
@@ -115,9 +124,29 @@ const Dashboard = () => {
 
   const [resetAllVotesMutation] = useMutation(RESET_ALL_VOTES);
   const [deleteNowPlayingMutation] = useMutation(DELETE_NOW_PLAYING);
+  const [updatePreferencesMutation] = useMutation(UPDATE_PREFERENCES);
 
   const isLive = !!show?.preferences?.viewerControlEnabled;
   const isJukebox = show?.preferences?.viewerControlMode === ViewerControlMode.JUKEBOX;
+
+  // Duplicate of the Viewer Control toggle on the Remote Falcon Settings
+  // page — operators who land on the dashboard often just want to flip
+  // the show on/off without clicking through. Uses the same mutation +
+  // local-Redux sync as the settings page so both surfaces stay in
+  // lockstep. PostHog tag carries `source: 'dashboard'` to match the
+  // existing instrumentation pattern from command_palette / settings.
+  const toggleViewerControl = (next) => {
+    const updatedPreferences = _.cloneDeep({ ...show?.preferences, viewerControlEnabled: next });
+    savePreferencesService(updatedPreferences, updatePreferencesMutation, (response) => {
+      if (response?.success) {
+        dispatch(setShow({ ...show, preferences: updatedPreferences }));
+        showAlert(dispatch, { message: next ? 'Viewer Control Enabled' : 'Viewer Control Disabled' });
+        trackPosthogEvent('viewer_control_toggled', { enabled: next, source: 'dashboard' });
+      } else {
+        showAlert(dispatch, response?.toast);
+      }
+    });
+  };
 
   const resetAllVotes = () => {
     trackPosthogEvent('dashboard_quick_action', { action: 'reset_votes' });
@@ -149,7 +178,25 @@ const Dashboard = () => {
         title="Tonight's show"
         description={isLive ? 'Live · viewer control is enabled.' : 'Standby · viewer control is paused.'}
         actions={
-          <Stack direction="row" spacing={1} alignItems="center">
+          <Stack direction="row" spacing={1.5} alignItems="center">
+            <Tooltip title={isLive ? 'Disable Viewer Control' : 'Enable Viewer Control'}>
+              <FormControlLabel
+                sx={{
+                  m: 0,
+                  '& .MuiFormControlLabel-label': { fontSize: 14, fontWeight: 500 }
+                }}
+                control={
+                  <Switch
+                    size="small"
+                    checked={isLive}
+                    onChange={(_e, v) => toggleViewerControl(v)}
+                    inputProps={{ 'aria-label': 'Toggle viewer control' }}
+                  />
+                }
+                label="Viewer Control"
+                labelPlacement="end"
+              />
+            </Tooltip>
             <ViewPublicPageButton publicUrl={publicUrl} />
             {/* Reset Votes only makes sense in voting mode. Clear Now Playing/Up Next
                 moved into the NowPlayingCard header where it belongs. */}
