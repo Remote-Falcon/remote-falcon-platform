@@ -5,10 +5,8 @@ import { Box, Drawer, Tooltip, useMediaQuery } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import { IconChevronLeft, IconChevronRight } from '@tabler/icons-react';
 import PropTypes from 'prop-types';
-import PerfectScrollbar from 'react-perfect-scrollbar';
 
 import SupportLinks from '../../../design-system/components/SupportLinks';
-import ThemeToggle from '../../../design-system/components/ThemeToggle';
 import useConfig from '../../../hooks/useConfig';
 import { useDispatch, useSelector } from '../../../store';
 import {
@@ -64,18 +62,31 @@ const Sidebar = ({ window }) => {
     >
       <SidebarLogo collapsed={railCollapsed} />
 
-      <PerfectScrollbar
-        component="div"
-        style={{
+      {/* Native overflow scrolling — replaces PerfectScrollbar which
+          intermittently failed to constrain its scroll height in Chrome,
+          causing menu items to bleed through the footer when the menu
+          overflowed the viewport. flex: 1 + minHeight: 0 is the standard
+          pattern that lets a flex child shrink below its content size. */}
+      <Box
+        sx={{
           flex: 1,
           minHeight: 0,
-          paddingLeft: railCollapsed ? '8px' : '12px',
-          paddingRight: railCollapsed ? '8px' : '12px',
-          transition: 'padding 200ms ease'
+          overflowY: 'auto',
+          overflowX: 'hidden',
+          px: railCollapsed ? 1 : 1.5,
+          transition: 'padding 200ms ease',
+          // Slim, themed scrollbar — only visible when content overflows.
+          '&::-webkit-scrollbar': { width: 6 },
+          '&::-webkit-scrollbar-thumb': {
+            bgcolor: (t) =>
+              t.palette.mode === 'dark' ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.18)',
+            borderRadius: 3
+          },
+          scrollbarWidth: 'thin'
         }}
       >
         <MenuList />
-      </PerfectScrollbar>
+      </Box>
 
       <Box
         sx={{
@@ -99,10 +110,6 @@ const Sidebar = ({ window }) => {
             theme toggle without needing extra chrome. */}
         <SupportLinks variant={railCollapsed ? 'collapsed' : 'expanded'} />
 
-        <Box sx={{ display: { xs: 'none', md: 'block' }, mt: 1 }}>
-          <ThemeToggle variant="rail" />
-        </Box>
-
         <Tooltip title={railCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} placement="right">
           <Box
             component="button"
@@ -114,6 +121,11 @@ const Sidebar = ({ window }) => {
               display: { xs: 'none', lg: 'flex' },
               width: '100%',
               alignItems: 'center',
+              // Centers the chevron under the heart icon when the rail is
+              // collapsed (label is hidden, so only the chevron remains).
+              // Expanded uses the default left-alignment so the chevron sits
+              // next to the "Collapse" label with the gap.
+              justifyContent: railCollapsed ? 'center' : 'flex-start',
               gap: 1.5,
               px: 1.25,
               py: 1,
