@@ -522,23 +522,6 @@ export const GET_SHOW_BY_SHOW_NAME = gql`
   }
 `;
 
-export const GET_NOTIFICATIONS = gql`
-  query @api(name: controlPanel) {
-    getNotifications {
-      notification {
-        id
-        uuid
-        createdDate
-        preview
-        subject
-        message
-      }
-      read
-      deleted
-    }
-  }
-`;
-
 export const IMPERSONATE = gql`
   query($showSubdomain: String!) @api(name: controlPanel) {
     impersonateShow(showSubdomain: $showSubdomain) {

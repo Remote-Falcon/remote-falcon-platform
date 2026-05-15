@@ -132,14 +132,3 @@ export const DELETE_STATS_WITHIN_RANGE = gql`
   }
 `;
 
-export const MARK_NOTIFICATIONS_AS_READ = gql`
-  mutation ($uuids: [String]!) @api(name: controlPanel) {
-    markNotificationsAsRead(uuids: $uuids)
-  }
-`;
-
-export const DELETE_NOTIFICATION_FOR_USER = gql`
-  mutation ($uuid: String!) @api(name: controlPanel) {
-    deleteNotificationForUser(uuid: $uuid)
-  }
-`;

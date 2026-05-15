@@ -7,7 +7,6 @@ import ThemeToggle from '../../../design-system/components/ThemeToggle';
 import { useDispatch, useSelector } from '../../../store';
 import { openDrawer } from '../../../store/slices/menu';
 
-import NotificationSection from './NotificationSection';
 import ProfileSection from './ProfileSection';
 import RouteBreadcrumb from './RouteBreadcrumb';
 import SearchTrigger from './SearchTrigger';
@@ -41,10 +40,6 @@ const Header = () => {
 
       <Box sx={{ ml: 1 }}>
         <ThemeToggle />
-      </Box>
-
-      <Box sx={{ ml: 0.5 }}>
-        <NotificationSection />
       </Box>
 
       <Box sx={{ ml: 0.5 }}>
