@@ -23,6 +23,7 @@ import _ from 'lodash';
 import PropTypes from 'prop-types';
 
 import { savePreferencesService } from '../../../../services/controlPanel/mutations.service';
+import useDashboardLiveStats from '../../../../hooks/useDashboardLiveStats';
 import useShowPublicUrl from '../../../../hooks/useShowPublicUrl';
 import { useDispatch, useSelector } from '../../../../store';
 import { setShow } from '../../../../store/slices/show';
@@ -125,6 +126,11 @@ const Dashboard = () => {
   const [resetAllVotesMutation] = useMutation(RESET_ALL_VOTES);
   const [deleteNowPlayingMutation] = useMutation(DELETE_NOW_PLAYING);
   const [updatePreferencesMutation] = useMutation(UPDATE_PREFERENCES);
+  // Refetch the live-stats query immediately after mutations the operator
+  // expects to see reflected in the dashboard right away (Reset Votes,
+  // Clear Now Playing). Without this they'd wait up to one poll interval
+  // for the new value to land.
+  const { refetch: refetchLiveStats } = useDashboardLiveStats();
 
   const isLive = !!show?.preferences?.viewerControlEnabled;
   const isJukebox = show?.preferences?.viewerControlMode === ViewerControlMode.JUKEBOX;
@@ -152,7 +158,10 @@ const Dashboard = () => {
     trackPosthogEvent('dashboard_quick_action', { action: 'reset_votes' });
     resetAllVotesMutation({
       context: { headers: { Route: 'Control-Panel' } },
-      onCompleted: () => showAlert(dispatch, { message: 'All Votes Reset' }),
+      onCompleted: () => {
+        showAlert(dispatch, { message: 'All Votes Reset' });
+        refetchLiveStats();
+      },
       onError: () => showAlert(dispatch, { alert: 'error' })
     }).then();
   };
@@ -161,7 +170,10 @@ const Dashboard = () => {
     trackPosthogEvent('dashboard_quick_action', { action: 'clear_now_playing' });
     deleteNowPlayingMutation({
       context: { headers: { Route: 'Control-Panel' } },
-      onCompleted: () => showAlert(dispatch, { message: 'Now Playing/Up next Cleared' }),
+      onCompleted: () => {
+        showAlert(dispatch, { message: 'Now Playing/Up next Cleared' });
+        refetchLiveStats();
+      },
       onError: () => showAlert(dispatch, { alert: 'error' })
     }).then();
   };

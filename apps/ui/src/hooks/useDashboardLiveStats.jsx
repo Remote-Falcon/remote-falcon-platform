@@ -16,10 +16,14 @@ import { DASHBOARD_LIVE_STATS } from '../utils/graphql/controlPanel/queries';
 // cache entries never leak between renders. Callers receive the full
 // response and pick the fields they care about.
 //
-// Returns: { data, loading, error }
+// Returns: { data, loading, error, refetch }
 //   data    — the latest dashboardLiveStats response, or null until first fetch
 //   loading — true on initial load only (subsequent polls don't toggle this)
 //   error   — last error, or null
+//   refetch — fire an immediate fetch ahead of the next poll tick. Useful
+//             after mutations that the operator expects to see reflected
+//             instantly (Reset Votes, Clear Now Playing) instead of waiting
+//             up to POLL_MS seconds for the next poll.
 const POLL_MS = 5000;
 
 const useDashboardLiveStats = () => {
@@ -60,7 +64,7 @@ const useDashboardLiveStats = () => {
 
   useInterval(fetch, POLL_MS);
 
-  return { data, loading, error };
+  return { data, loading, error, refetch: fetch };
 };
 
 export default useDashboardLiveStats;
