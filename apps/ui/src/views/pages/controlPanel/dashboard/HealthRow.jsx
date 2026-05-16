@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import * as React from 'react';
 
-import { Box, Chip, Popover, Skeleton, Stack, Tooltip, Typography } from '@mui/material';
+import { Box, Chip, Divider, Popover, Skeleton, Stack, Tooltip, Typography } from '@mui/material';
 import { IconActivityHeartbeat, IconHistory, IconPlugConnected, IconPlugConnectedX } from '@tabler/icons-react';
 import moment from 'moment';
 
@@ -221,33 +221,63 @@ const HealthRow = () => {
         anchorEl={versionAnchor}
         onClose={() => setVersionAnchor(null)}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
-        slotProps={{ paper: { sx: { p: 2, maxWidth: 360, minWidth: 280 } } }}
+        slotProps={{ paper: { sx: { maxWidth: 360, minWidth: 280, borderRadius: 2 } } }}
       >
-        <Typography variant="overline" sx={{ color: 'text.secondary', letterSpacing: '0.06em' }}>
-          Version history
-        </Typography>
-        <Typography variant="caption" sx={{ color: 'text.disabled', display: 'block', mb: 1.5 }}>
-          Logged when the plugin reports a different version. Last 365 days.
-        </Typography>
-        <Stack divider={<Box sx={{ borderTop: '1px solid', borderColor: 'divider' }} />}>
-          {versionChanges.map((v, i) => (
-            <Stack key={i} direction="row" justifyContent="space-between" alignItems="center" sx={{ py: 0.75 }}>
-              <Box>
-                <Typography sx={{ fontSize: 12, fontFamily: 'monospace' }}>
-                  Plugin {v.pluginVersion || '—'}
-                </Typography>
-                <Typography sx={{ fontSize: 11, fontFamily: 'monospace', color: 'text.secondary' }}>
-                  FPP {v.fppVersion || '—'}
-                </Typography>
+        {/* All content padding lives on this inner Box rather than the
+            Paper's sx — `slotProps.paper` in this MUI version was emitting
+            visibly thinner padding than the spacing prop suggested, so
+            we apply it where we can verify it from the DOM. */}
+        <Box sx={{ px: 3, py: 2.5 }}>
+          <Typography variant="overline" sx={{ color: 'text.secondary', letterSpacing: '0.06em' }}>
+            Version history
+          </Typography>
+          <Typography variant="caption" sx={{ color: 'text.disabled', display: 'block', mb: 1.5 }}>
+            Logged when the plugin reports a different version. Last 365 days.
+          </Typography>
+          {/* Cap height + scroll the list, not the whole popover, so the
+              "Version history" header and caption stay visible while the
+              user scrolls long histories. 320px fits ~10 rows comfortably;
+              past that, the slim themed scrollbar kicks in. */}
+          <Box
+            sx={{
+              maxHeight: 320,
+              overflowY: 'auto',
+              // Pull the scrollbar out to the popover edge so it doesn't
+              // crowd the right-side timestamps. Symmetric `mr` keeps the
+              // row content horizontally aligned with the header above it.
+              mr: -1.5,
+              pr: 1.5,
+              '&::-webkit-scrollbar': { width: 6 },
+              '&::-webkit-scrollbar-thumb': {
+                bgcolor: (t) =>
+                  t.palette.mode === 'dark' ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.18)',
+                borderRadius: 3
+              },
+              scrollbarWidth: 'thin'
+            }}
+          >
+            {versionChanges.map((v, i) => (
+              <Box key={i}>
+                {i > 0 && <Divider sx={{ my: 0.5 }} />}
+                <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ py: 0.75, gap: 2 }}>
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography sx={{ fontSize: 12, fontFamily: 'monospace' }} noWrap>
+                      Plugin {v.pluginVersion || '—'}
+                    </Typography>
+                    <Typography sx={{ fontSize: 11, fontFamily: 'monospace', color: 'text.secondary' }} noWrap>
+                      FPP {v.fppVersion || '—'}
+                    </Typography>
+                  </Box>
+                  <Tooltip title={moment(v.atMs).format('ddd MMM D, h:mm a')} placement="left">
+                    <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: 11, cursor: 'help', flexShrink: 0 }}>
+                      {formatAgo(v.atMs)}
+                    </Typography>
+                  </Tooltip>
+                </Stack>
               </Box>
-              <Tooltip title={moment(v.atMs).format('ddd MMM D, h:mm a')} placement="left">
-                <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: 11, cursor: 'help' }}>
-                  {formatAgo(v.atMs)}
-                </Typography>
-              </Tooltip>
-            </Stack>
-          ))}
-        </Stack>
+            ))}
+          </Box>
+        </Box>
       </Popover>
     </MainCard>
   );
