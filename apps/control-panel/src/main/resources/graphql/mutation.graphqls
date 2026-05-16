@@ -24,7 +24,5 @@ type Mutation {
     createNotification(notification: NotificationInput!): Boolean
     createNotificationForUser(notification: NotificationInput!, showSubdomain: String!): Boolean
     deleteNotification(uuid: String!): Boolean
-    markNotificationsAsRead(uuids: [String]!): Boolean
-    deleteNotificationForUser(uuid: String!): Boolean
     updateExpoPushToken(expoPushToken: String!): Boolean
 }

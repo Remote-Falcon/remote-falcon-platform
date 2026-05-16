@@ -71,6 +71,7 @@ input PreferenceInput {
     blockedViewerIps: [String]
     notificationPreferences: NotificationPreferenceInput
     analyticsBetaOptIn: Boolean
+    wrappedPublic: Boolean
 }
 
 input NotificationPreferenceInput {

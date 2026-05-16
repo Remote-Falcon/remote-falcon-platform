@@ -16,6 +16,13 @@ import java.util.Optional;
 
 @ApplicationScoped
 public class ShowRepository implements PanacheMongoRepository<Show> {
+  // V15 security fix — bound the rejectedRequests array so a hostile viewer
+  // hammering /addSequenceToQueue with bad payloads can't grow the embedded
+  // list past Mongo's 16 MB document limit. 30 days mirrors the heartbeat-gap
+  // retention window in PluginService and comfortably covers a Halloween/
+  // Christmas show season for the funnel analytics that consume this data.
+  private static final long REJECTED_REQUESTS_RETENTION_DAYS = 30L;
+
   public Optional<Show> findByShowSubdomain(String showSubdomain) {
     return find("showSubdomain", showSubdomain).firstResultOptional();
   }
@@ -116,9 +123,15 @@ public class ShowRepository implements PanacheMongoRepository<Show> {
   }
 
   // V15 — log a refused addSequenceToQueue attempt for the conversion
-  // funnel on the Sequences analytics tab.
+  // funnel on the Sequences analytics tab. Prune + push must be two separate
+  // updates because Mongo rejects $pull and $push on the same field path in
+  // one operation. Mirrors the heartbeatGaps/versionChanges pattern in
+  // plugins-api PluginService.
   public void appendRejectedRequestStat(String showSubdomain, Stat.RejectedRequest stat) {
-    mongoCollection().updateOne(Filters.eq("showSubdomain", showSubdomain), Updates.push("stats.rejectedRequests", stat));
+    LocalDateTime cutoff = LocalDateTime.now().minusDays(REJECTED_REQUESTS_RETENTION_DAYS);
+    var filter = Filters.eq("showSubdomain", showSubdomain);
+    mongoCollection().updateOne(filter, Updates.pull("stats.rejectedRequests", Filters.lt("dateTime", cutoff)));
+    mongoCollection().updateOne(filter, Updates.push("stats.rejectedRequests", stat));
   }
 
   public void appendPageStat(String showSubdomain, Stat.Page stat) {

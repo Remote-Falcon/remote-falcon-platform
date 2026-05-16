@@ -8,7 +8,7 @@ type Query {
     viewerSessions(startDate: Long!, endDate: Long!, timezone: String = "America/Chicago"): ViewerSessions
     requestConversion(startDate: Long!, endDate: Long!, timezone: String = "America/Chicago"): RequestConversion
     psaEffectiveness(timezone: String = "America/Chicago"): PsaEffectiveness
-    wrappedSummary(showSubdomain: String!, season: String!, year: Int!, timezone: String): WrappedSummary
+    wrappedSummary(token: String!, season: String!, year: Int!, timezone: String): WrappedSummary
     showsOnAMap: [ShowsOnAMap]
     getShowsAutoSuggest(showName: String!): [String]
     getShowByShowName(showName: String!): Show

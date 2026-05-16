@@ -18,6 +18,23 @@ public interface ShowRepository extends MongoRepository<Show, String> {
     Optional<Show> findByShowSubdomain(String showSubdomain);
     Optional<Show> findByShowName(String showName);
 
+    // Public, unauth `wrappedSummary` projection — load ONLY the fields
+    // needed to compute the season summary. Explicitly excludes password,
+    // apiAccess, showToken, lastLoginIp, viewerSessions.ip, etc. so that
+    // sensitive material never enters the JVM heap on the public path.
+    //
+    // Lookup is by the random capability-URL token (`preferences.wrappedShareToken`),
+    // NOT by subdomain — subdomains are enumerable via `showsOnAMap` and
+    // a guessable URL is no security boundary. The token is the credential.
+    @Query(value = "{ 'preferences.wrappedShareToken': ?0 }",
+            fields = "{ 'showName': 1, 'showSubdomain': 1, " +
+                     "'preferences.wrappedPublic': 1, 'preferences.wrappedShareToken': 1, " +
+                     "'stats.page': 1, 'stats.jukebox': 1, 'stats.voting': 1, " +
+                     "'sequences.name': 1, 'sequences.duration': 1, " +
+                     "'viewerSessions.viewerId': 1, 'viewerSessions.ip': 1, " +
+                     "'viewerSessions.firstSeen': 1, 'viewerSessions.lastSeen': 1 }")
+    Optional<Show> findByWrappedShareTokenForWrapped(String wrappedShareToken);
+
     // Case-insensitive email lookup that uses the idx_email_ci index (collation strength=2).
     // Spring Data's derived findByEmailIgnoreCase uses $regex /i which can't use the index.
     @Query(value = "{ 'email': ?0 }", collation = "{ 'locale': 'en', 'strength': 2 }")

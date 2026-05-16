@@ -24,9 +24,13 @@ import com.remotefalcon.controlpanel.response.dashboard.DashboardStatsResponse;
 import com.remotefalcon.controlpanel.response.dashboard.ViewerSessionsResponse;
 import com.remotefalcon.controlpanel.response.dashboard.WrappedSummaryResponse;
 import com.remotefalcon.controlpanel.util.AuthUtil;
+import com.remotefalcon.controlpanel.util.ClientUtil;
 import com.remotefalcon.controlpanel.util.ExcelUtil;
 import com.remotefalcon.library.documents.Show;
 import com.remotefalcon.library.enums.StatusResponse;
+
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedDeque;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -38,6 +42,17 @@ public class DashboardService {
   private final AuthUtil jwtUtil;
   private final ExcelUtil excelUtil;
   private final ShowRepository showRepository;
+  private final ClientUtil clientUtil;
+
+  // Sliding-window rate limit for the public, unauth wrappedSummary
+  // resolver. Keyed on caller IP. 30 requests per 60 seconds is enough
+  // for a normal browser polling the page a few times during the season
+  // teaser; scrapers iterating the whole subdomain space will hit the
+  // limit immediately.
+  private static final int WRAPPED_RATE_LIMIT_REQUESTS = 30;
+  private static final long WRAPPED_RATE_LIMIT_WINDOW_MS = 60_000L;
+  private final ConcurrentHashMap<String, ConcurrentLinkedDeque<Long>> wrappedRateLimitBuckets =
+          new ConcurrentHashMap<>();
 
   public DashboardStatsResponse dashboardStats(Long startDate, Long endDate, String timezone) {
     TokenDTO tokenDTO = this.jwtUtil.getJwtPayload();
@@ -281,12 +296,45 @@ public class DashboardService {
   // built-in season window for the given year. Returns only aggregate
   // stats; never raw events, IPs, or sequence-level details beyond the
   // top-1 names.
-  public WrappedSummaryResponse wrappedSummary(String showSubdomain, String season, Integer year, String timezone) {
-    Optional<Show> showOpt = this.showRepository.findByShowSubdomain(showSubdomain);
+  //
+  // Hardened (security pass):
+  //  1. Capability-URL access: lookup is by a CSPRNG-random
+  //     `preferences.wrappedShareToken`. Subdomains are enumerable via
+  //     `showsOnAMap`; tokens aren't. The token IS the credential.
+  //  2. Mongo projection (findByWrappedShareTokenForWrapped) keeps password,
+  //     apiAccess, showToken, lastLoginIp out of the JVM heap on the
+  //     public path.
+  //  3. Owner opt-in (`preferences.wrappedPublic`) — defaults false; the
+  //     resolver returns null until the owner flips it (which also
+  //     auto-generates the share token).
+  //  4. Per-IP sliding-window rate limit as defense-in-depth against
+  //     token brute-force (CSPRNG randomness already makes this infeasible
+  //     but the cap protects ingestion quota / mongo throughput regardless).
+  public WrappedSummaryResponse wrappedSummary(String token, String season, Integer year, String timezone) {
+    // Rate limit BEFORE Mongo — this is the cheap path.
+    String callerIp = resolveCallerIp();
+    if (!checkWrappedRateLimit(callerIp)) {
+      throw new RuntimeException("RATE_LIMITED");
+    }
+
+    if (token == null || token.isEmpty()) {
+      return null;
+    }
+
+    Optional<Show> showOpt = this.showRepository.findByWrappedShareTokenForWrapped(token);
     if (showOpt.isEmpty()) {
-      throw new RuntimeException(StatusResponse.SHOW_NOT_FOUND.name());
+      return null;
     }
     Show show = showOpt.get();
+
+    // Owner opt-in gate. Treat null as false. Returning null (vs throwing
+    // SHOW_NOT_FOUND) makes opt-in/revoked/token-not-found look identical
+    // to the caller so enumeration via error-string sniffing is closed.
+    boolean optedIn = show.getPreferences() != null
+            && Boolean.TRUE.equals(show.getPreferences().getWrappedPublic());
+    if (!optedIn) {
+      return null;
+    }
 
     // Resolve season window. Built-in: halloween (Oct 1 – Nov 7) and
     // christmas (Nov 15 – Jan 7, wraps to next year). Bad season strings
@@ -926,5 +974,47 @@ public class DashboardService {
 
   private ZonedDateTime convertStatDateTime(LocalDateTime statDateTime, ZoneId userZone) {
     return statDateTime.atZone(ZoneOffset.UTC).withZoneSameInstant(userZone);
+  }
+
+  // Best-effort caller-IP lookup for the public wrappedSummary path. The
+  // request scope is set up by Spring on every controller hit; if a future
+  // caller invokes wrappedSummary outside that scope we degrade to a
+  // shared "unknown" bucket rather than failing the request.
+  private String resolveCallerIp() {
+    try {
+      return this.clientUtil.getClientIp(
+              ((org.springframework.web.context.request.ServletRequestAttributes)
+                      org.springframework.web.context.request.RequestContextHolder.currentRequestAttributes())
+                      .getRequest());
+    } catch (IllegalStateException ex) {
+      return "unknown";
+    }
+  }
+
+  // Sliding-window rate limit. Stores recent request timestamps per IP
+  // in a bounded deque; on each call we evict entries older than the
+  // window before deciding. Concurrent deque + computeIfAbsent gives us
+  // thread safety without an explicit lock.
+  private boolean checkWrappedRateLimit(String callerIp) {
+    if (callerIp == null || callerIp.isEmpty()) {
+      callerIp = "unknown";
+    }
+    long now = System.currentTimeMillis();
+    long windowStart = now - WRAPPED_RATE_LIMIT_WINDOW_MS;
+    ConcurrentLinkedDeque<Long> bucket =
+            wrappedRateLimitBuckets.computeIfAbsent(callerIp, k -> new ConcurrentLinkedDeque<>());
+    // Evict expired entries.
+    while (true) {
+      Long oldest = bucket.peekFirst();
+      if (oldest == null || oldest >= windowStart) {
+        break;
+      }
+      bucket.pollFirst();
+    }
+    if (bucket.size() >= WRAPPED_RATE_LIMIT_REQUESTS) {
+      return false;
+    }
+    bucket.addLast(now);
+    return true;
   }
 }

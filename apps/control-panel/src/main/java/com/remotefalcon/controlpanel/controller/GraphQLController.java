@@ -165,18 +165,6 @@ public class GraphQLController {
     }
 
     @MutationMapping
-    @RequiresAccess
-    public Boolean markNotificationsAsRead(@Argument List<String> uuids) {
-        return this.graphQLMutationService.markNotificationsAsRead(uuids);
-    }
-
-    @MutationMapping
-    @RequiresAccess
-    public Boolean deleteNotificationForUser(@Argument String uuid) {
-        return this.graphQLMutationService.deleteNotificationForUser(uuid);
-    }
-
-    @MutationMapping
     @RequiresAdminAccess
     public Boolean createNotification(@Argument Notification notification) {
         return this.graphQLMutationService.createNotification(notification);
@@ -265,15 +253,16 @@ public class GraphQLController {
         return dashboardService.psaEffectiveness(timezone);
     }
 
-    // PUBLIC — no @RequiresAccess. Anyone with the show subdomain can
-    // pull the season Wrapped summary; that's the whole point.
+    // PUBLIC — no @RequiresAccess. Anyone with the show's wrappedShareToken
+    // (a CSPRNG-random capability URL) can pull the season summary. The
+    // token IS the credential; subdomain enumeration is not a route here.
     @QueryMapping
     public com.remotefalcon.controlpanel.response.dashboard.WrappedSummaryResponse wrappedSummary(
-            @Argument String showSubdomain,
+            @Argument String token,
             @Argument String season,
             @Argument Integer year,
             @Argument String timezone) {
-        return dashboardService.wrappedSummary(showSubdomain, season, year, timezone);
+        return dashboardService.wrappedSummary(token, season, year, timezone);
     }
 
     @QueryMapping

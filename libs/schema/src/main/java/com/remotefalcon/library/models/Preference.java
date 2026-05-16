@@ -45,4 +45,15 @@ public class Preference {
     // (Audience tab Concurrent/Dwell/Returning/Regulars + future P2 work).
     // Defaults to false; owners flip it from Account Settings → Notifications.
     private Boolean analyticsBetaOptIn;
+    // Security — opt-in flag that gates the public `wrappedSummary` query.
+    // Defaults to false (treated as null == false at the resolver).
+    private Boolean wrappedPublic;
+
+    // Capability-URL share token for the public Wrapped page. Generated
+    // server-side on the transition wrappedPublic=null/false → true; the
+    // public URL becomes /wrapped/<token> and the token IS the credential
+    // — no other auth required. Subdomain enumeration can't reach Wrapped
+    // data because tokens are CSPRNG-random URL-safe strings. Regenerating
+    // (or clearing) revokes the share link.
+    private String wrappedShareToken;
 }

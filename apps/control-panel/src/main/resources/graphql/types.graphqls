@@ -9,7 +9,6 @@ type Show {
     expireDate: String
     pluginVersion: String
     fppVersion: String
-    lastFppHeartbeat: String
     lastLoginIp: String
     showRole: String
 
@@ -72,6 +71,8 @@ type Preference {
     blockedViewerIps: [String]
     notificationPreferences: NotificationPreference
     analyticsBetaOptIn: Boolean
+    wrappedPublic: Boolean
+    wrappedShareToken: String
 }
 
 type NotificationPreference {
