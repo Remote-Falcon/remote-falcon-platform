@@ -66,7 +66,7 @@ const SLIDE_MS_BY_KEY = {
 };
 
 const WrappedPage = () => {
-  const { showSubdomain, seasonAndYear } = useParams();
+  const { token, seasonAndYear } = useParams();
   const parsed = useMemo(() => parseSeasonSlug(seasonAndYear), [seasonAndYear]);
   const [data, setData] = useState();
   const [loading, setLoading] = useState(true);
@@ -76,14 +76,14 @@ const WrappedPage = () => {
   const [wrappedQuery] = useLazyQuery(WRAPPED_SUMMARY);
 
   useEffect(() => {
-    if (!parsed || !showSubdomain) {
+    if (!parsed || !token) {
       setLoading(false);
       setError('invalid_url');
       return;
     }
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     wrappedQuery({
-      variables: { showSubdomain, season: parsed.season, year: parsed.year, timezone: tz },
+      variables: { token, season: parsed.season, year: parsed.year, timezone: tz },
       fetchPolicy: 'network-only',
       onCompleted: (resp) => {
         setData(resp?.wrappedSummary);
@@ -94,7 +94,7 @@ const WrappedPage = () => {
         setLoading(false);
       }
     });
-  }, [showSubdomain, parsed, wrappedQuery]);
+  }, [token, parsed, wrappedQuery]);
 
   const theme = parsed ? SEASON_THEMES[parsed.season] : null;
   const ThemeIcon = theme?.icon;

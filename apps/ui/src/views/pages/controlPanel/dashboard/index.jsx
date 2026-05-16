@@ -58,7 +58,7 @@ const ViewPublicPageButton = ({ publicUrl }) => {
 
   const open_ = () => {
     trackPosthogEvent('dashboard_quick_action', { action: 'view_public_page' });
-    window.open(publicUrl, '_blank', 'noreferrer');
+    window.open(publicUrl, '_blank', 'noopener,noreferrer');
   };
   const copy_ = async () => {
     try {

@@ -15,6 +15,15 @@
 const ISSUE_TRACKER_NEW_ISSUE_URL =
   'https://github.com/Remote-Falcon/remote-falcon-issue-tracker/issues/new';
 
+// Sanitize values interpolated inside markdown backtick spans. Each field
+// is sourced from server state — `pluginVersion` and `fppVersion`
+// originate at the FPP plugin and travel through plugins-api before
+// landing in Redux, so we can't fully trust them. A backtick + newline in
+// any value would break out of the `code span`/list-item and let the
+// resulting GitHub issue body render attacker-controlled markdown.
+const safeForBacktick = (v) =>
+  (v == null ? '' : String(v)).replace(/[`\r\n]/g, ' ').trim();
+
 const buildBody = ({ showSubdomain, pluginVersion, fppVersion, pageUrl, userAgent }) => `**What happened?**
 
 <!-- describe the bug -->
@@ -40,11 +49,11 @@ const buildBody = ({ showSubdomain, pluginVersion, fppVersion, pageUrl, userAgen
 
 <sub>Auto-attached context (please leave this section — it speeds up triage):</sub>
 
-- Show subdomain: \`${showSubdomain || '(unknown)'}\`
-- Plugin version: \`${pluginVersion || '(not reported)'}\`
-- FPP version: \`${fppVersion || '(not reported)'}\`
-- Page: \`${pageUrl || '(unknown)'}\`
-- Browser: \`${userAgent || '(unknown)'}\`
+- Show subdomain: \`${safeForBacktick(showSubdomain) || '(unknown)'}\`
+- Plugin version: \`${safeForBacktick(pluginVersion) || '(not reported)'}\`
+- FPP version: \`${safeForBacktick(fppVersion) || '(not reported)'}\`
+- Page: \`${safeForBacktick(pageUrl) || '(unknown)'}\`
+- Browser: \`${safeForBacktick(userAgent) || '(unknown)'}\`
 `;
 
 const buildReportBugUrl = (context = {}) => {

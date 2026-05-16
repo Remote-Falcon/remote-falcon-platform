@@ -13,7 +13,6 @@ export const SIGN_IN = gql`
       expireDate
       pluginVersion
       fppVersion
-      lastFppHeartbeat
       lastLoginIp
       showRole
       playingNow
@@ -136,7 +135,6 @@ export const GET_SHOW = gql`
       expireDate
       pluginVersion
       fppVersion
-      lastFppHeartbeat
       lastLoginIp
       showRole
       playingNow
@@ -348,8 +346,8 @@ export const DASHBOARD_STATS = gql`
 `;
 
 export const WRAPPED_SUMMARY = gql`
-  query ($showSubdomain: String!, $season: String!, $year: Int!, $timezone: String) @api(name: controlPanel) {
-    wrappedSummary(showSubdomain: $showSubdomain, season: $season, year: $year, timezone: $timezone) {
+  query ($token: String!, $season: String!, $year: Int!, $timezone: String) @api(name: controlPanel) {
+    wrappedSummary(token: $token, season: $season, year: $year, timezone: $timezone) {
       showName
       season
       year
@@ -429,7 +427,6 @@ export const GET_SHOW_BY_SHOW_NAME = gql`
       expireDate
       pluginVersion
       fppVersion
-      lastFppHeartbeat
       lastLoginIp
       showRole
       playingNow

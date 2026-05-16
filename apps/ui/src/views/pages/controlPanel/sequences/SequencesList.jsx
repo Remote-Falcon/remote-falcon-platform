@@ -219,6 +219,19 @@ const SequencesList = () => {
     [sequenceGroups]
   );
 
+  // Categories aren't a first-class collection on the show — they're a
+  // free-text field per sequence. We derive the dropdown options from the
+  // distinct categories currently in use so typing matches existing
+  // entries (with freeSolo letting the user add a brand-new one inline).
+  const categoryOptions = useMemo(() => {
+    const distinct = new Set(
+      (show?.sequences || [])
+        .map((s) => (s?.category || '').trim())
+        .filter(Boolean)
+    );
+    return [...distinct].sort((a, b) => a.localeCompare(b)).map((c) => ({ value: c, label: c }));
+  }, [show?.sequences]);
+
   const rowKey = (s) => `${s?.name}-${s?.index}`;
 
   // Coalesced autosave: each cell-blur enqueues a patch; we collapse
@@ -300,6 +313,38 @@ const SequencesList = () => {
         sequence_artist: sequence?.artist
       });
     }
+  };
+
+  // Per-row group commit. Mirrors the bulk "Set group…" menu's
+  // create-then-assign flow: if the typed value isn't already a known
+  // group, persist the new sequenceGroups[] entry first (sync) and then
+  // enqueue the field patch for the coalesced save. Existing-group case
+  // is a simple field commit.
+  const commitGroup = (sequence, raw) => {
+    const trimmed = (raw || '').trim();
+    if (!trimmed) {
+      commitField(sequence, 'group', null);
+      return;
+    }
+    const exists = sequenceGroups.some((g) => g?.name === trimmed);
+    if (exists) {
+      commitField(sequence, 'group', trimmed);
+      return;
+    }
+    const updatedGroups = [...sequenceGroups, { name: trimmed, visibilityCount: 0 }];
+    saveSequenceGroupsService(updatedGroups, updateSequenceGroupsMutation, (gResponse) => {
+      if (!gResponse?.success) {
+        showAlert(dispatch, gResponse?.toast);
+        return;
+      }
+      // Update Redux synchronously so the new group shows up in the
+      // dropdown options + chip filter + bulk menu immediately. The
+      // sequence-level patch goes through the coalesced save next tick.
+      dispatch(setShow({ ...show, sequenceGroups: updatedGroups }));
+      commitField(sequence, 'group', trimmed);
+      showAlert(dispatch, { message: `Created group "${trimmed}"` });
+      trackPosthogEvent('sequence_group_created', { source: 'inline_row', group_name: trimmed });
+    });
   };
 
   // Filtered + sorted view
@@ -943,8 +988,10 @@ const SequencesList = () => {
                                         value={sequence.group}
                                         variant="select"
                                         options={groupOptions}
+                                        freeSolo
                                         emptyLabel="Add group…"
-                                        onCommit={(v) => commitField(sequence, 'group', v || null)}
+                                        placeholder="Pick or type a new group"
+                                        onCommit={(v) => commitGroup(sequence, v)}
                                         disabled={!sequence.active}
                                       />
                                     )}
@@ -952,8 +999,12 @@ const SequencesList = () => {
                                   <TableCell sx={{ minWidth: 120 }}>
                                     <EditableCell
                                       value={sequence.category}
-                                      onCommit={(v) => commitField(sequence, 'category', v)}
-                                      placeholder="Category"
+                                      variant="select"
+                                      options={categoryOptions}
+                                      freeSolo
+                                      emptyLabel="Add category…"
+                                      placeholder="Pick or type a new category"
+                                      onCommit={(v) => commitField(sequence, 'category', (v || '').trim() || null)}
                                     />
                                   </TableCell>
                                   <TableCell>

@@ -112,11 +112,13 @@ export const JWTProvider = ({ children }) => {
                   ...showData
                 })
               );
-              // Identify this user/show in PostHog using the showSubdomain as distinct_id
+              // Identify this user/show in PostHog using the showSubdomain
+              // as distinct_id. Intentionally NOT sending email — PII to a
+              // third-party analytics provider, regulated (GDPR/CCPA), and
+              // not needed for analytics (showSubdomain is the user key).
               try {
                 if (posthog && showData?.showSubdomain) {
                   posthog.identify(showData.showSubdomain, {
-                    email: showData?.email,
                     showName: showData?.showName,
                     showRole: showData?.showRole
                   });
@@ -155,11 +157,10 @@ export const JWTProvider = ({ children }) => {
             ...showData
           })
         );
-        // Identify this user/show in PostHog using the showSubdomain as distinct_id
+        // See identify() note above — no email to PostHog.
         try {
           if (posthog && showData?.showSubdomain) {
             posthog.identify(showData.showSubdomain, {
-              email: showData?.email,
               showName: showData?.showName,
               showRole: showData?.showRole
             });

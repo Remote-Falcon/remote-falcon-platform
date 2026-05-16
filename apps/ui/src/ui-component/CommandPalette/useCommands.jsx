@@ -67,7 +67,7 @@ const useCommands = () => {
         // External items (Docs) open in a new tab — `navigate()` would
         // throw on a fully-qualified URL.
         const run = item.external
-          ? () => window.open(item.url, '_blank', 'noreferrer')
+          ? () => window.open(item.url, '_blank', 'noopener,noreferrer')
           : () => navigate(item.url);
         commands.push({
           id: `nav:${item.id}`,

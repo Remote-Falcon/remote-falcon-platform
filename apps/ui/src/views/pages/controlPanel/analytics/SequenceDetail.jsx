@@ -104,7 +104,7 @@ const SequenceDetail = () => {
             '&:hover': { color: 'text.primary' }
           }}
           component={RouterLink}
-          to="/control-panel/analytics/sequences"
+          to="/control-panel/analytics/sequences-jukebox"
           style={{ textDecoration: 'none' }}
         >
           <IconArrowLeft size={16} stroke={1.75} />

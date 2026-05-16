@@ -25,7 +25,11 @@ const MenuList = () => {
       pageUrl: window.location.href,
       userAgent: navigator.userAgent
     });
-    window.open(url, '_blank', 'noreferrer');
+    // The third arg is windowFeatures; 'noopener,noreferrer' here both
+    // prevents the opened tab from accessing window.opener (tabnabbing)
+    // and suppresses the Referer header to the target. Bare 'noreferrer'
+    // would be silently ignored as an unknown feature.
+    window.open(url, '_blank', 'noopener,noreferrer');
   }, [show?.showSubdomain, show?.pluginVersion, show?.fppVersion]);
 
   // Build the menu structure once per render, injecting the live onClick
