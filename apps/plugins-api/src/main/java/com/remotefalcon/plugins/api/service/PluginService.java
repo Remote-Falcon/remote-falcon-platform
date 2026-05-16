@@ -817,11 +817,25 @@ public class PluginService {
   // but tight enough to catch real outages worth visualizing.
   private static final long HEARTBEAT_GAP_THRESHOLD_MINUTES = 5L;
   private static final long HEARTBEAT_GAP_RETENTION_DAYS = 30L;
+  // Floor for accepting a heartbeat write. The plugin sends every ~30s, so
+  // anything faster than this is either a buggy plugin (retry loop, clock
+  // jitter on a slow box) or a misbehaving client. Heartbeat data is
+  // information-poor — we only care about "alive in the last 5 min" — so
+  // silently dropping high-frequency duplicates is loss-free and protects
+  // the Show document from write amplification at scale.
+  private static final long HEARTBEAT_MIN_INTERVAL_SECONDS = 10L;
 
   public void fppHeartbeat() {
     Show show = showContext.getShow();
     LocalDateTime now = LocalDateTime.now();
     LocalDateTime previous = show.getLastFppHeartbeat();
+
+    // Rate limit: if the previous heartbeat landed within the floor, accept
+    // the request (controller returns 204) but skip the Mongo write. Caller
+    // can't tell the difference and doesn't need to — fire-and-forget.
+    if (previous != null && previous.isAfter(now.minusSeconds(HEARTBEAT_MIN_INTERVAL_SECONDS))) {
+      return;
+    }
 
     // V17 — gap detection. If the previous heartbeat was more than the
     // threshold ago, we just came back from an outage; record the gap window.
