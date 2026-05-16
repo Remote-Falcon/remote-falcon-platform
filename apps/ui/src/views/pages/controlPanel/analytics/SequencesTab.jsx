@@ -1,14 +1,16 @@
-import { useMemo } from 'react';
+import { createContext, useContext, useEffect, useMemo } from 'react';
 import * as React from 'react';
 
 import { Box, Grid, Skeleton, Stack, Typography } from '@mui/material';
 import { IconArrowDown, IconArrowUp, IconCategory, IconChevronRight, IconMinus, IconPlaylist } from '@tabler/icons-react';
 import _ from 'lodash';
+import PropTypes from 'prop-types';
 import { useNavigate } from 'react-router-dom';
 
 import EmptyState from '../../../../ui-component/EmptyState';
 import MainCard from '../../../../ui-component/cards/MainCard';
 import { useSelector } from '../../../../store';
+import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
 import { ViewerControlMode } from '../../../../utils/enum';
 
 import PsaEffectiveness from './PsaEffectiveness';
@@ -17,6 +19,14 @@ import useAnalyticsFilters from './useAnalyticsFilters';
 import useDashboardStats from './useDashboardStats';
 
 const sequenceDetailUrl = (name) => `/control-panel/analytics/sequence/${encodeURIComponent(name)}`;
+
+// Mode override for the Sequences analytics tab. The two sub-routes
+// ("Sequences (Jukebox)" / "Sequences (Voting)") each supply a value so
+// the tab always reflects the user's chosen tab, not the show's current
+// viewer-control mode — flipping the show mid-season no longer hides
+// historical data.
+const SequencesAnalyticsModeContext = createContext(null);
+const useSequencesAnalyticsMode = () => useContext(SequencesAnalyticsModeContext);
 
 // V11 — Top requested sequences with rank delta.
 //
@@ -147,16 +157,26 @@ const TopSequencesBar = ({ items, maxValue, prevRankByName, compareToPrior, onRo
 );
 
 const TopRequested = () => {
-  const { range, priorRange, compareToPrior } = useAnalyticsFilters();
-  const { show } = useSelector((state) => state.show);
+  const { range, priorRange, compareToPrior, presetId } = useAnalyticsFilters();
   const navigate = useNavigate();
 
   const current = useDashboardStats(range);
   const prior = useDashboardStats(compareToPrior ? priorRange : null);
 
-  const isJukebox = show?.preferences?.viewerControlMode === ViewerControlMode.JUKEBOX;
+  const mode = useSequencesAnalyticsMode();
+  const isJukebox = mode === ViewerControlMode.JUKEBOX;
   const sourceField = isJukebox ? 'jukeboxBySequence' : 'votingBySequence';
   const titleNoun = isJukebox ? 'requested' : 'voted';
+
+  const openSequence = (name) => {
+    trackPosthogEvent('analytics_sequence_opened', {
+      mode,
+      sequence_name: name,
+      preset_id: presetId,
+      source: 'top_requested'
+    });
+    navigate(sequenceDetailUrl(name));
+  };
 
   const items = useMemo(() => {
     const raw = current.data?.[sourceField]?.sequences || [];
@@ -203,7 +223,7 @@ const TopRequested = () => {
           maxValue={maxValue}
           prevRankByName={prevRankByName}
           compareToPrior={compareToPrior}
-          onRowClick={(name) => navigate(sequenceDetailUrl(name))}
+          onRowClick={openSequence}
         />
       )}
     </MainCard>
@@ -216,13 +236,23 @@ const TopRequested = () => {
 // how often a voted-for sequence actually wins its round. Reveals
 // "this song gets votes but never wins" insight. Voting-mode only.
 const TopVoted = () => {
-  const { range } = useAnalyticsFilters();
-  const { show } = useSelector((state) => state.show);
+  const { range, presetId } = useAnalyticsFilters();
   const navigate = useNavigate();
 
   const current = useDashboardStats(range);
 
-  const isVoting = show?.preferences?.viewerControlMode === ViewerControlMode.VOTING;
+  const mode = useSequencesAnalyticsMode();
+  const isVoting = mode === ViewerControlMode.VOTING;
+
+  const openSequence = (name) => {
+    trackPosthogEvent('analytics_sequence_opened', {
+      mode,
+      sequence_name: name,
+      preset_id: presetId,
+      source: 'top_voted'
+    });
+    navigate(sequenceDetailUrl(name));
+  };
 
   const items = useMemo(() => {
     if (!isVoting) return [];
@@ -275,13 +305,13 @@ const TopVoted = () => {
                 direction="row"
                 alignItems="center"
                 spacing={1.5}
-                onClick={() => navigate(sequenceDetailUrl(item.name))}
+                onClick={() => openSequence(item.name)}
                 role="button"
                 tabIndex={0}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();
-                    navigate(sequenceDetailUrl(item.name));
+                    openSequence(item.name);
                   }
                 }}
                 sx={{
@@ -373,7 +403,7 @@ const CategoryMix = () => {
   const { show } = useSelector((state) => state.show);
   const current = useDashboardStats(range);
 
-  const isJukebox = show?.preferences?.viewerControlMode === ViewerControlMode.JUKEBOX;
+  const isJukebox = useSequencesAnalyticsMode() === ViewerControlMode.JUKEBOX;
   const sourceField = isJukebox ? 'jukeboxBySequence' : 'votingBySequence';
 
   const segments = useMemo(() => {
@@ -511,24 +541,46 @@ const CategoryMix = () => {
   );
 };
 
-const SequencesTab = () => (
-  <Grid container spacing={2}>
-    <Grid item xs={12} lg={8}>
-      <TopRequested />
+// Fire a tab-view event tagged with mode + current date preset so we can
+// see in PostHog which tab is actually getting used and whether operators
+// flip between them within a session. Lives in its own component so we
+// can subscribe to filters without forcing SequencesTab itself to.
+const SequencesTabViewTracker = ({ mode }) => {
+  const { presetId } = useAnalyticsFilters();
+  useEffect(() => {
+    trackPosthogEvent('analytics_sequences_tab_viewed', { mode, preset_id: presetId });
+  }, [mode, presetId]);
+  return null;
+};
+SequencesTabViewTracker.propTypes = {
+  mode: PropTypes.oneOf([ViewerControlMode.JUKEBOX, ViewerControlMode.VOTING]).isRequired
+};
+
+const SequencesTab = ({ mode }) => (
+  <SequencesAnalyticsModeContext.Provider value={mode}>
+    <SequencesTabViewTracker mode={mode} />
+    <Grid container spacing={2}>
+      <Grid item xs={12} lg={8}>
+        <TopRequested />
+      </Grid>
+      <Grid item xs={12} lg={4}>
+        <CategoryMix />
+      </Grid>
+      <Grid item xs={12}>
+        <TopVoted />
+      </Grid>
+      <Grid item xs={12} lg={7}>
+        <RequestConversion />
+      </Grid>
+      <Grid item xs={12} lg={5}>
+        <PsaEffectiveness />
+      </Grid>
     </Grid>
-    <Grid item xs={12} lg={4}>
-      <CategoryMix />
-    </Grid>
-    <Grid item xs={12}>
-      <TopVoted />
-    </Grid>
-    <Grid item xs={12} lg={7}>
-      <RequestConversion />
-    </Grid>
-    <Grid item xs={12} lg={5}>
-      <PsaEffectiveness />
-    </Grid>
-  </Grid>
+  </SequencesAnalyticsModeContext.Provider>
 );
+
+SequencesTab.propTypes = {
+  mode: PropTypes.oneOf([ViewerControlMode.JUKEBOX, ViewerControlMode.VOTING]).isRequired
+};
 
 export default SequencesTab;

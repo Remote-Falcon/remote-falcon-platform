@@ -114,7 +114,8 @@ const MainRoutes = {
         { index: true, element: <Navigate to="overview" replace /> },
         { path: 'overview', element: <AnalyticsOverview /> },
         { path: 'audience', element: <AnalyticsAudience /> },
-        { path: 'sequences', element: <AnalyticsSequences /> }
+        { path: 'sequences-jukebox', element: <AnalyticsSequences mode="JUKEBOX" /> },
+        { path: 'sequences-voting', element: <AnalyticsSequences mode="VOTING" /> }
       ]
     },
     // Sequence detail is a drill-down, not a tab — render outside the

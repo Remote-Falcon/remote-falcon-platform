@@ -13,7 +13,8 @@ import DateRangePicker from './DateRangePicker';
 export const analyticsRoutes = [
   { label: 'Overview', to: '/control-panel/analytics/overview' },
   { label: 'Audience', to: '/control-panel/analytics/audience' },
-  { label: 'Sequences', to: '/control-panel/analytics/sequences' }
+  { label: 'Sequences (Jukebox)', to: '/control-panel/analytics/sequences-jukebox' },
+  { label: 'Sequences (Voting)', to: '/control-panel/analytics/sequences-voting' }
 ];
 
 // v2 Analytics shell. The PageHead actions slot owns the date-range
