@@ -46,8 +46,11 @@ test.describe('dashboard (live operational view)', () => {
     });
 
     // Reload so the Apollo cache + redux show store re-hydrate from mongo.
-    await page.goto('/control-panel/dashboard');
-    await page.reload();
+    // Single navigation with networkidle wait — avoids the goto+reload race
+    // where Playwright aborts an in-flight `getShow` GraphQL request,
+    // Apollo's onError handler calls logout(), and the reload lands on the
+    // marketing landing page. Same flake fixed in sequences-editor.spec.
+    await page.goto('/control-panel/dashboard', { waitUntil: 'networkidle' });
 
     // PageHead: title is always "Tonight's show"; eyebrow includes the
     // show name and the control mode.
@@ -96,8 +99,11 @@ test.describe('dashboard (live operational view)', () => {
       'preferences.viewerControlEnabled': false,
     });
 
-    await page.goto('/control-panel/dashboard');
-    await page.reload();
+    // Single navigation with networkidle wait — avoids the goto+reload race
+    // where Playwright aborts an in-flight `getShow` GraphQL request,
+    // Apollo's onError handler calls logout(), and the reload lands on the
+    // marketing landing page. Same flake fixed in sequences-editor.spec.
+    await page.goto('/control-panel/dashboard', { waitUntil: 'networkidle' });
 
     await expect(page.locator('body')).toContainText(/Voting Mode/i);
     await expect(page.locator('body')).toContainText(/Standby ·/);

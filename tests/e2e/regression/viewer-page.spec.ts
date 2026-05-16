@@ -34,7 +34,12 @@ const VIEWPORT = devices['iPhone 12'].viewport!;
 const buildShow = (subdomain: string) => {
   const showName = `Viewer Test ${subdomain.slice(-6)}`;
   return {
-    _id: `viewer-test-${subdomain}`,
+    // No explicit _id — let Mongo generate an ObjectId. The viewer service
+    // reads the show via Quarkus PanacheMongoEntity, whose _id is typed as
+    // ObjectId; setting _id to a string here causes a silent deserialization
+    // failure inside the resolver (swallowed by CustomGraphQLExceptionResolver,
+    // returned to the UI as "System error"). The `finally` block deletes by
+    // showSubdomain, so the _id isn't referenced after creation.
     showToken: `viewer-test-token-${subdomain}`,
     email: `${subdomain}@viewer.fixture`,
     password: '$2a$10$NotARealHashJustHereSoTheFieldExists0000000000000000',
@@ -42,8 +47,12 @@ const buildShow = (subdomain: string) => {
     showSubdomain: subdomain,
     emailVerified: true,
     showRole: 'USER',
-    createdDate: '2026-01-01T00:00:00',
-    expireDate: '2099-01-01T00:00:00',
+    // BSON Date objects, not strings. The viewer's Quarkus Show entity
+    // types these as LocalDateTime; strings here fail the POJO codec
+    // deserialization inside the resolver (swallowed by
+    // CustomGraphQLExceptionResolver, surfaces as "System error" to the UI).
+    createdDate: new Date('2026-01-01T00:00:00Z'),
+    expireDate: new Date('2099-01-01T00:00:00Z'),
     preferences: {
       viewerControlEnabled: true,
       viewerPageViewOnly: false,

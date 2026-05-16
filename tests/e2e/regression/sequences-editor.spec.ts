@@ -40,8 +40,11 @@ test.describe('sequences editor (inline edit)', () => {
       ],
     });
 
-    await page.goto('/control-panel/sequences/list');
-    await page.reload();
+    // Single navigation with networkidle wait — avoids the goto+reload race
+    // where Playwright aborts an in-flight `getShow` GraphQL request,
+    // Apollo's onError handler calls logout(), and the reload lands on the
+    // marketing landing page instead of the Sequences list.
+    await page.goto('/control-panel/sequences/list', { waitUntil: 'networkidle' });
 
     // Locate the row containing the seeded sequence by its (immutable)
     // name column. The displayName cell is the 4th TableCell in the row
