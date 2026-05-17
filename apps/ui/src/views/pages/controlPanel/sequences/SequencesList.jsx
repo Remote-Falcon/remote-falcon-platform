@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import * as React from 'react';
 
 import { useMutation } from '@apollo/client';
@@ -29,6 +29,8 @@ import {
 import {
   IconCheck,
   IconChevronDown,
+  IconChevronLeft,
+  IconChevronRight,
   IconCommand,
   IconExclamationCircle,
   IconGripVertical,
@@ -123,13 +125,13 @@ const FILTERS = {
 };
 
 const SORTABLE_COLUMNS = [
-  { key: 'active', label: 'Status' },
+  { key: 'active', label: 'Status', padX: 1 },
   // "FPP Index" rather than "Index" — this is the sequence's position in
   // the FPP playlist on the device, set by the plugin's Sync Playlists
   // action. Not the drag-reorder position (that's the `order` field).
   // Narrow column: values are short integers (typically 0–200), so the
   // header text is wider than any cell would be.
-  { key: 'index', label: 'FPP Index', align: 'center', width: 96 },
+  { key: 'index', label: 'FPP Index', align: 'center', width: 96, padX: 1 },
   { key: 'name', label: 'Name' },
   { key: 'displayName', label: 'Display name' },
   { key: 'artist', label: 'Artist' },
@@ -210,6 +212,12 @@ const SequencesList = () => {
   // is created + assigned to the selection in one step.
   const [newGroupName, setNewGroupName] = useState('');
   const [creatingGroup, setCreatingGroup] = useState(false);
+
+  // Horizontal-scroll hints — the table can be wider than the viewport with
+  // long image URLs. Checkbox/drag/actions/status are sticky-pinned on the
+  // left; a chevron button + a caption hint signal that more columns exist.
+  const tableContainerRef = useRef(null);
+  const [scrollHints, setScrollHints] = useState({ left: false, right: false });
 
   const totalCount = show?.sequences?.length || 0;
   const sequenceGroups = show?.sequenceGroups || [];
@@ -387,6 +395,32 @@ const SequencesList = () => {
   useEffect(() => {
     setPage(0);
   }, [filter, groupFilter, search, rowsPerPage]);
+
+  useEffect(() => {
+    const el = tableContainerRef.current;
+    if (!el) return undefined;
+    const update = () => {
+      const { scrollLeft, scrollWidth, clientWidth } = el;
+      setScrollHints({
+        left: scrollLeft > 1,
+        right: scrollLeft + clientWidth < scrollWidth - 1
+      });
+    };
+    update();
+    el.addEventListener('scroll', update, { passive: true });
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener('scroll', update);
+      ro.disconnect();
+    };
+  }, [pagedSequences]);
+
+  const scrollByColumn = (direction) => {
+    const el = tableContainerRef.current;
+    if (!el) return;
+    el.scrollBy({ left: direction * Math.max(200, el.clientWidth * 0.5), behavior: 'smooth' });
+  };
 
   const handleRequestSort = (column) => {
     if (orderBy === column) {
@@ -856,7 +890,43 @@ const SequencesList = () => {
 
         {!isEmpty && !noFilteredResults && (
           <>
-            <TableContainer>
+            {(scrollHints.left || scrollHints.right) && (
+              <Stack
+                direction="row"
+                alignItems="center"
+                justifyContent="flex-end"
+                spacing={0.5}
+                sx={{ mb: 0.5, px: 1, color: 'text.secondary' }}
+              >
+                {scrollHints.left && (
+                  <Tooltip title="Scroll left">
+                    <IconButton
+                      aria-label="Scroll table left"
+                      size="small"
+                      onClick={() => scrollByColumn(-1)}
+                    >
+                      <IconChevronLeft size={16} stroke={1.75} />
+                    </IconButton>
+                  </Tooltip>
+                )}
+                <Typography variant="caption" sx={{ color: 'inherit' }}>
+                  scroll horizontally to see all columns
+                </Typography>
+                <Tooltip title={scrollHints.right ? 'Scroll right' : 'End of table'}>
+                  <span>
+                    <IconButton
+                      aria-label="Scroll table right"
+                      size="small"
+                      onClick={() => scrollByColumn(1)}
+                      disabled={!scrollHints.right}
+                    >
+                      <IconChevronRight size={16} stroke={1.75} />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+              </Stack>
+            )}
+            <TableContainer ref={tableContainerRef}>
               <Table size="small" aria-label="sequences">
                 <TableHead sx={{ '& th,& td': { whiteSpace: 'nowrap' } }}>
                   <TableRow>
@@ -870,11 +940,15 @@ const SequencesList = () => {
                     </TableCell>
                     {/* drag handle column has no header */}
                     <TableCell sx={{ width: 28, p: 0 }} />
+                    <TableCell sx={{ width: 80, px: 1 }}>Actions</TableCell>
                     {SORTABLE_COLUMNS.map((col) => (
                       <TableCell
                         key={col.key}
                         align={col.align || 'left'}
-                        sx={col.width ? { width: col.width } : undefined}
+                        sx={{
+                          ...(col.width ? { width: col.width } : {}),
+                          ...(col.padX !== undefined ? { px: col.padX } : {})
+                        }}
                       >
                         <TableSortLabel
                           active={orderBy === col.key}
@@ -887,7 +961,6 @@ const SequencesList = () => {
                     ))}
                     <TableCell>Visible</TableCell>
                     <TableCell>Image URL</TableCell>
-                    <TableCell align="right">Actions</TableCell>
                   </TableRow>
                 </TableHead>
                 <DragDropContext onDragEnd={reorderSequences}>
@@ -936,7 +1009,41 @@ const SequencesList = () => {
                                       </Box>
                                     </Tooltip>
                                   </TableCell>
-                                  <TableCell>
+                                  <TableCell sx={{ width: 80, px: 1 }}>
+                                    <Stack direction="row" spacing={0.25}>
+                                      <Tooltip title="Play now">
+                                        <span>
+                                          <IconButton
+                                            size="small"
+                                            aria-label="Play now"
+                                            onClick={() => playSequence(sequence)}
+                                            disabled={!sequence.active}
+                                            sx={{ color: 'success.main' }}
+                                          >
+                                            <IconPlayerPlay size={16} stroke={1.75} />
+                                          </IconButton>
+                                        </span>
+                                      </Tooltip>
+                                      <Tooltip title="Delete">
+                                        <IconButton
+                                          size="small"
+                                          aria-label="Delete sequence"
+                                          onClick={() =>
+                                            setConfirm({
+                                              title: `Delete ${sequence.name}?`,
+                                              message: `This will permanently delete the sequence "${sequence.name}". This cannot be undone.`,
+                                              confirmLabel: 'Delete',
+                                              action: () => deleteOne(sequence)
+                                            })
+                                          }
+                                          sx={{ color: 'error.main' }}
+                                        >
+                                          <IconTrash size={16} stroke={1.75} />
+                                        </IconButton>
+                                      </Tooltip>
+                                    </Stack>
+                                  </TableCell>
+                                  <TableCell sx={{ px: 1 }}>
                                     <Chip
                                       label={sequence.active ? STATUS_CHIP.active.label : STATUS_CHIP.inactive.label}
                                       color={sequence.active ? STATUS_CHIP.active.color : STATUS_CHIP.inactive.color}
@@ -944,7 +1051,7 @@ const SequencesList = () => {
                                       variant="outlined"
                                     />
                                   </TableCell>
-                                  <TableCell align="center">
+                                  <TableCell align="center" sx={{ px: 1 }}>
                                     <Typography variant="body2" sx={{ fontVariantNumeric: 'tabular-nums' }}>
                                       {sequence.index ?? '—'}
                                     </Typography>
@@ -1040,40 +1147,6 @@ const SequencesList = () => {
                                           placeholder="Image URL"
                                         />
                                       </Box>
-                                    </Stack>
-                                  </TableCell>
-                                  <TableCell align="right">
-                                    <Stack direction="row" spacing={0.25} justifyContent="flex-end">
-                                      <Tooltip title="Play now">
-                                        <span>
-                                          <IconButton
-                                            size="small"
-                                            aria-label="Play now"
-                                            onClick={() => playSequence(sequence)}
-                                            disabled={!sequence.active}
-                                            sx={{ color: 'success.main' }}
-                                          >
-                                            <IconPlayerPlay size={16} stroke={1.75} />
-                                          </IconButton>
-                                        </span>
-                                      </Tooltip>
-                                      <Tooltip title="Delete">
-                                        <IconButton
-                                          size="small"
-                                          aria-label="Delete sequence"
-                                          onClick={() =>
-                                            setConfirm({
-                                              title: `Delete ${sequence.name}?`,
-                                              message: `This will permanently delete the sequence "${sequence.name}". This cannot be undone.`,
-                                              confirmLabel: 'Delete',
-                                              action: () => deleteOne(sequence)
-                                            })
-                                          }
-                                          sx={{ color: 'error.main' }}
-                                        >
-                                          <IconTrash size={16} stroke={1.75} />
-                                        </IconButton>
-                                      </Tooltip>
                                     </Stack>
                                   </TableCell>
                                 </TableRow>
