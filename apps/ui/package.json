@@ -44,6 +44,7 @@
     "react-apexcharts": "^1.4.0",
     "react-dom": "^18.3.1",
     "react-dropzone": "^14.3.5",
+    "react-error-boundary": "^6.1.1",
     "react-fullscreen-loading": "^0.0.4",
     "react-helmet": "^6.1.0",
     "react-intersection-observer": "^8.33.1",

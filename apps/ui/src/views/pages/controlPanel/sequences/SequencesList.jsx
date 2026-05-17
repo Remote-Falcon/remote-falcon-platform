@@ -1048,6 +1048,7 @@ const SequencesList = () => {
                                         <span>
                                           <IconButton
                                             size="small"
+                                            aria-label="Play now"
                                             onClick={() => playSequence(sequence)}
                                             disabled={!sequence.active}
                                             sx={{ color: 'success.main' }}
@@ -1059,6 +1060,7 @@ const SequencesList = () => {
                                       <Tooltip title="Delete">
                                         <IconButton
                                           size="small"
+                                          aria-label="Delete sequence"
                                           onClick={() =>
                                             setConfirm({
                                               title: `Delete ${sequence.name}?`,

@@ -58,6 +58,14 @@ public class Show extends PanacheMongoEntity {
     private Sequence playingNowSequence;
     private Sequence playingNextSequence;
     private LocalDateTime lastFppHeartbeat;
+    // PRD V17 — rolling 30-day log of windows where heartbeats were absent
+    // for >5 minutes. Maintained by plugins-api on each fppHeartbeat write
+    // (gap detection + prune-older-than-30-days in the same call).
+    private List<HeartbeatGap> heartbeatGaps;
+    // PRD V18 — rolling 365-day log of plugin/FPP version transitions.
+    // Maintained by plugins-api on every pluginVersion call when the
+    // reported version differs from the current stored value.
+    private List<VersionChange> versionChanges;
 
     private List<ShowNotification> showNotifications;
 

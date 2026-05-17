@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 
 import _ from 'lodash';
 
+import { trackPosthogEvent } from '../utils/analytics/posthog';
+
 // Debounced auto-save hook for v2 settings forms.
 //
 // Watches `values` for changes against the last-saved snapshot. When they
@@ -54,6 +56,10 @@ const useAutoSave = (values, save, { delay = 600, flashMs = 1500, isValid = () =
         setStatus('saved');
         flashRef.current = setTimeout(() => setStatus('idle'), flashMs);
       } catch (err) {
+        trackPosthogEvent('viewer_page_autosave_failed', {
+          error: err?.message,
+          operation: 'viewer_page'
+        });
         setStatus('error');
       }
     }, delay);

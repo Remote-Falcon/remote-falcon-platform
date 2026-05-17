@@ -79,6 +79,15 @@ const EditableCell = ({
     return (
       <Box
         onClick={enter}
+        role="button"
+        tabIndex={disabled ? -1 : 0}
+        onKeyDown={(e) => {
+          if (disabled) return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            if (e.key === ' ') e.preventDefault();
+            enter(e);
+          }
+        }}
         sx={{
           cursor: disabled ? 'default' : 'text',
           px: 0.75,

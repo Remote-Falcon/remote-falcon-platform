@@ -6,6 +6,7 @@ import { MultiAPILink } from '@habx/apollo-multi-endpoint-link';
 import posthog from 'posthog-js';
 import { PostHogProvider } from 'posthog-js/react';
 import { createRoot } from 'react-dom/client';
+import { ErrorBoundary } from 'react-error-boundary';
 import { Provider } from 'react-redux';
 import { BrowserRouter } from 'react-router-dom';
 
@@ -55,7 +56,13 @@ if (missingEnv.length > 0) {
 const posthogOptions = {
   api_host: '/ingest',
   ui_host: 'https://us.posthog.com',
-  person_profiles: 'identified_only'
+  person_profiles: 'identified_only',
+  // Opt-in exception autocapture: emits $exception events for unhandled
+  // errors + promise rejections. Closes the observability gap where a
+  // single render error blanks the UI silently (zero $exception events
+  // in 90 days at time of enablement). Option key matches installed
+  // posthog-js v1.140.1 (newer SDKs use `capture_exceptions`).
+  autocaptureExceptions: true
 };
 
 if (import.meta.env.VITE_PUBLIC_POSTHOG_KEY) {
@@ -104,18 +111,74 @@ export function setGraphqlHeaders(serviceToken) {
 const container = document.getElementById('root');
 const root = createRoot(container);
 
+// Minimal root-level fallback. Sits outside the MUI theme tree, so styling
+// stays inline. Single "Reload" action by design — no router nav, no API
+// calls, just a hard refresh.
+function RootErrorFallback() {
+  return (
+    <div
+      role="alert"
+      style={{
+        minHeight: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '1rem',
+        padding: '2rem',
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+        textAlign: 'center'
+      }}
+    >
+      <h1 style={{ fontSize: '1.25rem', margin: 0 }}>Something went wrong.</h1>
+      <p style={{ margin: 0 }}>Reload the page to try again.</p>
+      <button
+        type="button"
+        onClick={() => window.location.reload()}
+        style={{
+          padding: '0.5rem 1rem',
+          fontSize: '1rem',
+          cursor: 'pointer',
+          border: '1px solid currentColor',
+          borderRadius: '4px',
+          background: 'transparent'
+        }}
+      >
+        Reload
+      </button>
+    </div>
+  );
+}
+
+function handleRootError(error) {
+  // Backstop so the root boundary always reports to PostHog, even if the
+  // autocapture wiring above misses (e.g. error thrown during render before
+  // posthog finishes init).
+  try {
+    posthog.capture('$exception', {
+      error: error?.message,
+      stack: error?.stack,
+      source: 'root_boundary'
+    });
+  } catch {
+    // Swallow: never let observability break the fallback.
+  }
+}
+
 root.render(
-  <Provider store={store}>
-    <ConfigProvider>
-      <BrowserRouter basename={BASE_PATH}>
-        <ApolloProvider client={client}>
-          <PostHogProvider client={posthog}>
-            <App />
-          </PostHogProvider>
-        </ApolloProvider>
-      </BrowserRouter>
-    </ConfigProvider>
-  </Provider>,
+  <ErrorBoundary FallbackComponent={RootErrorFallback} onError={handleRootError}>
+    <Provider store={store}>
+      <ConfigProvider>
+        <BrowserRouter basename={BASE_PATH}>
+          <ApolloProvider client={client}>
+            <PostHogProvider client={posthog}>
+              <App />
+            </PostHogProvider>
+          </ApolloProvider>
+        </BrowserRouter>
+      </ConfigProvider>
+    </Provider>
+  </ErrorBoundary>,
   document.getElementById('root')
 );
 

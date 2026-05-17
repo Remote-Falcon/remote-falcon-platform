@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { trackPosthogEvent } from '../utils/analytics/posthog';
+
 // Coalesced on-blur save queue.
 //
 // Unlike useAutoSave (which fires on every settled value change), this hook
@@ -52,7 +54,11 @@ const useCoalescedSave = (save, { coalesceMs = 600, flashMs = 1500 } = {}) => {
       setStatus('saved');
       if (flashRef.current) clearTimeout(flashRef.current);
       flashRef.current = setTimeout(() => setStatus('idle'), flashMs);
-    } catch {
+    } catch (err) {
+      trackPosthogEvent('sequence_save_failed', {
+        error: err?.message,
+        operation: 'sequences_inline_edit'
+      });
       setStatus('error');
     }
   }, [flashMs]);

@@ -113,7 +113,11 @@ const ViewerPage = () => {
     try {
       const templates = await getRemoteViewerPageTemplatesFromGithubService();
       dispatch(setRemoteViewerPageTemplates({ ...templates }));
-    } catch {
+    } catch (err) {
+      trackPosthogEvent('viewer_page_templates_fetch_failed', {
+        error: err?.message,
+        operation: 'fetch_remote_templates'
+      });
       // Non-fatal: user can still create from the blank starter
     }
     setTemplatesLoading(false);
@@ -155,7 +159,11 @@ const ViewerPage = () => {
           ['asc']
         );
         setProblems(messages);
-      } catch {
+      } catch (err) {
+        trackPosthogEvent('viewer_page_html_validation_failed', {
+          error: err?.message,
+          operation: 'html_validate'
+        });
         if (!cancelled) setProblems([]);
       } finally {
         if (!cancelled) setValidating(false);

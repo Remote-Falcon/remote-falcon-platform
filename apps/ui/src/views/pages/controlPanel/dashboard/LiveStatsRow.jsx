@@ -40,7 +40,7 @@ const LiveStatsRow = () => {
   }
 
   return (
-    <Grid container spacing={2}>
+    <Grid container spacing={2} role="status" aria-live="polite" aria-atomic="false">
       <Grid item xs={12} sm={6} md={3}>
         <StatTile
           label="Viewers right now"

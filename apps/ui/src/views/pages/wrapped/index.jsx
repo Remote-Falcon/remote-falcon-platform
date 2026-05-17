@@ -28,6 +28,12 @@ const parseSeasonSlug = (slug) => {
   return { season: match[1].toLowerCase(), year: parseInt(match[2], 10) };
 };
 
+const seasonEndDate = (season, year) => {
+  if (season === 'halloween') return moment({ year, month: 10, day: 8 }).startOf('day');
+  if (season === 'christmas') return moment({ year: year + 1, month: 0, day: 8 }).startOf('day');
+  return null;
+};
+
 const formatDuration = (seconds) => {
   if (!seconds || seconds <= 0) return null;
   const totalMinutes = Math.floor(seconds / 60);
@@ -138,16 +144,38 @@ const WrappedPage = () => {
 
   // ----- Slide deck state -----
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [paused, setPaused] = useState(false);
+  const [reducedMotion, setReducedMotion] = useState(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return false;
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  });
+  const [paused, setPaused] = useState(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return false;
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  });
   const [progress, setProgress] = useState(0);  // 0..1 within current slide
   const [reachedEnd, setReachedEnd] = useState(false);
   const startTimeRef = useRef(null);
   const animFrameRef = useRef(null);
 
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return undefined;
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const onChange = (e) => {
+      setReducedMotion(e.matches);
+      if (e.matches) setPaused(true);
+    };
+    if (mq.addEventListener) mq.addEventListener('change', onChange);
+    else mq.addListener(onChange);
+    return () => {
+      if (mq.removeEventListener) mq.removeEventListener('change', onChange);
+      else mq.removeListener(onChange);
+    };
+  }, []);
+
   // Progress / auto-advance loop. Drives the per-slide progress bar and
   // auto-advances when the current slide's duration elapses.
   useEffect(() => {
-    if (cards.length === 0 || reachedEnd || paused) {
+    if (cards.length === 0 || reachedEnd || paused || reducedMotion) {
       cancelAnimationFrame(animFrameRef.current);
       return undefined;
     }
@@ -169,7 +197,7 @@ const WrappedPage = () => {
     };
     animFrameRef.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(animFrameRef.current);
-  }, [currentIndex, paused, cards, reachedEnd]);
+  }, [currentIndex, paused, cards, reachedEnd, reducedMotion]);
 
   // Reset progress whenever the slide changes
   useEffect(() => {
@@ -281,6 +309,8 @@ const WrappedPage = () => {
   }
 
   if (!data || cards.length === 0) {
+    const endMoment = seasonEndDate(parsed.season, parsed.year);
+    const seasonOver = data?.seasonComplete ?? (endMoment ? moment().isAfter(endMoment) : false);
     return (
       <Box sx={{ minHeight: '100vh', display: 'grid', placeItems: 'center', bgcolor: 'background.default', p: 4 }}>
         <Stack spacing={2} alignItems="center" sx={{ maxWidth: 520, textAlign: 'center' }}>
@@ -290,12 +320,12 @@ const WrappedPage = () => {
             </Box>
           )}
           <Typography variant="h2" sx={{ fontWeight: 700 }}>
-            {data?.seasonComplete ? 'No data for this season yet' : `${theme.title} ${parsed.year} Wrapped opens after the season`}
+            {seasonOver ? 'No data for this season yet' : `${theme.title} ${parsed.year} Wrapped opens after the season`}
           </Typography>
           <Typography variant="body1" sx={{ color: 'text.secondary' }}>
-            {data?.seasonComplete
+            {seasonOver
               ? `Looks like ${data?.showName || 'this show'} didn't run during ${theme.title} ${parsed.year}.`
-              : `Come back after ${moment(data?.endDate).format('MMM D, YYYY')} to see how the season went.`}
+              : `Come back after ${(data?.endDate ? moment(data.endDate) : endMoment).format('MMM D, YYYY')} to see how the season went.`}
           </Typography>
         </Stack>
       </Box>
