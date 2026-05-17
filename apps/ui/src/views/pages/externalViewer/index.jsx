@@ -809,6 +809,28 @@ const ExternalViewerPage = () => {
     init().then();
   }, [getShowForInit, insertViewerPageStatsMutation]);
 
+  // Update favicon to the show's custom icon (or fall back to the default brand icon).
+  // We imperatively update the existing `#rf-favicon` <link> tag rather than letting
+  // react-helmet append a second one, because browsers don't reliably honor the later
+  // tag when multiple <link rel="icon"> elements are present (issue #98).
+  useEffect(() => {
+    const defaultIconHref = '/rf-icon.png';
+    const iconLink = document.getElementById('rf-favicon');
+    if (!iconLink) return undefined;
+    const desiredHref = show?.preferences?.pageIconUrl?.trim() || defaultIconHref;
+    if (iconLink.getAttribute('href') !== desiredHref) {
+      iconLink.setAttribute('href', desiredHref);
+    }
+    // On unmount (or when the show changes), restore the default brand icon so other
+    // routes (control panel, login, etc.) don't keep showing the previous custom icon.
+    return () => {
+      const link = document.getElementById('rf-favicon');
+      if (link && link.getAttribute('href') !== defaultIconHref) {
+        link.setAttribute('href', defaultIconHref);
+      }
+    };
+  }, [show?.preferences?.pageIconUrl]);
+
   // Process polling data updates
   useEffect(() => {
     if (pollingData?.getShow) {
@@ -858,7 +880,6 @@ const ExternalViewerPage = () => {
             `}
           </style>
           <title>{show?.preferences?.pageTitle}</title>
-          <link rel="icon" href={show?.preferences?.pageIconUrl} />
         </Helmet>
       )}
       <Loading loading={loading} background="black" loaderColor="white" />

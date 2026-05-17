@@ -81,22 +81,60 @@ metadata:
     # pattern to us.i.posthog.com — bypass by routing through our own
     # origin. Matches the same `/ingest/` routes in ops/dev-nginx.conf
     # so the SDK config (api_host: '/ingest') is identical in dev + prod.
+    #
+    # Hardened against open-relay abuse (issue #129): the snippet below
+    # enforces a path allowlist, a method allowlist, and a 1MB body cap.
+    # Rate limiting is applied via the dedicated `*-ingest` Ingress below
+    # so the per-IP rate limit only governs /ingest/ and never the UI
+    # itself. Keep in lockstep with ops/dev-nginx.conf.
+    #
+    # Allowlisted paths (verified against posthog-js@1.140.1):
+    #   /ingest/static/<file>       SDK loader + lazy modules     (GET)
+    #   /ingest/array.js|array.full.js|recorder.js   loaders      (GET)
+    #   /ingest/decide/             feature-flag + config         (GET/POST)
+    #   /ingest/e/ | /ingest/e      event capture                 (POST)
+    #   /ingest/i/                  identify                      (POST)
+    #   /ingest/s/                  session recording snapshots   (POST)
+    #   /ingest/engage/             people / engage               (POST)
+    #   /ingest/batch/              batched events                (POST)
+    # Anything else under /ingest/ returns 404 at the ingress layer.
     nginx.ingress.kubernetes.io/configuration-snippet: |
       location ^~ /ingest/static/ {
-        resolver 1.1.1.1 1.0.0.1 valid=300s;
+        if ($request_method !~ ^(GET|HEAD|OPTIONS)$) { return 405; }
+        resolver 1.1.1.1 1.0.0.1 ipv6=off valid=300s;
         proxy_pass            https://us-assets.i.posthog.com/static/;
         proxy_ssl_server_name on;
         proxy_set_header      Host us-assets.i.posthog.com;
         proxy_redirect        off;
         proxy_buffering       on;
       }
-      location ^~ /ingest/ {
-        resolver 1.1.1.1 1.0.0.1 valid=300s;
-        proxy_pass            https://us.i.posthog.com/;
+      location ~ ^/ingest/(array\.js|array\.full\.js|recorder\.js)$ {
+        if ($request_method !~ ^(GET|HEAD|OPTIONS)$) { return 405; }
+        resolver 1.1.1.1 1.0.0.1 ipv6=off valid=300s;
+        set $ph_assets us-assets.i.posthog.com;
+        rewrite ^/ingest/(.*)$ /$1 break;
+        proxy_pass            https://$ph_assets;
+        proxy_ssl_server_name on;
+        proxy_set_header      Host us-assets.i.posthog.com;
+        proxy_redirect        off;
+        proxy_buffering       on;
+      }
+      location ~ ^/ingest/(e/?|i/|s/|engage/|batch/|decide/) {
+        if ($request_method !~ ^(GET|POST|OPTIONS)$) { return 405; }
+        client_max_body_size  1m;
+        resolver 1.1.1.1 1.0.0.1 ipv6=off valid=300s;
+        set $ph_ingest us.i.posthog.com;
+        rewrite ^/ingest/(.*)$ /$1 break;
+        proxy_pass            https://$ph_ingest;
         proxy_ssl_server_name on;
         proxy_set_header      Host us.i.posthog.com;
         proxy_redirect        off;
         proxy_buffering       on;
+      }
+      # Plain prefix (NOT `^~`) so regex locations above are still tried
+      # first for /ingest/e/, /ingest/decide/, etc.
+      location /ingest/ {
+        return 404;
       }
 spec:
   tls:
@@ -120,6 +158,53 @@ spec:
       paths:
       - pathType: Prefix
         path: /
+        backend:
+          service:
+            name: #{Application}#
+            port:
+              number: 3000
+---
+# Dedicated Ingress for /ingest/* so rate-limit annotations only throttle the
+# PostHog reverse proxy and never the UI itself. nginx-ingress merges this
+# ingress with the one above for the same hosts; the path-prefix match means
+# /ingest/* requests pick up these annotations and everything else falls
+# through to the main ingress. Pair with the path/method/body-size guards
+# in the main ingress's configuration-snippet above.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: #{Application}#-ingest
+  namespace: #{Namespace}#
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    # 30 req/sec per client IP, burst 20 (matches dev-nginx.conf). Enough
+    # for a normal page load (pageview + autocapture + /decide) but cuts
+    # off relay abuse trying to use us as a free PostHog tunnel.
+    nginx.ingress.kubernetes.io/limit-rps: "30"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "20"
+    nginx.ingress.kubernetes.io/limit-connections: "20"
+spec:
+  tls:
+  - hosts:
+    - #{Host}#
+    - '#{SubdomainHost}#'
+    secretName: remote-falcon-tls
+  rules:
+  - host: #{Host}#
+    http:
+      paths:
+      - pathType: Prefix
+        path: /ingest
+        backend:
+          service:
+            name: #{Application}#
+            port:
+              number: 3000
+  - host: '#{SubdomainHost}#'
+    http:
+      paths:
+      - pathType: Prefix
+        path: /ingest
         backend:
           service:
             name: #{Application}#

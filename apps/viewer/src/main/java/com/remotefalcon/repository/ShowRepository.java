@@ -225,35 +225,56 @@ public class ShowRepository implements PanacheMongoRepository<Show> {
   }
 
   /**
-   * PRD A1 — viewer session window upsert.
+   * PRD A1 — viewer session window upsert (issue #131 race fix).
    *
-   * Tries to extend an existing open session for this visitor (matched on
+   * Atomically extends an existing open session for this visitor (matched on
    * viewerId if present, else IP) where lastSeen is within {@value #SESSION_WINDOW_MINUTES}
    * minutes. If no open session exists, appends a new one tagged with
    * today's local date.
    *
-   * Two-step (find-then-act) — there's a benign race window where two
-   * near-simultaneous events from the same visitor could each push a new
-   * session. Acceptable noise for v1; the rollup deduplicates downstream.
+   * Race protection — this method is called from page-stat, active-viewer,
+   * addSequenceToQueue, and voteForSequence. Two threads from the same viewer
+   * within the dwell window must NOT each push a fresh session entry.
+   *
+   *   1. Bump uses {@code $elemMatch} so the {@code $}-positional operator
+   *      targets the single array element that matches identity AND open-window
+   *      together. Without $elemMatch, Mongo evaluates the predicates
+   *      independently across the array and can match disjoint elements,
+   *      defeating the in-place bump and falling through to the push branch.
+   *
+   *   2. Push is guarded by a {@code $ne}-style filter that requires NO
+   *      session element with matching identity AND open lastSeen to exist.
+   *      If a concurrent writer raced ahead and created the session, the
+   *      guard makes the second writer's push a no-op (modifiedCount=0),
+   *      eliminating the duplicate. Two truly distinct visitors still each
+   *      get their own session because their identity predicates differ.
    */
   public void upsertViewerSession(String showSubdomain, String ipAddress, String viewerId, LocalDateTime now) {
     final long SESSION_WINDOW_MINUTES = 5L;
     LocalDateTime windowStart = now.minusMinutes(SESSION_WINDOW_MINUTES);
 
-    // Identity match: viewerId-first, IP fallback for legacy / cleared-storage events.
-    Bson identityFilter = viewerId != null
-        ? Filters.eq("viewerSessions.viewerId", viewerId)
+    // Identity predicate applied INSIDE a single array element. viewerId-first
+    // (preferred — stable across IP changes); IP fallback only when this
+    // viewer has no viewerId yet (legacy events, cleared localStorage).
+    Bson identityElemPredicate = viewerId != null
+        ? Filters.eq("viewerId", viewerId)
         : Filters.and(
-            Filters.eq("viewerSessions.viewerId", null),
-            Filters.eq("viewerSessions.ip", ipAddress));
+            Filters.eq("viewerId", null),
+            Filters.eq("ip", ipAddress));
 
-    // Try to bump an existing open session in-place. The positional `$`
-    // operator targets the first matching array element.
+    // Open-session matcher: identity AND lastSeen-within-window must hold on
+    // the SAME array element. $elemMatch guarantees this; bare top-level
+    // dotted predicates do not.
+    Bson openSessionElemMatch = Filters.elemMatch(
+        "viewerSessions",
+        Filters.and(identityElemPredicate, Filters.gte("lastSeen", windowStart))
+    );
+
+    // Step 1 — try to bump in place. $-positional targets the elemMatch hit.
     var bumpResult = mongoCollection().updateOne(
         Filters.and(
             Filters.eq("showSubdomain", showSubdomain),
-            identityFilter,
-            Filters.gte("viewerSessions.lastSeen", windowStart)
+            openSessionElemMatch
         ),
         Updates.combine(
             Updates.set("viewerSessions.$.lastSeen", now),
@@ -262,7 +283,11 @@ public class ShowRepository implements PanacheMongoRepository<Show> {
     );
 
     if (bumpResult.getModifiedCount() == 0) {
-      // No open session to extend → append a new one.
+      // Step 2 — no open session existed (or matched). Push a fresh one,
+      // but ONLY if no concurrent writer already created an open session
+      // for this identity. The $not($elemMatch) guard makes this push
+      // race-safe: if a sibling request just pushed, the filter fails and
+      // we silently skip — no duplicate.
       ViewerSession newSession = ViewerSession.builder()
           .ip(ipAddress)
           .viewerId(viewerId)
@@ -272,7 +297,10 @@ public class ShowRepository implements PanacheMongoRepository<Show> {
           .eventCount(1)
           .build();
       mongoCollection().updateOne(
-          Filters.eq("showSubdomain", showSubdomain),
+          Filters.and(
+              Filters.eq("showSubdomain", showSubdomain),
+              Filters.not(openSessionElemMatch)
+          ),
           Updates.push("viewerSessions", newSession)
       );
     }
