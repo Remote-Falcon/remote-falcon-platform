@@ -107,7 +107,7 @@ const AuthRegister = () => {
               </Grid>
             </Grid>
             <FormControl fullWidth error={Boolean(touched.showName && errors.showName)} sx={{ ...theme.typography.customInput, mt: 0, mb: 2.5 }}>
-              <InputLabel htmlFor="signup-last-name-error">Show Name</InputLabel>
+              <InputLabel htmlFor="signup-show-name">Show Name</InputLabel>
               <OutlinedInput
                 id="signup-show-name"
                 type="text"

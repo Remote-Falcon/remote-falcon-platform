@@ -9,6 +9,7 @@ import RFLoadingButton from '../../../../ui-component/RFLoadingButton';
 import useAuth from '../../../../hooks/useAuth';
 import { updatePasswordService } from '../../../../services/controlPanel/mutations.service';
 import { useDispatch } from '../../../../store';
+import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
 import { UPDATE_PASSWORD } from '../../../../utils/graphql/controlPanel/mutations';
 import { showAlert } from '../../globalPageHelpers';
 
@@ -31,9 +32,11 @@ const ChangePassword = () => {
     setIsPasswordUpdating(true);
     updatePasswordService(currentPassword, newPassword, updatePasswordMutation, (response) => {
       if (response?.success) {
+        trackPosthogEvent('password_changed');
         setIsPasswordUpdating(false);
         logout();
       } else {
+        trackPosthogEvent('password_change_failed', { reason: response?.toast?.message });
         showAlert(dispatch, response?.toast);
         setIsPasswordUpdating(false);
       }

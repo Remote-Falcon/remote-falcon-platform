@@ -202,6 +202,7 @@ const PageTabsBar = ({
                     }
                   }}
                   aria-expanded={menuFor?.name === page.name ? 'true' : 'false'}
+                  aria-label={`Actions for ${page.name}`}
                 >
                   <IconChevronDown size={14} stroke={2} />
                 </IconButton>

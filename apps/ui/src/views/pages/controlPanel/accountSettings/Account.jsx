@@ -15,6 +15,7 @@ import useAuth from '../../../../hooks/useAuth';
 import { deleteAccountService, requestApiAccessService } from '../../../../services/controlPanel/mutations.service';
 import { useDispatch, useSelector } from '../../../../store';
 import { setShow } from '../../../../store/slices/show';
+import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
 import { DELETE_ACCOUNT, REQUEST_API_ACCESS } from '../../../../utils/graphql/controlPanel/mutations';
 import { showAlert } from '../../globalPageHelpers';
 import DeleteAccountModal from './DeleteAccount.modal';
@@ -69,9 +70,11 @@ const Account = () => {
     setIsDeletingAccount(true);
     deleteAccountService(deleteAccountMutation, (response) => {
       if (response?.success) {
+        trackPosthogEvent('account_deleted');
         setIsDeletingAccount(false);
         logout();
       } else {
+        trackPosthogEvent('account_delete_failed', { reason: response?.toast?.message });
         showAlert(dispatch, response?.toast);
       }
     });

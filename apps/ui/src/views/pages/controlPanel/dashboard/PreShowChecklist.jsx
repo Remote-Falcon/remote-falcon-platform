@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import * as React from 'react';
 
 import { useMutation } from '@apollo/client';
-import { Box, Button, Collapse, IconButton, Stack, Typography } from '@mui/material';
+import { Box, Button, Collapse, Stack, Typography } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -357,9 +357,12 @@ const PreShowChecklist = () => {
             {headerCfg.label}
           </Typography>
         </Box>
-        <IconButton size="small" sx={{ color: 'text.secondary' }} aria-hidden tabIndex={-1}>
+        {/* Decorative chevron — the parent Stack is the interactive control
+            (role=button), so this stays a non-interactive Box (WCAG 4.1.2,
+            avoid nested-interactive). */}
+        <Box aria-hidden sx={{ color: 'text.secondary', display: 'inline-flex', p: 0.5 }}>
           {open ? <IconChevronUp size={18} stroke={1.75} /> : <IconChevronDown size={18} stroke={1.75} />}
-        </IconButton>
+        </Box>
       </Stack>
       <Collapse in={open}>
         <Stack spacing={1.5} sx={{ p: 2, pt: 0 }}>

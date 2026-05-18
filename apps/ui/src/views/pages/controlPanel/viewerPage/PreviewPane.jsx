@@ -94,7 +94,7 @@ const PreviewPane = ({ value, pageName }) => {
               fullscreen mode below where there's room to actually see
               the difference. */}
           <Tooltip title="Fullscreen preview">
-            <IconButton size="small" onClick={() => setFullscreen(true)} sx={{ color: 'text.secondary' }}>
+            <IconButton size="small" onClick={() => setFullscreen(true)} aria-label="Open fullscreen preview" sx={{ color: 'text.secondary' }}>
               <IconMaximize size={16} stroke={1.75} />
             </IconButton>
           </Tooltip>
@@ -127,7 +127,7 @@ const PreviewPane = ({ value, pageName }) => {
               </ToggleButton>
             ))}
           </ToggleButtonGroup>
-          <IconButton onClick={() => setFullscreen(false)} sx={{ ml: 1 }}>
+          <IconButton onClick={() => setFullscreen(false)} aria-label="Close fullscreen preview" sx={{ ml: 1 }}>
             <IconX size={20} stroke={1.75} />
           </IconButton>
         </Stack>

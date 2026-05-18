@@ -5,7 +5,6 @@ import {
   Box,
   Chip,
   Collapse,
-  IconButton,
   Link as MuiLink,
   Stack,
   ToggleButton,
@@ -105,9 +104,11 @@ const ProblemsPanel = ({ problems, loading, onJumpToLine, defaultOpen = false })
             <ToggleButton value="warning" sx={{ px: 1, py: 0.1, fontSize: 11 }}>Warnings</ToggleButton>
           </ToggleButtonGroup>
         )}
-        <IconButton size="small" sx={{ color: 'text.disabled' }}>
+        {/* Decorative chevron — parent Stack is the interactive control,
+            don't nest an IconButton inside it (WCAG 4.1.2). */}
+        <Box aria-hidden sx={{ color: 'text.disabled', display: 'inline-flex', p: 0.5 }}>
           {open ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
-        </IconButton>
+        </Box>
       </Stack>
 
       <Collapse in={open} timeout="auto" unmountOnExit>

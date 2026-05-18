@@ -11,6 +11,7 @@ import { setImpersonationSession } from '../../../../contexts/JWTContext';
 import { setShow } from '../../../../store/slices/show';
 import MainCard from '../../../../ui-component/cards/MainCard';
 import { useDispatch } from '../../../../store';
+import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
 import { ADMIN_UPDATE_SHOW } from '../../../../utils/graphql/controlPanel/mutations';
 import { GET_SHOW_BY_SHOW_NAME, IMPERSONATE, GET_SHOW, GET_SHOWS_AUTO_SUGGEST } from '../../../../utils/graphql/controlPanel/queries';
 import { showAlert } from '../../globalPageHelpers';
@@ -116,6 +117,13 @@ const AccountDetails = () => {
       const showData = { ...showResult?.data?.getShow };
       if (!_.isEmpty(showData)) {
         localStorage.setItem('isImpersonating', true);
+        // Support audit: who impersonated whom and when. Actor is the
+        // current posthog distinct_id (admin's identify from login);
+        // target subdomain is captured as an event property.
+        trackPosthogEvent('impersonation_started', {
+          target_show_subdomain: showData?.showSubdomain,
+          target_show_name: showData?.showName
+        });
         showData.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
         dispatch(
           setShow({

@@ -109,6 +109,7 @@ const MainSettings = () => {
                   color="primary"
                   checked={values.viewerControlEnabled}
                   onChange={(_e, v) => setValues((prev) => ({ ...prev, viewerControlEnabled: v }))}
+                  inputProps={{ 'aria-label': 'Toggle viewer control' }}
                 />
               </Grid>
             </Grid>
@@ -139,7 +140,7 @@ const MainSettings = () => {
                   disableClearable
                   options={viewerControlModes}
                   value={_.find(viewerControlModes, (prop) => prop.id === values.viewerControlMode)}
-                  renderInput={(params) => <TextField {...params} label="" />}
+                  renderInput={(params) => <TextField {...params} label="Viewer control mode" />}
                   onChange={(_e, v) => setValues((prev) => ({ ...prev, viewerControlMode: v?.id }))}
                 />
               </Grid>

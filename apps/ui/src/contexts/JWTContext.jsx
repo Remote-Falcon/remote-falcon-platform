@@ -16,8 +16,8 @@ import axios from '../utils/axios';
 import { StatusResponse } from '../utils/enum';
 import { SIGN_UP, VERIFY_EMAIL, FORGOT_PASSWORD, RESET_PASSWORD } from '../utils/graphql/controlPanel/mutations';
 import { SIGN_IN, GET_SHOW } from '../utils/graphql/controlPanel/queries';
-import { showAlert } from '../views/pages/globalPageHelpers';
 import { trackPosthogEvent } from '../utils/analytics/posthog';
+import { showAlert } from '../views/pages/globalPageHelpers';
 
 const verifyToken = (serviceToken) => {
   if (!serviceToken) {
@@ -133,6 +133,10 @@ export const JWTProvider = ({ children }) => {
           logout();
         }
       } catch (err) {
+        // Token verify / show fetch failed during boot — users land back
+        // on login with no other signal. Surface to ops so silent bounces
+        // are debuggable.
+        trackPosthogEvent('session_init_failed', { message: err?.message });
         logout();
       }
     };

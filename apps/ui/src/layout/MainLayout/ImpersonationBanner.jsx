@@ -5,6 +5,7 @@ import { Box, Button, Stack, Typography } from '@mui/material';
 import { IconAlertTriangle } from '@tabler/icons-react';
 
 import { useSelector } from '../../store';
+import { trackPosthogEvent } from '../../utils/analytics/posthog';
 
 const readImpersonating = () => !!localStorage.getItem('isImpersonating');
 
@@ -39,6 +40,10 @@ const ImpersonationBanner = () => {
   if (!active) return null;
 
   const stop = () => {
+    trackPosthogEvent('impersonation_stopped', {
+      source: 'banner',
+      target_show_subdomain: show?.showSubdomain
+    });
     localStorage.removeItem('isImpersonating');
     localStorage.removeItem('impersonationServiceToken');
     window.location.reload();
@@ -77,6 +82,10 @@ const ImpersonationBanner = () => {
             <Typography
               variant="body2"
               sx={{
+                // MUI Typography doesn't inherit CSS `color` from a parent
+                // Box — it pulls from theme.palette.text.* per variant. Set
+                // explicitly so the banner stays legible in BOTH themes.
+                color: BANNER_FG,
                 fontWeight: 700,
                 letterSpacing: '0.04em',
                 lineHeight: 1.4,

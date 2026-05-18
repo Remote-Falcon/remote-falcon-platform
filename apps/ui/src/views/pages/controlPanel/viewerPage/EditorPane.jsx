@@ -67,7 +67,7 @@ const EditorPane = ({ value, isDirty, lineToFocus, onChange, onSave, onCopy }) =
           )}
         </Box>
         <Tooltip title={justCopied ? 'HTML copied' : 'Copy HTML to clipboard'}>
-          <IconButton size="small" onClick={handleCopy} sx={{ color: 'text.secondary' }}>
+          <IconButton size="small" onClick={handleCopy} aria-label="Copy HTML to clipboard" sx={{ color: 'text.secondary' }}>
             {justCopied ? <IconCheck size={16} stroke={2} /> : <IconCopy size={16} stroke={1.75} />}
           </IconButton>
         </Tooltip>

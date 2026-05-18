@@ -21,6 +21,7 @@ import md5 from 'md5';
 import { VERSION } from '../../../../config';
 import useAuth from '../../../../hooks/useAuth';
 import { useSelector } from '../../../../store';
+import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
 
 // v2 identity menu — slim popover that owns identity-only concerns.
 // Navigation (Account Settings, Tracker, Docs) lives in the sidebar now.
@@ -61,6 +62,10 @@ const ProfileSection = () => {
   };
 
   const stopImpersonating = () => {
+    trackPosthogEvent('impersonation_stopped', {
+      source: 'profile_menu',
+      target_show_subdomain: show?.showSubdomain
+    });
     localStorage.removeItem('isImpersonating');
     localStorage.removeItem('impersonationServiceToken');
     window.location.reload();
@@ -85,7 +90,7 @@ const ProfileSection = () => {
             '&:hover': { borderColor: (t) => t.palette.primary.main }
           }}
         >
-          <Avatar src={gravatar} sx={{ width: 32, height: 32 }} />
+          <Avatar src={gravatar} alt="" sx={{ width: 32, height: 32 }} />
         </IconButton>
       </Tooltip>
 
@@ -115,7 +120,7 @@ const ProfileSection = () => {
         {/* Identity card — read-only header. Not a menu item, not focusable. */}
         <Box sx={{ px: 2, py: 1.5 }} tabIndex={-1}>
           <Stack direction="row" spacing={1.5} alignItems="center">
-            <Avatar src={gravatar} sx={{ width: 40, height: 40 }} />
+            <Avatar src={gravatar} alt="" sx={{ width: 40, height: 40 }} />
             <Box sx={{ minWidth: 0, flex: 1 }}>
               <Typography variant="subtitle1" sx={{ fontWeight: 600, lineHeight: 1.2 }} noWrap>
                 {fullName}

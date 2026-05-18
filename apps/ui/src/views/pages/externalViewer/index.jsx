@@ -254,6 +254,10 @@ const ExternalViewerPage = () => {
           await delay(attempt * 300);
           return fetchViewerScripts(attempt + 1);
         }
+        trackPosthogEvent('viewer_scripts_fetch_failed', {
+          attempts: attempt,
+          message: error?.message
+        });
         throw error;
       }
     },
@@ -291,6 +295,7 @@ const ExternalViewerPage = () => {
         );
       } catch (error) {
         console.warn('[Viewer] Unable to load external viewer scripts', error);
+        trackPosthogEvent('viewer_scripts_load_failed', { message: error?.message });
       }
     },
     [fetchViewerScripts, loadViewerScript]

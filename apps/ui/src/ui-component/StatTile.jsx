@@ -68,7 +68,10 @@ const StatTile = ({
           {label}
         </Typography>
         <Stack direction="row" alignItems="flex-end" spacing={1.5}>
-          <Typography variant="h2" sx={{ mt: 0.5, fontWeight: 700, fontSize: 28, lineHeight: 1.1 }}>
+          {/* Render the big number as a div with h2 visual style — stat
+              values aren't document headings and shouldn't appear in the
+              outline (WCAG 1.3.1 / 2.4.6). */}
+          <Typography component="div" variant="h2" sx={{ mt: 0.5, fontWeight: 700, fontSize: 28, lineHeight: 1.1 }}>
             {value}
           </Typography>
           {sparkValues && (

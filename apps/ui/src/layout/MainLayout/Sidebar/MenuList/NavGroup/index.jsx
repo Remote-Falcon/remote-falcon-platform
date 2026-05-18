@@ -80,7 +80,13 @@ const NavGroup = ({ item }) => {
 
   return (
     <List sx={{ py: 0 }}>
+      {/* The clickable section header is a list item rather than a bare
+          Stack so the parent <ul> only contains <li> children (WCAG 1.3.1).
+          Color sourced from text.secondary (not text.disabled) — disabled
+          resolves to #9e9e9e in light mode and fails AA at 2.67:1. */}
       <Stack
+        component="li"
+        role="button"
         direction="row"
         alignItems="center"
         spacing={0.5}
@@ -91,10 +97,10 @@ const NavGroup = ({ item }) => {
           pb: 0.5,
           cursor: 'pointer',
           userSelect: 'none',
-          '&:hover .rf-nav-section-label': { color: 'text.secondary' },
-          '&:hover .rf-nav-section-chevron': { color: 'text.secondary' }
+          listStyle: 'none',
+          '&:hover .rf-nav-section-label': { color: 'text.primary' },
+          '&:hover .rf-nav-section-chevron': { color: 'text.primary' }
         }}
-        role="button"
         tabIndex={0}
         aria-expanded={!collapsed}
         onKeyDown={(e) => {
@@ -114,7 +120,7 @@ const NavGroup = ({ item }) => {
             fontWeight: 600,
             letterSpacing: '0.1em',
             textTransform: 'uppercase',
-            color: 'text.disabled',
+            color: 'text.secondary',
             lineHeight: 1.4,
             transition: 'color 120ms ease'
           }}
@@ -125,7 +131,7 @@ const NavGroup = ({ item }) => {
           component="span"
           className="rf-nav-section-chevron"
           sx={{
-            color: 'text.disabled',
+            color: 'text.secondary',
             display: 'inline-flex',
             alignItems: 'center',
             transition: 'color 120ms ease'
