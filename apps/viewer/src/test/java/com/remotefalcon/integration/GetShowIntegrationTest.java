@@ -352,10 +352,14 @@ class GetShowIntegrationTest {
     // Create sequences with different visibility and active states
     List<Sequence> sequences = new ArrayList<>();
 
+    // Note: index must be non-null + >= 0 for the sequence to appear in
+    // getActiveViewerSequences (c2883e1 — hides unsynced sequences).
+
     Sequence seq1 = new Sequence();
     seq1.setName("Jingle Bells");
     seq1.setDisplayName("Jingle Bells Display");
     seq1.setOrder(1);
+    seq1.setIndex(1);
     seq1.setActive(true);
     seq1.setVisibilityCount(0);  // Visible
     sequences.add(seq1);
@@ -364,6 +368,7 @@ class GetShowIntegrationTest {
     seq2.setName("Silent Night");
     seq2.setDisplayName("Silent Night Display");
     seq2.setOrder(2);
+    seq2.setIndex(2);
     seq2.setActive(true);
     seq2.setVisibilityCount(0);  // Visible
     sequences.add(seq2);
@@ -372,6 +377,7 @@ class GetShowIntegrationTest {
     seq3.setName("Hidden Song");
     seq3.setDisplayName("Hidden Song Display");
     seq3.setOrder(3);
+    seq3.setIndex(3);
     seq3.setActive(true);
     seq3.setVisibilityCount(5);  // Hidden (not visible yet)
     sequences.add(seq3);
@@ -380,6 +386,7 @@ class GetShowIntegrationTest {
     seq4.setName("Inactive Song");
     seq4.setDisplayName("Inactive Song Display");
     seq4.setOrder(4);
+    seq4.setIndex(4);
     seq4.setActive(false);  // Inactive
     seq4.setVisibilityCount(0);
     sequences.add(seq4);

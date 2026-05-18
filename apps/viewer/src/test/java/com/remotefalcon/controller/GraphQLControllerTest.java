@@ -26,27 +26,30 @@ class GraphQLControllerTest {
   @InjectMock
   GraphQLQueryService queryService;
 
+  // Controller normalizes the @DefaultValue("") viewerId via emptyToNull(),
+  // so service-level mocks/verifications match `null`, not "".
+
   @Test
   @DisplayName("insertViewerPageStats delegates to mutation service and returns result")
   void testInsertViewerPageStats() {
     LocalDateTime now = LocalDateTime.now();
-    when(mutationService.insertViewerPageStats("sub", now, "")).thenReturn(true);
+    when(mutationService.insertViewerPageStats("sub", now, null)).thenReturn(true);
 
     Boolean result = controller.insertViewerPageStats("sub", now, "");
 
     assertTrue(result);
-    verify(mutationService).insertViewerPageStats("sub", now, "");
+    verify(mutationService).insertViewerPageStats("sub", now, null);
   }
 
   @Test
   @DisplayName("updateActiveViewers delegates to mutation service and returns result")
   void testUpdateActiveViewers() {
-    when(mutationService.updateActiveViewers("sub", "")).thenReturn(true);
+    when(mutationService.updateActiveViewers("sub", null)).thenReturn(true);
 
     Boolean result = controller.updateActiveViewers("sub", "");
 
     assertTrue(result);
-    verify(mutationService).updateActiveViewers("sub", "");
+    verify(mutationService).updateActiveViewers("sub", null);
   }
 
   @Test
@@ -74,23 +77,23 @@ class GraphQLControllerTest {
   @Test
   @DisplayName("addSequenceToQueue delegates to mutation service and returns result")
   void testAddSequenceToQueue() {
-    when(mutationService.addSequenceToQueue("sub", "Song", 1.23f, 4.56f, "")).thenReturn(true);
+    when(mutationService.addSequenceToQueue("sub", "Song", 1.23f, 4.56f, null)).thenReturn(true);
 
     Boolean result = controller.addSequenceToQueue("sub", "Song", 1.23, 4.56, "");
 
     assertTrue(result);
-    verify(mutationService).addSequenceToQueue("sub", "Song", 1.23f, 4.56f, "");
+    verify(mutationService).addSequenceToQueue("sub", "Song", 1.23f, 4.56f, null);
   }
 
   @Test
   @DisplayName("voteForSequence delegates to mutation service and returns result")
   void testVoteForSequence() {
-    when(mutationService.voteForSequence("sub", "Song", 1.23f, 4.56f, "")).thenReturn(true);
+    when(mutationService.voteForSequence("sub", "Song", 1.23f, 4.56f, null)).thenReturn(true);
 
     Boolean result = controller.voteForSequence("sub", "Song", 1.23, 4.56, "");
 
     assertTrue(result);
-    verify(mutationService).voteForSequence("sub", "Song", 1.23f, 4.56f, "");
+    verify(mutationService).voteForSequence("sub", "Song", 1.23f, 4.56f, null);
   }
 
   @Test

@@ -647,9 +647,9 @@ class GraphQLMutationServiceTest {
       repoField.set(rawService, showRepository);
 
       var m = GraphQLMutationService.class.getDeclaredMethod(
-          "saveSequenceVote", Show.class, Sequence.class, String.class, Boolean.class);
+          "saveSequenceVote", Show.class, Sequence.class, String.class, String.class, Boolean.class);
       m.setAccessible(true);
-      m.invoke(rawService, show, seq, "1.2.3.4", Boolean.FALSE);
+      m.invoke(rawService, show, seq, "1.2.3.4", null, Boolean.FALSE);
 
       // Verify repository method was called to increment existing vote
       verify(showRepository).incrementVoteAndAppendVoter(eq("sub"), eq("song-a"), eq("1.2.3.4"), any(LocalDateTime.class), argThat(stat ->
@@ -672,9 +672,9 @@ class GraphQLMutationServiceTest {
       repoField.set(rawService, showRepository);
 
       var m = GraphQLMutationService.class.getDeclaredMethod(
-          "saveSequenceVote", Show.class, Sequence.class, String.class, Boolean.class);
+          "saveSequenceVote", Show.class, Sequence.class, String.class, String.class, Boolean.class);
       m.setAccessible(true);
-      m.invoke(rawService, show, seq, "", Boolean.TRUE);
+      m.invoke(rawService, show, seq, "", null, Boolean.TRUE);
 
       // Verify repository method was called to add new grouped vote (no stat for grouped)
       verify(showRepository).addNewVoteAndStat(eq("sub"), argThat(vote ->
@@ -710,9 +710,9 @@ class GraphQLMutationServiceTest {
       repoField.set(rawService, showRepository);
 
       var m = GraphQLMutationService.class.getDeclaredMethod(
-          "saveSequenceGroupVote", Show.class, SequenceGroup.class, String.class);
+          "saveSequenceGroupVote", Show.class, SequenceGroup.class, String.class, String.class);
       m.setAccessible(true);
-      m.invoke(rawService, show, group, "1.2.3.4");
+      m.invoke(rawService, show, group, "1.2.3.4", null);
 
       // Verify repository method was called to increment existing group vote
       verify(showRepository).incrementSequenceGroupVoteAndAppendVoter(eq("sub"), eq("GroupG"), eq("1.2.3.4"), any(LocalDateTime.class), argThat(stat ->
