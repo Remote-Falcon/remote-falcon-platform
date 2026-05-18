@@ -973,7 +973,11 @@ public class DashboardService {
   }
 
   private ZonedDateTime convertStatDateTime(LocalDateTime statDateTime, ZoneId userZone) {
-    return statDateTime.atZone(ZoneOffset.UTC).withZoneSameInstant(userZone);
+    // Stat.*.dateTime is written as naive viewer-browser wall-clock time
+    // (apps/ui/.../externalViewer/index.jsx — moment().format(...)). Attach
+    // the user's zone without shifting; other call sites in this file
+    // assume the same convention. Long-term redesign: issue-tracker #135.
+    return statDateTime.atZone(userZone);
   }
 
   // Best-effort caller-IP lookup for the public wrappedSummary path. The
