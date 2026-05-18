@@ -105,7 +105,7 @@ class GraphQLMutationServiceTest {
     void shouldInsertViewerPageStats() {
       when(showRepository.appendPageStatIfNotOwner(eq("test"), eq("1.2.3.4"), any())).thenReturn(1L);
 
-      Boolean result = service.insertViewerPageStats("test", LocalDateTime.now());
+      Boolean result = service.insertViewerPageStats("test", LocalDateTime.now(), "");
 
       assertTrue(result);
       verify(showRepository).appendPageStatIfNotOwner(eq("test"), eq("1.2.3.4"), argThat(stat ->
@@ -118,7 +118,7 @@ class GraphQLMutationServiceTest {
     void shouldReturnFalseWhenSameIp() {
       when(showRepository.appendPageStatIfNotOwner(eq("test"), eq("1.2.3.4"), any())).thenReturn(0L);
 
-      Boolean result = service.insertViewerPageStats("test", LocalDateTime.now());
+      Boolean result = service.insertViewerPageStats("test", LocalDateTime.now(), "");
 
       assertFalse(result);
       verify(showRepository).appendPageStatIfNotOwner(eq("test"), eq("1.2.3.4"), any());
@@ -132,7 +132,7 @@ class GraphQLMutationServiceTest {
       when(httpServerRequest.getHeader("X-Forwarded-For")).thenReturn(null);
       when(httpServerRequest.remoteAddress()).thenReturn(null);
 
-      Boolean result = service.insertViewerPageStats("test", LocalDateTime.now());
+      Boolean result = service.insertViewerPageStats("test", LocalDateTime.now(), "");
 
       assertTrue(result);
       verify(showRepository, never()).appendPageStatIfNotOwner(anyString(), anyString(), any());
@@ -148,10 +148,10 @@ class GraphQLMutationServiceTest {
       Show show = mockShowWithStatsAndActiveViewers("9.9.9.9");
       when(showRepository.findByShowSubdomain("test")).thenReturn(Optional.of(show));
 
-      Boolean result = service.updateActiveViewers("test");
+      Boolean result = service.updateActiveViewers("test", "");
 
       assertTrue(result);
-      verify(showRepository).updateActiveViewer(eq("test"), eq("1.2.3.4"), any(LocalDateTime.class));
+      verify(showRepository).updateActiveViewer(eq("test"), eq("1.2.3.4"), eq(""), any(LocalDateTime.class));
     }
 
     @Test
@@ -160,17 +160,17 @@ class GraphQLMutationServiceTest {
       Show show = mockShowWithStatsAndActiveViewers("1.2.3.4");
       when(showRepository.findByShowSubdomain("test")).thenReturn(Optional.of(show));
 
-      Boolean result = service.updateActiveViewers("test");
+      Boolean result = service.updateActiveViewers("test", "");
 
       assertTrue(result);
-      verify(showRepository, never()).updateActiveViewer(anyString(), anyString(), any());
+      verify(showRepository, never()).updateActiveViewer(anyString(), anyString(), anyString(), any());
     }
 
     @Test
     @DisplayName("Should throw when show not found for active viewers update")
     void shouldThrowWhenShowNotFound() {
       when(showRepository.findByShowSubdomain("missing")).thenReturn(Optional.empty());
-      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.updateActiveViewers("missing"));
+      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.updateActiveViewers("missing", ""));
     }
   }
 
@@ -229,7 +229,7 @@ class GraphQLMutationServiceTest {
       when(httpServerRequest.getHeader("CF-Connecting-IP")).thenReturn("");
       Show show = mockShowWithPrefsAndCollections();
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
-      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "name", 0f, 0f));
+      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "name", 0f, 0f, ""));
     }
 
     @Test
@@ -238,7 +238,7 @@ class GraphQLMutationServiceTest {
       Show show = mockShowWithPrefsAndCollections();
       when(show.getPreferences().getCheckIfVoted()).thenReturn(true);
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
-      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "name", 0f, 0f));
+      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "name", 0f, 0f, ""));
     }
 
     @Test
@@ -249,7 +249,7 @@ class GraphQLMutationServiceTest {
       blocked.add("1.2.3.4");
       when(show.getPreferences().getBlockedViewerIps()).thenReturn(blocked);
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
-      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "name", 0f, 0f));
+      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "name", 0f, 0f, ""));
     }
 
     @Test
@@ -261,7 +261,7 @@ class GraphQLMutationServiceTest {
       when(r.getViewerRequested()).thenReturn("1.2.3.4");
       show.getRequests().add(r);
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
-      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "name", 0f, 0f));
+      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "name", 0f, 0f, ""));
     }
 
     @Test
@@ -272,7 +272,7 @@ class GraphQLMutationServiceTest {
       Request r = mock(Request.class);
       show.getRequests().add(r);
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
-      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "name", 0f, 0f));
+      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "name", 0f, 0f, ""));
     }
 
     @Test
@@ -280,8 +280,8 @@ class GraphQLMutationServiceTest {
     void shouldThrowInvalidLocation() {
       Show show = mockShowWithPrefsAndCollections();
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
-      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "name", null, 0f));
-      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "name", 0f, null));
+      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "name", null, 0f, ""));
+      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "name", 0f, null, ""));
     }
 
     @Test
@@ -290,7 +290,7 @@ class GraphQLMutationServiceTest {
       Show show = mockShowWithPrefsAndCollections();
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
       // Pass valid coords (location check NONE by default in mock)
-      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "unknown", 0f, 0f));
+      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "unknown", 0f, 0f, ""));
     }
   }
 
@@ -303,7 +303,7 @@ class GraphQLMutationServiceTest {
       when(httpServerRequest.getHeader("CF-Connecting-IP")).thenReturn("");
       Show show = mockShowWithPrefsAndCollections();
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
-      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.voteForSequence("sub", "name", 0f, 0f));
+      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.voteForSequence("sub", "name", 0f, 0f, ""));
     }
 
     @Test
@@ -312,7 +312,7 @@ class GraphQLMutationServiceTest {
       Show show = mockShowWithPrefsAndCollections();
       when(show.getPreferences().getCheckIfVoted()).thenReturn(true);
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
-      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.voteForSequence("sub", "name", 0f, 0f));
+      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.voteForSequence("sub", "name", 0f, 0f, ""));
     }
 
     @Test
@@ -321,7 +321,7 @@ class GraphQLMutationServiceTest {
       Show show = mockShowWithPrefsAndCollections();
       show.getPreferences().getBlockedViewerIps().add("1.2.3.4");
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
-      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.voteForSequence("sub", "name", 0f, 0f));
+      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.voteForSequence("sub", "name", 0f, 0f, ""));
     }
 
     @Test
@@ -335,7 +335,7 @@ class GraphQLMutationServiceTest {
       when(v.getViewersVoted()).thenReturn(voters);
       show.getVotes().add(v);
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
-      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.voteForSequence("sub", "name", 0f, 0f));
+      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.voteForSequence("sub", "name", 0f, 0f, ""));
     }
 
     @Test
@@ -343,8 +343,8 @@ class GraphQLMutationServiceTest {
     void voteShouldThrowInvalidLocation() {
       Show show = mockShowWithPrefsAndCollections();
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
-      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.voteForSequence("sub", "name", null, 0f));
-      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.voteForSequence("sub", "name", 0f, null));
+      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.voteForSequence("sub", "name", null, 0f, ""));
+      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.voteForSequence("sub", "name", 0f, null, ""));
     }
 
     @Test
@@ -352,7 +352,7 @@ class GraphQLMutationServiceTest {
     void voteShouldThrowUnexpectedWhenNoMatch() {
       Show show = mockShowWithPrefsAndCollections();
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
-      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.voteForSequence("sub", "unknown", 0f, 0f));
+      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.voteForSequence("sub", "unknown", 0f, 0f, ""));
     }
   }
 
@@ -377,7 +377,7 @@ class GraphQLMutationServiceTest {
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
       when(showRepository.nextRequestPosition(show)).thenReturn(1L);
 
-      Boolean result = service.addSequenceToQueue("sub", "song-a", 0f, 0f);
+      Boolean result = service.addSequenceToQueue("sub", "song-a", 0f, 0f, "");
       assertTrue(result);
 
       // Verify DB operations were called with correct data
@@ -427,7 +427,7 @@ class GraphQLMutationServiceTest {
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show), Optional.of(show));
       when(showRepository.nextRequestPosition(any(Show.class))).thenReturn(6L, 7L);
 
-      Boolean result = service.addSequenceToQueue("sub", "user-seq", 0f, 0f);
+      Boolean result = service.addSequenceToQueue("sub", "user-seq", 0f, 0f, "");
       assertTrue(result);
 
       // Verify user request was added
@@ -476,7 +476,7 @@ class GraphQLMutationServiceTest {
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
       when(showRepository.allocatePositionBlock(show, 2)).thenReturn(1L);
 
-      Boolean result = service.addSequenceToQueue("sub", "GroupA", 0f, 0f);
+      Boolean result = service.addSequenceToQueue("sub", "GroupA", 0f, 0f, "");
       assertTrue(result);
 
       // Verify DB operation was called with group requests
@@ -504,7 +504,7 @@ class GraphQLMutationServiceTest {
 
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
 
-      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "song-a", 10f, 10f));
+      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "song-a", 10f, 10f, ""));
     }
 
     @Test
@@ -520,7 +520,7 @@ class GraphQLMutationServiceTest {
       when(show.getPlayingNow()).thenReturn("song-a");
 
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
-      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "song-a", 0f, 0f));
+      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "song-a", 0f, 0f, ""));
     }
 
     @Test
@@ -536,7 +536,7 @@ class GraphQLMutationServiceTest {
       when(show.getPlayingNext()).thenReturn("Song A");
 
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
-      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "song-a", 0f, 0f));
+      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "song-a", 0f, 0f, ""));
     }
 
     @Test
@@ -567,7 +567,7 @@ class GraphQLMutationServiceTest {
       show.getRequests().add(r2);
 
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
-      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "song-a", 0f, 0f));
+      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "song-a", 0f, 0f, ""));
     }
   }
 
@@ -586,7 +586,7 @@ class GraphQLMutationServiceTest {
 
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
 
-      Boolean result = service.voteForSequence("sub", "song-a", 0f, 0f);
+      Boolean result = service.voteForSequence("sub", "song-a", 0f, 0f, "");
       assertTrue(result);
 
       // Verify repository method was called to add new vote with stat
@@ -608,7 +608,7 @@ class GraphQLMutationServiceTest {
 
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
 
-      Boolean result = service.voteForSequence("sub", "GroupX", 0f, 0f);
+      Boolean result = service.voteForSequence("sub", "GroupX", 0f, 0f, "");
       assertTrue(result);
 
       // Verify repository method was called to add new group vote with stat
