@@ -10,6 +10,7 @@ import { openDrawer } from '../../store/slices/menu';
 import CommandPalette from '../../ui-component/CommandPalette';
 
 import Header from './Header';
+import ImpersonationBanner from './ImpersonationBanner';
 import Sidebar from './Sidebar';
 import WhatsNew from './WhatsNew.modal';
 
@@ -60,61 +61,66 @@ const MainLayout = () => {
   };
 
   return (
-    <Box sx={{ display: 'flex', minHeight: '100vh' }}>
+    <Box sx={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <CssBaseline />
 
-      <Sidebar />
+      {/* Admin impersonation warning. Renders nothing when not impersonating. */}
+      <ImpersonationBanner />
 
-      {/* Content column — owns its own AppBar, scrollable main area */}
-      <Box
-        sx={{
-          flexGrow: 1,
-          display: 'flex',
-          flexDirection: 'column',
-          minWidth: 0,
-          bgcolor: theme.palette.background.default
-        }}
-      >
-        <AppBar
-          enableColorOnDark
-          position="sticky"
-          color="inherit"
-          elevation={0}
-          sx={{
-            top: 0,
-            bgcolor: theme.palette.background.default,
-            // Dark mode: nearly-invisible hairline. Bright `palette.divider`
-            // values create a "stitched panes" look that the v2 mockup
-            // deliberately avoids. Light mode still gets a visible line
-            // for separation against the lighter content bg.
-            borderBottom: (t) =>
-              t.palette.mode === 'dark'
-                ? '1px solid rgba(255,255,255,0.04)'
-                : `1px solid ${t.palette.divider}`
-          }}
-        >
-          {header}
-        </AppBar>
+      <Box sx={{ display: 'flex', flex: 1, minHeight: 0 }}>
+        <Sidebar />
 
+        {/* Content column — owns its own AppBar, scrollable main area */}
         <Box
-          component="main"
           sx={{
-            flex: 1,
+            flexGrow: 1,
+            display: 'flex',
+            flexDirection: 'column',
             minWidth: 0,
-            p: { xs: 2, md: 3 }
+            bgcolor: theme.palette.background.default
           }}
         >
-          <Modal open={whatsNewOpen} aria-labelledby="simple-modal-title" aria-describedby="simple-modal-description">
-            <WhatsNew handleClose={() => closeWhatsNew()} />
-          </Modal>
+          <AppBar
+            enableColorOnDark
+            position="sticky"
+            color="inherit"
+            elevation={0}
+            sx={{
+              top: 0,
+              bgcolor: theme.palette.background.default,
+              // Dark mode: nearly-invisible hairline. Bright `palette.divider`
+              // values create a "stitched panes" look that the v2 mockup
+              // deliberately avoids. Light mode still gets a visible line
+              // for separation against the lighter content bg.
+              borderBottom: (t) =>
+                t.palette.mode === 'dark'
+                  ? '1px solid rgba(255,255,255,0.04)'
+                  : `1px solid ${t.palette.divider}`
+            }}
+          >
+            {header}
+          </AppBar>
 
-          {container ? (
-            <Container maxWidth="lg" disableGutters>
+          <Box
+            component="main"
+            sx={{
+              flex: 1,
+              minWidth: 0,
+              p: { xs: 2, md: 3 }
+            }}
+          >
+            <Modal open={whatsNewOpen} aria-labelledby="simple-modal-title" aria-describedby="simple-modal-description">
+              <WhatsNew handleClose={() => closeWhatsNew()} />
+            </Modal>
+
+            {container ? (
+              <Container maxWidth="lg" disableGutters>
+                <Outlet />
+              </Container>
+            ) : (
               <Outlet />
-            </Container>
-          ) : (
-            <Outlet />
-          )}
+            )}
+          </Box>
         </Box>
       </Box>
 
