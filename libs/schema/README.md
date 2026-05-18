@@ -1,6 +1,6 @@
 # Remote Falcon Schema (shared library)
 
-The canonical MongoDB schema for the Remote Falcon platform. Defines the document/entity classes (`Show`, `Wattson`, `Notification`, `Request`, `Stat`, etc.) and supporting enums consumed by **5 of the 8 backend services**.
+The canonical MongoDB schema for the Remote Falcon platform. Defines the document/entity classes (`Show`, `Notification`, `Request`, `Stat`, etc.) and supporting enums consumed by **5 of the 8 backend services**.
 
 | | |
 |---|---|

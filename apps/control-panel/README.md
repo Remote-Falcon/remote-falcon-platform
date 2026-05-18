@@ -9,7 +9,7 @@ The authenticated REST + GraphQL API behind the show-owner control panel UI. Aut
 | **Replicas** | 1 |
 | **Ingress** | `remotefalcon.com`, path prefix `/remote-falcon-control-panel` (proxy body size: 3 MB) |
 | **Health probe** | `GET /remote-falcon-control-panel/actuator/health` |
-| **Talks to** | MongoDB, GitHub (PAT), SendGrid, DigitalOcean Spaces (S3), OpenAI / "Wattson" |
+| **Talks to** | MongoDB, GitHub (PAT), SendGrid, DigitalOcean Spaces (S3) |
 
 ## What it does
 
@@ -17,8 +17,8 @@ The authenticated REST + GraphQL API behind the show-owner control panel UI. Aut
 - **Account management** — signup, email verification, password reset, profile, role assignment.
 - **Show configuration** — sequences, request/vote rules, viewer-page templates, geo-fencing, blocked IPs.
 - **Page editor** — Monaco-based viewer-page customization; serves seeded templates from [page-templates](https://github.com/Remote-Falcon/remote-falcon-page-templates).
-- **Integrations** — GitHub for code, SendGrid for email, S3 for asset uploads, OpenAI/Wattson for AI features.
-- **Platform admin** — 9 GraphQL mutations gated by `@RequiresAdminAccess` (admin show-edit, Wattson feedback review). See [`controller/GraphQLController.java`](src/main/java/com/remotefalcon/controlpanel/controller/GraphQLController.java).
+- **Integrations** — GitHub for code, SendGrid for email, S3 for asset uploads.
+- **Platform admin** — GraphQL mutations gated by `@RequiresAdminAccess` (admin show-edit, impersonation, notifications). See [`controller/GraphQLController.java`](src/main/java/com/remotefalcon/controlpanel/controller/GraphQLController.java).
 
 ## API surface
 
@@ -35,7 +35,7 @@ Two layers:
 
 ## In-cluster Secrets
 
-Single Secret `remote-falcon-control-panel` carries: `mongo-uri`, `github-pat`, `sendgrid-key`, `jwt-user`, `client-header`, `s3-endpoint`, `s3-accessKey`, `s3-secretKey`, `wattson-key`, `openai-model`, `max-output-tokens`.
+Single Secret `remote-falcon-control-panel` carries: `mongo-uri`, `github-pat`, `sendgrid-key`, `jwt-user`, `client-header`, `s3-endpoint`, `s3-accessKey`, `s3-secretKey`.
 
 ## Local development
 
@@ -55,5 +55,5 @@ Requires a Mongo instance and (for full feature coverage) the third-party creden
 - `src/main/java/com/remotefalcon/controlpanel/aop/` — `@RequiresAccess`, `@RequiresAdminAccess`, `AccessAspect`
 - `src/main/java/com/remotefalcon/controlpanel/controller/` — REST + GraphQL entry points
 - `src/main/java/com/remotefalcon/controlpanel/service/` — `GraphQLQueryService`, `GraphQLMutationService` (admin mutations live here)
-- `src/main/java/com/remotefalcon/controlpanel/util/` — `AuthUtil` (JWT), `ClientUtil` (GitHub), `EmailUtil` (SendGrid), `WattsonUtil` (OpenAI)
+- `src/main/java/com/remotefalcon/controlpanel/util/` — `AuthUtil` (JWT), `ClientUtil` (GitHub), `EmailUtil` (SendGrid)
 - `src/main/java/com/remotefalcon/controlpanel/config/` — `WebSecurityConfig`

@@ -155,7 +155,7 @@ truth when the prose below is ambiguous.
 2. **Group menu items.** Update `menu-items/controlPanel.jsx` to nest items under section labels (matching the mockup):
    - *Show* — Dashboard, Sequences, Viewer Page, Templates
    - *Account* — Settings, Image Hosting
-   - *Community* — Shows Map, Ask Wattson
+   - *Community* — Shows Map
    - *Admin* — admin-role-only items (only rendered when role === 'admin')
 3. **Slim the topbar** to 56px. Per the mockup, contents (left → right): breadcrumb trail (`Show / Dashboard`), search-trigger chip (`Search sequences, pages, settings… ⌘K`), `<ThemeToggle />`, what's-new icon, notifications icon, profile avatar. Move legacy localization + customization buttons into an overflow `IconButton`+Menu (or drop entirely — the only locale we ship in is English).
 4. **Topbar breadcrumb** derives from the route (e.g. `/control-panel/sequences` → `Show / Sequences`). Pull the label from `menu-items/controlPanel.jsx`'s `title` field.
@@ -286,7 +286,7 @@ The legacy pattern is to save settings on `onBlur` of every field. The v2 patter
 
 ## Phase 9 — Empty states & skeletons sweep
 
-For each page with async data: image hosting, shows map (filtered to no results), sequences (new account), dashboard (no show running), Ask Wattson (no history).
+For each page with async data: image hosting, shows map (filtered to no results), sequences (new account), dashboard (no show running).
 
 ### Pattern
 
