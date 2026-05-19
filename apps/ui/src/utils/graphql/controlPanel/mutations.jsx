@@ -38,7 +38,17 @@ export const UPDATE_USER_PROFILE = gql`
 
 export const REQUEST_API_ACCESS = gql`
   mutation @api(name: controlPanel) {
-    requestApiAccess
+    requestApiAccess {
+      apiAccessToken
+      apiAccessSecret
+      apiAccessActive
+    }
+  }
+`;
+
+export const REFRESH_API_SECRET = gql`
+  mutation @api(name: controlPanel) {
+    refreshApiSecret
   }
 `;
 

@@ -5,7 +5,8 @@ type Mutation {
     resetPassword: Boolean
     updatePassword: Boolean
     updateUserProfile(userProfile: UserProfileInput!): Boolean
-    requestApiAccess: Boolean
+    requestApiAccess: ApiAccess
+    refreshApiSecret: String
     deleteAccount: Boolean
     updateShow(email: String!, showName: String!): Boolean
     updatePreferences(preferences: PreferenceInput!): Boolean

@@ -70,8 +70,14 @@ public class GraphQLController {
 
     @MutationMapping
     @RequiresAccess
-    public Boolean requestApiAccess() {
+    public ApiAccess requestApiAccess() {
         return this.graphQLMutationService.requestApiAccess();
+    }
+
+    @MutationMapping
+    @RequiresAccess
+    public String refreshApiSecret() {
+        return this.graphQLMutationService.refreshApiSecret();
     }
 
     @MutationMapping

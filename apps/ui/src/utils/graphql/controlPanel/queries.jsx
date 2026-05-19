@@ -20,6 +20,7 @@ export const SIGN_IN = gql`
       serviceToken
       apiAccess {
         apiAccessActive
+        apiAccessToken
       }
       userProfile {
         firstName
@@ -142,6 +143,7 @@ export const GET_SHOW = gql`
       serviceToken
       apiAccess {
         apiAccessActive
+        apiAccessToken
       }
       userProfile {
         firstName
@@ -433,6 +435,7 @@ export const GET_SHOW_BY_SHOW_NAME = gql`
       playingNext
       apiAccess {
         apiAccessActive
+        apiAccessToken
       }
       userProfile {
         firstName

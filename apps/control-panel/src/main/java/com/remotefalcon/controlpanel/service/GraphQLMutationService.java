@@ -241,7 +241,7 @@ public class GraphQLMutationService {
         throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());
     }
 
-    public Boolean requestApiAccess() {
+    public ApiAccess requestApiAccess() {
         Optional<Show> show = this.showRepository.findByShowToken(authUtil.getTokenDTO().getShowToken());
         if(show.isPresent()) {
             if(show.get().getApiAccess() == null) {
@@ -266,7 +266,21 @@ public class GraphQLMutationService {
                 this.showRepository.save(show.get());
                 throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());
             }
-            return true;
+            return show.get().getApiAccess();
+        }
+        throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());
+    }
+
+    public String refreshApiSecret() {
+        Optional<Show> show = this.showRepository.findByShowToken(authUtil.getTokenDTO().getShowToken());
+        if(show.isPresent()) {
+            if(show.get().getApiAccess() == null || !show.get().getApiAccess().getApiAccessActive()) {
+                throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());
+            }
+            String secretKey = RandomUtil.generateToken(20);
+            show.get().getApiAccess().setApiAccessSecret(secretKey);
+            this.showRepository.save(show.get());
+            return secretKey;
         }
         throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());
     }
