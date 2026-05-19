@@ -317,12 +317,8 @@ jobs:
             VERSION=${{ steps.date.outputs.version }}
             CONTROL_PANEL_API=https://remotefalcon.com/remote-falcon-control-panel
             VIEWER_API=https://remotefalcon.com/remote-falcon-viewer
-            VIEWER_JWT_KEY=${{ secrets.VIEWER_JWT_KEY }}
             GOOGLE_MAPS_KEY=${{ secrets.GOOGLE_MAPS_KEY }}
             PUBLIC_POSTHOG_KEY=${{ secrets.PUBLIC_POSTHOG_KEY }}
-            GA_TRACKING_ID=${{ secrets.GA_TRACKING_ID }}
-            MIXPANEL_KEY=${{ secrets.MIXPANEL_KEY }}
-            CLARITY_PROJECT_ID=${{ secrets.CLARITY_PROJECT_ID }}
             HOSTNAME_PARTS=2
             SWAP_CP=false
             VIEWER_PAGE_SUBDOMAIN=

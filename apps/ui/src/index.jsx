@@ -26,7 +26,6 @@ import { Environments } from './utils/enum';
 const REQUIRED_ENV = [
   'VITE_CONTROL_PANEL_API',
   'VITE_VIEWER_API',
-  'VITE_VIEWER_JWT_KEY',
   'VITE_HOSTNAME_PARTS'
 ];
 
@@ -58,12 +57,12 @@ const posthogOptions = {
   api_host: 'https://us.i.posthog.com',
   ui_host: 'https://us.posthog.com',
   person_profiles: 'identified_only',
-  // Opt-in exception autocapture: emits $exception events for unhandled
-  // errors + promise rejections. Closes the observability gap where a
-  // single render error blanks the UI silently (zero $exception events
-  // in 90 days at time of enablement). Option key matches installed
-  // posthog-js v1.140.1 (newer SDKs use `capture_exceptions`).
-  autocaptureExceptions: true
+  // Capture unhandled errors + promise rejections as $exception events.
+  capture_exceptions: true,
+  // Web vitals capture requires BOTH this SDK opt-in AND the project-side
+  // "Capture web vitals" toggle in PostHog settings. Either alone is a
+  // silent no-op.
+  capture_performance: { web_vitals: true }
 };
 
 if (import.meta.env.VITE_PUBLIC_POSTHOG_KEY) {
