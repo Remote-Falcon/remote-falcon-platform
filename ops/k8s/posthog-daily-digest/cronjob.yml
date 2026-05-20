@@ -1,0 +1,263 @@
+---
+# Daily Remote Falcon health digest, posted to Discord #alerts.
+#
+# Runs daily at 14:00 UTC (~09:00 America/Chicago). Queries PostHog for
+# yesterday's metrics, compares to the same-day-of-week prior week, and
+# posts a Discord embed with the deltas. The CronJob lives in the
+# cluster (not GH Actions) so it shares the same Discord webhook Secret
+# as mongo-backup-watchdog and stays cheap to run.
+#
+# Why not a PostHog Subscription (the obvious alternative): subscriptions
+# require a paid PostHog plan (402 Payment Required on free tier).
+#
+# Runbook: docs/runbooks/daily-digest.md
+# Deploy:  .github/workflows/deploy-daily-digest.yml
+
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: posthog-daily-digest
+  namespace: remote-falcon
+  labels:
+    app: posthog-daily-digest
+spec:
+  schedule: "0 14 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 600
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app: posthog-daily-digest
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: digest
+              image: python:3.12-alpine
+              imagePullPolicy: IfNotPresent
+              resources:
+                requests:
+                  memory: 64Mi
+                  cpu: 10m
+                limits:
+                  memory: 256Mi
+                  cpu: 200m
+              env:
+                - name: POSTHOG_HOST
+                  value: https://us.posthog.com
+                - name: POSTHOG_PROJECT_ID
+                  value: "425428"
+                - name: POSTHOG_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: posthog-api-key
+                      key: POSTHOG_API_KEY
+                - name: DISCORD_WEBHOOK
+                  valueFrom:
+                    secretKeyRef:
+                      name: discord-alerts-webhook
+                      key: WEBHOOK
+              command: ["/bin/sh", "-uec"]
+              args:
+                - |
+                  exec python3 - <<'PYEOF'
+                  import json
+                  import os
+                  import sys
+                  import urllib.error
+                  import urllib.request
+                  from datetime import datetime, timezone, timedelta
+
+                  HOST = os.environ["POSTHOG_HOST"].rstrip("/")
+                  PROJECT_ID = int(os.environ["POSTHOG_PROJECT_ID"])
+                  API_KEY = os.environ["POSTHOG_API_KEY"]
+                  WEBHOOK = os.environ["DISCORD_WEBHOOK"]
+
+
+                  def ph_request(path, body):
+                      url = f"{HOST}/api/projects/{PROJECT_ID}{path}"
+                      req = urllib.request.Request(
+                          url,
+                          method="POST",
+                          data=json.dumps(body).encode(),
+                          headers={
+                              "Authorization": f"Bearer {API_KEY}",
+                              "Content-Type": "application/json",
+                              "User-Agent": "rf-posthog-daily-digest/1.0",
+                          },
+                      )
+                      try:
+                          with urllib.request.urlopen(req, timeout=30) as r:
+                              return json.loads(r.read())
+                      except urllib.error.HTTPError as e:
+                          body = e.read().decode("utf-8", errors="replace")
+                          print(f"ERROR: POST {url} -> {e.code}: {body}", file=sys.stderr)
+                          raise
+
+
+                  def logs_count(date_from, date_to, severity=None, search=None, services=None):
+                      q = {
+                          "dateRange": {"date_from": date_from, "date_to": date_to},
+                          "filterGroup": [
+                              {
+                                  "key": "deployment.environment",
+                                  "type": "log_resource_attribute",
+                                  "operator": "exact",
+                                  "value": "prod",
+                              }
+                          ],
+                      }
+                      if severity:
+                          q["severityLevels"] = severity
+                      if search:
+                          q["searchTerm"] = search
+                      if services:
+                          q["serviceNames"] = services
+                      resp = ph_request("/logs/count/", {"query": q})
+                      return int(resp.get("count", 0))
+
+
+                  def hogql(query):
+                      resp = ph_request("/query/", {"query": {"kind": "HogQLQuery", "query": query}})
+                      return resp.get("results", [])
+
+
+                  def delta_str(today, last_week):
+                      if last_week == 0:
+                          return "(no baseline)" if today == 0 else "(new)"
+                      pct = (today - last_week) / last_week * 100
+                      sign = "+" if pct >= 0 else ""
+                      return f"({sign}{pct:.0f}% vs last week)"
+
+
+                  def post_discord(title, color, fields):
+                      payload = json.dumps({
+                          "embeds": [{
+                              "title": title,
+                              "color": color,
+                              "fields": fields,
+                              "footer": {"text": "rf-posthog-daily-digest"},
+                          }]
+                      }).encode()
+                      req = urllib.request.Request(
+                          WEBHOOK,
+                          data=payload,
+                          headers={
+                              "Content-Type": "application/json",
+                              "User-Agent": "rf-posthog-daily-digest/1.0",
+                          },
+                      )
+                      try:
+                          urllib.request.urlopen(req, timeout=10).read()
+                      except Exception as e:
+                          print(f"WARN: Discord POST failed: {e}", file=sys.stderr)
+
+
+                  # Date ranges: yesterday (UTC midnight) + same day prior week.
+                  # Two timestamp formats: ISO 8601 with TZ for the logs API,
+                  # ClickHouse-friendly "YYYY-MM-DD HH:MM:SS" for HogQL
+                  # (ClickHouse 500s on the `+00:00` timezone suffix).
+                  now = datetime.now(timezone.utc)
+                  today_midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+                  y_start_dt = today_midnight - timedelta(days=1)
+                  y_end_dt = today_midnight
+                  lw_start_dt = today_midnight - timedelta(days=8)
+                  lw_end_dt = today_midnight - timedelta(days=7)
+
+                  y_start = y_start_dt.isoformat()
+                  y_end = y_end_dt.isoformat()
+                  lw_start = lw_start_dt.isoformat()
+                  lw_end = lw_end_dt.isoformat()
+
+                  CH_FMT = "%Y-%m-%d %H:%M:%S"
+                  y_start_ch = y_start_dt.strftime(CH_FMT)
+                  y_end_ch = y_end_dt.strftime(CH_FMT)
+                  lw_start_ch = lw_start_dt.strftime(CH_FMT)
+                  lw_end_ch = lw_end_dt.strftime(CH_FMT)
+
+                  print(f"yesterday: {y_start} -> {y_end}")
+                  print(f"last week: {lw_start} -> {lw_end}")
+
+                  # 1. Backend errors across all services
+                  y_err = logs_count(y_start, y_end, severity=["error", "fatal"])
+                  lw_err = logs_count(lw_start, lw_end, severity=["error", "fatal"])
+
+                  # 2. Total backend log volume (activity proxy)
+                  y_vol = logs_count(y_start, y_end)
+                  lw_vol = logs_count(lw_start, lw_end)
+
+                  # 3. mongo-backup success count (should be 1/day)
+                  y_backup = logs_count(
+                      y_start, y_end,
+                      search="MongoDB backup completed successfully",
+                      services=["remote-falcon-mongo-backup"],
+                  )
+
+                  # 4. Frontend events via HogQL (ClickHouse timestamp format)
+                  fe_yesterday = hogql(
+                      f"SELECT event, count() AS c FROM events "
+                      f"WHERE timestamp >= '{y_start_ch}' AND timestamp < '{y_end_ch}' "
+                      f"AND event IN ('$pageview', '$exception') "
+                      f"GROUP BY event"
+                  )
+                  fe_last_week = hogql(
+                      f"SELECT event, count() AS c FROM events "
+                      f"WHERE timestamp >= '{lw_start_ch}' AND timestamp < '{lw_end_ch}' "
+                      f"AND event IN ('$pageview', '$exception') "
+                      f"GROUP BY event"
+                  )
+                  fe_y = {row[0]: int(row[1]) for row in fe_yesterday}
+                  fe_lw = {row[0]: int(row[1]) for row in fe_last_week}
+
+                  y_pv = fe_y.get("$pageview", 0)
+                  lw_pv = fe_lw.get("$pageview", 0)
+                  y_ex = fe_y.get("$exception", 0)
+                  lw_ex = fe_lw.get("$exception", 0)
+
+                  # Color the embed based on whether anything looks bad.
+                  backup_ok = y_backup >= 1
+                  errors_up = lw_err > 0 and (y_err - lw_err) / lw_err > 0.5
+                  exceptions_up = lw_ex > 0 and (y_ex - lw_ex) / lw_ex > 0.5
+
+                  if not backup_ok:
+                      color = 15158332  # red
+                  elif errors_up or exceptions_up:
+                      color = 16753920  # amber
+                  else:
+                      color = 5763719  # green
+
+                  yesterday_label = (today_midnight - timedelta(days=1)).date().isoformat()
+
+                  fields = [
+                      {
+                          "name": "Backend",
+                          "value": (
+                              f"Errors: **{y_err}**  {delta_str(y_err, lw_err)}\n"
+                              f"Log volume: **{y_vol:,}**  {delta_str(y_vol, lw_vol)}\n"
+                              f"Mongo-backup runs: **{y_backup}**  "
+                              f"{'OK' if backup_ok else 'MISSING'}"
+                          ),
+                          "inline": False,
+                      },
+                      {
+                          "name": "Frontend",
+                          "value": (
+                              f"Pageviews: **{y_pv:,}**  {delta_str(y_pv, lw_pv)}\n"
+                              f"JS exceptions: **{y_ex}**  {delta_str(y_ex, lw_ex)}"
+                          ),
+                          "inline": False,
+                      },
+                  ]
+
+                  post_discord(
+                      f"Remote Falcon — Daily Health Digest ({yesterday_label})",
+                      color,
+                      fields,
+                  )
+                  print(f"Digest posted. color={color} errors={y_err} pageviews={y_pv} backup={y_backup}")
+                  PYEOF

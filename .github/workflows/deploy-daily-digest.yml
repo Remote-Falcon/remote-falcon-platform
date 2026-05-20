@@ -1,0 +1,96 @@
+name: Deploy posthog-daily-digest
+
+# Deploys the cluster-resident CronJob that posts a daily health digest
+# to Discord. Triggers on push to main when ops/k8s/posthog-daily-digest/**
+# changes, or via workflow_dispatch.
+#
+# Mirrors deploy-mongo-backup-watchdog.yml in shape.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ops/k8s/posthog-daily-digest/**'
+      - '.github/workflows/deploy-daily-digest.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ops/k8s/posthog-daily-digest/**'
+      - '.github/workflows/deploy-daily-digest.yml'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run: validate manifest, skip cluster apply"
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  CLUSTER_ID: 4f1406fe-1179-4a9c-9d2e-835c3da34984
+  NAMESPACE: remote-falcon
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Save kubeconfig
+        run: doctl kubernetes cluster kubeconfig save --expiry-seconds 600 ${{ env.CLUSTER_ID }}
+
+      - name: Validate manifest (dry-run, always)
+        run: kubectl apply --dry-run=client -f ops/k8s/posthog-daily-digest/cronjob.yml
+
+      # Everything below mutates the cluster.
+      - name: Create/update posthog-api-key Secret
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.dry_run != true) }}
+        env:
+          POSTHOG_KEY: ${{ secrets.POSTHOG_API_KEY }}
+        run: |
+          if [ -z "$POSTHOG_KEY" ]; then
+            echo "::error::POSTHOG_API_KEY repo secret is not set. Add it under Settings → Secrets → Actions, then re-run."
+            exit 1
+          fi
+          kubectl create secret generic posthog-api-key \
+            --namespace="${{ env.NAMESPACE }}" \
+            --from-literal=POSTHOG_API_KEY="$POSTHOG_KEY" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Create/update discord-alerts-webhook Secret
+        # Idempotent: also created by deploy-mongo-backup-watchdog.yml. Whichever
+        # workflow runs first wins; subsequent runs reconcile to the same value.
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.dry_run != true) }}
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_ALERTS_WEBHOOK }}
+        run: |
+          if [ -z "$WEBHOOK" ]; then
+            echo "::error::DISCORD_ALERTS_WEBHOOK repo secret is not set."
+            exit 1
+          fi
+          kubectl create secret generic discord-alerts-webhook \
+            --namespace="${{ env.NAMESPACE }}" \
+            --from-literal=WEBHOOK="$WEBHOOK" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Apply CronJob
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.dry_run != true) }}
+        run: kubectl apply -f ops/k8s/posthog-daily-digest/cronjob.yml
+
+      - name: Show CronJob status
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.dry_run != true) }}
+        run: |
+          kubectl get cronjob posthog-daily-digest -n "${{ env.NAMESPACE }}" -o wide
+          echo "::notice::Trigger a manual run with: kubectl create job --from=cronjob/posthog-daily-digest digest-manual-\$(date +%s) -n ${{ env.NAMESPACE }}"
+
+      - name: Dry-run notice
+        if: ${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.dry_run == true) }}
+        run: echo "::notice::Dry run — manifest validated, cluster not modified."
