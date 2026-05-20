@@ -1,0 +1,88 @@
+# OpenTelemetry Collector config.
+#
+# Receives OTLP from in-cluster services (gRPC :4317, HTTP :4318) and
+# forwards LOGS to PostHog Logs over OTLP/HTTP. Services don't carry
+# PostHog credentials — they live here in env-var form, sourced from
+# .env.dev locally and from a k8s Secret in prod.
+#
+# Why not ship traces too: PostHog Logs is the only OTel signal PostHog
+# currently ingests via OTLP. Traces are dropped at this stage; if/when
+# distributed tracing is needed, add a tempo/grafana-cloud exporter
+# alongside this one (collector supports multi-export from one pipeline).
+
+receivers:
+  # OTLP — kept for any service that wants to push signals directly
+  # (e.g., distributed-tracing emitters when that lands).
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+  # filelog — tails docker container stdout/stderr from the host
+  # bind-mount. This is the framework-agnostic path: any container
+  # that writes to stdout gets its logs shipped, no SDK changes.
+  # Locally, /var/lib/docker/containers/<id>/<id>-json.log is the
+  # docker JSON-file log driver's output path inside the Docker
+  # Desktop VM (where the collector container also runs).
+  filelog:
+    include: [/var/lib/docker/containers/*/*-json.log]
+    start_at: end
+    include_file_path: true
+    operators:
+      # Parse the docker-json wrapper.
+      - type: json_parser
+        timestamp:
+          parse_from: attributes.time
+          layout: '%Y-%m-%dT%H:%M:%S.%LZ'
+      # Promote the docker stream attribute (stdout|stderr).
+      - type: move
+        from: attributes.stream
+        to: attributes["log.iostream"]
+      # Drop the docker-internal wrapper fields; the parsed body
+      # is what we want.
+      - type: move
+        from: attributes.log
+        to: body
+      # Derive service name from container name via path inspection.
+      # Container IDs in path can be mapped back via the container
+      # metadata sidecar (added in a follow-up). For now we tag
+      # everything with deployment.environment=local-dev so it's
+      # distinguishable from future prod traffic in PostHog.
+      - type: add
+        field: resource["deployment.environment"]
+        value: local-dev
+
+processors:
+  # Batch records before export — reduces request rate to PostHog and
+  # keeps egress sane. Default settings are tuned for typical workloads.
+  batch:
+    timeout: 5s
+    send_batch_size: 512
+
+exporters:
+  # Logs → PostHog. The Authorization header is built at collector startup
+  # from PUBLIC_POSTHOG_KEY (loaded via env_file in compose). Setting it
+  # here means it's exactly one place to rotate.
+  otlphttp/posthog:
+    logs_endpoint: https://us.i.posthog.com/i/v1/logs
+    headers:
+      Authorization: "Bearer ${env:PUBLIC_POSTHOG_KEY}"
+    compression: gzip
+
+  # Console logger — useful during canary validation; can drop in a
+  # follow-up once we trust the PostHog leg.
+  debug:
+    verbosity: basic
+
+service:
+  pipelines:
+    logs:
+      receivers: [otlp, filelog]
+      processors: [batch]
+      exporters: [otlphttp/posthog, debug]
+
+  telemetry:
+    logs:
+      level: info

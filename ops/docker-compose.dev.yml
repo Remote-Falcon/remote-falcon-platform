@@ -33,6 +33,36 @@ services:
       retries: 12
       start_period: 15s
 
+  # OpenTelemetry Collector — the cluster-local router that the previous
+  # maintainer's architecture relied on (Datadog Agent then; OTel Collector
+  # now). Services emit OTLP/gRPC locally to this collector; the collector
+  # holds the PostHog credentials and forwards over HTTP. Resurrects the
+  # collector-pattern architecture without baking credentials into services.
+  #
+  # Receives: OTLP/gRPC on :4317, OTLP/HTTP on :4318.
+  # Exports: PostHog Logs over OTLP/HTTP at us.i.posthog.com/i.
+  otel-collector:
+    profiles: [platform]
+    image: otel/opentelemetry-collector-contrib:0.119.0
+    container_name: rf-otel-collector
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    env_file: .env.dev
+    # Run as root so the filelog receiver can read /var/lib/docker/containers
+    # (root-owned inside the Docker Desktop VM). Local-dev only — prod
+    # k8s will use a DaemonSet with explicit hostPath + privileged where
+    # appropriate (different security posture).
+    user: "0:0"
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+      # Tail every container's stdout/stderr via the docker-json log driver.
+      # On macOS Docker Desktop, /var/lib/docker/containers lives inside the
+      # Linux VM that hosts both the docker daemon and the collector
+      # container — so the bind-mount works without host-side gymnastics.
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    ports:
+      - "4317:4317"  # OTLP gRPC
+      - "4318:4318"  # OTLP HTTP
+
   control-panel:
     build:
       # Monorepo-root context so libs/schema is COPYable from the Dockerfile.
@@ -112,9 +142,16 @@ services:
     env_file: .env.dev
     environment:
       MONGO_URI: mongodb://mongo:27017/remote-falcon
+      # Point Quarkus's OTel exporter at the local collector. The collector
+      # handles credentialed export to PostHog Logs — services don't carry
+      # cloud credentials.
+      OTEL_URI: http://otel-collector:4317
+      # Tag local-emitted signals so they're filterable in PostHog vs prod.
+      QUARKUS_OTEL_RESOURCE_ATTRIBUTES: service.name=remote-falcon-mongo-backup,deployment.environment=local-dev
     ports: ["8085:8080"]
     depends_on:
       mongo: { condition: service_healthy }
+      otel-collector: { condition: service_started }
 
   account-archive:
     profiles: [platform]

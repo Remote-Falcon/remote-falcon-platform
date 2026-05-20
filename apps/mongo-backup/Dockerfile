@@ -13,7 +13,6 @@ RUN ./gradlew clean build -x test -Dquarkus.native.enabled=true \
     -Dquarkus.native.container-build=false \
     -Dquarkus.native.builder-image=graalvm \
     -Dquarkus.native.container-runtime=docker \
-    -Dquarkus.otel.enabled=false \
     -Dquarkus.native.native-image-xmx=4g
 
 FROM registry.access.redhat.com/ubi9/ubi-minimal:9.2
@@ -31,6 +30,5 @@ USER 1001
 
 ENTRYPOINT [ \
 "/app/application", \
-"-Dquarkus.http.host=0.0.0.0", \
-"-Dquarkus.otel.enabled=false" \
+"-Dquarkus.http.host=0.0.0.0" \
 ]
