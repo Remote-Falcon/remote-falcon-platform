@@ -1,0 +1,21 @@
+# Declarative PostHog dashboards for Remote Falcon.
+#
+# Each dashboard references insights by name (from insights.yml). The
+# apply script resolves names to IDs at apply time and links them via
+# the insight's `dashboards` field.
+
+dashboards:
+  - name: rf-frontend-health
+    description: >-
+      Frontend health dashboard. Top-line pageview + exception numbers,
+      24h pageview trend, 7d exception trend, plus top-paths and
+      top-exception-messages tables. Pair with backend signals via the
+      daily PostHog digest in #alerts and the alerts in
+      ops/posthog-alerts/.
+    insights:
+      - rf-frontend-pageviews-7d
+      - rf-frontend-exceptions-7d
+      - rf-frontend-pageviews-trend-24h
+      - rf-frontend-exceptions-trend-7d
+      - rf-frontend-top-pageview-paths-24h
+      - rf-frontend-top-exception-messages-7d

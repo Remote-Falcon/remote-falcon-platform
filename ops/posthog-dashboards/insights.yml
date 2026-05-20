@@ -1,0 +1,95 @@
+# Declarative PostHog insights for Remote Falcon's frontend health.
+#
+# These are saved insights backed by HogQL queries against the events
+# table ($pageview, $exception, etc.). The backend health story stays
+# in PostHog Logs (queryable on demand via logs-count, summarized daily
+# by ops/k8s/posthog-daily-digest/) because saved insights can't reach
+# the logs table.
+#
+# Apply with:
+#   ./ops/posthog-dashboards/apply.sh             # dry-run
+#   ./ops/posthog-dashboards/apply.sh --apply     # reconcile
+#
+# Reconciler matches by `name`; renaming = create-new + leave-old. Edit
+# `query` to change the HogQL; the script updates in place.
+
+project_id: 425428
+posthog_host: https://us.posthog.com
+
+insights:
+  - name: rf-frontend-pageviews-7d
+    description: Total pageviews over the last 7 days. Top-line activity number for frontend health.
+    display: BoldNumber
+    query: |
+      SELECT count() AS pageviews
+      FROM events
+      WHERE event = '$pageview'
+        AND timestamp >= now() - INTERVAL 7 DAY
+
+  - name: rf-frontend-exceptions-7d
+    description: Total JS exceptions over the last 7 days. Sanity check on frontend stability.
+    display: BoldNumber
+    query: |
+      SELECT count() AS exceptions
+      FROM events
+      WHERE event = '$exception'
+        AND timestamp >= now() - INTERVAL 7 DAY
+
+  - name: rf-frontend-pageviews-trend-24h
+    description: Pageviews per hour over the last 24 hours. Diurnal pattern + traffic anomalies.
+    display: ActionsLineGraph
+    chart_x: hour
+    chart_y: [pageviews]
+    query: |
+      SELECT toStartOfHour(timestamp) AS hour, count() AS pageviews
+      FROM events
+      WHERE event = '$pageview'
+        AND timestamp >= now() - INTERVAL 1 DAY
+      GROUP BY hour
+      ORDER BY hour
+
+  - name: rf-frontend-exceptions-trend-7d
+    description: Exception count per hour over the last 7 days. Catches sustained or spiky frontend regressions.
+    display: ActionsLineGraph
+    chart_x: hour
+    chart_y: [exceptions]
+    query: |
+      SELECT toStartOfHour(timestamp) AS hour, count() AS exceptions
+      FROM events
+      WHERE event = '$exception'
+        AND timestamp >= now() - INTERVAL 7 DAY
+      GROUP BY hour
+      ORDER BY hour
+
+  - name: rf-frontend-top-pageview-paths-24h
+    description: Top 10 paths by pageview count in the last 24h. Useful to see what content is hot.
+    display: ActionsTable
+    query: |
+      SELECT properties.$pathname AS path, count() AS views
+      FROM events
+      WHERE event = '$pageview'
+        AND timestamp >= now() - INTERVAL 1 DAY
+      GROUP BY path
+      ORDER BY views DESC
+      LIMIT 10
+
+  - name: rf-frontend-top-exception-messages-7d
+    description: >-
+      Top 10 JS exception type+message pairs by occurrence in the last
+      7 days. First place to look when exceptions trend up. Uses
+      $exception_list[1] because newer posthog-js (1.140+) stores the
+      message inside the structured exception list, not at
+      $exception_message — that field is null on new events.
+    display: ActionsTable
+    query: |
+      SELECT
+        properties.$exception_list[1].type AS type,
+        coalesce(properties.$exception_list[1].value, properties.$exception_message) AS message,
+        count() AS occurrences,
+        max(timestamp) AS last_seen
+      FROM events
+      WHERE event = '$exception'
+        AND timestamp >= now() - INTERVAL 7 DAY
+      GROUP BY type, message
+      ORDER BY occurrences DESC
+      LIMIT 10

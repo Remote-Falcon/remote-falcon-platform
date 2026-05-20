@@ -3,6 +3,9 @@
 One-page map of every Remote Falcon alert: what it watches, where it
 lives, where it fires, and the runbook to consult when it does.
 
+For visualization surfaces (dashboards, scheduled reports, deploy-time
+validation), see [`dashboards-inventory.md`](./dashboards-inventory.md).
+
 ## Routing
 
 All alerts route to **Discord `#alerts`** via the
@@ -26,6 +29,7 @@ directly.
 | `rf-doks-node-cpu-high` | DO Monitoring | [`ops/do-monitoring/`](../../ops/do-monitoring/) | DOKS worker node CPU > 85% for 10min | P2 | [`doks-node-cpu-high.md`](../runbooks/doks-node-cpu-high.md) |
 | `rf-doks-node-memory-high` | DO Monitoring | [`ops/do-monitoring/`](../../ops/do-monitoring/) | DOKS worker node memory > 90% for 10min | **P1** | [`doks-node-memory-high.md`](../runbooks/doks-node-memory-high.md) |
 | `rf-doks-node-disk-high` | DO Monitoring | [`ops/do-monitoring/`](../../ops/do-monitoring/) | DOKS worker node disk > 80% for 10min | P2 | [`doks-node-disk-high.md`](../runbooks/doks-node-disk-high.md) |
+| Post-deploy error-rate breach | GH Actions step | [`ops/release-validation/check.py`](../../ops/release-validation/check.py) + [`.github/workflows/deploy.yml`](../../.github/workflows/deploy.yml) | Service's error count in 10min post-deploy > 3× 24h baseline → `kubectl rollout undo` | P2 (auto-resolved) | [`post-deploy-rollback.md`](../runbooks/post-deploy-rollback.md) |
 
 (Existing DO Monitoring DB alerts — DB-CPU, DB-memory, DB-disk — route
 email-only and are not managed by `ops/do-monitoring/apply.sh`. Move
@@ -58,6 +62,9 @@ managed to write its catch-block log line. Keep both.
 | PostHog destinations | (manual, one-time per alert) | PostHog UI — Personal API Keys can't create destinations |
 | DO Monitoring | [`ops/do-monitoring/alerts.yml`](../../ops/do-monitoring/alerts.yml) | `./ops/do-monitoring/apply.sh --apply` (local run) |
 | OTel collector enrichment | [`ops/k8s/otel-collector/configmap.yml`](../../ops/k8s/otel-collector/configmap.yml) | `.github/workflows/deploy-collector.yml` on push to main |
+| Post-deploy error-rate check | [`ops/release-validation/check.py`](../../ops/release-validation/check.py) | Inline step in `.github/workflows/deploy.yml` |
+| Daily PostHog digest | [`ops/k8s/posthog-daily-digest/cronjob.yml`](../../ops/k8s/posthog-daily-digest/cronjob.yml) | `.github/workflows/deploy-daily-digest.yml` on push to main |
+| PostHog dashboards + insights | [`ops/posthog-dashboards/`](../../ops/posthog-dashboards/) | `./ops/posthog-dashboards/apply.sh --apply` (local run) |
 
 ## Drift detection
 
