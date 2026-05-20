@@ -71,15 +71,70 @@ jobs:
         if: github.event_name == 'push' || github.event_name == 'pull_request'
         uses: dorny/paths-filter@v3
         with:
+          # Each service filter includes everything under apps/<svc>/ except
+          # docs (*.md / *.txt / LICENSE). Schema consumers also depend on
+          # libs/schema/, again minus docs. A doc-only PR therefore yields
+          # an empty services list → test-unit / test-contract / test-e2e
+          # and deploy all skip cleanly.
           filters: |
-            ui: ['apps/ui/**']
-            gateway: ['apps/gateway/**']
-            control-panel: ['apps/control-panel/**', 'libs/schema/**']
-            viewer: ['apps/viewer/**', 'libs/schema/**']
-            plugins-api: ['apps/plugins-api/**', 'libs/schema/**']
-            external-api: ['apps/external-api/**', 'libs/schema/**']
-            mongo-backup: ['apps/mongo-backup/**', 'libs/schema/**']
-            account-archive: ['apps/account-archive/**', 'libs/schema/**']
+            ui:
+              - 'apps/ui/**'
+              - '!apps/ui/**/*.md'
+              - '!apps/ui/**/*.txt'
+              - '!apps/ui/LICENSE'
+            gateway:
+              - 'apps/gateway/**'
+              - '!apps/gateway/**/*.md'
+              - '!apps/gateway/**/*.txt'
+              - '!apps/gateway/LICENSE'
+            control-panel:
+              - 'apps/control-panel/**'
+              - '!apps/control-panel/**/*.md'
+              - '!apps/control-panel/**/*.txt'
+              - '!apps/control-panel/LICENSE'
+              - 'libs/schema/**'
+              - '!libs/schema/**/*.md'
+              - '!libs/schema/**/*.txt'
+            viewer:
+              - 'apps/viewer/**'
+              - '!apps/viewer/**/*.md'
+              - '!apps/viewer/**/*.txt'
+              - '!apps/viewer/LICENSE'
+              - 'libs/schema/**'
+              - '!libs/schema/**/*.md'
+              - '!libs/schema/**/*.txt'
+            plugins-api:
+              - 'apps/plugins-api/**'
+              - '!apps/plugins-api/**/*.md'
+              - '!apps/plugins-api/**/*.txt'
+              - '!apps/plugins-api/LICENSE'
+              - 'libs/schema/**'
+              - '!libs/schema/**/*.md'
+              - '!libs/schema/**/*.txt'
+            external-api:
+              - 'apps/external-api/**'
+              - '!apps/external-api/**/*.md'
+              - '!apps/external-api/**/*.txt'
+              - '!apps/external-api/LICENSE'
+              - 'libs/schema/**'
+              - '!libs/schema/**/*.md'
+              - '!libs/schema/**/*.txt'
+            mongo-backup:
+              - 'apps/mongo-backup/**'
+              - '!apps/mongo-backup/**/*.md'
+              - '!apps/mongo-backup/**/*.txt'
+              - '!apps/mongo-backup/LICENSE'
+              - 'libs/schema/**'
+              - '!libs/schema/**/*.md'
+              - '!libs/schema/**/*.txt'
+            account-archive:
+              - 'apps/account-archive/**'
+              - '!apps/account-archive/**/*.md'
+              - '!apps/account-archive/**/*.txt'
+              - '!apps/account-archive/LICENSE'
+              - 'libs/schema/**'
+              - '!libs/schema/**/*.md'
+              - '!libs/schema/**/*.txt'
 
       - id: compute
         env:
@@ -120,7 +175,7 @@ jobs:
   # ---------------------------------------------------------------
   test-contract:
     needs: detect
-    if: ${{ inputs.skip_tests != true }}
+    if: ${{ inputs.skip_tests != true && needs.detect.outputs.services != '[]' && needs.detect.outputs.services != '' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -140,7 +195,7 @@ jobs:
   # ---------------------------------------------------------------
   test-e2e:
     needs: detect
-    if: ${{ inputs.skip_tests != true && (github.event_name == 'push' || github.event_name == 'pull_request') }}
+    if: ${{ inputs.skip_tests != true && needs.detect.outputs.services != '[]' && needs.detect.outputs.services != '' && (github.event_name == 'push' || github.event_name == 'pull_request') }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
