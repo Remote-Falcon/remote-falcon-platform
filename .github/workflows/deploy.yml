@@ -442,17 +442,50 @@ jobs:
           fi
           echo "::notice::Post-deploy verify passed for $SERVICE: image=$live_image ready=$ready/$spec"
 
+      # -----------------------------------------------------------
+      # Post-deploy error-rate check (Obs-4.4). Sleeps 10min after the
+      # deployment is verified healthy, then queries PostHog Logs for
+      # the service's error count vs. the 24h baseline (normalized to
+      # the watch window). If post-deploy > 3 x baseline, exits 1 and
+      # the next step rolls back. Source + tunables:
+      # ops/release-validation/check.py + README.md.
+      #
+      # The 10min sleep keeps the runner alive — bounded cost (~$0.08/svc
+      # on Linux runners) buys us automatic regression detection that
+      # the existing image-mismatch verify step misses entirely (a
+      # successful rollout with a bad code change passes verify but
+      # spikes errors).
+      - name: Post-deploy error-rate check
+        id: error_check
+        if: ${{ inputs.dry_run != true && steps.verify.conclusion == 'success' }}
+        env:
+          POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
+          DISCORD_ALERTS_WEBHOOK: ${{ secrets.DISCORD_ALERTS_WEBHOOK }}
+          SERVICE: ${{ matrix.service }}
+        run: |
+          set -euo pipefail
+          echo "::notice::Waiting 10m for post-deploy traffic before evaluating error rate..."
+          sleep 600
+          python3 ops/release-validation/check.py --service "$SERVICE" --watch-minutes 10 --multiplier 3.0
+
       - name: Auto-rollback on failure
-        if: ${{ failure() && steps.verify.conclusion == 'failure' && inputs.dry_run != true }}
+        if: ${{ failure() && (steps.verify.conclusion == 'failure' || steps.error_check.conclusion == 'failure') && inputs.dry_run != true }}
         env:
           DEPLOYMENT: ${{ steps.cfg.outputs.deployment }}
           NS: ${{ env.NAMESPACE }}
           SERVICE: ${{ matrix.service }}
+          VERIFY_CONCLUSION: ${{ steps.verify.conclusion }}
+          ERROR_CHECK_CONCLUSION: ${{ steps.error_check.conclusion }}
         run: |
           set -euo pipefail
+          if [ "$VERIFY_CONCLUSION" = "failure" ]; then
+            reason="post-deploy verify failed (image mismatch or partial scale-up)"
+          else
+            reason="post-deploy error-rate breach (see ops/release-validation/)"
+          fi
           kubectl rollout undo deployment/$DEPLOYMENT -n $NS
           kubectl rollout status deployment/$DEPLOYMENT -n $NS --timeout=3m
-          echo "::error::$SERVICE: post-deploy verify failed; rolled back"
+          echo "::error::$SERVICE: $reason; rolled back"
 
       - name: Dry-run summary
         if: ${{ inputs.dry_run == true }}
