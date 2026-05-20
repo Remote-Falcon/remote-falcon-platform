@@ -44,6 +44,13 @@ spec:
                 secretKeyRef:
                   name: mongodb-connection
                   key: MONGO_URI
+            # Point OTel exporter at the in-cluster collector (DaemonSet
+            # in this namespace; see ops/k8s/otel-collector/). Overrides
+            # the build-time-baked OTEL_URI from the GH org secret (which
+            # still holds a stale legacy value pointing at a now-dead IP).
+            # application.properties reads ${OTEL_URI:default}.
+            - name: OTEL_URI
+              value: "http://otel-collector.remote-falcon.svc.cluster.local:4317"
           startupProbe:
             httpGet:
               path: /remote-falcon-viewer/q/health
