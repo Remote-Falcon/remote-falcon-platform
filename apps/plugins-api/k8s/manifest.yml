@@ -25,14 +25,6 @@ spec:
     metadata:
       labels:
         app: #{Application}#
-      annotations:
-        ad.datadoghq.com/#{Application}#.logs: |
-          [
-            {
-              "source": "java",
-              "service": "#{Application}#"
-            }
-          ]
     spec:
       containers:
         - name: #{Application}#

@@ -14,7 +14,7 @@ This is the **highest-traffic service in the stack.**
 | **Ingress** | `remotefalcon.com`, path prefix `/remote-falcon-viewer` (forwarded headers enabled for client-IP) |
 | **Health probe** | `GET /remote-falcon-viewer/q/health{,/live,/ready}` |
 | **Talks to** | MongoDB |
-| **Observability** | Datadog log annotation; Prometheus `ServiceMonitor` exposes `/remote-falcon-viewer/q/metrics` |
+| **Observability** | OTLP/gRPC to the cluster-local OTel Collector (`OTEL_URI`); Prometheus `ServiceMonitor` exposes `/remote-falcon-viewer/q/metrics` |
 
 ## What it does
 

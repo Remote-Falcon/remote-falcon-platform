@@ -12,7 +12,7 @@ The API consumed by the **FPP plugin** that show owners install on their light-s
 | **Ingress** | `remotefalcon.com`, path prefixes `/remote-falcon-plugins-api(...)` **and** `/remotefalcon/api(...)` (rewrite-target) |
 | **Health probe** | `GET /q/health{,/live,/ready}` |
 | **Talks to** | MongoDB |
-| **Observability** | Datadog log annotation; Prometheus `ServiceMonitor` exposes `/q/metrics` |
+| **Observability** | OTLP/gRPC to the cluster-local OTel Collector (`OTEL_URI`); Prometheus `ServiceMonitor` exposes `/q/metrics` |
 
 ## What it does
 
