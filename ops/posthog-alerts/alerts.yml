@@ -1,0 +1,71 @@
+# Declarative log-based alerts in PostHog.
+#
+# Apply with:  python3 ops/posthog-alerts/apply.py
+# Diff only:   python3 ops/posthog-alerts/apply.py            (default dry-run)
+# Mutate:      python3 ops/posthog-alerts/apply.py --apply
+#
+# This file is the source of truth. The apply script reconciles PostHog's
+# state against it: creates missing alerts, patches mismatched ones, and
+# (with --prune) removes ones that no longer appear here.
+#
+# Each alert wires a Discord webhook destination (the URL is sourced from
+# DISCORD_ALERTS_WEBHOOK in ops/.env.dev — never inlined here).
+#
+# Field reference:
+#   filters.service_names    — match resource attribute service.name (set by the
+#                              OTel Collector container operator; see
+#                              ops/k8s/otel-collector/configmap.yml).
+#   filters.severity_levels  — trace | debug | info | warn | error | fatal
+#   filters.message_contains — optional case-insensitive body substring.
+#   threshold.count          — log entries needed to fire.
+#   threshold.operator       — above | below
+#   threshold.window_minutes — evaluation window. Allowed: 5, 10, 15, 30, 60.
+#   cooldown_minutes         — minimum minutes between repeat notifications.
+
+project_id: 425428
+posthog_host: https://us.posthog.com
+
+# Name of the env var holding the Discord webhook URL. apply.py reads
+# this and passes it as the webhook destination for every alert.
+discord_webhook_env: DISCORD_ALERTS_WEBHOOK
+
+alerts:
+  - name: rf-mongo-backup-failure
+    description: >-
+      mongo-backup logged a "Failed to complete MongoDB backup" line. Catches
+      in-flight failures (Mongo connection drop, S3 PutObject 5xx, OOM during
+      dump) that the once-daily S3-freshness watchdog would only notice 36h
+      later. Complements `mongo-backup-watchdog` CronJob.
+    enabled: true
+    filters:
+      service_names: [remote-falcon-mongo-backup]
+      severity_levels: [error, fatal]
+      message_contains: "Failed to complete MongoDB backup"
+    threshold:
+      count: 1
+      operator: above
+      window_minutes: 5
+    cooldown_minutes: 60
+    runbook: docs/runbooks/mongo-backup-failure.md
+
+  - name: rf-backend-error-spike
+    description: >-
+      Spike of error-level logs across the backend Quarkus + Spring services.
+      Initial threshold (20 in 5min) is intentionally conservative; tune after
+      a week of baseline data. Triage via runbook.
+    enabled: true
+    filters:
+      service_names:
+        - remote-falcon-viewer
+        - remote-falcon-plugins-api
+        - remote-falcon-control-panel
+        - remote-falcon-external-api
+        - remote-falcon-gateway
+        - remote-falcon-account-archive
+      severity_levels: [error, fatal]
+    threshold:
+      count: 20
+      operator: above
+      window_minutes: 5
+    cooldown_minutes: 30
+    runbook: docs/runbooks/backend-error-spike.md

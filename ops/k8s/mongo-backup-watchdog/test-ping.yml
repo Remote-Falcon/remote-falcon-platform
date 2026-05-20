@@ -1,0 +1,66 @@
+---
+# One-shot Job to verify the Discord alerts webhook is wired correctly.
+#
+# Apply manually after the CronJob is deployed (and after the
+# discord-alerts-webhook Secret exists in the cluster):
+#
+#   kubectl apply -f ops/k8s/mongo-backup-watchdog/test-ping.yml
+#
+# If a test message appears in the #alerts Discord channel, the pipe
+# works. Then delete:
+#
+#   kubectl delete -f ops/k8s/mongo-backup-watchdog/test-ping.yml
+#
+# This file is intentionally NOT included in deploy-mongo-backup-watchdog.yml
+# — it's an operator tool, not a deployable resource.
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mongo-backup-watchdog-test-ping
+  namespace: remote-falcon
+  labels:
+    app: mongo-backup-watchdog
+    role: test
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app: mongo-backup-watchdog
+        role: test
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: ping
+          image: alpine:3.20
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              memory: 16Mi
+              cpu: 5m
+            limits:
+              memory: 64Mi
+              cpu: 100m
+          env:
+            - name: DISCORD_WEBHOOK
+              valueFrom:
+                secretKeyRef:
+                  name: discord-alerts-webhook
+                  key: WEBHOOK
+          command: ["/bin/sh", "-uc"]
+          args:
+            - |
+              apk add --no-cache curl jq >/dev/null
+              jq -n '{
+                embeds: [{
+                  title: "[TEST] mongo-backup alert pipeline",
+                  description: "Synthetic ping from the `mongo-backup-watchdog-test-ping` Job. If you see this in Discord, the webhook + Secret + Job pipeline works.\n\nDelete this Job to clean up:\n```\nkubectl delete job mongo-backup-watchdog-test-ping -n remote-falcon\n```",
+                  color: 3447003,
+                  fields: [
+                    {name: "Source", value: "manual test (k8s Job)"}
+                  ]
+                }]
+              }' | curl -sS -X POST -H "Content-Type: application/json" -d @- "$DISCORD_WEBHOOK"
+              echo "Test ping sent."

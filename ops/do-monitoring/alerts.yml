@@ -1,0 +1,58 @@
+# Declarative DigitalOcean Monitoring alert policies.
+#
+# Apply with:  ./ops/do-monitoring/apply.sh
+# Dry-run:     ./ops/do-monitoring/apply.sh            (default)
+# Mutate:      ./ops/do-monitoring/apply.sh --apply
+#
+# DO Monitoring routes alerts via email and Slack-format webhooks. Discord
+# exposes a Slack-compatible endpoint at <webhook>/slack, so the same
+# DISCORD_ALERTS_WEBHOOK can serve both PostHog (native webhook) and DO
+# (Slack-format) without a relay.
+#
+# Identity: DO alerts have no stable name field — `description` is the
+# closest thing. The reconciler matches by description, so don't rename
+# unless you also delete the old one in DO first.
+#
+# Entity targeting: `target_tag` applies the alert to every Droplet
+# (including DOKS worker nodes, which are Droplets) tagged with that
+# string. DOKS auto-tags worker nodes with `k8s:<cluster-id>` — see
+# docs.digitalocean.com/products/kubernetes/details/managed/#droplet-tags
+
+cluster_id: 4f1406fe-1179-4a9c-9d2e-835c3da34984
+
+# Tag DOKS auto-applies to every node. Apply.sh adds alerts to all
+# Droplets matching this tag, so cluster autoscaler events don't leave
+# new nodes unmonitored.
+doks_node_tag: "k8s:4f1406fe-1179-4a9c-9d2e-835c3da34984"
+
+# Env var holding the Discord webhook URL. apply.sh appends "/slack" to
+# get the Slack-compatible endpoint that DO Monitoring will POST to.
+discord_webhook_env: DISCORD_ALERTS_WEBHOOK
+
+alerts:
+  - description: "rf-doks-node-cpu-high — worker CPU > 85% for 10m"
+    type: v1/insights/droplet/cpu
+    compare: GreaterThan
+    value: 85
+    window: 10m
+    enabled: true
+    target: doks_nodes
+    runbook: docs/runbooks/doks-node-cpu-high.md
+
+  - description: "rf-doks-node-memory-high — worker memory > 90% for 10m"
+    type: v1/insights/droplet/memory_utilization_percent
+    compare: GreaterThan
+    value: 90
+    window: 10m
+    enabled: true
+    target: doks_nodes
+    runbook: docs/runbooks/doks-node-memory-high.md
+
+  - description: "rf-doks-node-disk-high — worker disk > 80% for 10m"
+    type: v1/insights/droplet/disk_utilization_percent
+    compare: GreaterThan
+    value: 80
+    window: 10m
+    enabled: true
+    target: doks_nodes
+    runbook: docs/runbooks/doks-node-disk-high.md

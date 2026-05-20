@@ -1,0 +1,188 @@
+---
+# Cluster-resident watchdog for the daily MongoDB backup.
+#
+# Runs daily at 20:00 UTC (~14:00 America/Chicago, ~2h after the noon-Central
+# backup is expected to land). Lists s3://rf-mongo-backup/mongo-backups/*.gz,
+# finds the newest object, pings Discord if its age >= THRESHOLD_HOURS.
+#
+# Why a CronJob instead of GitHub Actions: independent of GH uptime, runner
+# availability, and token rotation. Uses the same do-s3 Secret the
+# mongo-backup Deployment already pulls from — no credential duplication.
+# Watchdog logs flow through the cluster's OTel Collector like everything
+# else, so the watchdog itself is observable.
+#
+# Runbook: docs/runbooks/mongo-backup-stale.md
+# Deploy:  .github/workflows/deploy-mongo-backup-watchdog.yml
+
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: mongo-backup-watchdog
+  namespace: remote-falcon
+  labels:
+    app: mongo-backup-watchdog
+spec:
+  schedule: "0 20 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 600
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app: mongo-backup-watchdog
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: check
+              # python:3.12-alpine + boto3 instead of alpine + aws-cli because
+              # the alpine `aws-cli` package (botocore v1.x) chokes on DO
+              # Spaces' list-objects response with a bare "NoneType not
+              # iterable" — even on plain `aws s3 ls`. boto3 is the canonical
+              # S3 client and is well-tested against S3-compatible services.
+              image: python:3.12-alpine
+              imagePullPolicy: IfNotPresent
+              resources:
+                requests:
+                  memory: 32Mi
+                  cpu: 10m
+                limits:
+                  memory: 128Mi
+                  cpu: 200m
+              env:
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: do-s3
+                      key: AWS_ACCESS_KEY_ID
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: do-s3
+                      key: AWS_SECRET_ACCESS_KEY
+                # Read region from the same Secret mongo-backup uses, so
+                # rotating the region in one place updates both. boto3 reads
+                # AWS_REGION before AWS_DEFAULT_REGION, so this overrides
+                # any client default.
+                - name: AWS_REGION
+                  valueFrom:
+                    secretKeyRef:
+                      name: do-s3
+                      key: AWS_REGION
+                - name: S3_ENDPOINT
+                  value: https://nyc3.digitaloceanspaces.com
+                - name: BUCKET
+                  value: rf-mongo-backup
+                - name: PREFIX
+                  value: mongo-backups/
+                - name: THRESHOLD_HOURS
+                  value: "36"
+                - name: DISCORD_WEBHOOK
+                  valueFrom:
+                    secretKeyRef:
+                      name: discord-alerts-webhook
+                      key: WEBHOOK
+              command: ["/bin/sh", "-uec"]
+              args:
+                - |
+                  pip install --quiet --no-cache-dir --disable-pip-version-check boto3 >/dev/null
+                  exec python3 - <<'PYEOF'
+                  import json
+                  import os
+                  import sys
+                  import urllib.request
+                  from datetime import datetime, timezone
+
+                  import boto3
+                  from botocore.exceptions import BotoCoreError, ClientError
+
+                  ENDPOINT = os.environ["S3_ENDPOINT"]
+                  BUCKET = os.environ["BUCKET"]
+                  PREFIX = os.environ["PREFIX"]
+                  THRESHOLD_HOURS = int(os.environ["THRESHOLD_HOURS"])
+                  WEBHOOK = os.environ["DISCORD_WEBHOOK"]
+                  # boto3 reads AWS_REGION / AWS_DEFAULT_REGION from env automatically;
+                  # no need to pass region_name explicitly.
+
+
+                  def post_discord(title, desc, color):
+                      payload = json.dumps({
+                          "embeds": [{
+                              "title": title,
+                              "description": desc,
+                              "color": color,
+                              "fields": [
+                                  {"name": "Source",  "value": "k8s CronJob `mongo-backup-watchdog` (ns: remote-falcon)"},
+                                  {"name": "Runbook", "value": "docs/runbooks/mongo-backup-stale.md"},
+                              ],
+                          }]
+                      }).encode()
+                      req = urllib.request.Request(
+                          WEBHOOK,
+                          data=payload,
+                          headers={
+                              "Content-Type": "application/json",
+                              # Discord rejects the default Python urllib UA
+                              # ("Python-urllib/3.12") with 403 Forbidden.
+                              "User-Agent": "remote-falcon-mongo-backup-watchdog/1.0 (k8s CronJob)",
+                          },
+                      )
+                      try:
+                          with urllib.request.urlopen(req, timeout=10) as r:
+                              r.read()
+                      except Exception as e:
+                          print(f"WARN: Discord POST failed: {e}", file=sys.stderr)
+
+
+                  s3 = boto3.client("s3", endpoint_url=ENDPOINT)
+
+                  try:
+                      resp = s3.list_objects_v2(Bucket=BUCKET, Prefix=PREFIX)
+                  except (BotoCoreError, ClientError) as e:
+                      msg = f"Could not list s3://{BUCKET}/{PREFIX}: {e}"
+                      print(f"ERROR: {msg}")
+                      post_discord(
+                          "[ERROR] mongo-backup watchdog could not query S3",
+                          f"```\n{msg}\n```",
+                          15158332,
+                      )
+                      sys.exit(2)
+
+                  gz = sorted(
+                      (o for o in resp.get("Contents", []) if o["Key"].endswith(".gz")),
+                      key=lambda o: o["LastModified"],
+                  )
+
+                  if not gz:
+                      post_discord(
+                          "[ALERT] mongo-backup is stale",
+                          f"No backup objects found under `s3://{BUCKET}/{PREFIX}`. "
+                          f"Bucket is empty or prefix is wrong — backups have never landed, or someone deleted them.",
+                          15158332,
+                      )
+                      print("Empty bucket — alert sent.")
+                      sys.exit(1)
+
+                  newest = gz[-1]
+                  key = newest["Key"]
+                  modified = newest["LastModified"]
+                  age_h = int((datetime.now(timezone.utc) - modified).total_seconds() / 3600)
+
+                  print(f"Latest backup: {key} (age {age_h}h, threshold {THRESHOLD_HOURS}h)")
+
+                  if age_h >= THRESHOLD_HOURS:
+                      desc = (
+                          f"Latest backup: `{key}`\n"
+                          f"Last modified: {modified.isoformat()} ({age_h}h ago)\n"
+                          f"Threshold: {THRESHOLD_HOURS}h"
+                      )
+                      post_discord("[ALERT] mongo-backup is stale", desc, 15158332)
+                      print("Stale — alert sent.")
+                      sys.exit(1)
+
+                  print("Backup is fresh — no alert needed.")
+                  PYEOF
