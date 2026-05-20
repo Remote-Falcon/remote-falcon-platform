@@ -3,7 +3,7 @@
 **Created:** 2026-05-06
 **Owner:** Matt Shorts
 **Status:** Decisions ratified · Sprint 1 ready to start
-**Related docs:** [CONSOLIDATION-PLAN.md](CONSOLIDATION-PLAN.md) (Phase C section), [TESTING.md](TESTING.md) (current-state audit), [SERVICES.md](SERVICES.md)
+**Related docs:** [TESTING.md](TESTING.md) (current state), [SERVICES.md](SERVICES.md)
 
 ---
 

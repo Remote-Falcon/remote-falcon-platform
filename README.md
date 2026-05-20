@@ -33,18 +33,17 @@ All architecture, operational, and migration documentation lives in [`docs/`](do
 | [`docs/SELF-HOST.md`](docs/SELF-HOST.md) | Canonical "run your own Remote Falcon" guide. Reads `ops/self-host/` artifacts. | Permanent |
 | [`docs/SERVICES.md`](docs/SERVICES.md) | Operator's catalog: each service's deploy mechanics, secrets matrix, cluster prerequisites, bring-up order | Permanent |
 | [`docs/TESTING.md`](docs/TESTING.md) | Per-service test inventory, cross-cutting findings, phased improvement plan | Permanent |
-| [`docs/CONSOLIDATION-PLAN.md`](docs/CONSOLIDATION-PLAN.md) | Migration roadmap: 24 repos → 1 monorepo, 8 services → 5, no test gating → release-validated pipeline | Transient (~3 months) |
 | [`docs/OBSERVABILITY-PLAN.md`](docs/OBSERVABILITY-PLAN.md) | Full-stack observability rollout: OpenTelemetry + Grafana Cloud + PostHog | Transient (~3 months) |
 
 If you change something that affects deploy mechanics, secrets, test counts, or repo membership, update the relevant doc in the same change.
 
 ## Status
 
-Consolidation in progress. Currently in **Phase A** of [`docs/CONSOLIDATION-PLAN.md`](docs/CONSOLIDATION-PLAN.md) — services have been imported via subtree-merge, JitPack has been replaced with the local `libs/schema` module, and `ops/` now hosts the local dev stack with platform/core mode split. The per-service GitHub Actions workflows are still in place. Phases A4–A7 (cutover gate, unified CI scaffolding, GHCR + repo archive), then B (unified CI), C (test pyramid), D (service merges), and E (observability + cleanup) follow.
+Monorepo cutover and test pyramid are complete: every push to `main` runs unit → contract → e2e-smoke before deploy, with post-deploy verify + auto-rollback on failure (see [`docs/TESTING.md`](docs/TESTING.md)). The next strategic surface is the 8-services → 5-services merge (`apps/jobs`, `apps/realtime`, `apps/api`) and the OTel → Grafana Cloud observability migration ([`docs/OBSERVABILITY-PLAN.md`](docs/OBSERVABILITY-PLAN.md)).
 
-## Build order (Phase A interim)
+## Build order
 
-Because Gradle and Maven services share `libs/schema`, but the Gradle services consume it via `mavenLocal()` for now (full Gradle composite is deferred to Phase B):
+Because Gradle and Maven services share `libs/schema`, and the Gradle services consume it via `mavenLocal()` rather than as a Gradle composite:
 
 ```bash
 # Install libs/schema into the local Maven repo first

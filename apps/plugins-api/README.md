@@ -55,7 +55,7 @@ Models live in `src/main/java/com/remotefalcon/plugins/api/model/` plus shared t
 
 ## Wire contract risk
 
-**This is the only un-version-pinned wire contract in production.** Customers run whatever version of [`remote-falcon-plugin`](https://github.com/Remote-Falcon/remote-falcon-plugin) they last installed; this service must keep accepting requests from all of them. There is no plugin-version pinning on the API side and no contract test guarding the format. Tracked as a follow-up in [`CONSOLIDATION-PLAN.md`](../../docs/CONSOLIDATION-PLAN.md) Phase E4 (Pact tests).
+**This is the only un-version-pinned wire contract in production.** Customers run whatever version of [`remote-falcon-plugin`](https://github.com/Remote-Falcon/remote-falcon-plugin) they last installed; this service must keep accepting requests from all of them. There is no plugin-version pinning on the API side. A captured-fixture contract suite in [`tests/contract/`](../../tests/contract) replays real plugin-version requests against the running `plugins-api` — see [`docs/TESTING.md`](../../docs/TESTING.md). Pact remains a possible upgrade path if plugin-side instrumentation ever becomes feasible.
 
 ## Local development
 

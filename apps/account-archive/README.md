@@ -37,7 +37,7 @@ list("lastLoginDate < ?1 or lastLoginDate is null", LocalDate.now().minusMonths(
 
 Any show document missing the `lastLoginDate` field — including freshly-migrated accounts or future schema variants — matches the archive criterion. The 7-day unverified filter is the only thing protecting brand-new signups from getting swept by the 24-month archive query the moment they hit the DB.
 
-Today: **zero tests.** Covered as Phase C3.2 in [`CONSOLIDATION-PLAN.md`](../../docs/CONSOLIDATION-PLAN.md) — Mockito tests for the cutoff predicate, "don't archive recent activity," and empty-result handling.
+Covered by Mockito tests in `src/test/` — cutoff predicate, "don't archive recent activity," and empty-result handling. See [`docs/TESTING.md`](../../docs/TESTING.md).
 
 ## Configuration
 

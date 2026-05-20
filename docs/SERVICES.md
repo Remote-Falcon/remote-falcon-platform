@@ -5,7 +5,7 @@
 
 This is the operator's map of the Remote Falcon stack: every service, what it does, where it runs, and the secrets / cluster prerequisites it needs.
 
-> **Consolidation status:** This stack is mid-migration to a single monorepo. See [CONSOLIDATION-PLAN.md](CONSOLIDATION-PLAN.md) for the active phase. Until Phase A completes, the per-service deploy mechanics described below remain authoritative.
+> **Consolidation status:** The monorepo cutover is complete — every service in this catalog builds and deploys from this repo via [`/.github/workflows/deploy.yml`](../.github/workflows/deploy.yml). The next strategic surface is the 8→5 service merge (`apps/jobs`, `apps/realtime`, `apps/api`).
 
 ---
 

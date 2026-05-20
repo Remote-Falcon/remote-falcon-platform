@@ -22,7 +22,7 @@ Scheduled MongoDB backup service. Dumps the platform's Mongo database and pushes
 
 Silent backup failure is **the only data-loss bug class in the stack** that's also genuinely irreversible. If `mongodump` fails or S3 PutObject silently 4xx's and nobody notices, the next time Mongo loses data there's nothing to restore from.
 
-This service has **zero tests today**. The 276-LOC `MongoBackupService` is the highest-leverage untested code in the entire platform — covered as Phase C3.1 in [`CONSOLIDATION-PLAN.md`](../../docs/CONSOLIDATION-PLAN.md). Alerts on "backup not run in last 36 hours" and "S3 PutObject failed" are explicit asks in [`OBSERVABILITY-PLAN.md`](../../docs/OBSERVABILITY-PLAN.md).
+Covered by `MongoBackupServiceTest` in `src/test/` — testcontainers Mongo + LocalStack S3 assert dump key format, S3 PutObject calls, retention cleanup, and failure logging. JaCoCo gate at 80% line on `*.service.*`. See [`docs/TESTING.md`](../../docs/TESTING.md). Alerts on "backup not run in last 36 hours" and "S3 PutObject failed" are explicit asks in [`OBSERVABILITY-PLAN.md`](../../docs/OBSERVABILITY-PLAN.md).
 
 ## Configuration
 

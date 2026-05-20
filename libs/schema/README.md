@@ -24,7 +24,7 @@ com.github.Remote-Falcon:remote-falcon-library:a5703a28fe
 
 Every consuming service pinned the same SHA in its `pom.xml` or `build.gradle`. There was **no contract test** guarding against drift; consumers agreed by accident, not by enforcement. Bumping the SHA in one service without the others was the most likely silent-breakage vector in the entire stack.
 
-After the monorepo cutover ([Phase A2](../../docs/CONSOLIDATION-PLAN.md)), this module is consumed via local Maven module / Gradle composite reference instead. SHA pinning becomes structurally impossible — there is no SHA, only the current source tree.
+After the monorepo cutover, this module is consumed via local Maven module / `mavenLocal()` Gradle resolution instead. SHA pinning becomes structurally impossible — there is no SHA, only the current source tree.
 
 ## What's in here
 

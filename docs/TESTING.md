@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-05-06
 **Status:** Operational reference (post Phase C Sprint 1)
-**Related docs:** [PHASE-C-KICKOFF.md](PHASE-C-KICKOFF.md), [SERVICES.md](SERVICES.md), [CONSOLIDATION-PLAN.md](CONSOLIDATION-PLAN.md)
+**Related docs:** [PHASE-C-KICKOFF.md](PHASE-C-KICKOFF.md), [SERVICES.md](SERVICES.md)
 
 > **What changed (2026-05-06):** This doc replaces the prior audit-state writeup ("what we found, what was missing"). After Phase C Sprint 1 landed real tests in each tier and wired CI gates, the doc is now a current-state + how-to-add-tests guide. The prior audit content lives in git history if you need it (commit before this rewrite).
 

@@ -3,9 +3,9 @@
 **Created:** 2026-04-27
 **Owner:** Matt Shorts
 **Status:** Draft — awaiting kickoff
-**Related docs:** [CONSOLIDATION-PLAN.md](CONSOLIDATION-PLAN.md) (Phase E7 references this doc), [SERVICES.md](SERVICES.md), [TESTING.md](TESTING.md)
+**Related docs:** [SERVICES.md](SERVICES.md), [TESTING.md](TESTING.md)
 
-This is the operator's plan for full-stack observability across the Remote Falcon platform. It's written to be implemented *after* the monorepo cutover ([CONSOLIDATION-PLAN.md](CONSOLIDATION-PLAN.md) Phase A) is complete, but the design choices here also inform what the consolidated services should emit from day one.
+This is the operator's plan for full-stack observability across the Remote Falcon platform. The monorepo cutover is complete; this rollout is the next observability work after the test pyramid landed.
 
 ---
 
@@ -137,7 +137,7 @@ This is monorepo-only — would be impractical as a JitPack-pinned external libr
 
 This is where testing and observability close the loop. The flow:
 
-1. **Pre-deploy:** unit + integration + contract + e2e gates from [CONSOLIDATION-PLAN.md](CONSOLIDATION-PLAN.md) Phase C run on the PR.
+1. **Pre-deploy:** unit + integration + contract + e2e gates (see [TESTING.md](TESTING.md)) run on the PR.
 2. **Deploy:** post-deploy smoke probes the health endpoints; `kubectl rollout undo` on failure.
 3. **Post-deploy (first 15 min, automated):**
    - Grafana Cloud alert on "error rate post-deploy > baseline + 2σ" — pages on a silently-bad build
@@ -185,7 +185,7 @@ For Remote Falcon's likely volume (Christmas-light show owners — bursty during
 
 ## Phasing
 
-Implementation runs as a single ~2-week stretch, sequenced after [CONSOLIDATION-PLAN.md](CONSOLIDATION-PLAN.md) Phase C7 (post-deploy smoke + auto-rollback) and before Phase D (service merges) — so the merges happen with full visibility into what changed.
+Implementation runs as a single ~2-week stretch, ideally sequenced before the 8→5 service-merge work — so the merges happen with full visibility into what changed. Post-deploy smoke + auto-rollback already shipped (`deploy.yml`).
 
 ### Phase Obs-1 — Backend pipeline *(3–4 days)*
 
