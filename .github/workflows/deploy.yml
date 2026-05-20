@@ -12,8 +12,24 @@ name: Deploy
 on:
   push:
     branches: [main]
+    # Skip the entire workflow when only docs/license files change. GitHub
+    # evaluates paths-ignore at the trigger level — if every changed file
+    # matches, the workflow doesn't run at all. Doc-only PRs to main don't
+    # need test gates or deploys.
+    paths-ignore:
+      - '**/*.md'
+      - '**/*.txt'
+      - 'LICENSE'
+      - '**/LICENSE'
+      - 'docs/**'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - '**/*.txt'
+      - 'LICENSE'
+      - '**/LICENSE'
+      - 'docs/**'
   workflow_dispatch:
     inputs:
       service:
@@ -71,70 +87,19 @@ jobs:
         if: github.event_name == 'push' || github.event_name == 'pull_request'
         uses: dorny/paths-filter@v3
         with:
-          # Each service filter includes everything under apps/<svc>/ except
-          # docs (*.md / *.txt / LICENSE). Schema consumers also depend on
-          # libs/schema/, again minus docs. A doc-only PR therefore yields
-          # an empty services list → test-unit / test-contract / test-e2e
-          # and deploy all skip cleanly.
+          # Doc exclusion happens at the workflow trigger level (see
+          # paths-ignore above) — if a PR is pure docs, the workflow
+          # doesn't fire and we never reach this step. So these filters
+          # just stay simple positive patterns.
           filters: |
-            ui:
-              - 'apps/ui/**'
-              - '!apps/ui/**/*.md'
-              - '!apps/ui/**/*.txt'
-              - '!apps/ui/LICENSE'
-            gateway:
-              - 'apps/gateway/**'
-              - '!apps/gateway/**/*.md'
-              - '!apps/gateway/**/*.txt'
-              - '!apps/gateway/LICENSE'
-            control-panel:
-              - 'apps/control-panel/**'
-              - '!apps/control-panel/**/*.md'
-              - '!apps/control-panel/**/*.txt'
-              - '!apps/control-panel/LICENSE'
-              - 'libs/schema/**'
-              - '!libs/schema/**/*.md'
-              - '!libs/schema/**/*.txt'
-            viewer:
-              - 'apps/viewer/**'
-              - '!apps/viewer/**/*.md'
-              - '!apps/viewer/**/*.txt'
-              - '!apps/viewer/LICENSE'
-              - 'libs/schema/**'
-              - '!libs/schema/**/*.md'
-              - '!libs/schema/**/*.txt'
-            plugins-api:
-              - 'apps/plugins-api/**'
-              - '!apps/plugins-api/**/*.md'
-              - '!apps/plugins-api/**/*.txt'
-              - '!apps/plugins-api/LICENSE'
-              - 'libs/schema/**'
-              - '!libs/schema/**/*.md'
-              - '!libs/schema/**/*.txt'
-            external-api:
-              - 'apps/external-api/**'
-              - '!apps/external-api/**/*.md'
-              - '!apps/external-api/**/*.txt'
-              - '!apps/external-api/LICENSE'
-              - 'libs/schema/**'
-              - '!libs/schema/**/*.md'
-              - '!libs/schema/**/*.txt'
-            mongo-backup:
-              - 'apps/mongo-backup/**'
-              - '!apps/mongo-backup/**/*.md'
-              - '!apps/mongo-backup/**/*.txt'
-              - '!apps/mongo-backup/LICENSE'
-              - 'libs/schema/**'
-              - '!libs/schema/**/*.md'
-              - '!libs/schema/**/*.txt'
-            account-archive:
-              - 'apps/account-archive/**'
-              - '!apps/account-archive/**/*.md'
-              - '!apps/account-archive/**/*.txt'
-              - '!apps/account-archive/LICENSE'
-              - 'libs/schema/**'
-              - '!libs/schema/**/*.md'
-              - '!libs/schema/**/*.txt'
+            ui: ['apps/ui/**']
+            gateway: ['apps/gateway/**']
+            control-panel: ['apps/control-panel/**', 'libs/schema/**']
+            viewer: ['apps/viewer/**', 'libs/schema/**']
+            plugins-api: ['apps/plugins-api/**', 'libs/schema/**']
+            external-api: ['apps/external-api/**', 'libs/schema/**']
+            mongo-backup: ['apps/mongo-backup/**', 'libs/schema/**']
+            account-archive: ['apps/account-archive/**', 'libs/schema/**']
 
       - id: compute
         env:
