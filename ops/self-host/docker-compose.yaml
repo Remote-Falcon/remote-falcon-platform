@@ -75,6 +75,12 @@ services:
     environment:
       MONGO_URI: mongodb://${MONGO_USERNAME:-root}:${MONGO_PASSWORD:-root}@mongo:27017/remote-falcon?authSource=admin
       CLIENT_HEADER: ${CLIENT_HEADER:-X-Forwarded-For}
+      # Self-hosters don't run an OTel Collector; explicitly disable the
+      # SDK so the app doesn't emit continuous WARN-level export failures.
+      # Platform deployment (k8s) leaves this unset and OTel is enabled
+      # via application.properties' OTEL_URI default + the in-cluster
+      # otel-collector Service.
+      QUARKUS_OTEL_SDK_DISABLED: "true"
     depends_on:
       mongo:
         condition: service_healthy
@@ -89,6 +95,12 @@ services:
     environment:
       MONGO_URI: mongodb://${MONGO_USERNAME:-root}:${MONGO_PASSWORD:-root}@mongo:27017/remote-falcon?authSource=admin
       SEQUENCE_LIMIT: ${SEQUENCE_LIMIT:-200}
+      # Self-hosters don't run an OTel Collector; explicitly disable the
+      # SDK so the app doesn't emit continuous WARN-level export failures.
+      # Platform deployment (k8s) leaves this unset and OTel is enabled
+      # via application.properties' OTEL_URI default + the in-cluster
+      # otel-collector Service.
+      QUARKUS_OTEL_SDK_DISABLED: "true"
     depends_on:
       mongo:
         condition: service_healthy
