@@ -38,25 +38,26 @@ data:
         include_file_path: true
         include_file_name: false
         operators:
-          # kubelet writes containerd-format log lines:
-          # <ts> <stream> <P|F> <body>
-          - type: regex_parser
-            regex: '^(?P<time>[^ ]+) (?P<stream>stdout|stderr) (?P<logtag>[FP]) (?P<log>.*)$'
-            timestamp:
-              parse_from: attributes.time
-              layout_type: gotime
-              layout: '2006-01-02T15:04:05.999999999Z07:00'
-            severity:
-              parse_from: attributes.stream
-              mapping:
-                error: stderr
-                info: stdout
-          - type: move
-            from: attributes.log
-            to: body
-          - type: move
-            from: attributes.stream
-            to: attributes["log.iostream"]
+          # OTel's stanza `container` operator does in one step what we
+          # previously did manually with regex_parser + severity mapping:
+          #   1. Parses containerd/docker log line format (timestamp,
+          #      stream, partial/full marker, body).
+          #   2. Promotes k8s metadata from the file path to RESOURCE
+          #      attributes: k8s.namespace.name, k8s.pod.name,
+          #      k8s.container.name, k8s.container.restart_count.
+          # Without these resource attributes, downstream filters and
+          # PostHog's service filters are inert.
+          - type: container
+            format: containerd
+
+          # Map container name to OTel's canonical service.name resource
+          # attribute. The Quarkus services that push OTLP signals
+          # directly already set service.name themselves; this only
+          # affects records flowing through the filelog receiver.
+          - type: copy
+            from: resource["k8s.container.name"]
+            to: resource["service.name"]
+
           - type: add
             field: resource["deployment.environment"]
             value: prod

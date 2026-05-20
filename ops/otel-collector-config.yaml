@@ -50,6 +50,13 @@ receivers:
       # metadata sidecar (added in a follow-up). For now we tag
       # everything with deployment.environment=local-dev so it's
       # distinguishable from future prod traffic in PostHog.
+      #
+      # NOTE: the prod (k8s) configmap uses the OTel stanza `container`
+      # operator + a copy to set service.name from k8s.container.name —
+      # see ops/k8s/otel-collector/configmap.yml. That path doesn't
+      # work here because we read docker JSON wrappers, not kubelet
+      # log files, and docker container IDs aren't useful as service
+      # names. Local doesn't need alert-grade service tagging.
       - type: add
         field: resource["deployment.environment"]
         value: local-dev
