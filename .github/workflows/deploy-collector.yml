@@ -1,0 +1,99 @@
+name: Deploy OTel Collector
+
+# Deploys the cluster-local OTel Collector (DaemonSet) that fronts the
+# observability pipeline. Triggered automatically when any file under
+# ops/k8s/otel-collector/** changes on main, or manually via
+# workflow_dispatch.
+#
+# Why a separate workflow from deploy.yml: the collector doesn't have a
+# Docker image to build (uses upstream otel/opentelemetry-collector-contrib),
+# its lifecycle is independent of the application services, and the secret
+# wiring is bespoke. Keeping it isolated avoids polluting deploy.yml's
+# matrix shape.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ops/k8s/otel-collector/**'
+      - '.github/workflows/deploy-collector.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ops/k8s/otel-collector/**'
+      - '.github/workflows/deploy-collector.yml'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run: validate manifests, skip cluster apply"
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  CLUSTER_ID: 4f1406fe-1179-4a9c-9d2e-835c3da34984
+  NAMESPACE: remote-falcon
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  deploy:
+    # PR runs only validate (kubectl apply --dry-run). Push to main applies
+    # for real. workflow_dispatch can be either depending on dry_run input.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Save kubeconfig
+        run: doctl kubernetes cluster kubeconfig save --expiry-seconds 600 ${{ env.CLUSTER_ID }}
+
+      - name: Validate manifests (dry-run, always)
+        run: kubectl apply --dry-run=client -f ops/k8s/otel-collector/
+
+      # Everything below mutates the cluster. Skipped on pull_request
+      # (validation only) and on workflow_dispatch with dry_run=true.
+      - name: Create/update secret
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.dry_run != true) }}
+        env:
+          POSTHOG_KEY: ${{ secrets.PUBLIC_POSTHOG_KEY }}
+        run: |
+          # Idempotent: kubectl create --dry-run -o yaml | kubectl apply -
+          # reconciles the secret without erroring if it already exists.
+          kubectl create secret generic remote-falcon-otel-collector \
+            --namespace=${{ env.NAMESPACE }} \
+            --from-literal=PUBLIC_POSTHOG_KEY="$POSTHOG_KEY" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Apply manifests
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.dry_run != true) }}
+        run: kubectl apply -f ops/k8s/otel-collector/
+
+      - name: Wait for DaemonSet rollout
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.dry_run != true) }}
+        run: kubectl rollout status daemonset/otel-collector --namespace ${{ env.NAMESPACE }} --timeout=3m
+
+      - name: Post-deploy verify
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.dry_run != true) }}
+        run: |
+          set -euo pipefail
+          NS=${{ env.NAMESPACE }}
+          desired=$(kubectl get daemonset otel-collector -n "$NS" -o jsonpath='{.status.desiredNumberScheduled}')
+          ready=$(kubectl get daemonset otel-collector -n "$NS" -o jsonpath='{.status.numberReady}')
+          if [[ "$ready" != "$desired" || -z "$desired" ]]; then
+            echo "::error::DaemonSet not fully ready: $ready/$desired"
+            kubectl describe daemonset otel-collector -n "$NS" | tail -30
+            kubectl logs -n "$NS" -l app=otel-collector --tail=50 || true
+            exit 1
+          fi
+          echo "::notice::OTel Collector ready: $ready/$desired pods"
+
+      - name: Dry-run notice
+        if: ${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.dry_run == true) }}
+        run: echo "::notice::Dry run — manifests validated, cluster not modified."

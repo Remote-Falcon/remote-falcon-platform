@@ -1,0 +1,117 @@
+# OTel Collector DaemonSet — one pod per node.
+#
+# DaemonSet (not Deployment) so each node can tail its own container logs
+# via filelog. A single-pod Deployment can only see the node it lands on,
+# missing 2/3 of containers in a 3-node cluster.
+#
+# Resource sizing matches the `ui` pod (the smallest production service):
+# 64Mi/10m requested, 256Mi/200m limit. Real-world OTel Collector at our
+# log volume sits ~50-80 MiB steady-state; 256 MiB is comfortable
+# headroom. Cluster impact: ~2% of allocatable memory across 3 nodes.
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: otel-collector
+  namespace: remote-falcon
+  labels:
+    app: otel-collector
+spec:
+  selector:
+    matchLabels:
+      app: otel-collector
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app: otel-collector
+    spec:
+      serviceAccountName: otel-collector
+      # Run as root to read root-owned /var/log/pods. K8s container logs
+      # are owned by the kubelet's user; reading them requires either
+      # root or a matching uid. Root is the standard pattern here.
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+      containers:
+        - name: otel-collector
+          image: otel/opentelemetry-collector-contrib:0.119.0
+          args:
+            - --config=/etc/otel-collector/otel-collector-config.yaml
+          resources:
+            requests:
+              memory: 64Mi
+              cpu: 10m
+            limits:
+              memory: 256Mi
+              cpu: 200m
+          ports:
+            - name: otlp-grpc
+              containerPort: 4317
+              protocol: TCP
+            - name: otlp-http
+              containerPort: 4318
+              protocol: TCP
+          env:
+            # PostHog auth token. Sourced from a Secret created by the
+            # deploy workflow (kubectl create secret ... --dry-run | apply).
+            - name: PUBLIC_POSTHOG_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: remote-falcon-otel-collector
+                  key: PUBLIC_POSTHOG_KEY
+          volumeMounts:
+            - name: config
+              mountPath: /etc/otel-collector
+              readOnly: true
+            # kubelet container logs (symlinks)
+            - name: varlogcontainers
+              mountPath: /var/log/containers
+              readOnly: true
+            # Symlink targets — the actual log files live here.
+            - name: varlogpods
+              mountPath: /var/log/pods
+              readOnly: true
+          # health_check extension is enabled in the ConfigMap.
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 13133
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 13133
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+      volumes:
+        - name: config
+          configMap:
+            name: otel-collector-config
+        - name: varlogcontainers
+          hostPath:
+            path: /var/log/containers
+            type: Directory
+        - name: varlogpods
+          hostPath:
+            path: /var/log/pods
+            type: Directory
+      # Tolerate any taints so the DaemonSet schedules on every node
+      # (including future control-plane / GPU node pools if added).
+      tolerations:
+        - operator: Exists
+          effect: NoSchedule
+        - operator: Exists
+          effect: NoExecute
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: otel-collector
+  namespace: remote-falcon

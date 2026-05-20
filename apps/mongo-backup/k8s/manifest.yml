@@ -66,6 +66,11 @@ spec:
                   key: BACKUP_AUTH_TOKEN
             - name: BACKUP_S3_BUCKET
               value: rf-mongo-backup
+            # Point OTel exporter at the in-cluster collector (DaemonSet
+            # in this namespace; see ops/k8s/otel-collector/). application.properties
+            # reads ${OTEL_URI:...} via Quarkus ${...} interpolation.
+            - name: OTEL_URI
+              value: "http://otel-collector.remote-falcon.svc.cluster.local:4317"
           startupProbe:
             httpGet:
               path: /remote-falcon-mongo-backup/q/health

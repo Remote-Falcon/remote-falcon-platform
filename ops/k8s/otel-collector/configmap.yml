@@ -1,0 +1,101 @@
+# OpenTelemetry Collector config — prod cluster.
+#
+# Differs from ops/otel-collector-config.yaml (local compose) in one place:
+# the filelog `include` paths point at the k8s kubelet's container log
+# layout (/var/log/containers/*.log are symlinks to /var/log/pods/.../...),
+# not docker's /var/lib/docker/containers/* layout.
+#
+# Receives: OTLP/gRPC on :4317, OTLP/HTTP on :4318 (from services that push
+#   signals directly, e.g. Quarkus traces).
+# Tails: container stdout/stderr via filelog reading kubelet's log files
+#   (works for every service without any code change).
+# Exports: PostHog Logs over OTLP/HTTP. Bearer token sourced from the
+#   PUBLIC_POSTHOG_KEY env var in the DaemonSet pod spec.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-config
+  namespace: remote-falcon
+data:
+  otel-collector-config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+
+      # Tails container stdout/stderr via kubelet's log files. In k8s,
+      # /var/log/containers/<pod>_<namespace>_<container>-<id>.log is a
+      # symlink to /var/log/pods/<...>/<container>/0.log. Mounting both
+      # paths handles either layout.
+      filelog:
+        include: [/var/log/pods/remote-falcon_*/*/*.log]
+        # Don't ship historical lines on collector start — only new ones.
+        start_at: end
+        include_file_path: true
+        include_file_name: false
+        operators:
+          # kubelet writes containerd-format log lines:
+          # <ts> <stream> <P|F> <body>
+          - type: regex_parser
+            regex: '^(?P<time>[^ ]+) (?P<stream>stdout|stderr) (?P<logtag>[FP]) (?P<log>.*)$'
+            timestamp:
+              parse_from: attributes.time
+              layout_type: gotime
+              layout: '2006-01-02T15:04:05.999999999Z07:00'
+            severity:
+              parse_from: attributes.stream
+              mapping:
+                error: stderr
+                info: stdout
+          - type: move
+            from: attributes.log
+            to: body
+          - type: move
+            from: attributes.stream
+            to: attributes["log.iostream"]
+          - type: add
+            field: resource["deployment.environment"]
+            value: prod
+
+    processors:
+      # Batch records before export — reduces request rate to PostHog.
+      batch:
+        timeout: 5s
+        send_batch_size: 512
+
+      # Drop the collector's own logs to avoid feedback loops. The collector
+      # is deployed in the remote-falcon namespace, so this also drops any
+      # cluster-system noise that lands in the same path (we only include
+      # remote-falcon_* in the filelog pattern, but defense-in-depth).
+      filter/exclude_collector_own_logs:
+        logs:
+          log_record:
+            - 'resource.attributes["k8s.container.name"] == "otel-collector"'
+
+    exporters:
+      otlphttp/posthog:
+        logs_endpoint: https://us.i.posthog.com/i/v1/logs
+        headers:
+          Authorization: "Bearer ${env:PUBLIC_POSTHOG_KEY}"
+        compression: gzip
+
+    extensions:
+      # Exposes /health on :13133 — used by the DaemonSet liveness probe.
+      health_check:
+        endpoint: 0.0.0.0:13133
+
+    service:
+      extensions: [health_check]
+      pipelines:
+        logs:
+          receivers: [otlp, filelog]
+          processors: [filter/exclude_collector_own_logs, batch]
+          exporters: [otlphttp/posthog]
+
+      telemetry:
+        logs:
+          level: info

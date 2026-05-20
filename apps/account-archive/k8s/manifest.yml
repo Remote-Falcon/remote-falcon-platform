@@ -44,6 +44,12 @@ spec:
                 secretKeyRef:
                   name: mongodb-connection
                   key: MONGO_URI
+            # Prepositioning: app properties don't read OTEL_URI yet (no
+            # quarkus.otel.exporter.otlp.endpoint configured). This env is
+            # a no-op until that wiring lands as separate work. Keeps the
+            # rollover atomic when it does.
+            - name: OTEL_URI
+              value: "http://otel-collector.remote-falcon.svc.cluster.local:4317"
           startupProbe:
             httpGet:
               path: /remote-falcon-account-archive/q/health

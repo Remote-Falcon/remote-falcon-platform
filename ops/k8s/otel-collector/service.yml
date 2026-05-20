@@ -1,0 +1,32 @@
+# ClusterIP Service fronting the OTel Collector DaemonSet.
+#
+# Service is cluster-internal — no Ingress. Services in the remote-falcon
+# namespace resolve `otel-collector` or `otel-collector.remote-falcon.svc.cluster.local`
+# and the k8s service proxy load-balances to any healthy DaemonSet pod.
+#
+# Note: a DaemonSet Service load-balances across ALL DaemonSet pods cluster-
+# wide, NOT just the pod on the same node as the caller. For node-local
+# routing you'd configure `internalTrafficPolicy: Local`, but that breaks
+# if a node has no collector pod (e.g., during a rollout). Cluster-wide
+# routing is the safer default.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+  namespace: remote-falcon
+  labels:
+    app: otel-collector
+spec:
+  type: ClusterIP
+  selector:
+    app: otel-collector
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: otlp-grpc
+      protocol: TCP
+    - name: otlp-http
+      port: 4318
+      targetPort: otlp-http
+      protocol: TCP
