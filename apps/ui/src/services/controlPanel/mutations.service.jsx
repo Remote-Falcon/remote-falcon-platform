@@ -71,18 +71,11 @@ export const requestApiAccessService = (requestApiAccessMutation, callback) => {
         toast: { message: 'API Access Requested' }
       });
     },
-    onError: (error) => {
-      if (error?.message === StatusResponse.API_ACCESS_REQUESTED) {
-        callback({
-          success: false,
-          toast: { alert: 'warning', message: 'You have already requested API Access' }
-        });
-      } else {
-        callback({
-          success: false,
-          toast: { alert: 'error' }
-        });
-      }
+    onError: () => {
+      callback({
+        success: false,
+        toast: { alert: 'error' }
+      });
     },
     refetchQueries: [{ query: GET_SHOW, awaitRefetchQueries: true }]
   });

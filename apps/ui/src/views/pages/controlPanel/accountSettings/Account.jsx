@@ -6,7 +6,6 @@ import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import { Grid, CardActions, Divider, Typography, Modal, IconButton, Tooltip } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
-import _ from 'lodash';
 
 import MainCard from '../../../../ui-component/cards/MainCard';
 import RFLoadingButton from '../../../../ui-component/RFLoadingButton';
@@ -19,6 +18,7 @@ import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
 import { DELETE_ACCOUNT, REQUEST_API_ACCESS, REFRESH_API_SECRET } from '../../../../utils/graphql/controlPanel/mutations';
 import { showAlert } from '../../globalPageHelpers';
 import DeleteAccountModal from './DeleteAccount.modal';
+import RefreshApiSecretModal from './RefreshApiSecret.modal';
 
 const Account = () => {
   const theme = useTheme();
@@ -35,6 +35,7 @@ const Account = () => {
   const [isRequestingApi, setIsRequestingApi] = useState(false);
   const [isRefreshingSecret, setIsRefreshingSecret] = useState(false);
   const [refreshedSecret, setRefreshedSecret] = useState(null);
+  const [refreshSecretOpen, setRefreshSecretOpen] = useState(false);
 
   const [requestApiAccessMutation] = useMutation(REQUEST_API_ACCESS);
   const [refreshApiSecretMutation] = useMutation(REFRESH_API_SECRET);
@@ -59,6 +60,7 @@ const Account = () => {
   };
 
   const copySecretKey = async () => {
+    if (!refreshedSecret) return;
     if ('clipboard' in navigator) {
       await navigator.clipboard.writeText(refreshedSecret);
     } else {
@@ -78,6 +80,9 @@ const Account = () => {
           })
         );
         setRefreshedSecret(response.apiAccess?.apiAccessSecret);
+        trackPosthogEvent('api_access_requested');
+      } else {
+        trackPosthogEvent('api_access_request_failed', { reason: response?.toast?.message });
       }
       showAlert(dispatch, response?.toast);
       setIsRequestingApi(false);
@@ -89,9 +94,13 @@ const Account = () => {
     refreshApiSecretService(refreshApiSecretMutation, (response) => {
       if (response?.success) {
         setRefreshedSecret(response.secretKey);
+        trackPosthogEvent('api_secret_refreshed');
+      } else {
+        trackPosthogEvent('api_secret_refresh_failed', { reason: response?.toast?.message });
       }
       showAlert(dispatch, response?.toast);
       setIsRefreshingSecret(false);
+      setRefreshSecretOpen(false);
     });
   };
 
@@ -171,7 +180,7 @@ const Account = () => {
               {show?.apiAccess?.apiAccessActive && (
                 <RFLoadingButton
                   loading={isRefreshingSecret}
-                  onClick={refreshApiSecret}
+                  onClick={() => setRefreshSecretOpen(true)}
                   color="secondary"
                   sx={{ ml: 2 }}
                 >
@@ -185,7 +194,7 @@ const Account = () => {
                   </Typography>
                   <div>
                     {showAccessToken ? (
-                      <span style={{ fontSize: '1.2em' }}>{show?.apiAccess?.apiAccessToken}</span>
+                      <span className="ph-no-capture" style={{ fontSize: '1.2em' }}>{show?.apiAccess?.apiAccessToken}</span>
                     ) : (
                       <span style={{ fontSize: '1.2em' }}>&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;</span>
                     )}
@@ -213,7 +222,7 @@ const Account = () => {
                   </Typography>
                   <div>
                     {showSecretKey ? (
-                      <span style={{ fontSize: '1.2em' }}>{refreshedSecret}</span>
+                      <span className="ph-no-capture" style={{ fontSize: '1.2em' }}>{refreshedSecret}</span>
                     ) : (
                       <span style={{ fontSize: '1.2em' }}>&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;</span>
                     )}
@@ -268,6 +277,19 @@ const Account = () => {
           handleClose={() => setDeleteAccountOpen(false)}
           deleteAccount={handleDeleteAccount}
           isDeleting={isDeletingAccount}
+        />
+      </Modal>
+      <Modal
+        open={refreshSecretOpen}
+        onClose={() => setRefreshSecretOpen(false)}
+        aria-labelledby="refresh-secret-modal-title"
+        aria-describedby="refresh-secret-modal-description"
+      >
+        <RefreshApiSecretModal
+          theme={theme}
+          handleClose={() => setRefreshSecretOpen(false)}
+          refreshSecret={refreshApiSecret}
+          isRefreshing={isRefreshingSecret}
         />
       </Modal>
     </Grid>
