@@ -67,6 +67,12 @@ const posthogOptions = {
 
 if (import.meta.env.VITE_PUBLIC_POSTHOG_KEY) {
   posthog.init(import.meta.env.VITE_PUBLIC_POSTHOG_KEY, posthogOptions);
+  // Tag every event with the build's release so PostHog Error Tracking
+  // can match it against source maps uploaded by `posthog-cli sourcemap
+  // upload --release-name $VERSION` in the Dockerfile.
+  if (import.meta.env.VITE_VERSION) {
+    posthog.register({ $release: import.meta.env.VITE_VERSION });
+  }
 } else {
   posthog.opt_out_capturing?.();
 }

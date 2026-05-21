@@ -332,6 +332,10 @@ jobs:
           file: ${{ steps.cfg.outputs.context }}/${{ steps.cfg.outputs.dockerfile }}
           push: true
           tags: ${{ steps.cfg.outputs.image }}
+          # POSTHOG_CLI_API_KEY is the same Personal API Key already used by
+          # the daily digest CronJob + the post-deploy error-rate check.
+          # Scopes needed: error_tracking:write (plus the existing
+          # query:read, insight:*, dashboard:*).
           build-args: |
             HOST_ENV=prod
             VERSION=${{ steps.date.outputs.version }}
@@ -339,6 +343,7 @@ jobs:
             VIEWER_API=https://remotefalcon.com/remote-falcon-viewer
             GOOGLE_MAPS_KEY=${{ secrets.GOOGLE_MAPS_KEY }}
             PUBLIC_POSTHOG_KEY=${{ secrets.PUBLIC_POSTHOG_KEY }}
+            POSTHOG_CLI_API_KEY=${{ secrets.POSTHOG_API_KEY }}
             HOSTNAME_PARTS=2
             SWAP_CP=false
             VIEWER_PAGE_SUBDOMAIN=

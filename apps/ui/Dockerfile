@@ -26,6 +26,11 @@ ARG CDN_JS_PATH
 
 ARG SOCIAL_META
 
+# PostHog CLI auth for source-map upload (Obs-4 follow-up).
+# Mirrored from the POSTHOG_API_KEY org secret in deploy.yml. Empty for
+# local builds — the build skips the upload step in that case.
+ARG POSTHOG_CLI_API_KEY
+
 ENV VITE_HOST_ENV=$HOST_ENV
 ENV VITE_VERSION=$VERSION
 ENV VITE_CONTROL_PANEL_API=$CONTROL_PANEL_API
@@ -38,9 +43,29 @@ ENV VITE_VIEWER_PAGE_SUBDOMAIN=$VIEWER_PAGE_SUBDOMAIN
 ENV VITE_GITHUB_JS_PATH=$GITHUB_JS_PATH
 ENV VITE_CDN_JS_PATH=$CDN_JS_PATH
 
+# posthog-cli reads these three vars from env. Project ID matches the
+# org's PostHog project (also referenced in ops/posthog-alerts/,
+# ops/posthog-dashboards/, ops/k8s/posthog-daily-digest/).
+ENV POSTHOG_CLI_HOST=https://us.posthog.com
+ENV POSTHOG_CLI_PROJECT_ID=425428
+ENV POSTHOG_CLI_API_KEY=$POSTHOG_CLI_API_KEY
+
 ARG VITE_SOCIAL_META=$SOCIAL_META
 
-RUN npm run build
+# Build, then inject + upload source maps so PostHog Error Tracking
+# can symbolicate mangled stack traces (the SDK registers $release =
+# VITE_VERSION at init time; this upload tags the maps with the
+# matching --release-name). Maps are stripped from the runtime image
+# before stage 2 copies dist, so they never serve publicly.
+RUN npm run build && \
+    if [ -n "$POSTHOG_CLI_API_KEY" ]; then \
+      echo "Uploading source maps to PostHog (release: $VERSION)..." && \
+      posthog-cli sourcemap inject --directory ./dist && \
+      posthog-cli sourcemap upload --directory ./dist --release-name "$VERSION"; \
+    else \
+      echo "POSTHOG_CLI_API_KEY not set; skipping source-map upload (local build?)"; \
+    fi && \
+    find ./dist -name "*.map" -type f -exec rm -- {} +
 
 # Step 2: Create the compact production image
 FROM node:22.14.0-alpine AS production
