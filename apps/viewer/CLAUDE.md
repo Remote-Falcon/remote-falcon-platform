@@ -246,7 +246,7 @@ Multi-stage build for GraalVM native image:
    - Runs `./gradlew clean build -x test` with native enabled and JAR disabled
    - **Tests are skipped** (`-x test`) because they run in the `sonar-analysis` job first
    - Integration tests cannot run inside Docker build (would require Docker-in-Docker)
-   - Passes `MONGO_URI` and `OTEL_URI` as build args
+   - Passes `MONGO_URI` as a build arg (`OTEL_URI` is runtime-only now — set via k8s env from the cluster's collector service)
 2. **Runtime stage**: Uses `registry.access.redhat.com/ubi9/ubi-minimal:9.2`
    - Copies native binary from build stage
    - Runs as non-root user (1001)
@@ -260,7 +260,6 @@ Multi-stage build for GraalVM native image:
 ```bash
 docker build \
   --build-arg MONGO_URI="mongodb://user:pass@host:27017/remote-falcon?authSource=admin" \
-  --build-arg OTEL_URI="http://otel-collector:4317" \
   -t remotefalcon/remote-falcon-viewer:latest .
 ```
 

@@ -5,9 +5,7 @@ RUN sed -i 's/\r$//' ./gradlew
 RUN chmod +x ./gradlew
 
 ARG MONGO_URI
-ARG OTEL_URI
 ENV MONGO_URI=${MONGO_URI}
-ENV OTEL_URI=${OTEL_URI}
 
 RUN ./gradlew clean build -x test -Dquarkus.native.enabled=true \
     -Dquarkus.native.container-build=false \
@@ -21,9 +19,7 @@ RUN chown 1001 /app && chmod "g+rwX" /app && chown 1001:root /app
 COPY --from=build --chown=1001:root /app/build/*-runner /app/application
 
 ARG MONGO_URI
-ARG OTEL_URI
 ENV MONGO_URI=${MONGO_URI}
-ENV OTEL_URI=${OTEL_URI}
 
 EXPOSE 8080
 USER 1001

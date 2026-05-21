@@ -355,7 +355,7 @@ jobs:
           build-args: |
             OTEL_OPTS=
 
-      - name: Build and push (Quarkus services with Mongo + OTEL build-args)
+      - name: Build and push (Quarkus services with Mongo build-arg)
         if: contains(fromJSON('["viewer","plugins-api","mongo-backup","account-archive"]'), matrix.service)
         uses: docker/build-push-action@v6
         with:
@@ -363,9 +363,13 @@ jobs:
           file: ${{ steps.cfg.outputs.context }}/${{ steps.cfg.outputs.dockerfile }}
           push: true
           tags: ${{ steps.cfg.outputs.image }}
+          # OTEL_URI used to be baked in here from a build-time secret.
+          # That secret holds a stale value (a now-dead IP) and the
+          # runtime override via k8s env (PR #36) plus the application.properties
+          # default ($OTEL_URI:http://otel-collector:4317) cover every
+          # deploy mode. Build-arg dropped; org secret can be deleted.
           build-args: |
             MONGO_URI=${{ secrets.MONGO_URI }}
-            OTEL_URI=${{ secrets.OTEL_URI }}
 
       - name: Build and push (Spring native services without build-args)
         if: contains(fromJSON('["control-panel","external-api"]'), matrix.service)
