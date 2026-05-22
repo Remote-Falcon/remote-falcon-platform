@@ -61,7 +61,8 @@ curl -X POST https://remotefalcon.com/remote-falcon-control-panel/graphql \
       "n": {
         "subject": "Remote Falcon v2.3 is live",
         "preview": "Notification bell, page templates refresh, viewer fixes.",
-        "message": "v2.3 ships the in-app notification bell, a refreshed page-template gallery, and three viewer fixes. Full release notes at https://docs.remotefalcon.com/release-notes/v2.3."
+        "message": "v2.3 ships the in-app notification bell, a refreshed page-template gallery, and three viewer fixes.",
+        "link": "https://docs.remotefalcon.com/release-notes/v2.3"
       }
     }
   }'
@@ -69,7 +70,7 @@ curl -X POST https://remotefalcon.com/remote-falcon-control-panel/graphql \
 
 Success: `{"data":{"createNotification":true}}`. The server stamps `uuid`, `createdDate`, and forces `type: ADMIN` — don't supply them.
 
-> **`link` field:** the `Notification` document has it, but `NotificationInput` ([`inputs.graphqls`](../../apps/control-panel/src/main/resources/graphql/inputs.graphqls)) doesn't expose it. Put URLs inline in `message`. TODO: thread `link` + `type` through `NotificationInput` if operators ever need to override.
+> **`link` field:** the bell renders this as a button on the notification row. If you set it, viewers click through to the link (opens in a new tab) and the row gets marked dismissed in their browser. If you omit it, the row is text-only.
 
 ## Sending a per-show DM (USER, one show)
 
@@ -171,6 +172,6 @@ If something's wrong, see "Removing a bad notification" above — `db.notificati
 - **20-item cap** in the bell dropdown (UI-side); older items fall off the visible list but stay in Mongo.
 - **Read state is browser-local** (`localStorage`). Same user on a different device sees the row as unread again. No server-side read flag for ADMIN rows. (Per-show DMs do persist `read`/`deleted` on the `showNotifications` subdocument.)
 - **No webhook automation in v1.** Every release announcement is hand-typed. To automate later (e.g. on GitHub release publish), add a new caller of `createNotification` — the mutation is the integration point.
-- **`link` not in `NotificationInput`** — put URLs inline in `message`. Keep them stable; `https://docs.remotefalcon.com` is the canonical docs target.
+- **Keep link URLs stable.** `https://docs.remotefalcon.com` is the canonical docs target; once a notification is in users' bells, changing the underlying URL on the docs side breaks the click-through.
 - **No email distribution.** Bell-only; users who never log in never see the notification.
 - **Admin-gated.** Both mutations carry `@RequiresAdminAccess`; a normal show-owner JWT gets rejected.
