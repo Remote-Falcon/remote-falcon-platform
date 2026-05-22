@@ -33,6 +33,12 @@ data:
       # paths handles either layout.
       filelog:
         include: [/var/log/pods/remote-falcon_*/*/*.log]
+        # Skip the collector's own log files. Done at the receiver layer
+        # (not a downstream filter) because the `container` operator below
+        # only parses containerd format; the collector's Go log lines fall
+        # through without k8s.* resource attributes set, so a filter keyed
+        # on resource.attributes["k8s.container.name"] is a no-op.
+        exclude: [/var/log/pods/remote-falcon_otel-collector-*/*/*.log]
         # Don't ship historical lines on collector start — only new ones.
         start_at: end
         include_file_path: true
@@ -68,15 +74,6 @@ data:
         timeout: 5s
         send_batch_size: 512
 
-      # Drop the collector's own logs to avoid feedback loops. The collector
-      # is deployed in the remote-falcon namespace, so this also drops any
-      # cluster-system noise that lands in the same path (we only include
-      # remote-falcon_* in the filelog pattern, but defense-in-depth).
-      filter/exclude_collector_own_logs:
-        logs:
-          log_record:
-            - 'resource.attributes["k8s.container.name"] == "otel-collector"'
-
     exporters:
       otlphttp/posthog:
         logs_endpoint: https://us.i.posthog.com/i/v1/logs
@@ -94,7 +91,7 @@ data:
       pipelines:
         logs:
           receivers: [otlp, filelog]
-          processors: [filter/exclude_collector_own_logs, batch]
+          processors: [batch]
           exporters: [otlphttp/posthog]
 
       telemetry:
