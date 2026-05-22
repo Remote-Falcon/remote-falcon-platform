@@ -593,5 +593,20 @@ public class GraphQLMutationService {
         return true;
     }
 
+    // PRD-004: edit an existing ADMIN broadcast. Only the user-facing
+    // fields (subject/preview/message/link) can change. uuid + type +
+    // createdDate are immutable so per-show dismissal state (keyed off
+    // uuid) keeps working across edits.
+    public Boolean updateNotification(String uuid, Notification notification) {
+        Notification existing = this.notificationRepository.findByUuid(uuid)
+                .orElseThrow(() -> new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name()));
+        existing.setSubject(notification.getSubject());
+        existing.setPreview(notification.getPreview());
+        existing.setMessage(notification.getMessage());
+        existing.setLink(notification.getLink());
+        this.notificationRepository.save(existing);
+        return true;
+    }
+
 }
 

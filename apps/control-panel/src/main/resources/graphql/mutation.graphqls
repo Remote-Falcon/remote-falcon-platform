@@ -24,5 +24,6 @@ type Mutation {
     deleteStatsWithinRange(startDate: Long!, endDate: Long!, timezone: String = "America/Chicago"): Boolean
     createNotification(notification: NotificationInput!): Boolean
     createNotificationForUser(notification: NotificationInput!, showSubdomain: String!): Boolean
+    updateNotification(uuid: String!, notification: NotificationInput!): Boolean
     deleteNotification(uuid: String!): Boolean
 }

@@ -1,3 +1,8 @@
+type NotificationPage {
+    items: [Notification!]!
+    total: Int!
+}
+
 type Query {
     signIn: Show
     verifyPasswordResetLink(passwordResetLink: String!): Show
@@ -13,5 +18,6 @@ type Query {
     getShowsAutoSuggest(showName: String!): [String]
     getShowByShowName(showName: String!): Show
     getNotifications: [Notification]
+    listAdminNotifications(offset: Int, limit: Int): NotificationPage!
     impersonateShow(showSubdomain: String!): Show
 }

@@ -6,9 +6,12 @@ import java.util.stream.Stream;
 
 import com.remotefalcon.controlpanel.repository.NotificationRepository;
 import com.remotefalcon.library.documents.Notification;
+import com.remotefalcon.library.enums.NotificationType;
 import com.remotefalcon.library.models.*;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -196,5 +199,32 @@ public class GraphQLQueryService {
                         Comparator.nullsLast(Comparator.reverseOrder())))
                 .limit(20)
                 .toList();
+    }
+
+    // Admin-only paginated list of ADMIN-type broadcasts for the
+    // Broadcast Manager tab (PRD-004). Defaults to offset=0, limit=10,
+    // and caps limit at 100 so a misbehaving client can't ask for the
+    // whole collection in one shot.
+    public NotificationPage listAdminNotifications(Integer offset, Integer limit) {
+        int safeOffset = offset == null || offset < 0 ? 0 : offset;
+        int safeLimit = limit == null || limit <= 0 ? 10 : Math.min(limit, 100);
+        int pageIndex = safeOffset / safeLimit;
+        Page<Notification> page = this.notificationRepository
+                .findByTypeOrderByCreatedDateDesc(NotificationType.ADMIN, PageRequest.of(pageIndex, safeLimit));
+        List<NotificationModel> items = page.getContent().stream()
+                .map(n -> NotificationModel.builder()
+                        .uuid(n.getUuid())
+                        .type(n.getType())
+                        .subject(n.getSubject())
+                        .preview(n.getPreview())
+                        .message(n.getMessage())
+                        .link(n.getLink())
+                        .createdDate(n.getCreatedDate())
+                        .build())
+                .toList();
+        return NotificationPage.builder()
+                .items(items)
+                .total((int) page.getTotalElements())
+                .build();
     }
 }

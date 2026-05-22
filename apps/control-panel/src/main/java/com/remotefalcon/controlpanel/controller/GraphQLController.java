@@ -182,6 +182,12 @@ public class GraphQLController {
         return this.graphQLMutationService.deleteNotification(uuid);
     }
 
+    @MutationMapping
+    @RequiresAdminAccess
+    public Boolean updateNotification(@Argument String uuid, @Argument Notification notification) {
+        return this.graphQLMutationService.updateNotification(uuid, notification);
+    }
+
 
 
     /*******
@@ -281,6 +287,12 @@ public class GraphQLController {
     @RequiresAccess
     public List<NotificationModel> getNotifications() {
         return this.graphQLQueryService.getNotifications();
+    }
+
+    @QueryMapping
+    @RequiresAdminAccess
+    public NotificationPage listAdminNotifications(@Argument Integer offset, @Argument Integer limit) {
+        return this.graphQLQueryService.listAdminNotifications(offset, limit);
     }
 
 }
