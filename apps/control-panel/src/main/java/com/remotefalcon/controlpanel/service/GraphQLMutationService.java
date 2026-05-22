@@ -577,6 +577,7 @@ public class GraphQLMutationService {
                           .message(notification.getMessage())
                           .preview(notification.getPreview())
                           .subject(notification.getSubject())
+                          .link(notification.getLink())
                           .build())
                 .read(false)
                 .deleted(false)

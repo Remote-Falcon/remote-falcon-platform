@@ -133,4 +133,5 @@ input NotificationInput {
     subject: String
     message: String
     preview: String
+    link: String
 }
