@@ -1,4 +1,10 @@
 {
+  "rewrites": [
+    {
+      "source": "viewer-scripts/**/*.map",
+      "destination": "/empty.map"
+    }
+  ],
   "headers": [
     {
       "source": "**/*.js",
