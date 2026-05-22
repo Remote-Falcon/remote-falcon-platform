@@ -552,3 +552,23 @@ export const NOTIFICATIONS = gql`
     }
   }
 `;
+
+// Admin-only paginated listing of ADMIN-type broadcasts. Used by the
+// admin "Send a notification" tab's broadcasts table. Server caps
+// `limit` at 100; we default to the table's page size at the call site.
+export const LIST_ADMIN_NOTIFICATIONS = gql`
+  query ($offset: Int, $limit: Int) @api(name: controlPanel) {
+    listAdminNotifications(offset: $offset, limit: $limit) {
+      items {
+        uuid
+        type
+        subject
+        preview
+        message
+        link
+        createdDate
+      }
+      total
+    }
+  }
+`;

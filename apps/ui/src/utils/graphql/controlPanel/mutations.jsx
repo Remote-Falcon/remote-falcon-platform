@@ -142,3 +142,37 @@ export const DELETE_STATS_WITHIN_RANGE = gql`
   }
 `;
 
+// Admin notification CRUD. Used by the admin "Send a notification" tab.
+//
+// createNotification — type=ADMIN broadcast to every logged-in show.
+// createNotificationForUser — type=USER targeted at a single show by
+//   subdomain.
+// updateNotification — edit subject/preview/message/link on an
+//   existing ADMIN broadcast in-place. Dismissal state is keyed off
+//   uuid client-side, so edits don't resurrect dismissed rows.
+// deleteNotification — hard-delete from Mongo; visible rows disappear
+//   on the next bell refresh.
+export const CREATE_NOTIFICATION = gql`
+  mutation ($notification: NotificationInput!) @api(name: controlPanel) {
+    createNotification(notification: $notification)
+  }
+`;
+
+export const CREATE_NOTIFICATION_FOR_USER = gql`
+  mutation ($notification: NotificationInput!, $showSubdomain: String!) @api(name: controlPanel) {
+    createNotificationForUser(notification: $notification, showSubdomain: $showSubdomain)
+  }
+`;
+
+export const UPDATE_NOTIFICATION = gql`
+  mutation ($uuid: String!, $notification: NotificationInput!) @api(name: controlPanel) {
+    updateNotification(uuid: $uuid, notification: $notification)
+  }
+`;
+
+export const DELETE_NOTIFICATION = gql`
+  mutation ($uuid: String!) @api(name: controlPanel) {
+    deleteNotification(uuid: $uuid)
+  }
+`;
+

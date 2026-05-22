@@ -5,41 +5,25 @@ import { useQuery } from '@apollo/client';
 import {
   Badge,
   Box,
-  Button,
   Divider,
   IconButton,
   Link,
   List,
-  ListItem,
-  ListItemText,
   Popover,
   Stack,
   Tooltip,
   Typography
 } from '@mui/material';
-import { IconBell, IconExternalLink } from '@tabler/icons-react';
-import { formatDistanceToNow } from 'date-fns';
+import { IconBell } from '@tabler/icons-react';
 
 import useDismissedNotifications from '../../../../hooks/useDismissedNotifications';
 import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
 import { NOTIFICATIONS } from '../../../../utils/graphql/controlPanel/queries';
+import NotificationRow from './NotificationRow';
 
 // Cap the dropdown to the 20 most-recent notifications. Anything older
 // is uninteresting in an operator context; keeps the list scannable.
 const MAX_ROWS = 20;
-
-// Defensive parse — server returns ISO strings but a malformed date
-// shouldn't blow up the whole header.
-const safeFormatRelative = (iso) => {
-  if (!iso) return '';
-  const ms = Date.parse(iso);
-  if (Number.isNaN(ms)) return '';
-  try {
-    return `${formatDistanceToNow(new Date(ms))} ago`;
-  } catch {
-    return '';
-  }
-};
 
 const NotificationsSection = () => {
   const anchorRef = useRef(null);
@@ -87,16 +71,16 @@ const NotificationsSection = () => {
     });
   };
 
-  const handleLinkClick = (notification) => (evt) => {
-    // Stop the row's onClick from double-firing — we'll dismiss + track
-    // explicitly here so the `has_link` prop is accurate.
-    evt.stopPropagation();
+  const handleLinkClick = (notification) => {
+    // Dismiss + track explicitly so the `has_link` prop is accurate.
+    // The row's onClick is suppressed via stopPropagation inside
+    // NotificationRow; the anchor's native target=_blank handles
+    // navigation once we return.
     dismiss(notification.uuid);
     trackPosthogEvent('notification_clicked', {
       has_link: true,
       type: notification.type || 'UNKNOWN'
     });
-    // Let the anchor's native target=_blank handle the navigation.
   };
 
   const handleMarkAllRead = () => {
@@ -194,99 +178,15 @@ const NotificationsSection = () => {
               overflowY: 'auto'
             }}
           >
-            {notifications.map((n) => {
-              const isUnread = !dismissedSet.has(n.uuid);
-              return (
-                <ListItem
-                  key={n.uuid}
-                  onClick={() => handleRowClick(n)}
-                  alignItems="flex-start"
-                  sx={{
-                    px: 2,
-                    py: 1.25,
-                    cursor: 'pointer',
-                    // Unread emphasis: left-border accent + subtle tint.
-                    // Subtle enough that read rows still feel "present"
-                    // (not greyed-out junk) but the eye lands on unread
-                    // first.
-                    borderLeft: (t) =>
-                      `3px solid ${isUnread ? t.palette.primary.main : 'transparent'}`,
-                    backgroundColor: (t) =>
-                      isUnread
-                        ? t.palette.mode === 'dark'
-                          ? 'rgba(99, 102, 241, 0.08)'
-                          : 'rgba(99, 102, 241, 0.04)'
-                        : 'transparent',
-                    '&:hover': {
-                      backgroundColor: (t) =>
-                        t.palette.mode === 'dark'
-                          ? 'rgba(255,255,255,0.04)'
-                          : 'rgba(0,0,0,0.03)'
-                    }
-                  }}
-                >
-                  <ListItemText
-                    disableTypography
-                    primary={
-                      <Typography
-                        variant="body2"
-                        sx={{
-                          fontWeight: isUnread ? 600 : 500,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap'
-                        }}
-                      >
-                        {n.subject || '(no subject)'}
-                      </Typography>
-                    }
-                    secondary={
-                      <Stack spacing={0.75} sx={{ mt: 0.5 }}>
-                        {n.preview && (
-                          <Typography
-                            variant="caption"
-                            sx={{
-                              color: 'text.secondary',
-                              display: '-webkit-box',
-                              WebkitLineClamp: 2,
-                              WebkitBoxOrient: 'vertical',
-                              overflow: 'hidden'
-                            }}
-                          >
-                            {n.preview}
-                          </Typography>
-                        )}
-                        <Stack
-                          direction="row"
-                          alignItems="center"
-                          justifyContent="space-between"
-                          spacing={1}
-                        >
-                          <Typography variant="caption" sx={{ color: 'text.disabled' }}>
-                            {safeFormatRelative(n.createdDate)}
-                          </Typography>
-                          {n.link && (
-                            <Button
-                              size="small"
-                              variant="text"
-                              component="a"
-                              href={n.link}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              onClick={handleLinkClick(n)}
-                              startIcon={<IconExternalLink size={14} stroke={1.75} />}
-                              sx={{ minWidth: 0, py: 0, fontSize: '0.7rem' }}
-                            >
-                              View
-                            </Button>
-                          )}
-                        </Stack>
-                      </Stack>
-                    }
-                  />
-                </ListItem>
-              );
-            })}
+            {notifications.map((n) => (
+              <NotificationRow
+                key={n.uuid}
+                notification={n}
+                unread={!dismissedSet.has(n.uuid)}
+                onClick={handleRowClick}
+                onLinkClick={handleLinkClick}
+              />
+            ))}
           </List>
         )}
       </Popover>

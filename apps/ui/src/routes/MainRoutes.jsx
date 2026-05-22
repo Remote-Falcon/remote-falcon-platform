@@ -42,6 +42,7 @@ const ShowsMap = Loadable(lazy(() => import('../views/pages/controlPanel/showsMa
 
 const Admin = Loadable(lazy(() => import('../views/pages/controlPanel/admin')));
 const AccountDetails = Loadable(lazy(() => import('../views/pages/controlPanel/admin/AccountDetails')));
+const SendNotification = Loadable(lazy(() => import('../views/pages/controlPanel/admin/SendNotification')));
 
 const ImageHosting = Loadable(lazy(() => import('../views/pages/controlPanel/imageHosting')));
 
@@ -149,7 +150,8 @@ const MainRoutes = {
       element: <Admin />,
       children: [
         { index: true, element: <Navigate to="accounts" replace /> },
-        { path: 'accounts', element: <AccountDetails /> }
+        { path: 'accounts', element: <AccountDetails /> },
+        { path: 'notifications', element: <SendNotification /> }
       ]
     }
   ]

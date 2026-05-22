@@ -8,7 +8,8 @@ import PageHead from '../../../../ui-component/PageHead';
 import SubNav from '../../../../ui-component/SubNav';
 
 export const adminRoutes = [
-  { label: 'Account Maintenance', to: '/control-panel/admin/accounts' }
+  { label: 'Account Maintenance', to: '/control-panel/admin/accounts' },
+  { label: 'Send Notification', to: '/control-panel/admin/notifications' }
 ];
 
 const Admin = () => {
