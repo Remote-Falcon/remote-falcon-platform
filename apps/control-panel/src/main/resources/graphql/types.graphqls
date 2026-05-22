@@ -268,9 +268,11 @@ type Notification {
     id: String
     uuid: String
     createdDate: String
+    type: String
     preview: String
     subject: String
     message: String
+    link: String
 }
 
 type ShowNotification {

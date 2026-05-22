@@ -285,7 +285,7 @@ public class GraphQLController {
 
     @QueryMapping
     @RequiresAccess
-    public List<ShowNotification> getNotifications() {
+    public List<NotificationModel> getNotifications() {
         return this.graphQLQueryService.getNotifications();
     }
 

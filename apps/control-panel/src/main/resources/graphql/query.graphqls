@@ -12,6 +12,6 @@ type Query {
     showsOnAMap: [ShowsOnAMap]
     getShowsAutoSuggest(showName: String!): [String]
     getShowByShowName(showName: String!): Show
-    getNotifications: [ShowNotification]
+    getNotifications: [Notification]
     impersonateShow(showSubdomain: String!): Show
 }

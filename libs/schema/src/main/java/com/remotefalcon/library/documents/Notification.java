@@ -24,4 +24,5 @@ public class Notification {
     private String preview;
     private String subject;
     private String message;
+    private String link;
 }
