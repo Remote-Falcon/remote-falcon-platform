@@ -68,6 +68,9 @@
     "serve": "vite preview",
     "lint": "eslint --fix --ext .js,.jsx ./src",
     "nuke-modules": "if [ -d node_modules ]; then rm -rf node_modules; fi",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "test:unit": "vitest",
     "test:unit:coverage": "vitest --coverage",
     "test:unit:watch": "vitest watch"
