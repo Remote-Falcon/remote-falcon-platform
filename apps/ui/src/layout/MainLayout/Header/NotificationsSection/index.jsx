@@ -28,6 +28,11 @@ const MAX_ROWS = 20;
 const NotificationsSection = () => {
   const anchorRef = useRef(null);
   const [open, setOpen] = useState(false);
+  // Per-dropdown-session expanded state. Not persisted — closing the
+  // popover (and reopening) collapses everything back to the summary
+  // view. Dismissal IS persisted; expansion is just "I'm reading this
+  // right now."
+  const [expandedSet, setExpandedSet] = useState(() => new Set());
   const { dismissedSet, dismiss, dismissAll } = useDismissedNotifications();
 
   // Poll-on-mount is fine for now — the bell badge doesn't need real-time
@@ -61,14 +66,36 @@ const NotificationsSection = () => {
     setOpen(true);
     trackPosthogEvent('notification_bell_opened', { unread_count: unreadCount });
   };
-  const handleClose = () => setOpen(false);
+  const handleClose = () => {
+    setOpen(false);
+    // Reset expansion on close — re-opening starts in summary mode so
+    // the dropdown is scannable, not a wall of expanded text.
+    setExpandedSet(new Set());
+  };
 
   const handleRowClick = (notification) => {
-    dismiss(notification.uuid);
-    trackPosthogEvent('notification_clicked', {
-      has_link: !!notification.link,
-      type: notification.type || 'UNKNOWN'
+    const wasUnread = !dismissedSet.has(notification.uuid);
+    // Click toggles expansion AND marks the row read (if it wasn't
+    // already). Collapsing later doesn't un-dismiss — dismissal is
+    // monotonic per PRD-002.
+    setExpandedSet((prev) => {
+      const next = new Set(prev);
+      if (next.has(notification.uuid)) {
+        next.delete(notification.uuid);
+      } else {
+        next.add(notification.uuid);
+      }
+      return next;
     });
+    dismiss(notification.uuid);
+    // Only track the click event on the first interaction; toggling
+    // expansion afterward isn't a fresh "click" in analytics terms.
+    if (wasUnread) {
+      trackPosthogEvent('notification_clicked', {
+        has_link: !!notification.link,
+        type: notification.type || 'UNKNOWN'
+      });
+    }
   };
 
   const handleLinkClick = (notification) => {
@@ -183,6 +210,7 @@ const NotificationsSection = () => {
                 key={n.uuid}
                 notification={n}
                 unread={!dismissedSet.has(n.uuid)}
+                expanded={expandedSet.has(n.uuid)}
                 onClick={handleRowClick}
                 onLinkClick={handleLinkClick}
               />

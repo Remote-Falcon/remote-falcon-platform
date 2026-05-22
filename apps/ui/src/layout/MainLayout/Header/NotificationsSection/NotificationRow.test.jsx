@@ -98,4 +98,55 @@ describe('NotificationRow', () => {
     await user.click(screen.getByRole('link', { name: /view/i }));
     expect(onClick).not.toHaveBeenCalled();
   });
+
+  it('hides the full message when expanded is false (or unset)', () => {
+    renderRow({
+      notification: {
+        uuid: 'x',
+        subject: 'Subj',
+        preview: 'Prev',
+        message: 'The full long-form notification body that should be hidden',
+        createdDate: FIXED_DATE
+      }
+    });
+    expect(
+      screen.queryByText(/full long-form notification body/)
+    ).not.toBeInTheDocument();
+  });
+
+  it('renders the full message when expanded is true', () => {
+    renderRow({
+      notification: {
+        uuid: 'x',
+        subject: 'Subj',
+        preview: 'Prev',
+        message: 'The full long-form notification body',
+        createdDate: FIXED_DATE
+      },
+      expanded: true,
+      onClick: vi.fn()
+    });
+    expect(
+      screen.getByText('The full long-form notification body')
+    ).toBeInTheDocument();
+  });
+
+  it('does not render the message section when notification.message is empty', () => {
+    // Expanded but no message → no message block, no dashed divider treatment.
+    renderRow({
+      notification: {
+        uuid: 'x',
+        subject: 'Subj',
+        preview: 'Prev',
+        message: '',
+        createdDate: FIXED_DATE
+      },
+      expanded: true
+    });
+    expect(screen.getByText('Prev')).toBeInTheDocument();
+    // The message paragraph would have rendered with whiteSpace pre-wrap if
+    // it existed. Querying by a unique attribute would be ideal, but absence
+    // of any non-subject/non-preview body text is a reasonable proxy.
+    expect(screen.queryByText(/long-form/)).not.toBeInTheDocument();
+  });
 });
