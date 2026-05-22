@@ -19,3 +19,22 @@ dashboards:
       - rf-frontend-exceptions-trend-7d
       - rf-frontend-top-pageview-paths-24h
       - rf-frontend-top-exception-messages-7d
+
+  - name: rf-notification-engagement
+    description: >-
+      Notification system health and operator activity dashboard.
+      Surfaces send cadence (broadcasts vs per-show DMs), edit and
+      delete rates as quality / regret signals, end-user bell
+      engagement, and a click breakdown by notification type. The
+      "recent broadcasts" tile gives the operator a one-glance audit of
+      what's gone out lately without dropping into Mongo. Source events
+      ship from the bell (PRD-002, PR #41) and the admin send form
+      (PRD-004, PR #42).
+    insights:
+      - rf-notifications-sent-30d
+      - rf-notifications-sent-trend-30d
+      - rf-notifications-edit-rate-30d
+      - rf-notifications-delete-rate-30d
+      - rf-notifications-bell-opens-trend-30d
+      - rf-notifications-click-breakdown-7d
+      - rf-notifications-recent-broadcasts-30d

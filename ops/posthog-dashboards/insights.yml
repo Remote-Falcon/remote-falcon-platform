@@ -93,3 +93,127 @@ insights:
       GROUP BY type, message
       ORDER BY occurrences DESC
       LIMIT 10
+
+  # ───── Notification engagement (PRD-002 bell + PRD-004 admin sender) ─────
+
+  - name: rf-notifications-sent-30d
+    description: >-
+      Total operator-initiated notifications sent in the last 30 days
+      (both ADMIN broadcasts and per-show DMs). Confirms the admin tab
+      is actually being used rather than falling back to the runbook's
+      curl path.
+    display: BoldNumber
+    query: |
+      SELECT count() AS notifications_sent
+      FROM events
+      WHERE event = 'admin_notification_sent'
+        AND timestamp >= now() - INTERVAL 30 DAY
+
+  - name: rf-notifications-sent-trend-30d
+    description: >-
+      Daily count of notifications sent, broken into broadcasts (ADMIN
+      to all users) and per-show DMs. Lets the operator see send cadence
+      and lopsidedness between the two channels.
+    display: ActionsLineGraph
+    chart_x: day
+    chart_y: [broadcasts, dms]
+    query: |
+      SELECT
+        toStartOfDay(timestamp) AS day,
+        countIf(properties.recipient_type = 'admin') AS broadcasts,
+        countIf(properties.recipient_type = 'user') AS dms
+      FROM events
+      WHERE event = 'admin_notification_sent'
+        AND timestamp >= now() - INTERVAL 30 DAY
+      GROUP BY day
+      ORDER BY day
+
+  - name: rf-notifications-edit-rate-30d
+    description: >-
+      Edits per send over the last 30 days, as a percentage. High = the
+      compose form's validation/preview is missing something. Watch
+      whether this trends toward zero as the operator gets comfortable
+      with the form, or stays high (signal to add features like
+      typo-detection or a draft state).
+    display: BoldNumber
+    query: |
+      SELECT
+        round(countIf(event = 'admin_notification_edited') * 100.0
+              / nullif(countIf(event = 'admin_notification_sent'), 0), 1)
+        AS edit_rate_pct
+      FROM events
+      WHERE event IN ('admin_notification_sent', 'admin_notification_edited')
+        AND timestamp >= now() - INTERVAL 30 DAY
+
+  - name: rf-notifications-delete-rate-30d
+    description: >-
+      Deletes per send over the last 30 days, as a percentage. >5% is a
+      regret smell — the confirm dialog or live preview isn't doing its
+      job. Worth watching closely after launch.
+    display: BoldNumber
+    query: |
+      SELECT
+        round(countIf(event = 'admin_notification_deleted') * 100.0
+              / nullif(countIf(event = 'admin_notification_sent'), 0), 1)
+        AS delete_rate_pct
+      FROM events
+      WHERE event IN ('admin_notification_sent', 'admin_notification_deleted')
+        AND timestamp >= now() - INTERVAL 30 DAY
+
+  - name: rf-notifications-bell-opens-trend-30d
+    description: >-
+      Daily bell-icon opens across all users. Engagement proxy — answers
+      "are users actually using the bell, or ignoring it?" Compare with
+      send cadence in the trend tile above to see whether broadcasts
+      drive engagement spikes.
+    display: ActionsLineGraph
+    chart_x: day
+    chart_y: [bell_opens]
+    query: |
+      SELECT toStartOfDay(timestamp) AS day, count() AS bell_opens
+      FROM events
+      WHERE event = 'notification_bell_opened'
+        AND timestamp >= now() - INTERVAL 30 DAY
+      GROUP BY day
+      ORDER BY day
+
+  - name: rf-notifications-click-breakdown-7d
+    description: >-
+      Notification clicks broken down by type (ADMIN/USER/FPP_HEALTH)
+      and whether the row had a link in the last 7 days. High ratio of
+      has_link=true rows that get clicked = the link is doing its job.
+      Low ratio across the board = users open the bell to dismiss, not
+      to act.
+    display: ActionsTable
+    query: |
+      SELECT
+        properties.type AS notification_type,
+        properties.has_link AS has_link,
+        count() AS clicks
+      FROM events
+      WHERE event = 'notification_clicked'
+        AND timestamp >= now() - INTERVAL 7 DAY
+      GROUP BY notification_type, has_link
+      ORDER BY clicks DESC
+      LIMIT 10
+
+  - name: rf-notifications-recent-broadcasts-30d
+    description: >-
+      Most recent broadcasts/DMs sent in the last 30 days with key
+      attributes. Operator-facing audit at a glance — quicker than
+      `db.notification.find().sort({createdDate: -1})` in Mongo, and
+      includes the per-show DMs that don't live in the broadcasts
+      table.
+    display: ActionsTable
+    query: |
+      SELECT
+        timestamp,
+        properties.recipient_type AS recipient,
+        properties.subject_length AS subject_len,
+        properties.message_length AS message_len,
+        properties.has_link AS has_link
+      FROM events
+      WHERE event = 'admin_notification_sent'
+        AND timestamp >= now() - INTERVAL 30 DAY
+      ORDER BY timestamp DESC
+      LIMIT 20
