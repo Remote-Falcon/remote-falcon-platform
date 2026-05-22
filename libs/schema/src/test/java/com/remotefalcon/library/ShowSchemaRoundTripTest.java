@@ -124,7 +124,6 @@ class ShowSchemaRoundTripTest {
                 .lastName("Owner")
                 .facebookUrl("https://facebook.example/test")
                 .youtubeUrl("https://youtube.example/test")
-                .expoPushToken("expo-token")
                 .totalTokens(42)
                 .lastTokenResetDate(FIXED_TIME)
                 .build();

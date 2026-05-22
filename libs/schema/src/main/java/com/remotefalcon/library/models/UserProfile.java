@@ -18,7 +18,6 @@ public class UserProfile {
     private String lastName;
     private String facebookUrl;
     private String youtubeUrl;
-    private String expoPushToken;
     private Integer totalTokens;
     private LocalDateTime lastTokenResetDate;
 }

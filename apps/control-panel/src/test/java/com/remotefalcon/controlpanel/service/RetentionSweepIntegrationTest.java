@@ -70,7 +70,6 @@ class RetentionSweepIntegrationTest {
     @MockBean private AuthUtil authUtil;
     @MockBean private NotificationRepository notificationRepository;
     @MockBean private ClientUtil clientUtil;
-    @MockBean private ExpoNotificationService expoNotificationService;
 
     private GraphQLMutationService graphQLMutationService;
     private ScheduledTaskService scheduledTaskService;
@@ -86,7 +85,7 @@ class RetentionSweepIntegrationTest {
         ReflectionTestUtils.setField(graphQLMutationService, "autoValidateEmail", Boolean.TRUE);
 
         scheduledTaskService = new ScheduledTaskService(
-                showRepository, expoNotificationService, graphQLMutationService, mongoTemplate);
+                showRepository, graphQLMutationService, mongoTemplate);
     }
 
     private static LocalDateTime stale() {

@@ -21,7 +21,6 @@ import org.springframework.stereotype.Service;
 @Slf4j
 public class ScheduledTaskService {
     private final ShowRepository showRepository;
-    private final ExpoNotificationService expoNotificationService;
     private final GraphQLMutationService graphQLMutationService;
     private final MongoTemplate mongoTemplate;
 
@@ -42,10 +41,8 @@ public class ScheduledTaskService {
                 long minutesDiff = Duration.between(show.getLastFppHeartbeat(), LocalDateTime.now()).toMinutes();
                 String subject = "FPP Plugin Health";
                 String preview = "FPP Plugin last checked in " + minutesDiff + " minutes ago";
-                String pushMessage = "FPP Plugin last checked in " + minutesDiff + " minutes ago. Either the plugin has been stopped or FPPD is not running.";
                 String notificationBody = "FPP Plugin last checked in " + minutesDiff + " minutes ago. Either the plugin has been stopped or FPPD is not running.\n\nThis notification will be deleted after 24 hours.";
 
-                this.expoNotificationService.sendExpoPush(show.getUserProfile().getExpoPushToken(), subject, pushMessage);
                 graphQLMutationService.buildShowNotification(Notification.builder().subject(subject).preview(preview).message(notificationBody).build(), show, NotificationType.FPP_HEALTH);
 
                 show.getPreferences().getNotificationPreferences().setFppHeartbeatLastNotification(LocalDateTime.now());
