@@ -386,7 +386,11 @@ const ViewerPage = () => {
         <Stack spacing={1.5}>
           <Grid container spacing={2}>
             <Grid item xs={12} lg={showSidePreview ? 7 : 12}>
+              {/* key forces Monaco to remount per page so its model + onChange
+                  binding can't carry state across tab switches (the cause of
+                  the cross-page HTML bleed reported in issue tracker #146). */}
               <EditorPane
+                key={currentPage?.name}
                 value={currentHtml}
                 isDirty={isCurrentDirty}
                 lineToFocus={lineToFocus}
