@@ -1,6 +1,6 @@
-import { useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { useMutation } from '@apollo/client';
+import { useMutation, useQuery } from '@apollo/client';
 import {
   Box,
   Button,
@@ -24,6 +24,7 @@ import PropTypes from 'prop-types';
 
 import { savePreferencesService } from '../../../../services/controlPanel/mutations.service';
 import useDashboardLiveStats from '../../../../hooks/useDashboardLiveStats';
+import useDismissedNotifications from '../../../../hooks/useDismissedNotifications';
 import useShowPublicUrl from '../../../../hooks/useShowPublicUrl';
 import { useDispatch, useSelector } from '../../../../store';
 import { setShow } from '../../../../store/slices/show';
@@ -38,6 +39,7 @@ import {
   RESET_ALL_VOTES,
   UPDATE_PREFERENCES
 } from '../../../../utils/graphql/controlPanel/mutations';
+import { NOTIFICATIONS } from '../../../../utils/graphql/controlPanel/queries';
 import { showAlert } from '../../globalPageHelpers';
 
 import HealthRow from './HealthRow';
@@ -126,6 +128,37 @@ const Dashboard = () => {
   const [resetAllVotesMutation] = useMutation(RESET_ALL_VOTES);
   const [deleteNowPlayingMutation] = useMutation(DELETE_NOW_PLAYING);
   const [updatePreferencesMutation] = useMutation(UPDATE_PREFERENCES);
+
+  // Notification nudge — when the operator lands on the dashboard and
+  // has unread items, fire a one-line snackbar pointing at the bell.
+  // Apollo's normalized cache shares the result with the header bell,
+  // so this query doesn't double-fetch when both are mounted.
+  const { data: notificationsData } = useQuery(NOTIFICATIONS, {
+    fetchPolicy: 'cache-and-network',
+    context: { headers: { Route: 'Control-Panel' } }
+  });
+  const { dismissedSet } = useDismissedNotifications();
+  const unreadCount = useMemo(() => {
+    const list = Array.isArray(notificationsData?.getNotifications)
+      ? notificationsData.getNotifications
+      : [];
+    return list.filter((n) => n && n.uuid && !dismissedSet.has(n.uuid)).length;
+  }, [notificationsData, dismissedSet]);
+
+  // Fire exactly once per mount, regardless of re-renders or refetches.
+  // Without the ref, Apollo's cache-and-network refresh would re-trigger.
+  const nudgedRef = useRef(false);
+  useEffect(() => {
+    if (nudgedRef.current) return;
+    if (!notificationsData) return; // wait for the first query result
+    if (unreadCount <= 0) return;
+    nudgedRef.current = true;
+    showAlert(dispatch, {
+      message: `You have ${unreadCount} new notification${unreadCount === 1 ? '' : 's'}`
+    });
+    trackPosthogEvent('notification_snackbar_shown', { unread_count: unreadCount });
+  }, [dispatch, notificationsData, unreadCount]);
+
   // Refetch the live-stats query immediately after mutations the operator
   // expects to see reflected in the dashboard right away (Reset Votes,
   // Clear Now Playing). Without this they'd wait up to one poll interval

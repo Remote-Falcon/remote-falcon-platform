@@ -535,3 +535,20 @@ export const GET_SHOWS_AUTO_SUGGEST = gql`
     getShowsAutoSuggest(showName: $showName)
   }
 `;
+
+// Notifications feed for the header bell. Server returns newest-first;
+// we still sort defensively in the component (see NotificationsSection).
+// `link` is nullable — only release announcements include it.
+export const NOTIFICATIONS = gql`
+  query @api(name: controlPanel) {
+    getNotifications {
+      uuid
+      type
+      subject
+      preview
+      message
+      link
+      createdDate
+    }
+  }
+`;
