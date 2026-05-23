@@ -102,6 +102,7 @@ const HealthRow = () => {
   return (
     <MainCard
       contentSX={{ p: 2.25, '&:last-child': { pb: 2.25 } }}
+      data-testid="dashboard-show-health"
     >
       <Stack
         direction={{ xs: 'column', md: 'row' }}

@@ -154,7 +154,7 @@ const SequenceGroups = () => {
   const isEmpty = !busy && groups.length === 0;
 
   return (
-    <Box>
+    <Box data-testid="sequences-groups-root">
       <MainCard content={false}>
         {busy && <LinearProgress />}
 

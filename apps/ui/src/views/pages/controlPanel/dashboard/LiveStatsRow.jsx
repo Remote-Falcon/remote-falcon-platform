@@ -41,7 +41,7 @@ const LiveStatsRow = () => {
 
   return (
     <Grid container spacing={2} role="status" aria-live="polite" aria-atomic="false">
-      <Grid item xs={12} sm={6} md={3}>
+      <Grid item xs={12} sm={6} md={3} data-testid="dashboard-viewers-now">
         <StatTile
           label="Viewers right now"
           value={viewersNow}
@@ -60,7 +60,7 @@ const LiveStatsRow = () => {
           icon={<IconUsers size={28} stroke={1.5} />}
         />
       </Grid>
-      <Grid item xs={12} sm={6} md={3}>
+      <Grid item xs={12} sm={6} md={3} data-testid="dashboard-active-tile">
         <StatTile
           label={isJukebox ? 'Songs queued' : 'Active votes'}
           value={queuedNow}
