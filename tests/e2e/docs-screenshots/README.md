@@ -9,42 +9,49 @@ Phase 1 produces **10 named shots × 2 themes = 20 PNGs** into
 The sync script in the docusaurus repo copies them into
 `static/img/screenshots/`.
 
-This slice provides the **plumbing** — seed fixture, tier-aware global-setup,
-Playwright config. The specs, `data-testid` attributes on the UI, and the
-`npm run docs:screenshots` glue land in separate slices.
-
 ## Running locally
 
-The tier needs a dev stack pointed at an isolated Mongo DB. Per PRD §5.3, the
-control-panel reads its target from `SPRING_DATA_MONGODB_URI`; when the URI
-is set, Spring's `spring.data.mongodb.database` (and the `MONGO_DATABASE`
-env var) is ignored. Override the URI on the control-panel container only:
+The tier needs a dev stack pointed at an isolated Mongo DB. The
+`ops/docker-compose.docs.yml` overlay sets the right `SPRING_DATA_MONGODB_URI`
+and `MONGO_DATABASE` on the control-panel container (per PRD §5.3 / Q3 —
+both env vars are required because Spring's `database` property takes
+precedence over the URI's path component).
 
 ```bash
-# bring up just the services this tier needs
-./ops/dev-up.sh up mongo control-panel ui ingress
-
-# repoint the control-panel at the docs DB
-SPRING_DATA_MONGODB_URI=mongodb://mongo:27017/remote-falcon-docs \
-  docker compose -f ops/docker-compose.dev.yml up -d --force-recreate control-panel
-
-# populate .env.local with the fixture credentials (see .env.example)
+# 1. populate .env.local with the fixture credentials
 cp tests/e2e/.env.example tests/e2e/.env.local
-# edit DOCS_FIXTURE_USER_EMAIL / DOCS_FIXTURE_USER_PASSWORD
+# edit DOCS_FIXTURE_USER_EMAIL / DOCS_FIXTURE_USER_PASSWORD inside .env.local
 
-# run the tier (npm script wiring lands with the specs slice)
-PLAYWRIGHT_TIER=docs-screenshots npm --prefix tests/e2e run docs:screenshots
+# 2. bring up the docs-mode dev stack
+docker compose \
+  -f ops/docker-compose.dev.yml \
+  -f ops/docker-compose.docs.yml \
+  --env-file ops/.env.dev \
+  up -d --force-recreate control-panel ui ingress
+
+# 3. run the tier
+cd tests/e2e && npm run test:e2e:docs-screenshots
 ```
 
-The eventual convenience command will be `npm run docs:screenshots` from the
-repo root — that wrapper is added by the specs/utils slice.
+`playwright.config.ts` autoloads `tests/e2e/.env.local` via `dotenv` on
+startup, so the fixture credentials and the GraphQL URL override surface
+without a manual `export`. Output lands in `docs-output/` at the repo root.
+
+To return to normal smoke/regression mode, drop the docs overlay and
+recreate the control-panel:
+
+```bash
+docker compose -f ops/docker-compose.dev.yml --env-file ops/.env.dev \
+  up -d --force-recreate control-panel
+```
 
 ### Two-phase seed
 
 `global-setup.ts` runs in two phases when `PLAYWRIGHT_TIER=docs-screenshots`:
 
 1. **Phase A — live signUp.** POSTs the `signUp` GraphQL mutation against
-   `http://localhost:8081/graphql` with HTTP Basic Auth
+   `http://localhost:8081/remote-falcon-control-panel/graphql` (override via
+   `DOCS_CONTROL_PANEL_GRAPHQL_URL`) with HTTP Basic Auth
    `${DOCS_FIXTURE_USER_EMAIL}:${DOCS_FIXTURE_USER_PASSWORD}`. The
    control-panel handles bcrypt hashing, default page init, and uniqueness.
 2. **Phase B — Mongo enrichment.** Reads
@@ -88,7 +95,6 @@ recreating the control-panel without the override.
 - [PRD](/Users/matthewshorts/rf-build/RemoteFalcon-Docs-Screenshot-Automation-PRD.md) —
   full design, §5.3 (seed strategy), Appendix A.3 (field shapes),
   §8 Q1/Q2/Q3/Q8/Q11 (resolved spike answers).
-- `SELECTORS.md` *(arrives with the testids slice)* — the testid contract
-  between specs and the UI.
+- [`SELECTORS.md`](./SELECTORS.md) — the testid contract between specs and the UI.
 - `../fixtures/seed-shows-docs/docs-demo-show.json` — the Phase B
   enrichment payload.

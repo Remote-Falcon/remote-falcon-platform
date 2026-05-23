@@ -1,0 +1,26 @@
+# Docker Compose overlay for the docs-screenshots Playwright tier.
+#
+# Points the control-panel container at an isolated Mongo database
+# (`remote-falcon-docs`) so the screenshot tier can seed/drop without
+# touching the smoke/regression DB. See PRD §5.3 + Q3 spike notes.
+#
+# Usage:
+#   docker compose \
+#     -f ops/docker-compose.dev.yml \
+#     -f ops/docker-compose.docs.yml \
+#     --env-file ops/.env.dev \
+#     up -d control-panel ui ingress
+#
+# To return to normal smoke/regression mode, omit this overlay and
+# --force-recreate control-panel.
+#
+# Why both vars: application.yml reads `database: ${MONGO_DATABASE:remote-falcon}`,
+# and the dev compose sets `SPRING_DATA_MONGODB_URI=mongodb://mongo:27017/remote-falcon`.
+# Spring Boot's `database` property takes precedence over the URI's path
+# component when both are set, so we must override both env vars together
+# or the URI's `/remote-falcon-docs` segment is silently ignored.
+services:
+  control-panel:
+    environment:
+      SPRING_DATA_MONGODB_URI: mongodb://mongo:27017/remote-falcon-docs
+      MONGO_DATABASE: remote-falcon-docs

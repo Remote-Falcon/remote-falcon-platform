@@ -1,4 +1,12 @@
 import { defineConfig, devices, type Project } from '@playwright/test';
+import { config as loadEnv } from 'dotenv';
+import { resolve } from 'path';
+
+// Load .env.local from the e2e package root if present. Picks up the docs
+// tier's fixture credentials (DOCS_FIXTURE_USER_EMAIL/PASSWORD) and any
+// Mongo/GraphQL URL overrides without requiring callers to export them
+// inline. See .env.example for the variables this expects.
+loadEnv({ path: resolve(__dirname, '.env.local'), quiet: true });
 
 const tier = process.env.PLAYWRIGHT_TIER ?? 'smoke';
 const testMatch =
