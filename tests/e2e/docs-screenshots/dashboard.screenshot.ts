@@ -1,4 +1,4 @@
-import { test } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 
 import { signIn } from '../regression/helpers';
 import { FIXTURE_EMAIL, FIXTURE_PASSWORD } from './utils/fixtures';
@@ -25,6 +25,10 @@ test.describe('docs-screenshots: dashboard', () => {
   test.beforeEach(async ({ page }) => {
     await setupTheme(page);
     await signIn(page, FIXTURE_EMAIL, FIXTURE_PASSWORD);
+    // signIn doesn't await the post-submit redirect; without this wait the
+    // next goto() races the JWT context update and the auth guard bounces
+    // us back to the landing page.
+    await expect(page).toHaveURL(/\/control-panel/, { timeout: 20_000 });
     await page.goto('/control-panel/dashboard');
     await waitForDashboardData(page);
   });
