@@ -5,10 +5,13 @@ name: Test Service
 # matrix job, once per changed service.
 #
 # Build-tool resolution (shell case statement):
-#   control-panel, external-api, gateway       -> Maven
+#   control-panel, external-api                -> Maven
 #   viewer, plugins-api, mongo-backup,
 #     account-archive                          -> Gradle
 #   ui                                         -> Node + Vitest
+#   gateway                                    -> no-op (config-only Spring
+#                                                Cloud Gateway, 0 tests —
+#                                                see docs/TESTING.md)
 
 on:
   workflow_call:
@@ -66,8 +69,16 @@ jobs:
         run: |
           set -euo pipefail
           case "$SERVICE" in
-            control-panel|external-api|gateway)
+            control-panel|external-api)
               mvn -pl "apps/$SERVICE" -am test
+              ;;
+            gateway)
+              # gateway is a config-only Spring Cloud Gateway. It has its own
+              # apps/gateway/pom.xml but is intentionally not in the root
+              # reactor — `mvn -pl apps/gateway -am test` fails to resolve
+              # it. Per docs/TESTING.md there are no tests to run, so this
+              # is a deliberate no-op.
+              echo "gateway is a config-only Spring Cloud Gateway — no unit tests"
               ;;
             viewer|plugins-api|mongo-backup|account-archive)
               cd "apps/$SERVICE"
