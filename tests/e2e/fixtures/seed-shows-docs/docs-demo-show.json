@@ -1,0 +1,300 @@
+{
+  "playingNow": "spooky-mansion",
+  "lastFppHeartbeat": "2026-05-23T20:00:00",
+  "pluginVersion": "3.4.1",
+  "fppVersion": "7.5",
+
+  "preferences": {
+    "viewerControlEnabled": true,
+    "viewerControlMode": "JUKEBOX",
+    "jukeboxRequestLimit": 3
+  },
+
+  "sequences": [
+    {
+      "name": "wizards-in-winter",
+      "displayName": "Wizards in Winter",
+      "duration": 186,
+      "visible": true,
+      "index": 0,
+      "order": 0,
+      "imageUrl": "",
+      "active": true,
+      "visibilityCount": 0,
+      "type": "SEQUENCE",
+      "group": "Classics",
+      "category": "Rock",
+      "artist": "Trans-Siberian Orchestra"
+    },
+    {
+      "name": "carol-of-the-bells",
+      "displayName": "Carol of the Bells",
+      "duration": 142,
+      "visible": true,
+      "index": 1,
+      "order": 1,
+      "imageUrl": "",
+      "active": true,
+      "visibilityCount": 0,
+      "type": "SEQUENCE",
+      "group": "Classics",
+      "category": "Traditional",
+      "artist": "Lindsey Stirling"
+    },
+    {
+      "name": "spooky-mansion",
+      "displayName": "Spooky Mansion",
+      "duration": 211,
+      "visible": true,
+      "index": 2,
+      "order": 2,
+      "imageUrl": "",
+      "active": true,
+      "visibilityCount": 0,
+      "type": "SEQUENCE",
+      "group": "Halloween",
+      "category": "Spooky",
+      "artist": "Midnight Syndicate"
+    },
+    {
+      "name": "linus-and-lucy",
+      "displayName": "Linus and Lucy",
+      "duration": 168,
+      "visible": true,
+      "index": 3,
+      "order": 3,
+      "imageUrl": "",
+      "active": true,
+      "visibilityCount": 0,
+      "type": "SEQUENCE",
+      "group": "Classics",
+      "category": "Jazz",
+      "artist": "Vince Guaraldi Trio"
+    },
+    {
+      "name": "all-i-want-for-christmas",
+      "displayName": "All I Want for Christmas Is You",
+      "duration": 241,
+      "visible": true,
+      "index": 4,
+      "order": 4,
+      "imageUrl": "",
+      "active": true,
+      "visibilityCount": 0,
+      "type": "SEQUENCE",
+      "group": "Pop",
+      "category": "Pop",
+      "artist": "Mariah Carey"
+    },
+    {
+      "name": "feliz-navidad",
+      "displayName": "Feliz Navidad",
+      "duration": 197,
+      "visible": true,
+      "index": 5,
+      "order": 5,
+      "imageUrl": "",
+      "active": true,
+      "visibilityCount": 0,
+      "type": "SEQUENCE",
+      "group": "Pop",
+      "category": "Latin",
+      "artist": "Jose Feliciano"
+    },
+    {
+      "name": "deck-the-halls",
+      "displayName": "Deck the Halls",
+      "duration": 132,
+      "visible": false,
+      "index": 6,
+      "order": 6,
+      "imageUrl": "",
+      "active": true,
+      "visibilityCount": 0,
+      "type": "SEQUENCE",
+      "group": "Classics",
+      "category": "Traditional",
+      "artist": "Pentatonix"
+    },
+    {
+      "name": "thriller",
+      "displayName": "Thriller",
+      "duration": 358,
+      "visible": true,
+      "index": 7,
+      "order": 7,
+      "imageUrl": "",
+      "active": false,
+      "visibilityCount": 0,
+      "type": "SEQUENCE",
+      "group": "Halloween",
+      "category": "Pop",
+      "artist": "Michael Jackson"
+    },
+    {
+      "name": "psa-tip-jar",
+      "displayName": "Tip Jar Reminder",
+      "duration": 30,
+      "visible": false,
+      "index": 8,
+      "order": 8,
+      "imageUrl": "",
+      "active": true,
+      "visibilityCount": 0,
+      "type": "PSA",
+      "group": "",
+      "category": "",
+      "artist": ""
+    },
+    {
+      "name": "jingle-bell-rock",
+      "displayName": "Jingle Bell Rock",
+      "duration": 152,
+      "visible": true,
+      "index": 9,
+      "order": 9,
+      "imageUrl": "",
+      "active": true,
+      "visibilityCount": 0,
+      "type": "SEQUENCE",
+      "group": "Pop",
+      "category": "Pop",
+      "artist": "Bobby Helms"
+    }
+  ],
+
+  "sequenceGroups": [
+    { "name": "Classics", "visibilityCount": 0 },
+    { "name": "Halloween", "visibilityCount": 0 },
+    { "name": "Pop", "visibilityCount": 0 }
+  ],
+
+  "requests": [
+    {
+      "sequence": {
+        "name": "wizards-in-winter",
+        "displayName": "Wizards in Winter"
+      },
+      "position": 1,
+      "viewerRequested": "viewer-a31b",
+      "ownerRequested": false
+    },
+    {
+      "sequence": {
+        "name": "carol-of-the-bells",
+        "displayName": "Carol of the Bells"
+      },
+      "position": 2,
+      "viewerRequested": "viewer-7f02",
+      "ownerRequested": false
+    },
+    {
+      "sequence": {
+        "name": "linus-and-lucy",
+        "displayName": "Linus and Lucy"
+      },
+      "position": 3,
+      "viewerRequested": "viewer-c918",
+      "ownerRequested": false
+    },
+    {
+      "sequence": {
+        "name": "all-i-want-for-christmas",
+        "displayName": "All I Want for Christmas Is You"
+      },
+      "position": 4,
+      "viewerRequested": "viewer-d445",
+      "ownerRequested": false
+    },
+    {
+      "sequence": {
+        "name": "feliz-navidad",
+        "displayName": "Feliz Navidad"
+      },
+      "position": 5,
+      "viewerRequested": "viewer-ee10",
+      "ownerRequested": true
+    }
+  ],
+
+  "votes": [
+    {
+      "sequence": {
+        "name": "wizards-in-winter",
+        "displayName": "Wizards in Winter"
+      },
+      "sequenceGroup": { "name": "Classics", "visibilityCount": 0 },
+      "votes": 18,
+      "viewersVoted": ["viewer-a31b", "viewer-7f02", "viewer-c918"],
+      "lastVoteTime": "2026-05-23T19:55:00",
+      "ownerVoted": false
+    },
+    {
+      "sequence": {
+        "name": "thriller",
+        "displayName": "Thriller"
+      },
+      "sequenceGroup": { "name": "Halloween", "visibilityCount": 0 },
+      "votes": 12,
+      "viewersVoted": ["viewer-d445", "viewer-ee10"],
+      "lastVoteTime": "2026-05-23T19:55:00",
+      "ownerVoted": false
+    },
+    {
+      "sequence": {
+        "name": "feliz-navidad",
+        "displayName": "Feliz Navidad"
+      },
+      "sequenceGroup": { "name": "Pop", "visibilityCount": 0 },
+      "votes": 7,
+      "viewersVoted": ["viewer-7f02"],
+      "lastVoteTime": "2026-05-23T19:55:00",
+      "ownerVoted": false
+    }
+  ],
+
+  "activeViewers": [
+    {
+      "ipAddress": "10.0.0.42",
+      "viewerId": "viewer-a31b",
+      "visitDateTime": "2026-05-23T20:00:00"
+    },
+    {
+      "ipAddress": "10.0.0.43",
+      "viewerId": "viewer-7f02",
+      "visitDateTime": "2026-05-23T20:00:00"
+    },
+    {
+      "ipAddress": "10.0.0.44",
+      "viewerId": "viewer-c918",
+      "visitDateTime": "2026-05-23T20:00:00"
+    }
+  ],
+
+  "viewerSessions": [
+    {
+      "ip": "10.0.0.42",
+      "viewerId": "viewer-a31b",
+      "nightDate": "2026-05-23",
+      "firstSeen": "2026-05-23T18:00:00",
+      "lastSeen": "2026-05-23T18:12:00",
+      "eventCount": 14
+    },
+    {
+      "ip": "10.0.0.43",
+      "viewerId": "viewer-7f02",
+      "nightDate": "2026-05-23",
+      "firstSeen": "2026-05-23T18:00:00",
+      "lastSeen": "2026-05-23T18:10:00",
+      "eventCount": 9
+    },
+    {
+      "ip": "10.0.0.44",
+      "viewerId": "viewer-c918",
+      "nightDate": "2026-05-23",
+      "firstSeen": "2026-05-23T18:00:00",
+      "lastSeen": "2026-05-23T18:15:00",
+      "eventCount": 22
+    }
+  ]
+}
