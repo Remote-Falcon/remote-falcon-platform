@@ -231,7 +231,7 @@ const ShowsMap = () => {
   }, [detectLocation, getShowsOnMap]);
 
   return (
-    <Box>
+    <Box data-testid="shows-map-root">
       <PageHead
         title="Shows Map"
         description="See other Remote Falcon shows on the map. Opt in to share your show's location."

@@ -20,7 +20,7 @@ export const analyticsRoutes = [
 // v2 Analytics shell. The PageHead actions slot owns the date-range
 // picker so it stays sticky-visible regardless of which sub-tab is open.
 const Analytics = () => (
-  <Box>
+  <Box data-testid="analytics-root">
     <PageHead
       title="Analytics"
       description="Reflect on your audience and how the show is landing. Filter, compare, and share."
