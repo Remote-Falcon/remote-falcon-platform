@@ -36,3 +36,7 @@ Thumbs.db
 
 # Operator baselines (sensitive cluster snapshots)
 baseline-*/
+
+# docs-screenshots tier output (Playwright-generated PNGs + manifest).
+# Synced into remote-falcon-docusaurus via that repo's docs:sync script.
+docs-output/
