@@ -1,5 +1,7 @@
 package com.remotefalcon.service;
 
+import com.remotefalcon.library.enums.ViewerControlMode;
+import com.remotefalcon.library.models.Preference;
 import com.remotefalcon.library.models.Request;
 import com.remotefalcon.library.models.Sequence;
 import com.remotefalcon.library.models.SequenceGroup;
@@ -126,6 +128,47 @@ class GraphQLQueryServiceTest {
       // No requests, so should pick from schedule "songB" and use display name
       verify(show).setPlayingNext("Song B");
       verify(show).setPlayingNextSequence(sB);
+    }
+
+    @Test
+    @DisplayName("Voting mode should ignore stale requests and use schedule for playingNext (#78 regression guard)")
+    void votingModeIgnoresRequestsAndUsesSchedule() {
+      // Reproduces the #78 scenario: a show in VOTING mode with a stale
+      // entry in `requests` (the PSA, left over from a prior jukebox-mode
+      // session — voting mode never consumes the request queue via
+      // nextPlaylistInQueue). Before the fix, every getShow saw the stale
+      // request as the min-by-position and overwrote playingNext with
+      // the PSA's displayName, masking the actual scheduled sequence.
+      Show show = mockShowWithBasicCollections();
+      when(show.getPlayingNow()).thenReturn("WizardsInWinter");
+
+      Preference voting = mock(Preference.class);
+      when(voting.getViewerControlMode()).thenReturn(ViewerControlMode.VOTING);
+      when(show.getPreferences()).thenReturn(voting);
+
+      // Stale PSA request — should be ignored in voting mode.
+      Sequence staleAnnouncement = mockSequence("Announcement", "Announcement", 0, true, 0, null);
+      Request stalePsaRequest = mock(Request.class);
+      when(stalePsaRequest.getPosition()).thenReturn(1);
+      // No need to stub getSequence() — voting-mode path never touches it.
+      show.getRequests().add(stalePsaRequest);
+
+      // Actual scheduled next, surfaced by the FPP plugin via
+      // updateNextScheduledSequence — this is what playingNext SHOULD be.
+      Sequence wizards = mockSequence("WizardsInWinter", "Wizards In Winter", 1, true, 0, null);
+      show.getSequences().add(wizards);
+      show.getSequences().add(staleAnnouncement);
+      when(show.getPlayingNextFromSchedule()).thenReturn("WizardsInWinter");
+
+      when(showRepository.findByShowSubdomainForViewer("sub")).thenReturn(Optional.of(show));
+
+      service.getShow("sub");
+
+      // playingNext must reflect the schedule, NOT the stale PSA request.
+      verify(show).setPlayingNext("Wizards In Winter");
+      verify(show).setPlayingNextSequence(wizards);
+      verify(show, never()).setPlayingNext("Announcement");
+      verify(show, never()).setPlayingNextSequence(staleAnnouncement);
     }
 
     @Test

@@ -1,5 +1,6 @@
 package com.remotefalcon.service;
 
+import com.remotefalcon.library.enums.ViewerControlMode;
 import com.remotefalcon.library.models.Request;
 import com.remotefalcon.library.models.Sequence;
 import com.remotefalcon.library.models.SequenceGroup;
@@ -46,24 +47,40 @@ public class GraphQLQueryService {
   }
 
   private void updatePlayingNext(Show show) {
-    // Get next from request list
-    Optional<Request> nextRequest = show.getRequests().stream()
-        .min(Comparator.comparing(Request::getPosition));
-    nextRequest.ifPresent(request -> {
-      show.setPlayingNext(request.getSequence().getDisplayName());
-      show.setPlayingNextSequence(request.getSequence());
-    });
+    // Voting-mode shows must skip the request-queue read entirely.
+    // `requests` is a jukebox concept — winning votes are surfaced to FPP
+    // via the highestVotedPlaylist endpoint and never put entries into
+    // `requests`. Skipping this read in voting mode also stops stale
+    // entries left over from an earlier jukebox-mode session from leaking
+    // into playingNext: when a show was once in jukebox mode with managed
+    // PSA, the PSA's Request stuck in the array (only nextPlaylistInQueue
+    // removes it, and that endpoint isn't called in voting mode). Every
+    // subsequent getShow saw it as the min-by-position request and
+    // overwrote playingNext with the PSA's displayName, regardless of
+    // what the schedule said (#78).
+    boolean isVotingMode = show.getPreferences() != null
+        && ViewerControlMode.VOTING.equals(show.getPreferences().getViewerControlMode());
 
-    // Get next from schedule if next request is empty
-    if (nextRequest.isEmpty()) {
-      Optional<Sequence> playingNextScheduledSequence = show.getSequences().stream()
-          .filter(sequence -> StringUtils.equalsIgnoreCase(sequence.getName(), show.getPlayingNextFromSchedule()))
-          .findFirst();
-      playingNextScheduledSequence.ifPresent(sequence -> {
-        show.setPlayingNext(sequence.getDisplayName());
-        show.setPlayingNextSequence(sequence);
-      });
+    Optional<Request> nextRequest = isVotingMode
+        ? Optional.empty()
+        : show.getRequests().stream().min(Comparator.comparing(Request::getPosition));
+
+    if (nextRequest.isPresent()) {
+      show.setPlayingNext(nextRequest.get().getSequence().getDisplayName());
+      show.setPlayingNextSequence(nextRequest.get().getSequence());
+      return;
     }
+
+    // Fall through to the FPP-reported next-scheduled sequence. This is
+    // the source of truth in voting mode and the fallback in jukebox mode
+    // when the request queue is empty.
+    Optional<Sequence> playingNextScheduledSequence = show.getSequences().stream()
+        .filter(sequence -> StringUtils.equalsIgnoreCase(sequence.getName(), show.getPlayingNextFromSchedule()))
+        .findFirst();
+    playingNextScheduledSequence.ifPresent(sequence -> {
+      show.setPlayingNext(sequence.getDisplayName());
+      show.setPlayingNextSequence(sequence);
+    });
   }
 
   private List<Sequence> processSequencesForViewer(Show show) {
