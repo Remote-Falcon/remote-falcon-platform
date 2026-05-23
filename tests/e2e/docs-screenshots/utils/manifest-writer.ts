@@ -4,11 +4,14 @@ import { dirname, resolve } from 'path';
 // In-process manifest accumulator for the docs-screenshots tier.
 //
 // Per PRD §5.4 the manifest is the audit trail for which shots were captured
-// during a run. Each `takeScreenshot()` call appends one entry here; the
-// flush is called once at the end of the test run (we wire it via the
-// Playwright `globalTeardown` hook from a sibling slice — when the
-// tests/e2e/docs-screenshots/ specs run there's only ever one Playwright
-// process, so an in-process Map is sufficient).
+// during a run. Each `takeScreenshot()` call appends one entry here and the
+// manifest is re-serialized to disk on the same call.
+//
+// Why self-flush (not globalTeardown): Playwright's globalTeardown runs in a
+// separate Node process from the test workers, so the in-memory Map below
+// would be empty when it's invoked. The simplest robust shape is to persist
+// after every append — last write wins, the JSON is sorted/deterministic,
+// and there's no cross-process coordination to get wrong.
 //
 // Entries are deduplicated by name (two themes produce two PNGs but only one
 // manifest entry — the name is theme-agnostic). When the same name is
@@ -27,13 +30,20 @@ export interface ManifestMetadata {
   themes: string[];
 }
 
+// Run-level metadata. Hard-coded to match playwright.config.ts's docs tier
+// projects (per PRD §5.1: Desktop Chrome 1440x900, light + dark). Kept in
+// this file to avoid an import cycle with screenshot-helper.ts.
+const MANIFEST_VIEWPORT: ManifestMetadata['viewport'] = { width: 1440, height: 900 };
+const MANIFEST_THEMES: ManifestMetadata['themes'] = ['light', 'dark'];
+
 // Module-scope singleton. Playwright runs each project in the same Node
-// process when sharded; the in-memory accumulator naturally aggregates
-// across both screenshots-light and screenshots-dark runs.
+// process when serialized (workers: 1 for the docs tier), so the in-memory
+// accumulator naturally aggregates across screenshots-light + screenshots-dark.
 const entries = new Map<string, ManifestEntry>();
 
 export const appendManifestEntry = (entry: ManifestEntry): void => {
   entries.set(entry.name, entry);
+  writeManifest();
 };
 
 /**
@@ -47,11 +57,15 @@ export const manifestOutputPath = (): string =>
   resolve(__dirname, '../../../../docs-output/screenshots.manifest.json');
 
 /**
- * Serialize the accumulated entries to disk. Idempotent — calling twice
- * overwrites with the current state. Sorts entries by name for a stable
- * diff between runs.
+ * Serialize the accumulated entries to disk. Sorts by name for a stable
+ * diff between runs. Called automatically after every append; also
+ * exported so callers can force a flush if needed.
  */
-export const flushManifest = (metadata: ManifestMetadata): void => {
+export const flushManifest = (_metadata?: ManifestMetadata): void => {
+  writeManifest();
+};
+
+const writeManifest = (): void => {
   const outPath = manifestOutputPath();
   mkdirSync(dirname(outPath), { recursive: true });
 
@@ -61,8 +75,8 @@ export const flushManifest = (metadata: ManifestMetadata): void => {
 
   const payload = {
     generated: new Date().toISOString(),
-    viewport: metadata.viewport,
-    themes: metadata.themes,
+    viewport: MANIFEST_VIEWPORT,
+    themes: MANIFEST_THEMES,
     screenshots,
   };
 
@@ -70,8 +84,6 @@ export const flushManifest = (metadata: ManifestMetadata): void => {
 };
 
 /**
- * Test helper: returns a snapshot of the current accumulator. Not used by
- * specs directly — exported so the globalTeardown can decide whether
- * there's anything worth flushing.
+ * Test helper: returns a snapshot of the current accumulator.
  */
 export const manifestEntries = (): ManifestEntry[] => [...entries.values()];
