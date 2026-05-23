@@ -145,7 +145,7 @@ const UserProfile = () => {
 
   return (
     <>
-      <Grid container spacing={gridSpacing}>
+      <Grid container spacing={gridSpacing} data-testid="account-profile-root">
         <Grid item xs={12}>
           <Grid container spacing={2} alignItems="center">
             <Grid item>

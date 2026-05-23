@@ -634,7 +634,7 @@ const SequencesList = () => {
   }[saveStatus];
 
   return (
-    <Box>
+    <Box data-testid="sequences-list-root">
       <MainCard content={false}>
         {busy && <LinearProgress />}
 

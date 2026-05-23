@@ -84,6 +84,7 @@ const NowPlayingCard = () => {
     <MainCard
       sx={{ height: '100%' }}
       contentSX={{ p: 0, '&:last-child': { pb: 0 } }}
+      data-testid="dashboard-now-playing"
     >
       <Stack direction="row" spacing={2} alignItems="center" sx={{ px: 2.25, py: 2.25 }}>
         <Box

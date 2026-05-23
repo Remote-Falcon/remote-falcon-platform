@@ -332,6 +332,7 @@ const PreShowChecklist = () => {
               : 'transparent'
       }}
       contentSX={{ p: 0, '&:last-child': { pb: 0 } }}
+      data-testid="dashboard-checklist"
     >
       <Stack
         direction="row"
