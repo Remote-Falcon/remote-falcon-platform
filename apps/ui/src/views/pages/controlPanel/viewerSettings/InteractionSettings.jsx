@@ -23,6 +23,26 @@ const locationCheckMethods = [
   { label: 'Code', id: 'CODE' }
 ];
 
+// Convert the MUI Autocomplete `value` (array of {label, id}) into the
+// two shapes we need: the server-side `psaSequences` payload (with
+// normalized 0..N-1 order + lastPlayed timestamp) and the UI's
+// `selectedPsaOptions` chips array. Exported for unit testing — the
+// PSA-list save-on-remove bug (#66) hinged on getting this shape
+// right and persisting it on every change, not only on blur.
+export const buildPsaSequencesFromAutocompleteValue = (value) => {
+  const safeValue = Array.isArray(value) ? value : [];
+  const seqs = safeValue.map((psaSequence, index) => ({
+    name: psaSequence?.label,
+    order: index,
+    lastPlayed: moment().format('YYYY-MM-DDTHH:mm:ss')
+  }));
+  const selected = safeValue.map((psaSequence) => ({
+    label: psaSequence?.label,
+    id: psaSequence?.label
+  }));
+  return { seqs, selected };
+};
+
 const InteractionSettings = () => {
   const dispatch = useDispatch();
   const { show } = useSelector((state) => state.show);
@@ -62,7 +82,6 @@ const InteractionSettings = () => {
   // Click-action state — not auto-saved.
   const [psaOptions, setPsaOptions] = useState([]);
   const [selectedPsaOptions, setSelectedPsaOptions] = useState([]);
-  const [psaSequences, setPsaSequences] = useState([]);
   const [currentLatitude, setCurrentLatitude] = useState(0.0);
   const [currentLongitude, setCurrentLongitude] = useState(0.0);
 
@@ -74,11 +93,6 @@ const InteractionSettings = () => {
       opts.push({ label: sequence.name, id: sequence.name });
     });
     setPsaOptions(opts);
-    const existing = [];
-    _.forEach(show?.psaSequences, (sequence) => {
-      existing.push({ name: sequence.name, order: sequence.order });
-    });
-    setPsaSequences(existing);
   }, [show]);
 
   const getSelectedPsaOptions = useCallback(() => {
@@ -141,20 +155,21 @@ const InteractionSettings = () => {
   };
 
   const handlePsaSequencesChange = (_event, value) => {
-    const seqs = [];
-    const selected = [];
-    value.forEach((psaSequence, index) => {
-      seqs.push({ name: psaSequence.label, order: index, lastPlayed: moment().format('YYYY-MM-DDTHH:mm:ss') });
-      selected.push({ label: psaSequence?.label, id: psaSequence?.label });
-    });
+    const { seqs, selected } = buildPsaSequencesFromAutocompleteValue(value);
     setSelectedPsaOptions(selected);
-    setPsaSequences(seqs);
-  };
-
-  const savePsaSequences = () => {
-    savePsaSequencesService(psaSequences, updatePsaSequencesMutation, (response) => {
+    // Persist on every change. Previously this only ran from
+    // Autocomplete's onBlur, which the chip X-button does not fire —
+    // removing a PSA looked like it stuck visually but did not save
+    // until the user clicked elsewhere (#66). Saving inline with the
+    // fresh `seqs` (not the not-yet-committed React state) also
+    // sidesteps a stale-state race on the next render.
+    savePsaSequencesService(seqs, updatePsaSequencesMutation, (response) => {
       if (response?.success) {
-        dispatch(setShow({ ...show, psaSequences: { ...psaSequences } }));
+        // Preserve array shape in the Redux dispatch. The previous
+        // `{ ...psaSequences }` spread turned the array into an
+        // object keyed by index, which the next useEffect's lodash
+        // forEach iterated in unstable order.
+        dispatch(setShow({ ...show, psaSequences: [...seqs] }));
       }
       showAlert(dispatch, response?.toast);
     });
@@ -290,7 +305,6 @@ const InteractionSettings = () => {
                       value={selectedPsaOptions}
                       renderInput={(params) => <TextField {...params} />}
                       onChange={handlePsaSequencesChange}
-                      onBlur={savePsaSequences}
                     />
                   </Grid>
                 </Grid>
