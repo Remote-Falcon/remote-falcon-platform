@@ -1,0 +1,28 @@
+import { test } from '@playwright/test';
+
+import { signIn } from '../regression/helpers';
+import { FIXTURE_EMAIL, FIXTURE_PASSWORD } from './utils/fixtures';
+import { setupTheme, takeScreenshot } from './utils/screenshot-helper';
+
+// Shot 2: account-profile
+// Authenticated, full-page capture on /control-panel/account-settings/profile.
+// The fixture user (seeded in global-setup per the seed-and-setup slice)
+// has a realistic first/last name + show name + subdomain so the rendered
+// page is representative without further per-spec seeding.
+test.describe('docs-screenshots: account settings', () => {
+  test.beforeEach(async ({ page }) => {
+    await setupTheme(page);
+    await signIn(page, FIXTURE_EMAIL, FIXTURE_PASSWORD);
+  });
+
+  test('account-profile', async ({ page }, testInfo) => {
+    await page.goto('/control-panel/account-settings/profile');
+    await page
+      .locator('[data-testid="account-profile-root"]')
+      .waitFor({ state: 'visible' });
+    await takeScreenshot(page, testInfo, 'fullPage', 'account-profile', {
+      alt: 'Account profile page with the fixture user details populated',
+      state: 'default',
+    });
+  });
+});
