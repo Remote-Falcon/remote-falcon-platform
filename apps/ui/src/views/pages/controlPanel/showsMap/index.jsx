@@ -33,22 +33,10 @@ const ShowsCluster = ({ shows }) => {
   }, [markerLib]);
 
   useEffect(() => {
-    if (!map || !markerLib) return;
-    clustererRef.current = new MarkerClusterer({ map, markers: [] });
-    return () => {
-      clustererRef.current?.clearMarkers();
-      clustererRef.current = null;
-    };
-  }, [map, markerLib]);
-
-  useEffect(() => {
-    if (!map || !markerLib || !clustererRef.current) return;
+    if (!map || !markerLib) return undefined;
     const { AdvancedMarkerElement } = markerLib;
     const infoWindow = infoWindowRef.current ?? new google.maps.InfoWindow();
     const mapClickListener = map.addListener('click', () => infoWindow.close());
-
-    // clear existing markers before adding new ones
-    clustererRef.current.clearMarkers();
 
     const markers = shows
       .filter((show) => Number.isFinite(show?.location?.lat) && Number.isFinite(show?.location?.lng))
@@ -72,10 +60,20 @@ const ShowsCluster = ({ shows }) => {
         return marker;
       });
 
-    clustererRef.current.addMarkers(markers);
+    // Construct the clusterer with markers already populated. The
+    // previous split-effect implementation (empty-init then addMarkers)
+    // is a known sharp edge in @googlemaps/markerclusterer v2.5+ when
+    // paired with AdvancedMarkerElement — the renderer is left in a
+    // state where the first addMarkers() call silently produces no DOM
+    // output, with no console error. Result: ~1,040 valid markers
+    // entered the cluster but zero <gmp-advanced-marker> elements ever
+    // appeared in the DOM (#117).
+    clustererRef.current = new MarkerClusterer({ map, markers });
 
     return () => {
       google.maps.event.removeListener(mapClickListener);
+      clustererRef.current?.clearMarkers();
+      clustererRef.current = null;
       markers.forEach((marker) => marker.map && (marker.map = null));
     };
   }, [map, markerLib, shows]);
