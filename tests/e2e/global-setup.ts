@@ -3,8 +3,12 @@ import { readdirSync, readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 
 const DOCS_DB_NAME = 'remote-falcon-docs';
+// The control-panel Spring Boot app is served under context path
+// /remote-falcon-control-panel — both at the direct port (8081) and via the
+// dev nginx ingress on :8080. Default to direct-port to keep the docs tier
+// independent of ingress being up, but allow override for ingress-routed runs.
 const CONTROL_PANEL_GRAPHQL = process.env.DOCS_CONTROL_PANEL_GRAPHQL_URL
-  ?? 'http://localhost:8081/graphql';
+  ?? 'http://localhost:8081/remote-falcon-control-panel/graphql';
 
 /**
  * Connect to Mongo with a short retry loop — dev-up.sh's health check has
