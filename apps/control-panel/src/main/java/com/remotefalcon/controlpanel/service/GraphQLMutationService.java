@@ -15,6 +15,7 @@ import com.remotefalcon.library.enums.StatusResponse;
 import com.remotefalcon.library.enums.ViewerControlMode;
 import com.remotefalcon.library.models.*;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Value;
@@ -30,6 +31,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class GraphQLMutationService {
     private final EmailUtil emailUtil;
@@ -245,13 +247,22 @@ public class GraphQLMutationService {
             show.get().getApiAccess().setApiAccessToken(accessToken);
             show.get().getApiAccess().setApiAccessSecret(secretKey);
             this.showRepository.save(show.get());
+            // Email is best-effort. Previously a non-202 from MailerSend
+            // triggered a "rollback" that re-applied the same values it
+            // just persisted, then threw UNEXPECTED_ERROR — so the user
+            // saw a generic error toast while their show had active
+            // credentials they never received via email. The actual
+            // source of truth for the credentials is the GraphQL
+            // response: the UI displays the secret immediately and only
+            // shows it once. Log the email failure so it's visible in
+            // observability, but return success so the user can copy
+            // the credentials from the screen. Same pattern is expected
+            // for the rotation-email flow tracked by #138 (issue #139).
             MailerSendResponse response = this.emailUtil.sendRequestApiAccessEmail(show.get(), accessToken, secretKey);
-            if(response.responseStatusCode != 202) {
-                show.get().getApiAccess().setApiAccessActive(true);
-                show.get().getApiAccess().setApiAccessToken(accessToken);
-                show.get().getApiAccess().setApiAccessSecret(secretKey);
-                this.showRepository.save(show.get());
-                throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());
+            if(response == null || response.responseStatusCode != 202) {
+                log.warn("requestApiAccess: confirmation email failed for show={} status={}",
+                        show.get().getShowSubdomain(),
+                        response == null ? "null" : String.valueOf(response.responseStatusCode));
             }
             return show.get().getApiAccess();
         }
