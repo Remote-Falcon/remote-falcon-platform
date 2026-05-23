@@ -7,7 +7,10 @@
   "preferences": {
     "viewerControlEnabled": true,
     "viewerControlMode": "JUKEBOX",
-    "jukeboxRequestLimit": 3
+    "jukeboxRequestLimit": 3,
+    "showOnMap": true,
+    "showLatitude": 33.95246,
+    "showLongitude": -117.58479
   },
 
   "sequences": [

@@ -340,7 +340,7 @@ const ViewerPage = () => {
 
   // Render ----------------------------------------------------------------
   return (
-    <Box>
+    <Box data-testid="viewer-page-root">
       <PageHead
         title="Viewer Page"
         description="Edit the HTML that powers your show's public viewer page. Up to 5 pages per show; one is live to viewers at a time."

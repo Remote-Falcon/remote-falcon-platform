@@ -170,7 +170,7 @@ const ImageHosting = () => {
   }, [getImages]);
 
   return (
-    <Box>
+    <Box data-testid="image-hosting-root">
       <PageHead
         title="Image Hosting"
         description={`Host images for use on your viewer page. ${images.length} of ${MAX_IMAGES} used.`}

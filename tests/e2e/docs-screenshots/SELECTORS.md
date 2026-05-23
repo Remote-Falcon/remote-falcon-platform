@@ -39,7 +39,7 @@ archived.
 
 ## Per-shot testid table
 
-9 testids across 8 files. (Shots 4 and 5 share one testid —
+13 testids across 12 files. (Shots 4 and 5 share one testid —
 `dashboard-active-tile` — captured twice under different filenames
 after flipping show mode.)
 
@@ -55,6 +55,10 @@ after flipping show mode.)
 | 8 | `dashboard-checklist` | `apps/ui/src/views/pages/controlPanel/dashboard/PreShowChecklist.jsx` | outer `<MainCard>` | `dashboard-checklist` |
 | 9 | `sequences-list` | `apps/ui/src/views/pages/controlPanel/sequences/SequencesList.jsx` | outermost component root | `sequences-list-root` |
 | 10 | `sequences-groups` | `apps/ui/src/views/pages/controlPanel/sequences/SequenceGroups.jsx` | outermost component root | `sequences-groups-root` |
+| 11 | `analytics` | `apps/ui/src/views/pages/controlPanel/analytics/index.jsx` | outer `<Box>` shell | `analytics-root` |
+| 12 | `image-hosting` | `apps/ui/src/views/pages/controlPanel/imageHosting/index.jsx` | outer `<Box>` | `image-hosting-root` |
+| 13 | `shows-map` | `apps/ui/src/views/pages/controlPanel/showsMap/index.jsx` | outer `<Box>` | `shows-map-root` |
+| 14 | `viewer-page` | `apps/ui/src/views/pages/controlPanel/viewerPage/index.jsx` | outer `<Box>` | `viewer-page-root` |
 
 ### Notes per row
 
@@ -95,11 +99,17 @@ after flipping show mode.)
 
 Option A keeps the testid contract local to the screens that need it.
 
-## Out-of-scope (Phase 1.5)
+## Phase 1.5 — new shots added 2026-05-23
 
-When the docs-alignment PRD picks up the deferred shots (header,
-viewer-page, sequences inline-edit), additional testids will be added.
-Tracked in Appendix B.6 of the PRD; not added by this contract.
+Shots 11–14 were added as a Phase 1.5 follow-up to cover the four pages
+that the IA restructure surfaced but Phase 1 didn't capture: Analytics,
+Image Hosting, Shows Map, and the rebuilt Viewer Page editor. All four
+are full-page captures with `-root` suffix testids on the outer `<Box>`
+shells.
+
+For Shows Map (#13) to render with a pin instead of the opt-in CTA, the
+docs-screenshots seed sets `preferences.showOnMap: true` plus a realistic
+`showLatitude` / `showLongitude` (see Appendix A.3).
 
 ## Cross-reference
 
