@@ -26,4 +26,11 @@ type Mutation {
     createNotificationForUser(notification: NotificationInput!, showSubdomain: String!): Boolean
     updateNotification(uuid: String!, notification: NotificationInput!): Boolean
     deleteNotification(uuid: String!): Boolean
+
+    # RF Page Builder integration (PRD External Viewer Page API, PR-B).
+    # Mints a short-lived HS256 launch JWT for a specific viewer page on
+    # the current show and returns the full RFPB redirect URL. UI does
+    # window.location.assign(url) to hand the user off; RFPB's /launch
+    # route back-channel-exchanges the token for a session bearer.
+    launchExternalEditor(pageId: String!): String
 }

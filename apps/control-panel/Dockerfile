@@ -27,12 +27,22 @@ COPY libs/test-fixtures/pom.xml .
 COPY libs/test-fixtures/src ./src
 RUN mvn install -DskipTests -B
 
-# Stage 1: GraalVM 21 native build for the service, inheriting the schema +
-# test-fixtures jars from mavenLocal.
+# Stage 0c: build libs/auth on the same JDK 17. Added 2026-05-24 for PR-B
+# of the RFPB integration — control-panel uses LaunchTokenSigner in the
+# launchExternalEditor GraphQL mutation.
+FROM maven:3-eclipse-temurin-17 AS auth-build
+WORKDIR /lib
+COPY libs/auth/pom.xml .
+COPY libs/auth/src ./src
+RUN mvn install -DskipTests -B
+
+# Stage 1: GraalVM 21 native build for the service, inheriting all three
+# libs jars from mavenLocal.
 FROM ghcr.io/graalvm/native-image-community:21 AS build
 WORKDIR /usr/src/app
 RUN microdnf install -y maven && microdnf clean all
 COPY --from=test-fixtures-build /root/.m2/repository /root/.m2/repository
+COPY --from=auth-build /root/.m2/repository /root/.m2/repository
 COPY apps/control-panel/pom.xml .
 COPY apps/control-panel/src ./src
 # -Dmaven.test.skip=true skips test compile + execution; mavenLocal contains

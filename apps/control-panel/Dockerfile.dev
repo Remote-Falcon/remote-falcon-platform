@@ -26,9 +26,17 @@ COPY libs/test-fixtures/pom.xml .
 COPY libs/test-fixtures/src ./src
 RUN mvn install -DskipTests -B
 
+# Added 2026-05-24 for PR-B of the RFPB integration.
+FROM maven:3-eclipse-temurin-17 AS auth-build
+WORKDIR /lib
+COPY libs/auth/pom.xml .
+COPY libs/auth/src ./src
+RUN mvn install -DskipTests -B
+
 FROM maven:3-eclipse-temurin-21 AS build
 WORKDIR /usr/src/app
 COPY --from=test-fixtures-build /root/.m2/repository /root/.m2/repository
+COPY --from=auth-build /root/.m2/repository /root/.m2/repository
 COPY apps/control-panel/pom.xml .
 COPY apps/control-panel/src ./src
 # -Dmaven.test.skip=true skips test compile + execution; mavenLocal contains

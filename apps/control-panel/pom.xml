@@ -112,6 +112,19 @@
             <artifactId>java-jwt</artifactId>
             <version>3.18.3</version>
         </dependency>
+
+        <!--
+            libs/auth — shared launch JWT signer/verifier for the RF Page
+            Builder integration (PR-B of PRD External Viewer Page API).
+            Control-panel uses LaunchTokenSigner here in the
+            launchExternalEditor GraphQL mutation; external-api uses
+            LaunchTokenVerifier on the matching session-exchange endpoint.
+        -->
+        <dependency>
+            <groupId>com.remotefalcon</groupId>
+            <artifactId>remote-falcon-auth</artifactId>
+            <version>1.0.0-LOCAL</version>
+        </dependency>
         <dependency>
             <groupId>org.json</groupId>
             <artifactId>json</artifactId>

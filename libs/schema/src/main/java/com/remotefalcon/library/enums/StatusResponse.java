@@ -15,5 +15,6 @@ public enum StatusResponse {
   ALREADY_REQUESTED,
   OWNER_REQUESTED,
   NAUGHTY,
+  PAGE_NOT_FOUND,
   UNEXPECTED_ERROR;
 }

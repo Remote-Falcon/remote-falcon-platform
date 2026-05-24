@@ -98,10 +98,10 @@ jobs:
           filters: |
             ui: ['apps/ui/**']
             gateway: ['apps/gateway/**']
-            control-panel: ['apps/control-panel/**', 'libs/schema/**']
+            control-panel: ['apps/control-panel/**', 'libs/schema/**', 'libs/auth/**']
             viewer: ['apps/viewer/**', 'libs/schema/**']
             plugins-api: ['apps/plugins-api/**', 'libs/schema/**']
-            external-api: ['apps/external-api/**', 'libs/schema/**']
+            external-api: ['apps/external-api/**', 'libs/schema/**', 'libs/auth/**']
             mongo-backup: ['apps/mongo-backup/**', 'libs/schema/**']
             account-archive: ['apps/account-archive/**', 'libs/schema/**']
 

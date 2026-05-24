@@ -34,3 +34,20 @@ logging:
     org:
       springframework:
         graphql: OFF #Turn off logging for Spring GraphQL
+
+# RF Page Builder integration (PRD External Viewer Page API, PR-B M3+).
+# Shared HS256 secret with control-panel — rotate via coordinated env
+# update on both deployments. Placeholder default unblocks local dev +
+# tests; production override lives in the cluster Secret.
+rfpb:
+  launch:
+    secret: ${RF_RFPB_LAUNCH_SECRET:dev-launch-secret-32-chars-or-more!}
+  session:
+    ttl-seconds: ${RF_RFPB_SESSION_TTL_SECONDS:1800}     # 30-min sliding window
+  jti:
+    dedupe-ttl-seconds: ${RF_RFPB_JTI_TTL_SECONDS:600}   # covers the 5-min launch exp + buffer
+  cors:
+    # CSV of origins allowed to call /v1/** with credentials. Prod default
+    # is rfpagebuilder.com; staging/local override via env to add
+    # http://localhost:3000 or whatever RFPB dev URL is in use.
+    allowed-origins: ${RF_RFPB_CORS_ALLOWED_ORIGINS:https://rfpagebuilder.com}

@@ -8,9 +8,17 @@ COPY libs/schema/pom.xml .
 COPY libs/schema/src ./src
 RUN mvn install -DskipTests -B
 
+# Added 2026-05-24 for PR-B of the RFPB integration.
+FROM maven:3-eclipse-temurin-17 AS auth-build
+WORKDIR /lib
+COPY libs/auth/pom.xml .
+COPY libs/auth/src ./src
+RUN mvn install -DskipTests -B
+
 FROM maven:3-eclipse-temurin-21 AS build
 WORKDIR /usr/src/app
 COPY --from=schema-build /root/.m2/repository /root/.m2/repository
+COPY --from=auth-build /root/.m2/repository /root/.m2/repository
 COPY apps/external-api/pom.xml .
 COPY apps/external-api/src ./src
 RUN mvn -DskipTests package
