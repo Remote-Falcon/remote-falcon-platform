@@ -19,10 +19,12 @@ export default defineConfig({
         'src/main.jsx',
         'src/**/*.d.ts',
       ],
-      // Sprint 2 floor: 0% — establishes the infrastructure. Sprint 3
-      // ratchets up based on actual coverage observed in CI.
+      // Sprint 3 floor: lines ratcheted to 30% based on actual coverage
+      // (current: ~31% lines, ~75% branches, ~60% funcs, ~31% statements).
+      // Functions/branches/statements kept at 0% — they'll ratchet in a
+      // follow-up once we're confident the lines gate is sticky in CI.
       thresholds: {
-        lines: 0,
+        lines: 30,
         functions: 0,
         branches: 0,
         statements: 0,
