@@ -153,10 +153,28 @@
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>mongodb</artifactId>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>io.rest-assured</groupId>
             <artifactId>rest-assured</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.remotefalcon</groupId>
+            <artifactId>remote-falcon-test-fixtures</artifactId>
+            <version>1.0.0-LOCAL</version>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 
@@ -207,6 +225,66 @@
                 <groupId>org.graalvm.buildtools</groupId>
                 <artifactId>native-maven-plugin</artifactId>
                 <version>0.10.2</version>
+            </plugin>
+            <!--
+                JaCoCo coverage. Mirrors apps/control-panel/pom.xml's plugin block:
+                prepare-agent on the test JVM, report bound to the test phase,
+                and a BUNDLE-level check bound to verify that gates `mvn verify`
+                on LINE + BRANCH coverage minimums. Floor values are set just
+                below the achieved coverage so unrelated changes don't regress
+                without anyone noticing.
+            -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>jacoco-check</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <!--
+                                    Achieved at the time of writing: ~81% LINE, ~96% BRANCH.
+                                    Floor is set comfortably below achieved (LINE 0.75,
+                                    BRANCH 0.85) so that unrelated changes don't accidentally
+                                    regress coverage, but small refactors that shift a few
+                                    lines around still pass without forcing a floor bump.
+                                -->
+                                <rule>
+                                    <element>BUNDLE</element>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.75</minimum>
+                                        </limit>
+                                        <limit>
+                                            <counter>BRANCH</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.85</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>
