@@ -11,6 +11,7 @@ import com.remotefalcon.controlpanel.response.dashboard.DashboardStatsResponse;
 import com.remotefalcon.controlpanel.service.DashboardService;
 import com.remotefalcon.controlpanel.service.GraphQLMutationService;
 import com.remotefalcon.controlpanel.service.GraphQLQueryService;
+import com.remotefalcon.controlpanel.service.LaunchExternalEditorService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.graphql.data.method.annotation.Argument;
 import org.springframework.graphql.data.method.annotation.MutationMapping;
@@ -25,6 +26,7 @@ public class GraphQLController {
     private final GraphQLMutationService graphQLMutationService;
     private final GraphQLQueryService graphQLQueryService;
     private final DashboardService dashboardService;
+    private final LaunchExternalEditorService launchExternalEditorService;
 
     /********
     Mutations
@@ -96,6 +98,21 @@ public class GraphQLController {
     @RequiresAccess
     public Boolean updatePages(@Argument List<ViewerPage> pages) {
         return this.graphQLMutationService.updatePages(pages);
+    }
+
+    /**
+     * Mint a launch URL handing the show owner off to RF Page Builder for
+     * the named viewer page. Returns the full {@code https://rfpagebuilder
+     * .com/launch?token=<jwt>} URL; the UI does {@code window.location
+     * .assign(url)}. See {@link LaunchExternalEditorService}.
+     *
+     * <p>{@code pageId} is a String at the GraphQL boundary because the
+     * schema doesn't define a UUID scalar; the service parses + validates.
+     */
+    @MutationMapping
+    @RequiresAccess
+    public String launchExternalEditor(@Argument String pageId) {
+        return this.launchExternalEditorService.mintLaunchUrl(pageId);
     }
 
     @MutationMapping

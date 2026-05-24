@@ -343,4 +343,78 @@ class ViewerPageServiceTest {
         assertThat(modified).isTrue();
         assertThat(show.getPages().get(1).getPageId()).isNotNull();
     }
+
+    // -------- computeEtag ----------
+
+    @Test
+    void computeEtag_isDeterministic_forSameInput() {
+        ViewerPage page = ViewerPage.builder()
+                .html("<p>x</p>")
+                .updatedAt(Instant.parse("2026-05-24T12:00:00Z"))
+                .build();
+
+        assertThat(ViewerPageService.computeEtag(page))
+                .isEqualTo(ViewerPageService.computeEtag(page));
+    }
+
+    @Test
+    void computeEtag_differs_whenHtmlDiffers() {
+        ViewerPage one = ViewerPage.builder()
+                .html("<p>one</p>")
+                .updatedAt(Instant.parse("2026-05-24T12:00:00Z"))
+                .build();
+        ViewerPage two = ViewerPage.builder()
+                .html("<p>two</p>")
+                .updatedAt(Instant.parse("2026-05-24T12:00:00Z"))
+                .build();
+
+        assertThat(ViewerPageService.computeEtag(one))
+                .isNotEqualTo(ViewerPageService.computeEtag(two));
+    }
+
+    @Test
+    void computeEtag_differs_whenUpdatedAtDiffers() {
+        ViewerPage earlier = ViewerPage.builder()
+                .html("<p>same html</p>")
+                .updatedAt(Instant.parse("2026-05-24T12:00:00Z"))
+                .build();
+        ViewerPage later = ViewerPage.builder()
+                .html("<p>same html</p>")
+                .updatedAt(Instant.parse("2026-05-24T13:00:00Z"))
+                .build();
+
+        assertThat(ViewerPageService.computeEtag(earlier))
+                .isNotEqualTo(ViewerPageService.computeEtag(later));
+    }
+
+    @Test
+    void computeEtag_returnsLowercaseHex_ofExpectedLength() {
+        ViewerPage page = ViewerPage.builder()
+                .html("<p>x</p>")
+                .updatedAt(Instant.parse("2026-05-24T12:00:00Z"))
+                .build();
+
+        String etag = ViewerPageService.computeEtag(page);
+
+        // SHA-256 hex = 64 chars, all [0-9a-f]
+        assertThat(etag).hasSize(64).matches("[0-9a-f]+");
+    }
+
+    @Test
+    void computeEtag_handlesNullHtml_andNullUpdatedAt() {
+        // Legacy / mid-backfill pages may have nulls. ETag is still
+        // computable so backfill + ETag-header round-trip works on the
+        // very first read.
+        ViewerPage allNulls = ViewerPage.builder().build();
+
+        String etag = ViewerPageService.computeEtag(allNulls);
+
+        assertThat(etag).hasSize(64);
+    }
+
+    @Test
+    void computeEtag_rejectsNullPage() {
+        assertThatThrownBy(() -> ViewerPageService.computeEtag(null))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
 }
