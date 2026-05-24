@@ -218,4 +218,44 @@ public class ViewerPageService {
                 + (pageName == null ? "" : pageName) + "/" + index;
         return UUID.nameUUIDFromBytes(seed.getBytes(StandardCharsets.UTF_8));
     }
+
+    /**
+     * Compute the ETag for a viewer page: lowercase hex SHA-256 over
+     * {@code html || "|" || updatedAt}. Used by:
+     * <ul>
+     *   <li>The launch JWT minted by {@code launchExternalEditor} — pins the
+     *       editor session to a specific page version at launch time.
+     *   <li>External-api's {@code GET /v1/pages/:id} ETag header (PR-B M4)
+     *       and the {@code If-Match} check on {@code PUT /v1/pages/:id}
+     *       (412 on mismatch).
+     * </ul>
+     *
+     * <p>Null {@code html} treated as empty; null {@code updatedAt} treated
+     * as {@link Instant#EPOCH} — matches the lazy-backfill defaults so an
+     * ETag is computable even on legacy pages before they've been touched.
+     *
+     * <p>Caller is responsible for wrapping the returned hex in standard
+     * ETag quoting (e.g. {@code "\"<hex>\""}) when shipping over HTTP.
+     *
+     * <p>Static + deterministic. Same input always produces same output —
+     * that's the whole point of an ETag.
+     */
+    public static String computeEtag(ViewerPage page) {
+        if (page == null) {
+            throw new IllegalArgumentException("page must not be null");
+        }
+        String html = page.getHtml() == null ? "" : page.getHtml();
+        Instant updatedAt = page.getUpdatedAt() == null ? Instant.EPOCH : page.getUpdatedAt();
+        String input = html + "|" + updatedAt;
+        try {
+            byte[] digest = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(input.getBytes(StandardCharsets.UTF_8));
+            return java.util.HexFormat.of().formatHex(digest);
+        } catch (java.security.NoSuchAlgorithmException e) {
+            // SHA-256 is a JDK standard algorithm; unreachable on any
+            // conformant JVM. Wrap as runtime so callers don't carry a
+            // pointless checked-exception declaration.
+            throw new IllegalStateException("SHA-256 unavailable", e);
+        }
+    }
 }

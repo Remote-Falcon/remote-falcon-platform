@@ -62,3 +62,14 @@ logging:
         graphql: OFF #Turn off logging for Spring GraphQL
 
 expo-push-url: https://exp.host/--/api/v2/push/send
+
+# RF Page Builder integration (PRD External Viewer Page API, Phase 1).
+# Shared HS256 secret with external-api's session-exchange endpoint —
+# rotate via coordinated env update on both deployments. Must be ≥32 chars.
+# The placeholder default unblocks local dev + tests; production override
+# lives in the cluster Secret.
+rfpb:
+  launch:
+    secret: ${RF_RFPB_LAUNCH_SECRET:dev-launch-secret-32-chars-or-more!}
+    ttl-seconds: ${RF_RFPB_LAUNCH_TTL_SECONDS:300}
+  page-builder-url: ${RFPB_BASE_URL:https://rfpagebuilder.com}
