@@ -1,0 +1,30 @@
+# Test profile for the external-api service.
+#
+# Loaded when @ActiveProfiles("test") is active. Sets the minimum properties
+# required for @SpringBootTest to bootstrap without depending on a real
+# Mongo, viewer-api, or context path.
+#
+# - server.servlet.context-path is stripped so MockMvc requests hit
+#   "/showDetails" etc. directly without the production
+#   "/remote-falcon-external-api" prefix.
+# - viewer.api.url defaults to a harmless placeholder; tests that exercise
+#   downstream RestTemplate calls inject their own value via
+#   @DynamicPropertySource (typically a WireMock instance).
+# - JPA bootstrap is skipped: the app already excludes DataSourceAutoConfiguration,
+#   but HibernateJpaAutoConfiguration loads via spring-boot-starter-data-jpa
+#   on the classpath, so exclude it explicitly.
+server:
+  servlet:
+    context-path: ""
+
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration
+  data:
+    mongodb:
+      database: ${MONGO_DATABASE:remote-falcon-test}
+
+viewer:
+  api:
+    url: http://viewer.test.local
