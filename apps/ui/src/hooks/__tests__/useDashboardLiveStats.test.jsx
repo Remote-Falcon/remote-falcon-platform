@@ -42,12 +42,19 @@ describe('useDashboardLiveStats', () => {
   it('exposes data + clears loading after a successful first fetch', async () => {
     const store = buildStore({ timezone: 'UTC' });
     const dashboardLiveStats = { right: 'now', viewers: 5 };
-    // MockedProvider matches on shape; for variables with Date.now()
-    // we'd need a custom matcher — use the wildcard 1-mock fallback by
-    // omitting variables and trusting MockedProvider's loose matching.
+    // The hook computes startDate/endDate from `new Date()` at fetch
+    // time, so the mock has to accept any clock-derived numbers.
+    // `variableMatcher` (Apollo 3.5+) is the supported way to match
+    // dynamic variables — using `variables: {}` was the source of an
+    // intermittent "No more mocked responses" failure on the first run
+    // after a fresh `npm ci`.
     const mocks = [
       {
-        request: { query: DASHBOARD_LIVE_STATS, variables: {} },
+        request: { query: DASHBOARD_LIVE_STATS },
+        variableMatcher: (vars) =>
+          typeof vars.startDate === 'number' &&
+          typeof vars.endDate === 'number' &&
+          vars.timezone === 'UTC',
         result: { data: { dashboardLiveStats } }
       }
     ];
