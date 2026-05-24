@@ -63,7 +63,13 @@ jacocoTestCoverageVerification {
     violationRules {
         rule {
             element = 'PACKAGE'
-            includes = ['com.remotefalcon.service', 'com.remotefalcon.repository']
+            // Repository excluded by design: Quarkus PanacheMongoRepository
+            // custom methods (e.g. `list("...query...")`) get bytecode-rewritten
+            // at build time, which strips JaCoCo source-line attribution.
+            // Methods execute correctly under Testcontainers-backed service
+            // tests, but JaCoCo reports 0% line coverage. Mirrors mongo-backup
+            // (the other Quarkus + Panache service with a JaCoCo gate).
+            includes = ['com.remotefalcon.service']
             limit {
                 counter = 'LINE'
                 value = 'COVEREDRATIO'
