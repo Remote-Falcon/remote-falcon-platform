@@ -23,7 +23,11 @@ on:
       - '**/LICENSE'
       - 'docs/**'
   pull_request:
-    branches: [main]
+    # Includes release/** so PRs landing into long-lived release branches
+    # (release/rfpb-integration, release/bug-fixes-*, etc.) still get the
+    # full test-unit + test-contract + test-e2e gating before merge. The
+    # release branch itself only deploys when its PR into main lands.
+    branches: [main, 'release/**']
     paths-ignore:
       - '**/*.md'
       - '**/*.txt'
