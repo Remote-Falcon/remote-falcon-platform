@@ -1,0 +1,170 @@
+package com.remotefalcon.external.api.controller;
+
+import com.remotefalcon.external.api.aop.RequiresBearer;
+import com.remotefalcon.external.api.dto.SessionContext;
+import com.remotefalcon.external.api.dto.SessionContextHolder;
+import com.remotefalcon.external.api.request.PageWriteRequest;
+import com.remotefalcon.external.api.response.PageResponse;
+import com.remotefalcon.external.api.service.PageApiService;
+import com.remotefalcon.external.api.service.PageApiService.EtagMismatchException;
+import com.remotefalcon.external.api.service.PageApiService.PageNotFoundException;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+/**
+ * REST endpoints for the RFPB-facing viewer-page CRUD surface (PR-B M4).
+ * All endpoints under {@code /v1/pages*} are gated by {@link
+ * RequiresBearer} — bearer required + appropriate scope enforced by
+ * {@link com.remotefalcon.external.api.aop.BearerAspect}.
+ *
+ * <p>v1 scope (intentionally minimal for the RFPB integration):
+ * <ul>
+ *   <li>{@code GET /v1/pages} — list. Scope: viewer_page:read.
+ *   <li>{@code GET /v1/pages/:pageId} — fetch one (ETag header).
+ *       Scope: viewer_page:read.
+ *   <li>{@code PUT /v1/pages/:pageId} — update (If-Match required).
+ *       Scope: viewer_page:write.
+ *   <li>{@code GET /v1/me} — session introspection. No scope required
+ *       beyond a valid bearer.
+ * </ul>
+ *
+ * <p>{@code POST /v1/pages} (create) and {@code DELETE /v1/pages/:pageId}
+ * are deferred to a follow-up: RFPB's editor flow doesn't create or
+ * delete pages — those happen in the RF control panel's Monaco editor.
+ * If a third party ever needs them, add here against the same bearer
+ * model. Same for {@code POST /v1/pages/:pageId:activate} which is a
+ * multi-page atomic toggle better-suited to v1.1.
+ */
+@RestController
+@RequestMapping("/v1")
+@RequiredArgsConstructor
+@Slf4j
+public class PagesController {
+
+    private final PageApiService pageApiService;
+
+    /** List all viewer pages on the bearer's bound show. */
+    @GetMapping("/pages")
+    @RequiresBearer(scope = "viewer_page:read")
+    public ResponseEntity<List<PageResponse>> listPages() {
+        return ResponseEntity.ok(pageApiService.listPages());
+    }
+
+    /**
+     * Fetch one page. Carries the {@code ETag} HTTP header so the client
+     * can use {@code If-Match} on a subsequent PUT.
+     */
+    @GetMapping("/pages/{pageId}")
+    @RequiresBearer(scope = "viewer_page:read")
+    public ResponseEntity<PageResponse> getPage(@PathVariable String pageId) {
+        UUID id;
+        try {
+            id = UUID.fromString(pageId);
+        } catch (IllegalArgumentException e) {
+            // Malformed UUID — treat as not-found (same external surface
+            // as a real not-found; don't leak whether the value is
+            // structurally invalid vs missing).
+            return ResponseEntity.notFound().build();
+        }
+        try {
+            PageResponse response = pageApiService.getPage(id);
+            return ResponseEntity.ok()
+                    .eTag("\"" + response.getEtag() + "\"")
+                    .body(response);
+        } catch (PageNotFoundException e) {
+            return ResponseEntity.notFound().build();
+        }
+    }
+
+    /**
+     * Update a page. Requires {@code If-Match} header carrying the ETag
+     * of the version the client last read; mismatch returns 412 with the
+     * current server state in the body so the client can present a
+     * conflict modal.
+     */
+    @PutMapping("/pages/{pageId}")
+    @RequiresBearer(scope = "viewer_page:write")
+    public ResponseEntity<?> updatePage(
+            @PathVariable String pageId,
+            @RequestHeader(HttpHeaders.IF_MATCH) String ifMatch,
+            @RequestBody PageWriteRequest body) {
+        UUID id;
+        try {
+            id = UUID.fromString(pageId);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.notFound().build();
+        }
+        if (body == null) {
+            return ResponseEntity.badRequest().build();
+        }
+        String ifMatchClean = stripQuotes(ifMatch);
+        try {
+            PageResponse updated = pageApiService.updatePage(id,
+                    body.getName(), body.getActive(), body.getHtml(), ifMatchClean);
+            return ResponseEntity.ok()
+                    .eTag("\"" + updated.getEtag() + "\"")
+                    .body(updated);
+        } catch (PageNotFoundException e) {
+            return ResponseEntity.notFound().build();
+        } catch (EtagMismatchException e) {
+            // 412 with the current server state so the client can show a
+            // conflict modal with the latest version. ETag header carries
+            // the current ETag too — clients can use it as If-Match in
+            // their "overwrite anyway" follow-up.
+            return ResponseEntity.status(412)
+                    .eTag("\"" + e.getCurrentServerState().getEtag() + "\"")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(e.getCurrentServerState());
+        } catch (IllegalArgumentException e) {
+            // Sanitizer or size-cap rejection — 400 with a brief message.
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    /**
+     * Session introspection. Returns the show + page + scopes the
+     * current bearer is bound to, plus the bearer-derived user identity
+     * if RFPB needs it for rendering chrome.
+     */
+    @GetMapping("/me")
+    @RequiresBearer
+    public ResponseEntity<Map<String, Object>> me() {
+        SessionContext ctx = SessionContextHolder.get();
+        if (ctx == null) {
+            // BearerAspect ensured the context exists; this is defensive.
+            return ResponseEntity.status(401).build();
+        }
+        return ResponseEntity.ok(Map.of(
+                "showSubdomain", ctx.getShowSubdomain(),
+                "pageId", ctx.getPageId() == null ? "" : ctx.getPageId(),
+                "scopes", ctx.getScopes() == null ? List.of() : ctx.getScopes()));
+    }
+
+    /**
+     * HTTP ETags are conventionally quoted: {@code If-Match: "<hex>"}.
+     * Strip quotes for internal comparison so clients can send either
+     * the quoted or raw form.
+     */
+    private static String stripQuotes(String etag) {
+        if (etag == null) return null;
+        String trimmed = etag.trim();
+        if (trimmed.startsWith("\"") && trimmed.endsWith("\"") && trimmed.length() >= 2) {
+            return trimmed.substring(1, trimmed.length() - 1);
+        }
+        return trimmed;
+    }
+}
