@@ -39,6 +39,7 @@ public class GraphQLMutationService {
     private final ShowRepository showRepository;
     private final NotificationRepository notificationRepository;
     private final ClientUtil clientUtil;
+    private final ViewerPageService viewerPageService;
 
     @Value("${auto-validate-email}")
     Boolean autoValidateEmail;
@@ -362,6 +363,54 @@ public class GraphQLMutationService {
     public Boolean updatePages(List<ViewerPage> pages) {
         Optional<Show> show = this.showRepository.findByShowToken(authUtil.getTokenDTO().getShowToken());
         if(show.isPresent()) {
+            // Preserve pageIds across the wholesale-replace by matching
+            // incoming pages to existing ones — first by pageId (the
+            // post-PR-A stable identifier), falling back to name for legacy
+            // clients that haven't started sending pageId yet (Monaco may
+            // continue not to send it indefinitely). Net-new pages without
+            // a match get a fresh UUID minted in prepareForWrite.
+            //
+            // The wholesale-replace itself stays — Monaco is the only
+            // writer today and it sends the full set. Per-page atomic
+            // writes (Decision 5: positional arrayFilters) become
+            // necessary in PR-B when external clients (RFPB) join the
+            // writers list.
+            List<ViewerPage> existingPages = show.get().getPages();
+            Map<String, ViewerPage> existingByName = existingPages == null
+                    ? Map.of()
+                    : existingPages.stream()
+                            .filter(p -> p != null && p.getName() != null)
+                            .collect(Collectors.toMap(
+                                    ViewerPage::getName,
+                                    p -> p,
+                                    (a, b) -> a));
+            Map<UUID, ViewerPage> existingById = existingPages == null
+                    ? Map.of()
+                    : existingPages.stream()
+                            .filter(p -> p != null && p.getPageId() != null)
+                            .collect(Collectors.toMap(
+                                    ViewerPage::getPageId,
+                                    p -> p,
+                                    (a, b) -> a));
+            for (ViewerPage incoming : pages) {
+                if (incoming == null) continue;
+                if (incoming.getPageId() == null) {
+                    ViewerPage match = incoming.getName() == null
+                            ? null
+                            : existingByName.get(incoming.getName());
+                    if (match != null && match.getPageId() != null) {
+                        incoming.setPageId(match.getPageId());
+                    }
+                } else {
+                    // Caller-supplied pageId — verify it belongs to this show
+                    // to prevent cross-show ID injection. Reset to null so
+                    // prepareForWrite mints a fresh one if not.
+                    if (!existingById.containsKey(incoming.getPageId())) {
+                        incoming.setPageId(null);
+                    }
+                }
+                this.viewerPageService.prepareForWrite(incoming);
+            }
             show.get().setPages(pages);
             this.showRepository.save(show.get());
             return true;

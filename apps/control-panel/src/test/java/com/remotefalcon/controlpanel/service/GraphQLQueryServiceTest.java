@@ -60,6 +60,7 @@ class GraphQLQueryServiceTest {
     @Mock private ClientUtil clientUtil;
     @Mock private ShowRepository showRepository;
     @Mock private NotificationRepository notificationRepository;
+    @Mock private ViewerPageService viewerPageService;
 
     @InjectMocks private GraphQLQueryService service;
 

@@ -26,9 +26,11 @@ import com.remotefalcon.library.models.Vote;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -194,6 +196,12 @@ class ShowSchemaRoundTripTest {
                 .name("home")
                 .active(true)
                 .html("<html><body>hi</body></html>")
+                // pageId + updatedAt added 2026-05-24 (PR-A of RFPB
+                // integration). Including them in the canonical fixture
+                // gives them round-trip coverage for free via the
+                // show_roundTrips_throughJackson test.
+                .pageId(UUID.fromString("11111111-2222-3333-4444-555555555555"))
+                .updatedAt(Instant.parse("2026-01-01T00:00:00Z"))
                 .build();
 
         Stat stats = Stat.builder()

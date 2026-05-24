@@ -42,6 +42,7 @@ class PurgeStatsForShowTest {
     @Mock private ShowRepository showRepository;
     @Mock private NotificationRepository notificationRepository;
     @Mock private ClientUtil clientUtil;
+    @Mock private ViewerPageService viewerPageService;
 
     @InjectMocks private GraphQLMutationService service;
 
