@@ -7,6 +7,8 @@ import com.remotefalcon.external.api.response.PageResponse;
 import com.remotefalcon.external.api.service.PageApiService;
 import com.remotefalcon.external.api.service.PageApiService.EtagMismatchException;
 import com.remotefalcon.external.api.service.PageApiService.PageNotFoundException;
+import com.remotefalcon.external.api.service.RfpbAuditLogger;
+import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -15,6 +17,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.mock.web.MockHttpServletRequest;
 
 import java.time.Instant;
 import java.util.List;
@@ -40,7 +43,13 @@ class PagesControllerTest {
     private static final UUID PAGE_ID = UUID.fromString("11111111-2222-3333-4444-555555555555");
 
     @Mock private PageApiService pageApiService;
+    @Mock private RfpbAuditLogger auditLogger;
     @InjectMocks private PagesController controller;
+
+    /** updatePage takes a HttpServletRequest now (for audit log). */
+    private static HttpServletRequest mockRequest() {
+        return new MockHttpServletRequest("PUT", "/v1/pages/abc");
+    }
 
     @AfterEach
     void clearContext() {
@@ -108,7 +117,7 @@ class PagesControllerTest {
                 .thenReturn(stubPage("<p>new</p>", "def"));
 
         ResponseEntity<?> resp = controller.updatePage(PAGE_ID.toString(), "\"abc\"",
-                PageWriteRequest.builder().html("<p>new</p>").build());
+                PageWriteRequest.builder().html("<p>new</p>").build(), mockRequest());
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(resp.getHeaders().getETag()).isEqualTo("\"def\"");
@@ -121,9 +130,9 @@ class PagesControllerTest {
                 .thenReturn(stubPage("<p>n</p>", "x"));
 
         controller.updatePage(PAGE_ID.toString(), "\"abc\"",
-                PageWriteRequest.builder().html("<p>n</p>").build());
+                PageWriteRequest.builder().html("<p>n</p>").build(), mockRequest());
         controller.updatePage(PAGE_ID.toString(), "abc",
-                PageWriteRequest.builder().html("<p>n</p>").build());
+                PageWriteRequest.builder().html("<p>n</p>").build(), mockRequest());
 
         // Both calls reached the service with the same stripped string —
         // verified by the matcher in the stub above (eq("abc")).
@@ -136,7 +145,7 @@ class PagesControllerTest {
                 .thenThrow(new EtagMismatchException(current));
 
         ResponseEntity<?> resp = controller.updatePage(PAGE_ID.toString(), "\"stale\"",
-                PageWriteRequest.builder().html("<p>mine</p>").build());
+                PageWriteRequest.builder().html("<p>mine</p>").build(), mockRequest());
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.PRECONDITION_FAILED);
         assertThat(resp.getHeaders().getETag()).isEqualTo("\"current-etag\"");
@@ -149,7 +158,7 @@ class PagesControllerTest {
                 .thenThrow(new PageNotFoundException());
 
         ResponseEntity<?> resp = controller.updatePage(PAGE_ID.toString(), "\"abc\"",
-                PageWriteRequest.builder().html("<p>n</p>").build());
+                PageWriteRequest.builder().html("<p>n</p>").build(), mockRequest());
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
@@ -160,21 +169,21 @@ class PagesControllerTest {
                 .thenThrow(new IllegalArgumentException("too big"));
 
         ResponseEntity<?> resp = controller.updatePage(PAGE_ID.toString(), "\"abc\"",
-                PageWriteRequest.builder().html("huge").build());
+                PageWriteRequest.builder().html("huge").build(), mockRequest());
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
 
     @Test
     void updatePage_returns400_onNullBody() {
-        ResponseEntity<?> resp = controller.updatePage(PAGE_ID.toString(), "\"abc\"", null);
+        ResponseEntity<?> resp = controller.updatePage(PAGE_ID.toString(), "\"abc\"", null, mockRequest());
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
 
     @Test
     void updatePage_returns404_onMalformedUuid() {
         ResponseEntity<?> resp = controller.updatePage("not-a-uuid", "\"abc\"",
-                PageWriteRequest.builder().html("<p>x</p>").build());
+                PageWriteRequest.builder().html("<p>x</p>").build(), mockRequest());
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
 
