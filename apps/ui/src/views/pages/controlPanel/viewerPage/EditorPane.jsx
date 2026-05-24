@@ -4,7 +4,7 @@ import * as React from 'react';
 import Editor from '@monaco-editor/react';
 import { Box, Button, IconButton, Stack, Tooltip, Typography } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
-import { IconCheck, IconCopy, IconDeviceFloppy } from '@tabler/icons-react';
+import { IconCheck, IconCopy, IconDeviceFloppy, IconExternalLink } from '@tabler/icons-react';
 import PropTypes from 'prop-types';
 
 // Monaco editor wrapper for the viewer page HTML.
@@ -16,7 +16,21 @@ import PropTypes from 'prop-types';
 //   • Cmd/Ctrl+S keybinding via Monaco's addCommand (browser default is
 //     prevented by Monaco automatically when an editor command claims it)
 //   • Programmatic line-jump support (used by the Problems panel)
-const EditorPane = ({ value, isDirty, lineToFocus, onChange, onSave, onCopy }) => {
+const EditorPane = ({
+  value,
+  isDirty,
+  lineToFocus,
+  onChange,
+  onSave,
+  onCopy,
+  // RF Page Builder integration (PRD External Viewer Page API). When the
+  // current page has a stable pageId (post-PR-A schema), surface the
+  // cross-product "Edit in RF Page Builder ↗" CTA next to Save. Optional
+  // — Monaco stays the default editor; this is an additive entry point.
+  onLaunchExternal,
+  canLaunchExternal = false,
+  launchingExternal = false
+}) => {
   const theme = useTheme();
   const editorRef = useRef(null);
   const justCopiedRef = useRef(false);
@@ -71,6 +85,30 @@ const EditorPane = ({ value, isDirty, lineToFocus, onChange, onSave, onCopy }) =
             {justCopied ? <IconCheck size={16} stroke={2} /> : <IconCopy size={16} stroke={1.75} />}
           </IconButton>
         </Tooltip>
+        {onLaunchExternal && (
+          <Tooltip
+            title={
+              canLaunchExternal
+                ? 'Open this page in RF Page Builder (separate product, opens in this tab)'
+                : 'Save the page first to enable the visual editor handoff'
+            }
+          >
+            {/* Tooltip can't wrap a disabled button directly — span wrapper */}
+            <span>
+              <Button
+                variant="outlined"
+                color="primary"
+                size="small"
+                startIcon={<IconExternalLink size={16} stroke={1.75} />}
+                onClick={onLaunchExternal}
+                disabled={!canLaunchExternal || launchingExternal}
+                aria-label="Edit in RF Page Builder (opens external editor)"
+              >
+                Edit in RF Page Builder
+              </Button>
+            </span>
+          </Tooltip>
+        )}
         <Button
           variant="contained"
           color="primary"
@@ -110,7 +148,10 @@ EditorPane.propTypes = {
   lineToFocus: PropTypes.number,
   onChange: PropTypes.func.isRequired,
   onSave: PropTypes.func.isRequired,
-  onCopy: PropTypes.func.isRequired
+  onCopy: PropTypes.func.isRequired,
+  onLaunchExternal: PropTypes.func,
+  canLaunchExternal: PropTypes.bool,
+  launchingExternal: PropTypes.bool
 };
 
 export default EditorPane;
