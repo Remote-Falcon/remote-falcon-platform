@@ -260,11 +260,19 @@
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
             <!--
-                JaCoCo coverage. Threshold rule starts at 0% (Sprint 1 floor per
-                PHASE-C-KICKOFF.md § 4); Sprint 2 establishes the testing
+                JaCoCo coverage. Threshold rule started at 0% (Sprint 1 floor
+                per PHASE-C-KICKOFF.md § 4); Sprint 2 established the testing
                 infrastructure (PR C added the first 27 @Test methods covering
-                auth chain + retention sweep + collation query). Sprint 3 ratchets
-                the floor up based on actual coverage measured.
+                auth chain + retention sweep + collation query). Sprint 3
+                ratcheted the floor up: ~120 new unit tests landed on
+                DashboardService, GraphQLQueryService, GraphQLMutationService,
+                ControlPanelService, SequencesExportService, ExcelUtil,
+                AuthUtil, S3Util, ClientUtil, RandomUtil, and EmailUtil
+                pushing local-only coverage to ~81% line / ~73% branch. The
+                floor below is set conservatively (achieved minus a 5-8 pt
+                buffer) so the gate is achievable from unit tests alone — CI
+                integration tests (which can't run locally without a true
+                Docker engine socket) add coverage on top.
             -->
             <plugin>
                 <groupId>org.jacoco</groupId>
@@ -297,7 +305,12 @@
                                         <limit>
                                             <counter>LINE</counter>
                                             <value>COVEREDRATIO</value>
-                                            <minimum>0.00</minimum>
+                                            <minimum>0.76</minimum>
+                                        </limit>
+                                        <limit>
+                                            <counter>BRANCH</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.68</minimum>
                                         </limit>
                                     </limits>
                                 </rule>
