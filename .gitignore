@@ -40,3 +40,7 @@ baseline-*/
 # docs-screenshots tier output (Playwright-generated PNGs + manifest).
 # Synced into remote-falcon-docusaurus via that repo's docs:sync script.
 docs-output/
+
+# Claude Code agent worktrees (created automatically when running
+# Agent({isolation: "worktree"}) — local-only, never committed).
+.claude/

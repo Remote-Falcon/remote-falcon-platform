@@ -68,9 +68,14 @@ jobs:
           SERVICE: ${{ inputs.service }}
         run: |
           set -euo pipefail
+          # Each branch runs the test command that ALSO enforces the
+          # service's coverage threshold. Without this, jacoco/vitest
+          # gates are configured but never fire — see Phase C ratchet.
           case "$SERVICE" in
             control-panel|external-api)
-              mvn -pl "apps/$SERVICE" -am test
+              # `mvn verify` triggers the jacoco-check execution bound
+              # to the verify phase; `mvn test` would skip it.
+              mvn -pl "apps/$SERVICE" -am verify
               ;;
             gateway)
               # gateway is a config-only Spring Cloud Gateway. It has its own
@@ -82,15 +87,19 @@ jobs:
               ;;
             viewer|plugins-api|mongo-backup|account-archive)
               cd "apps/$SERVICE"
-              ./gradlew test
+              # `./gradlew check` runs jacocoTestCoverageVerification
+              # via `check.dependsOn jacocoTestCoverageVerification`.
+              ./gradlew check
               ;;
             ui)
               cd apps/ui
               npm ci
-              if node -e "process.exit(require('./package.json').scripts && require('./package.json').scripts['test:unit'] ? 0 : 1)"; then
-                npm run test:unit -- --run
+              # `test:coverage` runs vitest with --coverage, which
+              # applies the threshold block in vitest.config.ts.
+              if node -e "process.exit(require('./package.json').scripts && require('./package.json').scripts['test:coverage'] ? 0 : 1)"; then
+                npm run test:coverage
               else
-                echo "no UI tests yet"
+                echo "no UI test:coverage script yet"
                 exit 0
               fi
               ;;

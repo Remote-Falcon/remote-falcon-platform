@@ -1,31 +1,33 @@
 # Remote Falcon — Testing Guide
 
-**Last updated:** 2026-05-06
-**Status:** Operational reference (post Phase C Sprint 1)
+**Last updated:** 2026-05-24
+**Status:** Operational reference (post Phase C coverage-ratchet)
 **Related docs:** [PHASE-C-KICKOFF.md](PHASE-C-KICKOFF.md), [SERVICES.md](SERVICES.md)
 
-> **What changed (2026-05-06):** This doc replaces the prior audit-state writeup ("what we found, what was missing"). After Phase C Sprint 1 landed real tests in each tier and wired CI gates, the doc is now a current-state + how-to-add-tests guide. The prior audit content lives in git history if you need it (commit before this rewrite).
+> **What changed (2026-05-24):** Coverage gates are now actually enforced by CI. The `_test-service.yml` workflow now runs `mvn verify` / `./gradlew check` / `npm run test:coverage` — the test commands that include the jacoco/vitest threshold checks. Previously the gates existed in build files but CI invoked `mvn test` / `./gradlew test` / `npm run test:unit`, none of which trigger threshold verification. As part of the same ratchet, `control-panel`, `external-api`, and `ui` moved off their 0% Sprint 1 floors with substantial new test coverage.
+>
+> **Prior change (2026-05-06):** This doc replaces the prior audit-state writeup. After Phase C Sprint 1 landed real tests in each tier and the initial CI jobs, the doc became a current-state + how-to-add-tests guide. Pre-rewrite content lives in git history.
 
 ---
 
 ## TL;DR — current state
 
-| Service | Stack | Test count | Coverage gate (Sprint 1 floor) | CI gate |
+| Service | Stack | Test count | Coverage gate | CI enforces |
 |---|---|---:|---|:---:|
 | [`apps/viewer`](../apps/viewer) | Quarkus 21 native | 88 `@Test` | 60% line / 60% branch (JaCoCo) | ✓ |
 | [`apps/plugins-api`](../apps/plugins-api) | Quarkus 21 native | 56 `@Test` | 60% line / 60% branch (JaCoCo) | ✓ |
-| [`apps/mongo-backup`](../apps/mongo-backup) | Quarkus 21 native | new in PR B | 80% line on `*.service.*` | ✓ |
-| [`apps/account-archive`](../apps/account-archive) | Quarkus 21 native | 0 (Sprint 2) | 0% (ratchets in Sprint 2) | ✓ |
-| [`apps/control-panel`](../apps/control-panel) | Spring Boot 3 native | 0 (Sprint 2) | 0% (ratchets in Sprint 2) | ✓ |
-| [`apps/external-api`](../apps/external-api) | Spring Boot 3 native | 0 (Sprint 2) | 0% (ratchets in Sprint 2) | ✓ |
+| [`apps/mongo-backup`](../apps/mongo-backup) | Quarkus 21 native | testcontainers + LocalStack | 80% line on `*.service.*` | ✓ |
+| [`apps/account-archive`](../apps/account-archive) | Quarkus 21 native | 9 `@Test` | 80% line on service + repository packages | ✓ |
+| [`apps/control-panel`](../apps/control-panel) | Spring Boot 3 native | ~199 `@Test` | 76% line / 68% branch (JaCoCo, BUNDLE) | ✓ |
+| [`apps/external-api`](../apps/external-api) | Spring Boot 3 native | 30 `@Test` | 75% line / 85% branch (JaCoCo, BUNDLE) | ✓ |
 | [`apps/gateway`](../apps/gateway) | Spring Cloud Gateway | 0 | (skip — config-only service) | ✓ |
-| [`apps/ui`](../apps/ui) | Vite + React | 2 Cypress (legacy) | 0% (Vitest in Sprint 2) | ✓ |
+| [`apps/ui`](../apps/ui) | Vite + React + Vitest | 360 tests across 56 files | 30% line (Vitest v8) | ✓ |
 | [`libs/schema`](../libs/schema) | JUnit 5 | 1 round-trip | n/a | ✓ |
 | [`libs/test-fixtures`](../libs/test-fixtures) | JUnit 5 | 1 drift test | n/a | ✓ |
 | [`tests/contract`](../tests/contract) | REST Assured + JUnit 5 | placeholder | n/a (real fixtures Sprint 3) | ✓ |
 | [`tests/e2e`](../tests/e2e) | Playwright (TS) | smoke: login | n/a | ✓ |
 
-**Three CI jobs gate every PR + push to main:** `test-unit` (matrix per service), `test-contract`, `test-e2e`. All three must pass before `deploy` runs. See [§ CI workflow](#ci-workflow) below.
+**Three CI jobs gate every PR + push to main:** `test-unit` (matrix per service), `test-contract`, `test-e2e`. All three must pass before `deploy` runs. The `test-unit` step uses the threshold-enforcing variant of each service's test command (see [§ CI workflow](#ci-workflow) below).
 
 **The framework choice doc is [PHASE-C-KICKOFF.md § 4](PHASE-C-KICKOFF.md#4-test-framework-choices-per-surface).** This doc focuses on day-to-day "how do I write or run a test" mechanics.
 
@@ -266,13 +268,15 @@ All commands are from the monorepo root unless noted.
 
 ### Per-service tests
 
-| Service stack | Command |
-|---|---|
-| Maven (Spring) | `mvn -pl apps/<service> -am test` |
-| Gradle (Quarkus) | `cd apps/<service> && ./gradlew test` |
-| UI | `cd apps/ui && npm test` (Vitest, post-Sprint-2) |
+Two flavors: the fast inner-loop command (tests only) and the gate-enforcing variant CI runs (tests + coverage threshold). Use the fast one while iterating; switch to the gate variant before opening a PR to catch threshold misses before CI does.
 
-Single-test run:
+| Service stack | Fast (no gate) | CI-equivalent (gate fires) |
+|---|---|---|
+| Maven (Spring) | `mvn -pl apps/<service> -am test` | `mvn -pl apps/<service> -am verify` |
+| Gradle (Quarkus) | `cd apps/<service> && ./gradlew test` | `cd apps/<service> && ./gradlew check` |
+| UI | `cd apps/ui && npm test` | `cd apps/ui && npm run test:coverage` |
+
+Single-test run (fast loop):
 - Maven: `mvn -pl apps/<service> -Dtest=ClassName#method test`
 - Gradle: `cd apps/<service> && ./gradlew test --tests "ClassName.method"`
 
