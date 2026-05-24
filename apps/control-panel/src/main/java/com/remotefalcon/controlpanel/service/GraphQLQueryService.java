@@ -34,6 +34,7 @@ public class GraphQLQueryService {
     private final ClientUtil clientUtil;
     private final ShowRepository showRepository;
     private final NotificationRepository notificationRepository;
+    private final ViewerPageService viewerPageService;
 
     public Show signIn() {
         var request = this.authUtil.getCurrentRequest();
@@ -120,6 +121,11 @@ public class GraphQLQueryService {
         if(show.isPresent()) {
             show.get().setLastLoginDate(LocalDateTime.now());
             checkPsaSequences(show.get());
+            // Lazy-backfill pageId + updatedAt on legacy viewer pages.
+            // Always called, return value ignored: the unconditional save
+            // below persists any backfill changes "for free" alongside the
+            // lastLoginDate update.
+            this.viewerPageService.normalizeAndBackfill(show.get());
             this.showRepository.save(show.get());
 
             List<Sequence> sequences = show.get().getSequences();

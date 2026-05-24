@@ -207,6 +207,25 @@
             <version>1.0.0-LOCAL</version>
             <scope>test</scope>
         </dependency>
+
+        <!--
+            jsoup — HTML sanitization for viewer-page content. Added 2026-05-24
+            for RF Page Builder integration (PRD External Viewer Page API,
+            Phase 1 PR-A). Used by ViewerPageService.sanitize to strip
+            script tags, event handlers, and javascript:/data: URLs before
+            persisting any html field.
+
+            Native-image note: jsoup uses reflection in its Cleaner +
+            Safelist classes. If the native build breaks, register the
+            relevant classes via a RuntimeHints contributor (Phase 1 PR-D
+            covers external-api; we may need a control-panel equivalent
+            here).
+        -->
+        <dependency>
+            <groupId>org.jsoup</groupId>
+            <artifactId>jsoup</artifactId>
+            <version>1.18.3</version>
+        </dependency>
     </dependencies>
 
 
