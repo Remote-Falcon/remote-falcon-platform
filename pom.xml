@@ -13,6 +13,7 @@
 
     <modules>
         <module>libs/schema</module>
+        <module>libs/auth</module>
         <module>libs/test-fixtures</module>
         <module>apps/control-panel</module>
         <module>apps/external-api</module>
