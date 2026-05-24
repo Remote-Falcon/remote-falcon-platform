@@ -21,6 +21,7 @@ import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -87,13 +88,31 @@ public class RfpbSessionService {
             throw new ReplayedLaunchTokenException("Launch token replay rejected: jti already consumed");
         }
 
+        // Decision 7: auto-close older sessions for same (showToken, pageId).
+        // Forgotten older tabs (laptop, phone, etc.) would otherwise pile up
+        // and force the conflict UX to handle "I'm editing the same page in
+        // two places" — its own headache. Simpler model: one user + one page
+        // = one active session. Older tab's next API call surfaces 401 and
+        // RFPB shows a "session was closed; reload" toast.
+        String pageIdString = payload.getPageId() == null ? null : payload.getPageId().toString();
+        if (pageIdString != null) {
+            List<RfpbSession> existing = sessionRepository
+                    .findByShowTokenAndPageIdAndRevokedAtIsNull(payload.getShowToken(), pageIdString);
+            for (RfpbSession older : existing) {
+                older.setRevokedAt(now);
+            }
+            if (!existing.isEmpty()) {
+                sessionRepository.saveAll(existing);
+            }
+        }
+
         String bearer = mintBearerString();
         Instant expiresAt = now.plusSeconds(sessionTtlSeconds);
         RfpbSession session = RfpbSession.builder()
                 .tokenHash(hash(bearer))
                 .showSubdomain(payload.getShowSubdomain())
                 .showToken(payload.getShowToken())
-                .pageId(payload.getPageId() == null ? null : payload.getPageId().toString())
+                .pageId(pageIdString)
                 .scopes(payload.getScopes())
                 .issuedAt(now)
                 .expiresAt(expiresAt)

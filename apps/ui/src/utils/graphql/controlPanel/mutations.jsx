@@ -64,6 +64,16 @@ export const UPDATE_PAGES = gql`
   }
 `;
 
+// RF Page Builder integration (PRD External Viewer Page API). Mints a
+// short-lived launch URL embedding an HS256 JWT in the query param;
+// the UI does window.location.assign(url) to hand the user off to
+// RFPB's /launch route. Returns the full URL string.
+export const LAUNCH_EXTERNAL_EDITOR = gql`
+  mutation ($pageId: String!) @api(name: controlPanel) {
+    launchExternalEditor(pageId: $pageId)
+  }
+`;
+
 export const UPDATE_PREFERENCES = gql`
   mutation ($preferences: PreferenceInput!) @api(name: controlPanel) {
     updatePreferences(preferences: $preferences)

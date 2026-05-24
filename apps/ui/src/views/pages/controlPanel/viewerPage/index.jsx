@@ -30,7 +30,7 @@ import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
 import ConfirmDialog from '../../../../ui-component/ConfirmDialog';
 import MainCard from '../../../../ui-component/cards/MainCard';
 import PageHead from '../../../../ui-component/PageHead';
-import { UPDATE_PAGES } from '../../../../utils/graphql/controlPanel/mutations';
+import { LAUNCH_EXTERNAL_EDITOR, UPDATE_PAGES } from '../../../../utils/graphql/controlPanel/mutations';
 import { showAlert } from '../../globalPageHelpers';
 
 import EditorPane from './EditorPane';
@@ -70,6 +70,7 @@ const ViewerPage = () => {
   const { show } = useSelector((state) => state.show);
   const { remoteViewerPageTemplates } = useSelector((state) => state.controlPanel);
   const [updatePagesMutation] = useMutation(UPDATE_PAGES);
+  const [launchExternalEditorMutation, { loading: launchingExternal }] = useMutation(LAUNCH_EXTERNAL_EDITOR);
 
   // Source of truth for what's on the server: show.pages from Redux.
   // The dirty buffer holds in-progress edits keyed by page name —
@@ -254,6 +255,51 @@ const ViewerPage = () => {
     }
   }, [currentHtml]);
 
+  // RF Page Builder handoff. Mints a launch URL embedding a short-lived
+  // HS256 JWT, then redirects the browser to RFPB's /launch route. The
+  // user lands signed-in inside RFPB bound to this specific page; their
+  // publish-back from there hits external-api's PUT /v1/pages/:id with
+  // the ETag we minted into the launch token. See PRD "External Viewer
+  // Page API".
+  //
+  // Disabled if the current page has no pageId yet (shouldn't happen
+  // after PR-A's lazy-backfill on read, but defensive).
+  const handleLaunchExternal = useCallback(async () => {
+    if (!currentPage?.pageId) return;
+    if (isCurrentDirty) {
+      // Soft warning before launch — Monaco buffer would otherwise be
+      // silently lost when the publish-back from RFPB overwrites the
+      // page. Decision in the PRD: "save them before continuing or
+      // they'll be replaced when you publish back."
+      const proceed = window.confirm(
+        'You have unsaved code-mode changes in this tab. Continue to RF Page ' +
+        "Builder anyway? Your unsaved edits will be lost when you publish " +
+        'back from RFPB.'
+      );
+      if (!proceed) return;
+    }
+    try {
+      const { data } = await launchExternalEditorMutation({
+        variables: { pageId: currentPage.pageId }
+      });
+      const url = data?.launchExternalEditor;
+      if (!url) {
+        showAlert({ message: 'Could not open RF Page Builder. Try again.', severity: 'error' });
+        return;
+      }
+      trackPosthogEvent('viewer_page_launched_external_editor', {
+        pageId: currentPage.pageId,
+        pageName: currentPage.name
+      });
+      window.location.assign(url);
+    } catch (err) {
+      showAlert({
+        message: 'Could not open RF Page Builder: ' + (err?.message || 'unknown error'),
+        severity: 'error'
+      });
+    }
+  }, [currentPage, isCurrentDirty, launchExternalEditorMutation]);
+
   // Tab selection guards against losing in-progress edits on the OUTGOING
   // tab. Selecting same tab is a no-op.
   const handleSelect = (i) => {
@@ -397,6 +443,9 @@ const ViewerPage = () => {
                 onChange={handleEditorChange}
                 onSave={handleSave}
                 onCopy={handleCopyHtml}
+                onLaunchExternal={handleLaunchExternal}
+                canLaunchExternal={Boolean(currentPage?.pageId)}
+                launchingExternal={launchingExternal}
               />
             </Grid>
             {showSidePreview && (

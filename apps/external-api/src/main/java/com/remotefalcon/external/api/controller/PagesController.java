@@ -8,6 +8,8 @@ import com.remotefalcon.external.api.response.PageResponse;
 import com.remotefalcon.external.api.service.PageApiService;
 import com.remotefalcon.external.api.service.PageApiService.EtagMismatchException;
 import com.remotefalcon.external.api.service.PageApiService.PageNotFoundException;
+import com.remotefalcon.external.api.service.RfpbAuditLogger;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -56,6 +58,7 @@ import java.util.UUID;
 public class PagesController {
 
     private final PageApiService pageApiService;
+    private final RfpbAuditLogger auditLogger;
 
     /** List all viewer pages on the bearer's bound show. */
     @GetMapping("/pages")
@@ -101,36 +104,46 @@ public class PagesController {
     public ResponseEntity<?> updatePage(
             @PathVariable String pageId,
             @RequestHeader(HttpHeaders.IF_MATCH) String ifMatch,
-            @RequestBody PageWriteRequest body) {
+            @RequestBody PageWriteRequest body,
+            HttpServletRequest request) {
         UUID id;
         try {
             id = UUID.fromString(pageId);
         } catch (IllegalArgumentException e) {
+            auditLogger.logWrite("page.update", request, 404, null, "viewer_page:write");
             return ResponseEntity.notFound().build();
         }
         if (body == null) {
+            auditLogger.logWrite("page.update", request, 400, null, "viewer_page:write");
             return ResponseEntity.badRequest().build();
         }
         String ifMatchClean = stripQuotes(ifMatch);
         try {
             PageResponse updated = pageApiService.updatePage(id,
                     body.getName(), body.getActive(), body.getHtml(), ifMatchClean);
+            // Successful write — log the persisted content hash so an
+            // auditor can correlate this audit line with the rfpb_sessions
+            // + the page's current ETag.
+            auditLogger.logWrite("page.update", request, 200, updated.getHtml(), "viewer_page:write");
             return ResponseEntity.ok()
                     .eTag("\"" + updated.getEtag() + "\"")
                     .body(updated);
         } catch (PageNotFoundException e) {
+            auditLogger.logWrite("page.update", request, 404, null, "viewer_page:write");
             return ResponseEntity.notFound().build();
         } catch (EtagMismatchException e) {
             // 412 with the current server state so the client can show a
             // conflict modal with the latest version. ETag header carries
             // the current ETag too — clients can use it as If-Match in
             // their "overwrite anyway" follow-up.
+            auditLogger.logWrite("page.update", request, 412, null, "viewer_page:write");
             return ResponseEntity.status(412)
                     .eTag("\"" + e.getCurrentServerState().getEtag() + "\"")
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(e.getCurrentServerState());
         } catch (IllegalArgumentException e) {
             // Sanitizer or size-cap rejection — 400 with a brief message.
+            auditLogger.logWrite("page.update", request, 400, null, "viewer_page:write");
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
     }
