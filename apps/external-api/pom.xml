@@ -155,6 +155,24 @@
             <version>1.18.3</version>
         </dependency>
 
+        <!--
+            Bucket4j — token-bucket rate limiting for /v1/** (PR-C M3).
+            Per-bearer buckets stored in-memory; Redis-backed version is
+            an option if/when external-api scales to multiple replicas.
+            Single-replica today, so in-memory is fine — restart clears
+            the map but sessions auto-expire from Mongo on the same
+            cadence so the practical impact is "rate limits reset on
+            deploy", which is acceptable.
+
+            Native-image note: Bucket4j may need RuntimeHints on GraalVM.
+            PR-D sweep covers this alongside jsoup + the JWT lib.
+        -->
+        <dependency>
+            <groupId>com.bucket4j</groupId>
+            <artifactId>bucket4j_jdk17-core</artifactId>
+            <version>8.14.0</version>
+        </dependency>
+
         <dependency>
             <groupId>org.json</groupId>
             <artifactId>json</artifactId>
