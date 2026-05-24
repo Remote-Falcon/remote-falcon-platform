@@ -1,0 +1,69 @@
+---
+# One-shot Job to verify the Discord alerts webhook is wired correctly
+# for the account-archive-watchdog. Mirrors
+# ops/k8s/mongo-backup-watchdog/test-ping.yml.
+#
+# Apply manually after the CronJob is deployed (and after the
+# discord-alerts-webhook Secret exists in the cluster):
+#
+#   kubectl apply -f ops/k8s/account-archive-watchdog/test-ping.yml
+#
+# If a test message appears in the #alerts Discord channel, the pipe
+# works. Then delete:
+#
+#   kubectl delete -f ops/k8s/account-archive-watchdog/test-ping.yml
+#
+# This file is intentionally NOT included in
+# deploy-account-archive-watchdog.yml — it's an operator tool, not a
+# deployable resource.
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: account-archive-watchdog-test-ping
+  namespace: remote-falcon
+  labels:
+    app: account-archive-watchdog
+    role: test
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app: account-archive-watchdog
+        role: test
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: ping
+          image: alpine:3.20
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              memory: 16Mi
+              cpu: 5m
+            limits:
+              memory: 64Mi
+              cpu: 100m
+          env:
+            - name: DISCORD_WEBHOOK
+              valueFrom:
+                secretKeyRef:
+                  name: discord-alerts-webhook
+                  key: WEBHOOK
+          command: ["/bin/sh", "-uc"]
+          args:
+            - |
+              apk add --no-cache curl jq >/dev/null
+              jq -n '{
+                embeds: [{
+                  title: "[TEST] account-archive-watchdog alert pipeline",
+                  description: "Synthetic ping from the `account-archive-watchdog-test-ping` Job. If you see this in Discord, the webhook + Secret + Job pipeline works.\n\nDelete this Job to clean up:\n```\nkubectl delete job account-archive-watchdog-test-ping -n remote-falcon\n```",
+                  color: 3447003,
+                  fields: [
+                    {name: "Source", value: "manual test (k8s Job)"}
+                  ]
+                }]
+              }' | curl -sS -X POST -H "Content-Type: application/json" -d @- "$DISCORD_WEBHOOK"
+              echo "Test ping sent."

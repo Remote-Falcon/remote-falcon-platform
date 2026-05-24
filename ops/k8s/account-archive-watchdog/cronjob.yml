@@ -1,0 +1,327 @@
+---
+# Cluster-resident watchdog for the account-archive @Scheduled jobs.
+#
+# account-archive runs two daily Quarkus @Scheduled jobs that delete
+# customer data (archive shows idle >=24mo, delete unverified shows
+# >=7d). PostHog error-spike alerts catch loud failures, but a silent
+# scheduler stoppage produces no logs and therefore no signal. This
+# watchdog closes that gap by checking PostHog Logs for the two
+# completion log lines daily and alerting Discord if either is missing.
+#
+# Runs at 14:05 UTC (just after the posthog-daily-digest at 14:00 UTC,
+# so the two land back-to-back in the same Discord scroll).
+#
+# Mirrors ops/k8s/mongo-backup-watchdog (S3 -> PostHog Logs is the only
+# substantive difference; same image, same Secrets, same Discord shape).
+#
+# Closes Remote-Falcon/remote-falcon-issue-tracker#148.
+# Deploy: .github/workflows/deploy-account-archive-watchdog.yml
+
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: account-archive-watchdog
+  namespace: remote-falcon
+  labels:
+    app: account-archive-watchdog
+spec:
+  schedule: "5 14 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 600
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app: account-archive-watchdog
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: check
+              # python:3.12-alpine matches mongo-backup-watchdog +
+              # posthog-daily-digest. No extra pip installs needed —
+              # stdlib urllib is enough for the PostHog + Discord HTTP.
+              image: python:3.12-alpine
+              imagePullPolicy: IfNotPresent
+              resources:
+                requests:
+                  memory: 32Mi
+                  cpu: 10m
+                limits:
+                  memory: 128Mi
+                  cpu: 200m
+              env:
+                - name: POSTHOG_HOST
+                  value: https://us.posthog.com
+                - name: POSTHOG_PROJECT_ID
+                  value: "425428"
+                - name: POSTHOG_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: posthog-api-key
+                      key: POSTHOG_API_KEY
+                - name: DISCORD_WEBHOOK
+                  valueFrom:
+                    secretKeyRef:
+                      name: discord-alerts-webhook
+                      key: WEBHOOK
+                - name: SERVICE_NAME
+                  value: remote-falcon-account-archive
+                # 1h buffer past the 24h @Scheduled cadence — if a run
+                # is missing across this window the scheduler has almost
+                # certainly stopped firing.
+                - name: WINDOW_HOURS
+                  value: "25"
+              command: ["/bin/sh", "-uec"]
+              args:
+                - |
+                  exec python3 - <<'PYEOF'
+                  import json
+                  import os
+                  import re
+                  import sys
+                  import urllib.error
+                  import urllib.request
+                  from datetime import datetime, timezone, timedelta
+
+                  HOST = os.environ["POSTHOG_HOST"].rstrip("/")
+                  PROJECT_ID = int(os.environ["POSTHOG_PROJECT_ID"])
+                  API_KEY = os.environ["POSTHOG_API_KEY"]
+                  WEBHOOK = os.environ["DISCORD_WEBHOOK"]
+                  SERVICE = os.environ["SERVICE_NAME"]
+                  WINDOW_HOURS = int(os.environ["WINDOW_HOURS"])
+
+                  # Discord embed colors
+                  RED = 15158332
+                  GREEN = 5763719
+
+                  # The two log lines emitted by AccountArchiveService once each
+                  # @Scheduled pass finishes. If either is missing across
+                  # WINDOW_HOURS the corresponding scheduler tick didn't run.
+                  PROCESSES = [
+                      {
+                          "label": "Archive (idle >=24mo)",
+                          "done_marker": "Finished archive process",
+                          "found_marker": "Found ",
+                          "found_suffix": "shows with lastLoginDate older than 24 months",
+                      },
+                      {
+                          "label": "Delete unverified (>=7d)",
+                          "done_marker": "Finished delete unverified shows process",
+                          "found_marker": "Found ",
+                          "found_suffix": "unverified shows with createdDate older than 7 days",
+                      },
+                  ]
+
+
+                  def ph_request(path, body):
+                      url = f"{HOST}/api/projects/{PROJECT_ID}{path}"
+                      req = urllib.request.Request(
+                          url,
+                          method="POST",
+                          data=json.dumps(body).encode(),
+                          headers={
+                              "Authorization": f"Bearer {API_KEY}",
+                              "Content-Type": "application/json",
+                              "User-Agent": "rf-account-archive-watchdog/1.0",
+                          },
+                      )
+                      try:
+                          with urllib.request.urlopen(req, timeout=30) as r:
+                              return json.loads(r.read())
+                      except urllib.error.HTTPError as e:
+                          body_txt = e.read().decode("utf-8", errors="replace")
+                          print(f"ERROR: POST {url} -> {e.code}: {body_txt}", file=sys.stderr)
+                          raise
+
+
+                  def logs_count(date_from, date_to, search):
+                      """Count log rows containing `search` from this service in the window.
+
+                      Mirrors the shape used by ops/k8s/posthog-daily-digest/cronjob.yml.
+                      """
+                      q = {
+                          "dateRange": {"date_from": date_from, "date_to": date_to},
+                          "searchTerm": search,
+                          "serviceNames": [SERVICE],
+                          "filterGroup": [
+                              {
+                                  "key": "deployment.environment",
+                                  "type": "log_resource_attribute",
+                                  "operator": "exact",
+                                  "value": "prod",
+                              }
+                          ],
+                      }
+                      resp = ph_request("/logs/count/", {"query": q})
+                      return int(resp.get("count", 0))
+
+
+                  def latest_found_tally(date_from, date_to, found_suffix):
+                      """Best-effort: fetch the most recent `Found N ... <found_suffix>` line.
+
+                      Used to enrich the success embed with the number of shows the
+                      job actually processed. Wrapped in a broad try/except — the
+                      watchdog must keep working even if the /logs/query/ shape
+                      changes or HogQL on the logs table is unavailable.
+                      """
+                      try:
+                          q = {
+                              "dateRange": {"date_from": date_from, "date_to": date_to},
+                              "searchTerm": found_suffix,
+                              "serviceNames": [SERVICE],
+                              "filterGroup": [
+                                  {
+                                      "key": "deployment.environment",
+                                      "type": "log_resource_attribute",
+                                      "operator": "exact",
+                                      "value": "prod",
+                                  }
+                              ],
+                              "orderBy": "timestamp DESC",
+                              "limit": 5,
+                          }
+                          resp = ph_request("/logs/query/", {"query": q})
+                          results = resp.get("results") or resp.get("logs") or []
+                          for row in results:
+                              # Response shape varies; pull the message text from
+                              # whichever field is populated.
+                              body_txt = (
+                                  row.get("body")
+                                  or row.get("message")
+                                  or (row.get("attributes") or {}).get("body")
+                                  or ""
+                              )
+                              if not body_txt:
+                                  continue
+                              m = re.search(r"Found\s+(\d+)\s+", body_txt)
+                              if m:
+                                  return int(m.group(1))
+                      except Exception as e:
+                          print(f"WARN: could not fetch Found N tally for '{found_suffix}': {e}", file=sys.stderr)
+                      return None
+
+
+                  def post_discord(title, color, fields, description=None):
+                      embed = {
+                          "title": title,
+                          "color": color,
+                          "fields": fields,
+                          "footer": {"text": "rf-account-archive-watchdog"},
+                      }
+                      if description:
+                          embed["description"] = description
+                      payload = json.dumps({"embeds": [embed]}).encode()
+                      req = urllib.request.Request(
+                          WEBHOOK,
+                          data=payload,
+                          headers={
+                              "Content-Type": "application/json",
+                              # Discord rejects the default Python urllib UA
+                              # ("Python-urllib/3.12") with 403 Forbidden.
+                              "User-Agent": "remote-falcon-account-archive-watchdog/1.0 (k8s CronJob)",
+                          },
+                      )
+                      try:
+                          urllib.request.urlopen(req, timeout=10).read()
+                      except Exception as e:
+                          print(f"WARN: Discord POST failed: {e}", file=sys.stderr)
+
+
+                  # Time window: last WINDOW_HOURS, in ISO 8601 UTC (the format
+                  # daily-digest already uses against the same /logs/count/ API).
+                  now = datetime.now(timezone.utc)
+                  start = now - timedelta(hours=WINDOW_HOURS)
+                  date_from = start.isoformat()
+                  date_to = now.isoformat()
+                  print(f"window: {date_from} -> {date_to} (service={SERVICE})")
+
+                  results = []
+                  any_missing = False
+                  for proc in PROCESSES:
+                      count = logs_count(date_from, date_to, proc["done_marker"])
+                      tally = None
+                      if count > 0:
+                          tally = latest_found_tally(date_from, date_to, proc["found_suffix"])
+                      results.append({"proc": proc, "count": count, "tally": tally})
+                      print(
+                          f"{proc['label']}: completions={count} "
+                          f"tally={'?' if tally is None else tally}"
+                      )
+                      if count == 0:
+                          any_missing = True
+
+                  if any_missing:
+                      missing = [r["proc"]["label"] for r in results if r["count"] == 0]
+                      ok = [r["proc"]["label"] for r in results if r["count"] > 0]
+                      fields = [
+                          {
+                              "name": "Missing process(es)",
+                              "value": "\n".join(f"- {m}" for m in missing),
+                              "inline": False,
+                          },
+                          {
+                              "name": "Window",
+                              "value": f"Last {WINDOW_HOURS}h (service `{SERVICE}`)",
+                              "inline": False,
+                          },
+                          {
+                              "name": "Source",
+                              "value": "k8s CronJob `account-archive-watchdog` (ns: remote-falcon)",
+                              "inline": False,
+                          },
+                      ]
+                      if ok:
+                          fields.append({
+                              "name": "Still completing OK",
+                              "value": "\n".join(f"- {m}" for m in ok),
+                              "inline": False,
+                          })
+                      post_discord(
+                          "[ALERT] account-archive scheduler may have stopped",
+                          RED,
+                          fields,
+                          description=(
+                              "No `Finished ...` log line(s) seen for the process(es) "
+                              "below — the Quarkus @Scheduled tick has likely silently "
+                              "stopped firing. Customer-data jobs may not be running."
+                          ),
+                      )
+                      print(f"ALERT sent — missing: {missing}")
+                      sys.exit(1)
+
+                  # All present — post a quiet success embed with the latest tallies
+                  # so the daily Discord scroll captures what was processed.
+                  def fmt_tally(t):
+                      return "n/a" if t is None else f"{t:,}"
+
+                  fields = [
+                      {
+                          "name": r["proc"]["label"],
+                          "value": (
+                              f"Latest tally: **{fmt_tally(r['tally'])}** shows\n"
+                              f"Completions in last {WINDOW_HOURS}h: **{r['count']}**"
+                          ),
+                          "inline": False,
+                      }
+                      for r in results
+                  ]
+                  fields.append({
+                      "name": "Source",
+                      "value": "k8s CronJob `account-archive-watchdog` (ns: remote-falcon)",
+                      "inline": False,
+                  })
+                  post_discord(
+                      "account-archive watchdog — OK",
+                      GREEN,
+                      fields,
+                      description=(
+                          f"Both `@Scheduled` jobs completed in the last {WINDOW_HOURS}h."
+                      ),
+                  )
+                  print("OK — both processes completed; success embed posted.")
+                  PYEOF
