@@ -5,6 +5,7 @@ import com.remotefalcon.external.api.testsupport.ExternalApiJwtFactory;
 import com.remotefalcon.library.documents.Show;
 import com.remotefalcon.library.models.ApiAccess;
 import jakarta.servlet.http.HttpServletRequest;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -13,6 +14,12 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Optional;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.lenient;
@@ -41,6 +48,15 @@ class AuthUtilTest {
     @BeforeEach
     void setUp() {
         request = mock(HttpServletRequest.class);
+    }
+
+    @AfterEach
+    void clearThreadLocal() {
+        // Belt-and-braces: the production code path is always wrapped by
+        // AccessAspect#finally → clearShowToken(), but in unit tests we call
+        // isApiJwtValid() directly without the aspect, so wipe the
+        // per-thread state ourselves to keep tests independent.
+        authUtil.clearShowToken();
     }
 
     private Show showWith(String accessToken, String secret) {
@@ -109,21 +125,17 @@ class AuthUtilTest {
     @Test
     void isApiJwtValid_false_whenAccessTokenClaimMissing() {
         // A structurally-valid JWT signed with the right algorithm but missing
-        // the accessToken claim — decoded.getClaims().get("accessToken").asString()
-        // throws NullPointerException; AuthUtil catches the unchecked exception
-        // path through JWTVerificationException is not reachable here, but the
-        // outer try/catch in AuthUtil's caller pattern... actually AuthUtil only
-        // catches JWTVerificationException, so the NPE here would escape. Verify
-        // current behavior: this should throw, NOT cleanly return false.
-        // (If you change AuthUtil to catch Exception more broadly, update this test.)
+        // the accessToken claim. Previously AuthUtil dereferenced
+        // decodedJWT.getClaims().get("accessToken") with no null check,
+        // which NPE'd and surfaced as HTTP 500 to the caller (only
+        // JWTVerificationException was caught). After the security fix the
+        // method must treat this as an unauthenticated request and return
+        // false → AccessAspect maps it to 401.
         String token = ExternalApiJwtFactory.issueWithoutAccessTokenClaim(SECRET);
         when(request.getHeader("Authorization")).thenReturn("Bearer " + token);
 
-        // Current AuthUtil: NPE escapes the try/catch (only JWTVerificationException
-        // is caught). Document the actual behavior.
-        org.junit.jupiter.api.Assertions.assertThrows(
-                NullPointerException.class,
-                () -> authUtil.isApiJwtValid(request));
+        assertThat(authUtil.isApiJwtValid(request)).isFalse();
+        assertThat(authUtil.getShowToken()).isNull();
     }
 
     @Test
@@ -134,7 +146,7 @@ class AuthUtilTest {
                 .thenReturn(Optional.empty());
 
         assertThat(authUtil.isApiJwtValid(request)).isFalse();
-        assertThat(authUtil.showToken).isNull();
+        assertThat(authUtil.getShowToken()).isNull();
     }
 
     @Test
@@ -161,45 +173,119 @@ class AuthUtilTest {
                 .thenReturn(Optional.of(show));
 
         assertThat(authUtil.isApiJwtValid(request)).isTrue();
-        // Side effect: showToken is stashed on the instance for downstream services.
-        assertThat(authUtil.showToken).isEqualTo(show.getShowToken());
+        // Side effect: showToken is stashed on the current thread for
+        // downstream services on the same request thread.
+        assertThat(authUtil.getShowToken()).isEqualTo(show.getShowToken());
     }
 
-    // ----- Concurrent token race condition — RECON BUG FLAG -----
-    //
-    // AuthUtil#showToken is a mutable instance field on a singleton Spring
-    // service; isApiJwtValid() writes to it, then ExternalApiService reads it
-    // back on the same request thread. Two concurrent requests for different
-    // shows will race: request A may complete auth, then request B overwrites
-    // showToken before A's service reads it, causing A to operate on B's data.
-    //
-    // The test below is intentionally racy and not guaranteed to fail on every
-    // run — it is left @Disabled with a clear repro note so the discovery is
-    // preserved without flaking CI. A proper fix is to move the per-request
-    // value into a ThreadLocal or onto the request itself, which is out of
-    // scope for the coverage PR.
-    @org.junit.jupiter.api.Disabled(
-            "Demonstrates AuthUtil#showToken race condition (mutable instance "
-                    + "field on a singleton). Tracked as a follow-up — see comment "
-                    + "above for repro/fix sketch.")
     @Test
-    void isApiJwtValid_showTokenField_racesBetweenConcurrentRequests() throws Exception {
-        // Two shows, two access tokens, two secrets, two minted JWTs. Run N
-        // concurrent threads each calling isApiJwtValid + reading back
-        // authUtil.showToken; assert that the value read back always matches
-        // the token used for the call. With the current mutable-field design
-        // this assertion will flake.
+    void clearShowToken_wipesPerThreadValue() {
+        // Mimic the production lifecycle: aspect validates, service reads,
+        // aspect clears in finally. After clear the next call on this thread
+        // should see null again.
+        String token = ExternalApiJwtFactory.issue(ACCESS_TOKEN, SECRET);
+        Show show = showWith(ACCESS_TOKEN, SECRET);
+        when(request.getHeader("Authorization")).thenReturn("Bearer " + token);
+        when(showRepository.findByApiAccessApiAccessToken(ACCESS_TOKEN))
+                .thenReturn(Optional.of(show));
+
+        assertThat(authUtil.isApiJwtValid(request)).isTrue();
+        assertThat(authUtil.getShowToken()).isEqualTo(show.getShowToken());
+
+        authUtil.clearShowToken();
+        assertThat(authUtil.getShowToken()).isNull();
+    }
+
+    // ----- Concurrent token race — guards against issue-tracker #149 -----
+    //
+    // Pre-fix: AuthUtil#showToken was a plain mutable instance field on a
+    // Spring singleton. Two concurrent requests for different shows would
+    // race — thread B could overwrite the field after thread A's auth but
+    // before A's downstream read, so A returned B's tenant data.
+    //
+    // Fix: showToken is now a ThreadLocal. This test runs two threads in
+    // tight loops binding their own tokens via isApiJwtValid() and reading
+    // them back via getShowToken(); a CountDownLatch maximises overlap.
+    // With the broken instance-field design this assertion would flake; on
+    // the fixed ThreadLocal it is deterministic.
+    @Test
+    void isApiJwtValid_showToken_isPerThread_underConcurrency() throws Exception {
         String tokenA = ExternalApiJwtFactory.issue("access-A", "secret-A");
         String tokenB = ExternalApiJwtFactory.issue("access-B", "secret-B");
         Show showA = showWith("access-A", "secret-A");
         Show showB = showWith("access-B", "secret-B");
-        // Use `lenient()` because each test method only invokes a subset of the
-        // stubs but MockitoExtension's STRICT_STUBS would flag any unused.
+
+        // Each thread will use its own mocked request; only one of these
+        // stubbings is hit per thread, so use lenient() to keep STRICT_STUBS
+        // happy.
         lenient().when(showRepository.findByApiAccessApiAccessToken("access-A"))
                 .thenReturn(Optional.of(showA));
         lenient().when(showRepository.findByApiAccessApiAccessToken("access-B"))
                 .thenReturn(Optional.of(showB));
-        // Implementation of the race-exposing harness is intentionally omitted —
-        // see disabled-reason above.
+
+        final int iterations = 1000;
+        final ConcurrentLinkedQueue<String> mismatches = new ConcurrentLinkedQueue<>();
+        final AtomicReference<Throwable> firstError = new AtomicReference<>();
+        final CountDownLatch start = new CountDownLatch(1);
+        final CountDownLatch done = new CountDownLatch(2);
+
+        Runnable worker = () -> {
+            try {
+                // Pin each thread to a single tenant — any cross-thread bleed
+                // shows up as observed != expected.
+                String tokenToUse;
+                String expectedShow;
+                if (Thread.currentThread().getName().endsWith("-A")) {
+                    tokenToUse = tokenA;
+                    expectedShow = showA.getShowToken();
+                } else {
+                    tokenToUse = tokenB;
+                    expectedShow = showB.getShowToken();
+                }
+                start.await();
+                for (int i = 0; i < iterations; i++) {
+                    HttpServletRequest req = mock(HttpServletRequest.class);
+                    when(req.getHeader("Authorization")).thenReturn("Bearer " + tokenToUse);
+
+                    boolean ok = authUtil.isApiJwtValid(req);
+                    String observed = authUtil.getShowToken();
+                    authUtil.clearShowToken(); // mimic AccessAspect's finally
+                    if (!ok || !expectedShow.equals(observed)) {
+                        mismatches.add("expected=" + expectedShow + " actual=" + observed
+                                + " ok=" + ok + " thread=" + Thread.currentThread().getName());
+                    }
+                }
+            } catch (Throwable t) {
+                firstError.compareAndSet(null, t);
+            } finally {
+                done.countDown();
+            }
+        };
+
+        ExecutorService pool = Executors.newFixedThreadPool(2, r -> {
+            Thread t = new Thread(r);
+            // Name encodes which tenant the thread pins to.
+            int n = nextThreadIndex.getAndIncrement();
+            t.setName("auth-race-" + (n % 2 == 0 ? "A" : "B"));
+            return t;
+        });
+        try {
+            pool.submit(worker);
+            pool.submit(worker);
+            start.countDown();
+            assertThat(done.await(30, TimeUnit.SECONDS)).isTrue();
+        } finally {
+            pool.shutdownNow();
+        }
+
+        if (firstError.get() != null) {
+            throw new AssertionError("worker threw", firstError.get());
+        }
+        assertThat(mismatches)
+                .as("cross-thread showToken bleed observed in %d iterations", mismatches.size())
+                .isEmpty();
     }
+
+    private static final java.util.concurrent.atomic.AtomicInteger nextThreadIndex =
+            new java.util.concurrent.atomic.AtomicInteger();
 }

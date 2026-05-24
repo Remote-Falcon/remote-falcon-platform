@@ -20,9 +20,18 @@ public class AccessAspect {
   @Around("@annotation(com.remotefalcon.external.api.aop.RequiresAccess)")
   public Object isApiJwtValid(ProceedingJoinPoint proceedingJoinPoint) throws Throwable {
     HttpServletRequest request = ((ServletRequestAttributes) RequestContextHolder.currentRequestAttributes()).getRequest();
-    if(this.authUtil.isApiJwtValid(request)) {
-      return proceedingJoinPoint.proceed();
+    try {
+      if(this.authUtil.isApiJwtValid(request)) {
+        return proceedingJoinPoint.proceed();
+      }
+      return ResponseEntity.status(401).build();
+    } finally {
+      // AuthUtil stashes the resolved showToken in a ThreadLocal. Tomcat
+      // reuses servlet threads from a pool — without this remove(), the
+      // next request landing on the same thread would see the previous
+      // request's showToken, re-introducing the cross-tenant leak the
+      // ThreadLocal was added to close.
+      this.authUtil.clearShowToken();
     }
-    return ResponseEntity.status(401).build();
   }
 }

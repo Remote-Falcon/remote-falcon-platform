@@ -29,7 +29,7 @@ public class ExternalApiService {
     String viewerApiUrl;
 
     public ResponseEntity<ShowResponse> showDetails() {
-        String showToken = this.authUtil.showToken;
+        String showToken = this.authUtil.getShowToken();
         if(showToken == null) {
             return ResponseEntity.status(401).build();
         }
@@ -42,7 +42,7 @@ public class ExternalApiService {
     }
 
     public ResponseEntity<RequestVoteResponse> addSequenceToQueue(RequestVoteRequest requestVoteRequest) {
-        String showToken = this.authUtil.showToken;
+        String showToken = this.authUtil.getShowToken();
         if(showToken == null) {
             return ResponseEntity.status(401).build();
         }
@@ -68,7 +68,7 @@ public class ExternalApiService {
     }
 
     public ResponseEntity<RequestVoteResponse> voteForSequence(RequestVoteRequest requestVoteRequest) {
-        String showToken = this.authUtil.showToken;
+        String showToken = this.authUtil.getShowToken();
         if(showToken == null) {
             return ResponseEntity.status(401).build();
         }

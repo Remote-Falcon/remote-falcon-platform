@@ -25,7 +25,7 @@ import static org.mockito.Mockito.when;
 /**
  * Unit tests for {@link ExternalApiService}.
  *
- * <p>Covers all three service methods on both the {@code authUtil.showToken
+ * <p>Covers all three service methods on both the {@code authUtil.getShowToken()
  * == null} path and the show-not-found path. Uses a real {@link
  * DozerBeanMapper} (cheap to construct) so the mapping side of {@code
  * showDetails()} runs end-to-end; the RestTemplate paths in
@@ -55,7 +55,7 @@ class ExternalApiServiceTest {
 
     @Test
     void showDetails_returns401_whenShowTokenIsNull() {
-        authUtil.showToken = null;
+        when(authUtil.getShowToken()).thenReturn(null);
         ResponseEntity<ShowResponse> response = service.showDetails();
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         assertThat(response.getBody()).isNull();
@@ -63,7 +63,7 @@ class ExternalApiServiceTest {
 
     @Test
     void showDetails_returns400_whenShowNotFound() {
-        authUtil.showToken = SHOW_TOKEN;
+        when(authUtil.getShowToken()).thenReturn(SHOW_TOKEN);
         when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.empty());
 
         ResponseEntity<ShowResponse> response = service.showDetails();
@@ -73,7 +73,7 @@ class ExternalApiServiceTest {
 
     @Test
     void showDetails_returns200_andMapsShow_whenFound() {
-        authUtil.showToken = SHOW_TOKEN;
+        when(authUtil.getShowToken()).thenReturn(SHOW_TOKEN);
         Show show = Show.builder()
                 .showToken(SHOW_TOKEN)
                 .showSubdomain("my-show")
@@ -98,7 +98,7 @@ class ExternalApiServiceTest {
 
     @Test
     void addSequenceToQueue_returns401_whenShowTokenIsNull() {
-        authUtil.showToken = null;
+        when(authUtil.getShowToken()).thenReturn(null);
         RequestVoteRequest req = RequestVoteRequest.builder().sequence("Carol").build();
         ResponseEntity<RequestVoteResponse> response = service.addSequenceToQueue(req);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
@@ -106,7 +106,7 @@ class ExternalApiServiceTest {
 
     @Test
     void addSequenceToQueue_returns500_whenShowNotFound() {
-        authUtil.showToken = SHOW_TOKEN;
+        when(authUtil.getShowToken()).thenReturn(SHOW_TOKEN);
         when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.empty());
         RequestVoteRequest req = RequestVoteRequest.builder().sequence("Carol").build();
 
@@ -118,7 +118,7 @@ class ExternalApiServiceTest {
 
     @Test
     void voteForSequence_returns401_whenShowTokenIsNull() {
-        authUtil.showToken = null;
+        when(authUtil.getShowToken()).thenReturn(null);
         RequestVoteRequest req = RequestVoteRequest.builder().sequence("Carol").build();
         ResponseEntity<RequestVoteResponse> response = service.voteForSequence(req);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
@@ -126,7 +126,7 @@ class ExternalApiServiceTest {
 
     @Test
     void voteForSequence_returns500_whenShowNotFound() {
-        authUtil.showToken = SHOW_TOKEN;
+        when(authUtil.getShowToken()).thenReturn(SHOW_TOKEN);
         when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.empty());
         RequestVoteRequest req = RequestVoteRequest.builder().sequence("Carol").build();
 
