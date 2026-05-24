@@ -63,6 +63,19 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
+            <exclusions>
+                <!--
+                    jsonassert ships com.vaadin.external.google:android-json which
+                    contains org.json.JSONObject and clashes with org.json:json
+                    declared as a compile dep above. Spring logs "Found multiple
+                    occurrences of org.json.JSONObject on the class path" without
+                    this exclusion. We don't use JSONAssert in tests.
+                -->
+                <exclusion>
+                    <groupId>com.vaadin.external.google</groupId>
+                    <artifactId>android-json</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>junit</groupId>
@@ -96,6 +109,19 @@
             <groupId>net.sf.dozer</groupId>
             <artifactId>dozer</artifactId>
             <version>5.5.1</version>
+            <exclusions>
+                <!--
+                    Dozer pulls in slf4j's jcl-over-slf4j, which advertises the
+                    org.apache.commons.logging package and triggers spring-jcl's
+                    "Standard Commons Logging discovery in action" warning.
+                    spring-jcl is the canonical Commons Logging provider in
+                    Spring 6, so this bridge is redundant.
+                -->
+                <exclusion>
+                    <groupId>org.slf4j</groupId>
+                    <artifactId>jcl-over-slf4j</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>com.auth0</groupId>
@@ -169,6 +195,19 @@
             <groupId>io.rest-assured</groupId>
             <artifactId>rest-assured</artifactId>
             <scope>test</scope>
+            <exclusions>
+                <!--
+                    rest-assured pulls in apache httpclient 4.5.x which
+                    transitively brings commons-logging. Spring uses spring-jcl
+                    as a drop-in replacement and warns when both are on the
+                    classpath. Exclude commons-logging here so spring-jcl is the
+                    sole Commons Logging provider at runtime.
+                -->
+                <exclusion>
+                    <groupId>commons-logging</groupId>
+                    <artifactId>commons-logging</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>com.remotefalcon</groupId>
@@ -237,6 +276,12 @@
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
+                <!--
+                    Pin to the version that today resolves via Spring Boot's BOM.
+                    Maven warns when a plugin version is missing and future
+                    Maven versions may refuse to build malformed projects.
+                -->
+                <version>0.8.14</version>
                 <executions>
                     <execution>
                         <id>prepare-agent</id>
