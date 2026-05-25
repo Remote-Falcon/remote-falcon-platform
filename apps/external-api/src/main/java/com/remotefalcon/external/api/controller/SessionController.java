@@ -50,14 +50,24 @@ public class SessionController {
     /**
      * Trade a launch JWT for a session bearer. Single-use — the launch
      * token's jti is deduped at exchange time.
+     *
+     * <p>Accepts the launch token from either {@code Authorization: Bearer}
+     * (RFPB's preferred form — keeps the token out of body / proxy logs) or
+     * a JSON body with {@code launchToken}. Header wins if both are present.
      */
     @PostMapping("/exchange")
-    public ResponseEntity<SessionResponse> exchange(@RequestBody SessionExchangeRequest body) {
-        if (body == null || body.getLaunchToken() == null || body.getLaunchToken().isBlank()) {
+    public ResponseEntity<SessionResponse> exchange(
+            HttpServletRequest request,
+            @RequestBody(required = false) SessionExchangeRequest body) {
+        String launchToken = extractBearer(request);
+        if (launchToken == null && body != null) {
+            launchToken = body.getLaunchToken();
+        }
+        if (launchToken == null || launchToken.isBlank()) {
             return ResponseEntity.status(401).build();
         }
         try {
-            return ResponseEntity.ok(rfpbSessionService.exchangeLaunchToken(body.getLaunchToken()));
+            return ResponseEntity.ok(rfpbSessionService.exchangeLaunchToken(launchToken));
         } catch (LaunchTokenVerificationException | ReplayedLaunchTokenException e) {
             // Both surface as 401. Don't differentiate to the caller —
             // "your launch token isn't valid for any reason" is the
