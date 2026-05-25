@@ -8,7 +8,10 @@ import com.remotefalcon.external.api.document.RfpbSession;
 import com.remotefalcon.external.api.dto.SessionContext;
 import com.remotefalcon.external.api.repository.RfpbLaunchJtiRepository;
 import com.remotefalcon.external.api.repository.RfpbSessionRepository;
+import com.remotefalcon.external.api.repository.ShowRepository;
 import com.remotefalcon.external.api.response.SessionResponse;
+import com.remotefalcon.library.documents.Show;
+import com.remotefalcon.library.models.ViewerPage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -54,6 +57,7 @@ public class RfpbSessionService {
     private final LaunchTokenVerifier launchTokenVerifier;
     private final RfpbSessionRepository sessionRepository;
     private final RfpbLaunchJtiRepository jtiRepository;
+    private final ShowRepository showRepository;
 
     @Value("${rfpb.session.ttl-seconds:1800}")
     private long sessionTtlSeconds;
@@ -119,12 +123,34 @@ public class RfpbSessionService {
                 .build();
         sessionRepository.save(session);
 
+        // Look up the bound page's display name so RFPB can render the binding
+        // badge without a separate /v1/me round-trip. Best-effort: if the show
+        // or page can't be found we return null pageName rather than failing
+        // exchange — the editor can fetch it later via /v1/pages/:id.
+        String pageName = lookupPageName(payload.getShowToken(), pageIdString);
+
         return SessionResponse.builder()
-                .bearer(bearer)
+                .token(bearer)
                 .expiresAt(expiresAt)
                 .showSubdomain(session.getShowSubdomain())
                 .pageId(session.getPageId())
+                .pageName(pageName)
+                .etag(payload.getEtag())
                 .build();
+    }
+
+    private String lookupPageName(String showToken, String pageId) {
+        if (showToken == null || pageId == null) {
+            return null;
+        }
+        return showRepository.findByShowToken(showToken)
+                .map(Show::getPages)
+                .stream()
+                .flatMap(List::stream)
+                .filter(p -> p.getPageId() != null && pageId.equals(p.getPageId().toString()))
+                .map(ViewerPage::getName)
+                .findFirst()
+                .orElse(null);
     }
 
     /**
@@ -143,7 +169,7 @@ public class RfpbSessionService {
         sessionRepository.save(session);
 
         return SessionResponse.builder()
-                .bearer(bearer)
+                .token(bearer)
                 .expiresAt(newExpiry)
                 .showSubdomain(session.getShowSubdomain())
                 .pageId(session.getPageId())

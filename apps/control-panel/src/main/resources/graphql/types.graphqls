@@ -133,6 +133,12 @@ type Page {
     name: String
     active: Boolean
     html: String
+    # Added 2026-05-24 for RF Page Builder integration (PRD External
+    # Viewer Page API, Phase 1). Server-managed: lazy-backfilled on
+    # read by ViewerPageService.normalizeAndBackfill, then immutable
+    # across renames. updatedAt is bumped on every sanitize/save.
+    pageId: String
+    updatedAt: String
 }
 
 type DashboardStats {

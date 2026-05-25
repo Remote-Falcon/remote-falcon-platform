@@ -91,6 +91,8 @@ export const SIGN_IN = gql`
         name
         active
         html
+        pageId
+        updatedAt
       }
       requests {
         sequence {
@@ -214,6 +216,8 @@ export const GET_SHOW = gql`
         name
         active
         html
+        pageId
+        updatedAt
       }
       requests {
         sequence {
@@ -498,6 +502,8 @@ export const GET_SHOW_BY_SHOW_NAME = gql`
         name
         active
         html
+        pageId
+        updatedAt
       }
       requests {
         sequence {

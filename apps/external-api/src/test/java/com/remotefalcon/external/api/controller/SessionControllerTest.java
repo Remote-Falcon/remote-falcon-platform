@@ -41,12 +41,24 @@ class SessionControllerTest {
 
     @InjectMocks private SessionController controller;
 
+    /** Empty request — no Authorization header — for body-path tests. */
+    private static HttpServletRequest emptyReq() {
+        return new MockHttpServletRequest("POST", "/v1/sessions/exchange");
+    }
+
+    /** Request carrying a launch token in the Authorization header (RFPB's preferred shape). */
+    private static HttpServletRequest reqWithBearer(String token) {
+        MockHttpServletRequest req = new MockHttpServletRequest("POST", "/v1/sessions/exchange");
+        req.addHeader("Authorization", "Bearer " + token);
+        return req;
+    }
+
     // ----- exchange -----
 
     @Test
-    void exchange_returns200_andSessionResponse_onHappyPath() {
+    void exchange_returns200_andSessionResponse_onHappyPath_bodyShape() {
         SessionResponse stub = SessionResponse.builder()
-                .bearer("bearer-value")
+                .token("bearer-value")
                 .expiresAt(Instant.now().plusSeconds(1800))
                 .showSubdomain("myxmas")
                 .pageId("page-id")
@@ -54,6 +66,7 @@ class SessionControllerTest {
         when(sessionService.exchangeLaunchToken("valid-jwt")).thenReturn(stub);
 
         ResponseEntity<SessionResponse> response = controller.exchange(
+                emptyReq(),
                 SessionExchangeRequest.builder().launchToken("valid-jwt").build());
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -61,8 +74,38 @@ class SessionControllerTest {
     }
 
     @Test
-    void exchange_returns401_whenBodyIsNull() {
-        ResponseEntity<SessionResponse> response = controller.exchange(null);
+    void exchange_returns200_onHappyPath_authorizationHeaderShape() {
+        // RFPB sends the launch token in the Authorization header with no body.
+        SessionResponse stub = SessionResponse.builder()
+                .token("bearer-value")
+                .expiresAt(Instant.now().plusSeconds(1800))
+                .showSubdomain("myxmas")
+                .pageId("page-id")
+                .build();
+        when(sessionService.exchangeLaunchToken("hdr-jwt")).thenReturn(stub);
+
+        ResponseEntity<SessionResponse> response = controller.exchange(reqWithBearer("hdr-jwt"), null);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isEqualTo(stub);
+    }
+
+    @Test
+    void exchange_authorizationHeaderWinsWhenBothPresent() {
+        when(sessionService.exchangeLaunchToken("from-header")).thenReturn(
+                SessionResponse.builder().token("x").expiresAt(Instant.now()).build());
+
+        controller.exchange(
+                reqWithBearer("from-header"),
+                SessionExchangeRequest.builder().launchToken("from-body").build());
+
+        verify(sessionService).exchangeLaunchToken("from-header");
+        verify(sessionService, never()).exchangeLaunchToken("from-body");
+    }
+
+    @Test
+    void exchange_returns401_whenBodyIsNullAndNoHeader() {
+        ResponseEntity<SessionResponse> response = controller.exchange(emptyReq(), null);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         verify(sessionService, never()).exchangeLaunchToken(any());
@@ -71,6 +114,7 @@ class SessionControllerTest {
     @Test
     void exchange_returns401_whenLaunchTokenIsNull() {
         ResponseEntity<SessionResponse> response = controller.exchange(
+                emptyReq(),
                 SessionExchangeRequest.builder().launchToken(null).build());
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
@@ -80,6 +124,7 @@ class SessionControllerTest {
     @Test
     void exchange_returns401_whenLaunchTokenIsBlank() {
         ResponseEntity<SessionResponse> response = controller.exchange(
+                emptyReq(),
                 SessionExchangeRequest.builder().launchToken("   ").build());
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
@@ -92,6 +137,7 @@ class SessionControllerTest {
                 .thenThrow(new LaunchTokenVerificationException("bad signature"));
 
         ResponseEntity<SessionResponse> response = controller.exchange(
+                emptyReq(),
                 SessionExchangeRequest.builder().launchToken("bad-jwt").build());
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
@@ -103,6 +149,7 @@ class SessionControllerTest {
                 .thenThrow(new ReplayedLaunchTokenException("jti consumed"));
 
         ResponseEntity<SessionResponse> response = controller.exchange(
+                emptyReq(),
                 SessionExchangeRequest.builder().launchToken("replayed-jwt").build());
 
         // Same 401 — caller doesn't get to distinguish replay from invalid
@@ -114,7 +161,7 @@ class SessionControllerTest {
     @Test
     void refresh_returns200_andSlidesExpiry() {
         SessionResponse stub = SessionResponse.builder()
-                .bearer("the-bearer")
+                .token("the-bearer")
                 .expiresAt(Instant.now().plusSeconds(1800))
                 .showSubdomain("myxmas")
                 .pageId("page-id")

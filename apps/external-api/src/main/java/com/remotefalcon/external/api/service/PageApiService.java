@@ -127,8 +127,17 @@ public class PageApiService {
                 .set("pages.$[elem].active", staged.getActive())
                 .set("pages.$[elem].html", staged.getHtml())
                 .set("pages.$[elem].updatedAt", staged.getUpdatedAt());
-        update.filterArray("elem.pageId", pageId.toString())
-                .filterArray("elem.updatedAt", existing.getUpdatedAt());
+        // Single arrayFilter combining both conditions. Mongo requires each
+        // arrayFilter's top-level identifier ("elem") to appear exactly once
+        // across the filters list — splitting into two filterArray calls
+        // each named "elem" trips MongoWriteException code 9 ("Found
+        // multiple array filters with the same top-level field name elem").
+        // Pass the UUID directly (NOT pageId.toString()) — Spring Data Mongo
+        // serializes UUID fields as BSON Binary subtype 3 (UUID legacy), so a
+        // String filter never matches the stored value and modifiedCount comes
+        // back 0 → spurious 412 PRECONDITION_FAILED on every publish.
+        update.filterArray(Criteria.where("elem.pageId").is(pageId)
+                .and("elem.updatedAt").is(existing.getUpdatedAt()));
 
         UpdateResult result = mongoTemplate.updateFirst(showQuery, update, Show.class);
 

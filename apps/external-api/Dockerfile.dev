@@ -8,6 +8,18 @@ COPY libs/schema/pom.xml .
 COPY libs/schema/src ./src
 RUN mvn install -DskipTests -B
 
+# libs/test-fixtures: external-api's pom.xml declares it as a test-scope dep
+# (added in PR-B M3 for BearerAspectTest et al). Even with
+# -Dmaven.test.skip=true, Maven still resolves the full dep tree and fails
+# if test-fixtures isn't reachable. Install into mavenLocal so the
+# subsequent build resolves it; tests then skipped via the flag below.
+FROM maven:3-eclipse-temurin-17 AS test-fixtures-build
+WORKDIR /lib
+COPY --from=schema-build /root/.m2/repository /root/.m2/repository
+COPY libs/test-fixtures/pom.xml .
+COPY libs/test-fixtures/src ./src
+RUN mvn install -DskipTests -B
+
 # Added 2026-05-24 for PR-B of the RFPB integration.
 FROM maven:3-eclipse-temurin-17 AS auth-build
 WORKDIR /lib
@@ -17,11 +29,13 @@ RUN mvn install -DskipTests -B
 
 FROM maven:3-eclipse-temurin-21 AS build
 WORKDIR /usr/src/app
-COPY --from=schema-build /root/.m2/repository /root/.m2/repository
+COPY --from=test-fixtures-build /root/.m2/repository /root/.m2/repository
 COPY --from=auth-build /root/.m2/repository /root/.m2/repository
 COPY apps/external-api/pom.xml .
 COPY apps/external-api/src ./src
-RUN mvn -DskipTests package
+# -Dmaven.test.skip=true skips test compile + execution; mavenLocal contains
+# libs/schema + libs/test-fixtures + libs/auth so resolution still succeeds.
+RUN mvn -Dmaven.test.skip=true package
 
 FROM eclipse-temurin:21-jre
 WORKDIR /usr/app

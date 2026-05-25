@@ -62,6 +62,7 @@ class RfpbSessionServiceTest {
 
     @Mock private RfpbSessionRepository sessionRepository;
     @Mock private RfpbLaunchJtiRepository jtiRepository;
+    @Mock private com.remotefalcon.external.api.repository.ShowRepository showRepository;
 
     @InjectMocks private RfpbSessionService service;
 
@@ -100,7 +101,7 @@ class RfpbSessionServiceTest {
 
         SessionResponse response = service.exchangeLaunchToken(jwt);
 
-        assertThat(response.getBearer()).isNotBlank();
+        assertThat(response.getToken()).isNotBlank();
         assertThat(response.getExpiresAt()).isAfter(Instant.now());
         assertThat(response.getShowSubdomain()).isEqualTo(SHOW_SUBDOMAIN);
         assertThat(response.getPageId()).isEqualTo(PAGE_ID.toString());
@@ -124,9 +125,9 @@ class RfpbSessionServiceTest {
         verify(sessionRepository).save(captor.capture());
         RfpbSession saved = captor.getValue();
         // _id is the hash, not the raw bearer
-        assertThat(saved.getTokenHash()).isNotEqualTo(response.getBearer());
+        assertThat(saved.getTokenHash()).isNotEqualTo(response.getToken());
         // Hash is computable forward from the bearer
-        assertThat(saved.getTokenHash()).isEqualTo(RfpbSessionService.hash(response.getBearer()));
+        assertThat(saved.getTokenHash()).isEqualTo(RfpbSessionService.hash(response.getToken()));
     }
 
     @Test
