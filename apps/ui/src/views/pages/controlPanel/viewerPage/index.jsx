@@ -291,7 +291,17 @@ const ViewerPage = () => {
         pageId: currentPage.pageId,
         pageName: currentPage.name
       });
-      window.location.assign(url);
+      // Open in a new tab — RFPB is a separate product and users expect
+      // to keep the control panel open behind them (matches the IconExternalLink
+      // affordance + tooltip wording). noopener strips the window.opener
+      // reference (prevents reverse-tabnabbing); noreferrer suppresses the
+      // Referer header so the launch JWT in the URL never leaks via referrer.
+      const opened = window.open(url, '_blank', 'noopener,noreferrer');
+      if (!opened) {
+        // Popup blocker fired (rare — same-user-gesture click usually passes).
+        // Fall back to same-tab nav so the user isn't stuck.
+        window.location.assign(url);
+      }
     } catch (err) {
       showAlert({
         message: 'Could not open RF Page Builder: ' + (err?.message || 'unknown error'),

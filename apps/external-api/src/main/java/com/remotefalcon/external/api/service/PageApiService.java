@@ -170,8 +170,12 @@ public class PageApiService {
     private Show currentShow() {
         SessionContext ctx = SessionContextHolder.get();
         if (ctx == null || ctx.getShowToken() == null) {
-            throw new IllegalStateException(
-                    "No session context bound to current thread — called outside @RequiresBearer?");
+            // Defensive: should never fire because BearerAspect sets the
+            // context before invoking. If a future refactor lands a call
+            // path that skips the aspect, surface as 401 rather than 500 —
+            // the caller's truly correct remediation is "re-auth", not
+            // "we crashed."
+            throw new SessionContextMissingException();
         }
         return showRepository.findByShowToken(ctx.getShowToken())
                 .orElseThrow(PageNotFoundException::new);
@@ -200,6 +204,17 @@ public class PageApiService {
 
     /** 404. Page doesn't exist on the bearer's show. */
     public static class PageNotFoundException extends RuntimeException {
+    }
+
+    /**
+     * 401. {@link SessionContextHolder} was empty when this service was
+     * called — indicates a call path bypassed {@link
+     * com.remotefalcon.external.api.aop.BearerAspect}. Surfaced as 401
+     * (re-auth) rather than 500 (server bug); the audit finding L1 in the
+     * RFPB integration security audit flagged the previous IllegalState
+     * path as a defensive gap.
+     */
+    public static class SessionContextMissingException extends RuntimeException {
     }
 
     /**

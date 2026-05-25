@@ -42,6 +42,20 @@ describe('EditorPane — Edit in RF Page Builder CTA', () => {
     expect(screen.queryByRole('button', { name: /RF Page Builder/i })).toBeNull();
   });
 
+  it('tooltip mentions opening in a new tab when launch is available', () => {
+    // Pin the UX promise: the button's tooltip + the IconExternalLink
+    // affordance both signal "this opens elsewhere." Caught a real bug
+    // where the tooltip said "opens in this tab" but the icon implied
+    // otherwise, and the click handler used window.location.assign
+    // (same-tab). The handler test for window.open lives on the parent
+    // viewerPage component.
+    renderEditorPane({ onLaunchExternal: noop, canLaunchExternal: true });
+    const button = screen.getByRole('button', { name: /RF Page Builder/i });
+    // MUI Tooltip puts the title on the wrapping element; query the parent.
+    const tooltipHost = button.closest('[aria-label]') || button.parentElement;
+    expect(tooltipHost?.getAttribute('aria-label') || '').toMatch(/new tab|external|opens/i);
+  });
+
   it('renders an enabled button when canLaunchExternal is true', () => {
     const onLaunchExternal = vi.fn();
     renderEditorPane({ onLaunchExternal, canLaunchExternal: true });

@@ -12,6 +12,7 @@ import com.remotefalcon.external.api.service.RfpbAuditLogger;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -60,11 +61,19 @@ public class PagesController {
     private final PageApiService pageApiService;
     private final RfpbAuditLogger auditLogger;
 
+    /**
+     * Cache directive for bearer-authenticated GETs. Intermediates are
+     * supposed to respect Authorization-bound responses but defense in
+     * depth — explicit no-store, private removes any ambiguity for
+     * intermediaries (audit finding L1).
+     */
+    private static final CacheControl NO_STORE = CacheControl.noStore().cachePrivate();
+
     /** List all viewer pages on the bearer's bound show. */
     @GetMapping("/pages")
     @RequiresBearer(scope = "viewer_page:read")
     public ResponseEntity<List<PageResponse>> listPages() {
-        return ResponseEntity.ok(pageApiService.listPages());
+        return ResponseEntity.ok().cacheControl(NO_STORE).body(pageApiService.listPages());
     }
 
     /**
@@ -86,6 +95,7 @@ public class PagesController {
         try {
             PageResponse response = pageApiService.getPage(id);
             return ResponseEntity.ok()
+                    .cacheControl(NO_STORE)
                     .eTag("\"" + response.getEtag() + "\"")
                     .body(response);
         } catch (PageNotFoundException e) {
@@ -161,7 +171,7 @@ public class PagesController {
             // BearerAspect ensured the context exists; this is defensive.
             return ResponseEntity.status(401).build();
         }
-        return ResponseEntity.ok(Map.of(
+        return ResponseEntity.ok().cacheControl(NO_STORE).body(Map.of(
                 "showSubdomain", ctx.getShowSubdomain(),
                 "pageId", ctx.getPageId() == null ? "" : ctx.getPageId(),
                 "scopes", ctx.getScopes() == null ? List.of() : ctx.getScopes()));

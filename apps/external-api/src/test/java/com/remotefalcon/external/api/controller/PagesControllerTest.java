@@ -79,6 +79,30 @@ class PagesControllerTest {
         assertThat(resp.getBody()).hasSize(1);
     }
 
+    @Test
+    void listPages_emitsNoStoreCacheControl() {
+        // Audit finding L1 — bearer-authenticated GETs must explicitly opt
+        // out of intermediate caching.
+        when(pageApiService.listPages()).thenReturn(List.of(stubPage("<p>x</p>", "abc")));
+
+        ResponseEntity<List<PageResponse>> resp = controller.listPages();
+
+        assertThat(resp.getHeaders().getCacheControl()).contains("no-store");
+        assertThat(resp.getHeaders().getCacheControl()).contains("private");
+    }
+
+    @Test
+    void getPage_emitsNoStoreCacheControl_alongsideEtag() {
+        when(pageApiService.getPage(PAGE_ID)).thenReturn(stubPage("<p>x</p>", "abc"));
+
+        ResponseEntity<PageResponse> resp = controller.getPage(PAGE_ID.toString());
+
+        assertThat(resp.getHeaders().getCacheControl()).contains("no-store");
+        // ETag still set — Cache-Control: no-store does NOT prevent ETag use
+        // for optimistic-concurrency, it only suppresses cache-storage.
+        assertThat(resp.getHeaders().getETag()).isEqualTo("\"abc\"");
+    }
+
     // ----- getPage -----
 
     @Test
@@ -188,6 +212,19 @@ class PagesControllerTest {
     }
 
     // ----- me -----
+
+    @Test
+    void me_emitsNoStoreCacheControl() {
+        SessionContextHolder.set(SessionContext.builder()
+                .showSubdomain("myxmas")
+                .pageId(PAGE_ID.toString())
+                .scopes(List.of("viewer_page:read"))
+                .build());
+
+        ResponseEntity<Map<String, Object>> resp = controller.me();
+
+        assertThat(resp.getHeaders().getCacheControl()).contains("no-store");
+    }
 
     @Test
     void me_returnsContextFields_whenSessionPresent() {
