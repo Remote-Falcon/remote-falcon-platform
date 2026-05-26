@@ -4,6 +4,7 @@ import com.remotefalcon.library.models.ViewerPage;
 import lombok.extern.slf4j.Slf4j;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Attribute;
+import org.jsoup.nodes.DataNode;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.springframework.stereotype.Service;
@@ -80,14 +81,68 @@ public class ViewerPageSanitizer {
     );
 
     /**
-     * {@code data:} URL prefixes we allow on attribute values. Media types
-     * only — image/audio/video/font are legitimate embed targets and don't
-     * carry executable surfaces. {@code data:text/html},
-     * {@code data:application/xhtml+xml}, etc. can be navigated to and
-     * become a top-level document with full XSS reach, so they're stripped.
+     * {@code data:} URL prefixes we allow on attribute values. Raster image
+     * + media + font types only — these can't carry executable surfaces
+     * when navigated to.
+     *
+     * <p>Explicitly NOT in this list: {@code data:image/svg+xml}. SVG
+     * documents can carry inline {@code <script>}; navigating to a
+     * {@code data:image/svg+xml} URL renders it as a top-level document
+     * where those scripts execute. {@code <img src="data:image/svg+xml">}
+     * doesn't execute scripts (browser image-render path is sandboxed),
+     * but we apply the same denylist on every attribute (not just
+     * {@code <img src>}) so we can't safely allow svg+xml here.
      */
     private static final List<String> SAFE_DATA_URL_PREFIXES = List.of(
-            "data:image/", "data:audio/", "data:video/", "data:font/"
+            "data:image/png", "data:image/jpeg", "data:image/jpg",
+            "data:image/gif", "data:image/webp", "data:image/avif",
+            "data:image/bmp", "data:image/x-icon", "data:image/vnd.microsoft.icon",
+            "data:audio/", "data:video/", "data:font/"
+    );
+
+    /**
+     * Pre-decoded URL schemes the browser will execute. Matched against a
+     * canonicalized form of every attribute value: ALL whitespace and ASCII
+     * control characters stripped + lowercase + leading {@code unicode}
+     * U+00A0 NBSP normalized.
+     *
+     * <p>Why canonicalize: per the WHATWG URL spec, browsers strip leading
+     * whitespace and ASCII C0 controls from URLs before scheme detection.
+     * {@code href="java\tscript:alert(1)"} (with a literal tab or HTML
+     * entity {@code &#9;} that jsoup decodes) becomes {@code javascript:}
+     * to the browser. A naive {@code .trim().toLowerCase().startsWith()}
+     * misses this because {@link String#trim} only strips {@code <= U+0020}
+     * at the boundary, not mid-string.
+     */
+    private static final List<String> DANGEROUS_URL_SCHEMES = List.of(
+            "javascript:", "vbscript:", "livescript:", "mocha:"
+    );
+
+    /**
+     * CSS exec patterns we strip from {@code <style>} text content and
+     * {@code style=""} attribute values. Modern browsers ignore the legacy
+     * ones, but defense-in-depth: we cap the surface RFPB users can stand
+     * up against legacy / non-mainstream clients (FPP-embedded webviews,
+     * older iOS Safari on locked-down show controllers, etc.).
+     *
+     * <ul>
+     *   <li>{@code expression(...)} — legacy IE CSS function that evaluated
+     *       JS. Dead in Chrome/Firefox/modern Edge.
+     *   <li>{@code -moz-binding} — old Firefox XBL binding; can load
+     *       executable JS from a CSS-declared XBL file.
+     *   <li>{@code behavior:} — IE HTC files (executable script).
+     *   <li>{@code url("javascript:...")} / {@code url(vbscript:...)} —
+     *       caught in CSS url() functions in style attrs and blocks.
+     *   <li>{@code @import url("javascript:...")} — same.
+     * </ul>
+     */
+    private static final Pattern CSS_DANGEROUS = Pattern.compile(
+            "(?i)" + // case-insensitive
+            "expression\\s*\\(" +
+            "|-moz-binding\\s*:" +
+            "|behavior\\s*:" +
+            "|url\\s*\\(\\s*[\"']?\\s*(?:javascript|vbscript|livescript|mocha)\\s*:" +
+            "|@import\\s+(?:url\\s*\\(\\s*)?[\"']?\\s*(?:javascript|vbscript|livescript|mocha)\\s*:"
     );
 
     private static final Pattern HTML_OPEN_TAG_RE =
@@ -111,6 +166,8 @@ public class ViewerPageSanitizer {
 
         stripExecutableScripts(doc);
         stripSvgForeignObject(doc);
+        stripIframeSrcdoc(doc);
+        scrubStyleBlocks(doc);
         stripDangerousAttributes(doc);
 
         return isFullDoc ? doc.outerHtml() : doc.body().html();
@@ -145,6 +202,44 @@ public class ViewerPageSanitizer {
     }
 
     /**
+     * Strip {@code srcdoc} attribute from every {@code <iframe>}. The
+     * attribute ships a literal HTML document for the iframe to render in
+     * a fresh browsing context; whatever's inside (including {@code <script>})
+     * is parsed and executed natively by the browser. html-to-react's
+     * "DOM-inserted scripts don't run" protection does NOT apply to a
+     * native browser-parsed iframe document, so any {@code <script>} in
+     * the srcdoc payload would execute.
+     *
+     * <p>RFPB / Holtz / template-repo viewer pages have no legitimate need
+     * for {@code srcdoc}. Strip it wholesale rather than try to recursively
+     * sanitize an opaque HTML string carried as an attribute value.
+     */
+    private static void stripIframeSrcdoc(Document doc) {
+        for (Element iframe : doc.select("iframe[srcdoc]")) {
+            iframe.removeAttr("srcdoc");
+        }
+    }
+
+    /**
+     * Scrub {@code <style>} block text content for the CSS exec patterns
+     * matched by {@link #CSS_DANGEROUS}. Each match is replaced with a
+     * comment marker so the rest of the stylesheet remains intact and
+     * inspectable. {@code style=""} attribute values are handled in
+     * {@link #stripDangerousAttributes}.
+     */
+    private static void scrubStyleBlocks(Document doc) {
+        for (Element style : doc.select("style")) {
+            for (DataNode node : new ArrayList<>(style.dataNodes())) {
+                String css = node.getWholeData();
+                String scrubbed = CSS_DANGEROUS.matcher(css).replaceAll("/* scrubbed */");
+                if (!scrubbed.equals(css)) {
+                    node.setWholeData(scrubbed);
+                }
+            }
+        }
+    }
+
+    /**
      * Walk every element and strip the two attribute classes that lead to
      * JavaScript execution at render time:
      * <ol>
@@ -171,6 +266,16 @@ public class ViewerPageSanitizer {
                 }
                 if (isDangerousValue(a.getValue())) {
                     toRemove.add(key);
+                    continue;
+                }
+                if (lowerKey.equals("style") && a.getValue() != null
+                        && CSS_DANGEROUS.matcher(a.getValue()).find()) {
+                    // Scrub CSS exec patterns out of the style attr value
+                    // rather than dropping the whole attribute -- legitimate
+                    // styling on the element should survive.
+                    String scrubbed = CSS_DANGEROUS.matcher(a.getValue())
+                            .replaceAll("/* scrubbed */");
+                    el.attr(key, scrubbed);
                 }
             }
             for (String key : toRemove) {
@@ -179,23 +284,57 @@ public class ViewerPageSanitizer {
         }
     }
 
+    /**
+     * Does this attribute value resolve to a browser-executed scheme?
+     *
+     * <p>Browsers strip leading whitespace + ASCII C0 controls (U+0000-
+     * U+001F except space at U+0020) from URLs before scheme detection
+     * per the WHATWG URL spec, and they tolerate the same characters
+     * INSIDE the scheme name (so {@code java\tscript:} reads as
+     * {@code javascript:}). We canonicalize the value the same way before
+     * matching against the dangerous-scheme list.
+     */
     private static boolean isDangerousValue(String raw) {
         if (raw == null) {
             return false;
         }
-        String lower = raw.trim().toLowerCase(Locale.ROOT);
-        if (lower.startsWith("javascript:") || lower.startsWith("vbscript:")) {
-            return true;
+        String canonical = canonicalizeForSchemeCheck(raw);
+        for (String scheme : DANGEROUS_URL_SCHEMES) {
+            if (canonical.startsWith(scheme)) {
+                return true;
+            }
         }
-        if (lower.startsWith("data:")) {
+        if (canonical.startsWith("data:")) {
             for (String safe : SAFE_DATA_URL_PREFIXES) {
-                if (lower.startsWith(safe)) {
+                if (canonical.startsWith(safe)) {
                     return false;
                 }
             }
             return true;
         }
         return false;
+    }
+
+    /**
+     * Build the canonical form of a URL value used by {@link #isDangerousValue}.
+     * Strips ALL ASCII whitespace + C0 control characters + U+00A0 NBSP
+     * from anywhere in the value, then lowercases.
+     *
+     * <p>We strip from the entire value (not just the leading run) because
+     * browsers tolerate control chars interleaved with the scheme letters.
+     * The cost: a legitimate URL like {@code "https://example.com/path"}
+     * has whitespace stripped (none to strip), and the value is preserved
+     * unchanged in the attribute. We only call this for the comparison;
+     * the original value still lands in the output if non-dangerous.
+     */
+    private static String canonicalizeForSchemeCheck(String raw) {
+        StringBuilder sb = new StringBuilder(raw.length());
+        for (int i = 0; i < raw.length(); i++) {
+            char c = raw.charAt(i);
+            if (c == ' ' || c <= ' ') continue;
+            sb.append(c);
+        }
+        return sb.toString().toLowerCase(Locale.ROOT);
     }
 
     /**

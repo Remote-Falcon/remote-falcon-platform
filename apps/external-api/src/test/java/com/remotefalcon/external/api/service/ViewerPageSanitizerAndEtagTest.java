@@ -303,6 +303,115 @@ class ViewerPageSanitizerAndEtagTest {
         assertThat(out).contains("{javascript:alert(1)}");
     }
 
+    // ----- Tier-1/2 hardening: scheme control chars, srcdoc, CSS exec, svg+xml --
+
+    @Test
+    void sanitize_stripsTabInScheme_bypass() {
+        // Per WHATWG URL spec, browsers strip ASCII C0 controls from URLs
+        // before scheme detection AND tolerate the same chars interleaved
+        // in the scheme letters, so `java\tscript:` reads as `javascript:`.
+        String input = "<a href=\"java&#9;script:alert(1)\">x</a>";
+        String out = sanitizer.sanitize(input);
+        assertThat(out).doesNotContain("alert");
+        assertThat(out.toLowerCase()).doesNotContain("script:");
+    }
+
+    @Test
+    void sanitize_stripsNewlineInScheme_bypass() {
+        String input = "<a href=\"java\nscript:alert(1)\">x</a>";
+        String out = sanitizer.sanitize(input);
+        assertThat(out).doesNotContain("alert");
+    }
+
+    @Test
+    void sanitize_stripsControlCharsAroundScheme_bypass() {
+        // `javascript:` — leading C0 control prefix bypass.
+        String input = "<a href=\"javascript:alert(1)\">x</a>";
+        String out = sanitizer.sanitize(input);
+        assertThat(out).doesNotContain("alert");
+    }
+
+    @Test
+    void sanitize_stripsIframeSrcdoc() {
+        // srcdoc ships a literal HTML document the browser parses natively;
+        // any <script> inside executes outside html-to-react's protection.
+        String input = "<iframe srcdoc=\"&lt;script&gt;alert(1)&lt;/script&gt;\"></iframe>";
+        String out = sanitizer.sanitize(input);
+        assertThat(out).doesNotContain("srcdoc");
+        assertThat(out).doesNotContain("alert");
+    }
+
+    @Test
+    void sanitize_stripsCssExpressionInStyleAttribute() {
+        // expression() is a legacy IE exec vector. Scrub from style attr
+        // values, keep the rest of the value intact.
+        String input = "<div style=\"width: 100px; behavior: url(#x.htc); color: red;\">x</div>";
+        String out = sanitizer.sanitize(input);
+        assertThat(out).doesNotContainIgnoringCase("behavior:");
+        assertThat(out).contains("width: 100px");
+        assertThat(out).contains("color: red");
+    }
+
+    @Test
+    void sanitize_stripsCssExpressionInStyleBlock() {
+        String input = "<style>body { background: url(javascript:alert(1)); color: red; }</style>";
+        String out = sanitizer.sanitize(input);
+        assertThat(out).doesNotContainIgnoringCase("javascript:");
+        assertThat(out).contains("color: red");
+    }
+
+    @Test
+    void sanitize_stripsCssImportJavascript() {
+        String input = "<style>@import url(\"javascript:alert(1)\"); body { color: red; }</style>";
+        String out = sanitizer.sanitize(input);
+        assertThat(out).doesNotContainIgnoringCase("javascript:");
+        assertThat(out).contains("color: red");
+    }
+
+    @Test
+    void sanitize_preservesSafeCssUrls() {
+        // Legitimate background-image url() with http: must survive.
+        String input = "<div style=\"background: url(https://example.com/bg.png);\">x</div>";
+        String out = sanitizer.sanitize(input);
+        assertThat(out).contains("https://example.com/bg.png");
+    }
+
+    @Test
+    void sanitize_stripsSvgXmlDataUrlOnHref() {
+        // data:image/svg+xml renders as a top-level SVG document when
+        // navigated to; inline <script> inside it executes.
+        String input = "<a href=\"data:image/svg+xml,&lt;svg xmlns=&apos;http://www.w3.org/2000/svg&apos;&gt;&lt;script&gt;alert(1)&lt;/script&gt;&lt;/svg&gt;\">x</a>";
+        String out = sanitizer.sanitize(input);
+        assertThat(out).doesNotContainIgnoringCase("data:image/svg");
+        assertThat(out).doesNotContain("alert");
+    }
+
+    @Test
+    void sanitize_preservesSafeDataImagePng() {
+        // Raster image data: URLs must still survive (legitimate pattern).
+        String input = "<img src=\"data:image/png;base64,iVBORw0KGgo=\">";
+        String out = sanitizer.sanitize(input);
+        assertThat(out).contains("data:image/png");
+    }
+
+    @Test
+    void sanitize_isIdempotent_forCommonInputs() {
+        // sanitize(sanitize(x)) == sanitize(x). Required so ETag round-
+        // trips don't drift between consecutive writes of the same content.
+        String[] cases = {
+                "<div {jukebox-dynamic-container}><h1>x</h1></div>",
+                "<!doctype html><html><head><title>x</title></head><body><p>y</p></body></html>",
+                "<svg viewBox=\"0 0 24 24\"><circle r=\"5\"/></svg>",
+                "<script type=\"application/json\" id=\"rfpb-data\">{\"v\":1}</script>",
+                "<div style=\"color: red\"><p>plain</p></div>"
+        };
+        for (String input : cases) {
+            String once = sanitizer.sanitize(input);
+            String twice = sanitizer.sanitize(once);
+            assertThat(twice).as("idempotent for input: " + input).isEqualTo(once);
+        }
+    }
+
     @Test
     void sanitize_combinedRfpbInput_preservesAllThreeCategories() {
         // Kitchen-sink check: a single input exercising all three RFPB

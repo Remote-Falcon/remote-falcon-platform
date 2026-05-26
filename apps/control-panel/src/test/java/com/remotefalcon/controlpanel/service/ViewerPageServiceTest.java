@@ -275,6 +275,94 @@ class ViewerPageServiceTest {
         assertThat(clean).contains("{javascript:alert(1)}");
     }
 
+    // ----- Tier-1/2 hardening: scheme control chars, srcdoc, CSS exec, svg+xml --
+
+    @Test
+    void sanitize_stripsTabInScheme_bypass() {
+        String input = "<a href=\"java&#9;script:alert(1)\">x</a>";
+        String clean = service.sanitize(input);
+        assertThat(clean).doesNotContain("alert");
+        assertThat(clean.toLowerCase()).doesNotContain("script:");
+    }
+
+    @Test
+    void sanitize_stripsNewlineInScheme_bypass() {
+        String input = "<a href=\"java\nscript:alert(1)\">x</a>";
+        String clean = service.sanitize(input);
+        assertThat(clean).doesNotContain("alert");
+    }
+
+    @Test
+    void sanitize_stripsIframeSrcdoc() {
+        String input = "<iframe srcdoc=\"&lt;script&gt;alert(1)&lt;/script&gt;\"></iframe>";
+        String clean = service.sanitize(input);
+        assertThat(clean).doesNotContain("srcdoc");
+        assertThat(clean).doesNotContain("alert");
+    }
+
+    @Test
+    void sanitize_stripsCssBehaviorInStyleAttribute() {
+        String input = "<div style=\"width: 100px; behavior: url(#x.htc); color: red;\">x</div>";
+        String clean = service.sanitize(input);
+        assertThat(clean).doesNotContainIgnoringCase("behavior:");
+        assertThat(clean).contains("width: 100px");
+        assertThat(clean).contains("color: red");
+    }
+
+    @Test
+    void sanitize_stripsCssJavascriptInStyleBlock() {
+        String input = "<style>body { background: url(javascript:alert(1)); color: red; }</style>";
+        String clean = service.sanitize(input);
+        assertThat(clean).doesNotContainIgnoringCase("javascript:");
+        assertThat(clean).contains("color: red");
+    }
+
+    @Test
+    void sanitize_stripsCssImportJavascript() {
+        String input = "<style>@import url(\"javascript:alert(1)\"); body { color: red; }</style>";
+        String clean = service.sanitize(input);
+        assertThat(clean).doesNotContainIgnoringCase("javascript:");
+        assertThat(clean).contains("color: red");
+    }
+
+    @Test
+    void sanitize_preservesSafeCssUrls() {
+        String input = "<div style=\"background: url(https://example.com/bg.png);\">x</div>";
+        String clean = service.sanitize(input);
+        assertThat(clean).contains("https://example.com/bg.png");
+    }
+
+    @Test
+    void sanitize_stripsSvgXmlDataUrlOnHref() {
+        String input = "<a href=\"data:image/svg+xml,&lt;svg xmlns=&apos;http://www.w3.org/2000/svg&apos;&gt;&lt;script&gt;alert(1)&lt;/script&gt;&lt;/svg&gt;\">x</a>";
+        String clean = service.sanitize(input);
+        assertThat(clean).doesNotContainIgnoringCase("data:image/svg");
+        assertThat(clean).doesNotContain("alert");
+    }
+
+    @Test
+    void sanitize_preservesSafeDataImagePng() {
+        String input = "<img src=\"data:image/png;base64,iVBORw0KGgo=\">";
+        String clean = service.sanitize(input);
+        assertThat(clean).contains("data:image/png");
+    }
+
+    @Test
+    void sanitize_isIdempotent_forCommonInputs() {
+        String[] cases = {
+                "<div {jukebox-dynamic-container}><h1>x</h1></div>",
+                "<!doctype html><html><head><title>x</title></head><body><p>y</p></body></html>",
+                "<svg viewBox=\"0 0 24 24\"><circle r=\"5\"/></svg>",
+                "<script type=\"application/json\" id=\"rfpb-data\">{\"v\":1}</script>",
+                "<div style=\"color: red\"><p>plain</p></div>"
+        };
+        for (String input : cases) {
+            String once = service.sanitize(input);
+            String twice = service.sanitize(once);
+            assertThat(twice).as("idempotent for input: " + input).isEqualTo(once);
+        }
+    }
+
     @Test
     void sanitize_combinedRfpbInput_preservesAllThreeCategories() {
         String input = "<div {jukebox-dynamic-container}>"
