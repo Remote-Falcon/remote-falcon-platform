@@ -360,7 +360,7 @@ public class GraphQLMutationService {
         return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 
-    public Boolean updatePages(List<ViewerPage> pages) {
+    public List<ViewerPage> updatePages(List<ViewerPage> pages) {
         Optional<Show> show = this.showRepository.findByShowToken(authUtil.getTokenDTO().getShowToken());
         if(show.isPresent()) {
             // Preserve pageIds across the wholesale-replace by matching
@@ -413,7 +413,10 @@ public class GraphQLMutationService {
             }
             show.get().setPages(pages);
             this.showRepository.save(show.get());
-            return true;
+            // Return the persisted list (with server-minted pageIds + updatedAt
+            // populated in prepareForWrite above) so the client doesn't have to
+            // refetch getShow to learn the id of a newly-created page.
+            return pages;
         }
         throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());
     }

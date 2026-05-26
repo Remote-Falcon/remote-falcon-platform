@@ -106,8 +106,18 @@ export const refreshApiSecretService = (refreshApiSecretMutation, callback) => {
 };
 
 export const savePagesService = (updatedPages, updatePagesMutation, callback) => {
+  // The getShow query selects pageId + updatedAt on each Page (server-managed,
+  // added 2026-05-24 for the RF Page Builder integration). PageInput
+  // intentionally does NOT declare those — they're never client-writable.
+  // Map down to the PageInput shape before sending; otherwise GraphQL rejects
+  // the mutation with "field name 'pageId' is not defined for input object
+  // type 'PageInput'" and the UI surfaces an opaque "Unexpected Error" toast.
   const variables = {
-    pages: updatedPages
+    pages: (Array.isArray(updatedPages) ? updatedPages : []).map((p) => ({
+      name: p?.name,
+      active: p?.active,
+      html: p?.html
+    }))
   };
   updatePagesMutation({
     context: {
@@ -116,9 +126,15 @@ export const savePagesService = (updatedPages, updatePagesMutation, callback) =>
       }
     },
     variables,
-    onCompleted: () => {
+    onCompleted: (data) => {
+      // The mutation now returns the persisted page list with server-minted
+      // pageIds; thread it back so the caller can update local state from
+      // authoritative server data instead of the pre-save snapshot (which is
+      // missing pageId on freshly-created pages and breaks any pageId-dependent
+      // affordance like the "Edit in RF Page Builder" button).
       callback({
         success: true,
+        pages: data?.updatePages || null,
         toast: { message: 'Viewer Pages Saved' }
       });
     },
@@ -128,7 +144,6 @@ export const savePagesService = (updatedPages, updatePagesMutation, callback) =>
         toast: { alert: 'error' }
       });
     }
-    // refetchQueries: [{ query: GET_SHOW, awaitRefetchQueries: true }]
   });
 };
 

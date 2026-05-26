@@ -72,8 +72,12 @@ describe('playSequenceFromControlPanelService', () => {
 });
 
 describe('save* services follow the (variables → toast) contract', () => {
+  // savePages now maps to the PageInput shape (strips server-managed fields
+  // like pageId/updatedAt that the getShow query selects but PageInput
+  // doesn't accept) AND surfaces response.pages so callers can dispatch
+  // authoritative state including server-minted pageIds. Other save* are
+  // unchanged: simple variables passthrough + success toast.
   it.each([
-    ['savePages', savePagesService, [{ id: 1 }], 'pages', 'Viewer Pages Saved'],
     ['savePsaSequences', savePsaSequencesService, [{ id: 1 }], 'psaSequences', 'Viewer Settings Saved'],
     ['saveSequences', saveSequencesService, [{ id: 1 }], 'sequences', 'Sequences Saved'],
     ['saveSequenceGroups', saveSequenceGroupsService, [{ id: 1 }], 'sequenceGroups', 'Sequence Group Saved']
@@ -83,6 +87,43 @@ describe('save* services follow the (variables → toast) contract', () => {
     svc(payload, mutation, cb);
     expect(mutation.mock.calls[0][0].variables[key]).toEqual(payload);
     expect(cb).toHaveBeenCalledWith({ success: true, toast: { message: msg } });
+  });
+
+  it('savePages strips server-managed fields + threads server pages back to caller', () => {
+    const cb = vi.fn();
+    const serverPages = [
+      { name: 'p1', active: true, html: 'h1', pageId: 'srv-1', updatedAt: '2026-05-25T00:00:00Z' }
+    ];
+    const mutation = mockMutation('success', { updatePages: serverPages });
+    // Caller-supplied pages carry the server-managed fields (round-tripped
+    // from the getShow query). PageInput doesn't accept them; service maps
+    // them out before sending.
+    const supplied = [
+      { name: 'p1', active: true, html: 'h1', pageId: 'old-1', updatedAt: '2026-05-24T00:00:00Z' }
+    ];
+    savePagesService(supplied, mutation, cb);
+    expect(mutation.mock.calls[0][0].variables).toEqual({
+      pages: [{ name: 'p1', active: true, html: 'h1' }]
+    });
+    expect(cb).toHaveBeenCalledWith({
+      success: true,
+      pages: serverPages,
+      toast: { message: 'Viewer Pages Saved' }
+    });
+  });
+
+  it('savePages tolerates a server response missing updatePages', () => {
+    // Defensive: if the mutation returns null/undefined for any reason,
+    // callers fall back to their local snapshot — surface pages as null
+    // rather than throwing.
+    const cb = vi.fn();
+    const mutation = mockMutation('success', { updatePages: null });
+    savePagesService([{ name: 'p1', active: true, html: 'h1' }], mutation, cb);
+    expect(cb).toHaveBeenCalledWith({
+      success: true,
+      pages: null,
+      toast: { message: 'Viewer Pages Saved' }
+    });
   });
 
   it.each([

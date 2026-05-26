@@ -123,7 +123,12 @@ const FreeTemplates = () => {
     savePagesService(updated, updatePagesMutation, (response) => {
       setApplying(false);
       if (response?.success) {
-        dispatch(setShow({ ...show, pages: updated }));
+        // Prefer server-returned pages (carries the server-minted pageId for
+        // the just-applied template); fall back to local snapshot otherwise.
+        const persisted = Array.isArray(response.pages) && response.pages.length > 0
+          ? response.pages
+          : updated;
+        dispatch(setShow({ ...show, pages: persisted }));
         setCreateOpen(false);
         setCreateName('');
         showAlert(dispatch, { message: `Created "${name}" — set it live from the Viewer Page editor` });

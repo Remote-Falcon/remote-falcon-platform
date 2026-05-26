@@ -10,7 +10,11 @@ type Mutation {
     deleteAccount: Boolean
     updateShow(email: String!, showName: String!): Boolean
     updatePreferences(preferences: PreferenceInput!): Boolean
-    updatePages(pages: [PageInput]!): Boolean
+    # Returns the persisted page list with server-minted pageIds so the
+    # client doesn't have to refetch getShow just to learn the id of a
+    # freshly-created page. pageId is server-managed (PageInput intentionally
+    # doesn't accept it; backfill happens via ViewerPageService.prepareForWrite).
+    updatePages(pages: [PageInput]!): [Page]
     updatePsaSequences(psaSequences: [PsaSequenceInput]!): Boolean
     updateSequences(sequences: [SequenceInput]!): Boolean
     updateSequenceGroups(sequenceGroups: [SequenceGroupInput]!): Boolean

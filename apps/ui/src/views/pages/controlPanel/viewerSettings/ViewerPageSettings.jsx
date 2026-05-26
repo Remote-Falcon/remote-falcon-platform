@@ -88,7 +88,14 @@ const ViewerPageSettings = () => {
     });
     savePagesService(updatedPages, updatePagesMutation, (response) => {
       if (response?.success) {
-        dispatch(setShow({ ...show, pages: [...updatedPages] }));
+        // This path only flips `active` on an existing page — pageIds are
+        // already populated client-side — but use the server response if
+        // available so we stay consistent with the other call sites and
+        // pick up any server-side changes (e.g. updatedAt bump).
+        const persisted = Array.isArray(response.pages) && response.pages.length > 0
+          ? response.pages
+          : updatedPages;
+        dispatch(setShow({ ...show, pages: [...persisted] }));
       }
       showAlert(dispatch, response?.toast);
     });

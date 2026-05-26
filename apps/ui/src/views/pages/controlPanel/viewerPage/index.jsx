@@ -199,7 +199,16 @@ const ViewerPage = () => {
       new Promise((resolve) => {
         savePagesService(updated, updatePagesMutation, (response) => {
           if (response?.success) {
-            dispatch(setShow({ ...show, pages: [...updated] }));
+            // Prefer the server-returned pages (carries the freshly-minted
+            // pageId on new pages); fall back to the local snapshot if the
+            // mutation didn't surface them for any reason. The pageId is what
+            // unlocks the "Edit in RF Page Builder" button — without this
+            // hop a just-created page sits with the button disabled until
+            // the next page refresh.
+            const persisted = Array.isArray(response.pages) && response.pages.length > 0
+              ? response.pages
+              : updated;
+            dispatch(setShow({ ...show, pages: [...persisted] }));
             if (successMessage) showAlert(dispatch, { message: successMessage });
             trackPosthogEvent('viewer_page_saved', {
               page_count: (updated || []).length,
@@ -292,16 +301,20 @@ const ViewerPage = () => {
         pageName: currentPage.name
       });
       // Open in a new tab — RFPB is a separate product and users expect
-      // to keep the control panel open behind them (matches the IconExternalLink
-      // affordance + tooltip wording). noopener strips the window.opener
-      // reference (prevents reverse-tabnabbing); noreferrer suppresses the
-      // Referer header so the launch JWT in the URL never leaks via referrer.
-      const opened = window.open(url, '_blank', 'noopener,noreferrer');
-      if (!opened) {
-        // Popup blocker fired (rare — same-user-gesture click usually passes).
-        // Fall back to same-tab nav so the user isn't stuck.
-        window.location.assign(url);
-      }
+      // to keep the control panel open behind them (matches the
+      // IconExternalLink affordance + tooltip wording). noopener strips
+      // the window.opener reference (prevents reverse-tabnabbing);
+      // noreferrer suppresses the Referer header so the launch JWT in
+      // the URL never leaks via referrer.
+      //
+      // Don't branch on the return value: window.open with noopener returns
+      // null in several browsers (Safari, some Chrome builds) EVEN ON
+      // SUCCESS, so a "falsy → same-tab fallback" inverts the intent and
+      // navigates the originating tab too. If the popup is genuinely
+      // blocked, the browser surfaces its own indicator with an "Allow"
+      // affordance — better UX than silently navigating the user's
+      // control-panel tab into RFPB.
+      window.open(url, '_blank', 'noopener,noreferrer');
     } catch (err) {
       showAlert({
         message: 'Could not open RF Page Builder: ' + (err?.message || 'unknown error'),
