@@ -137,10 +137,10 @@ class PagesControllerTest {
 
     @Test
     void updatePage_returns200_andEtagHeader_onHappyPath() {
-        when(pageApiService.updatePage(eq(PAGE_ID), any(), any(), any(), eq("abc")))
+        when(pageApiService.updatePage(eq(PAGE_ID), any(), any(), any(), eq("abc"), eq(false)))
                 .thenReturn(stubPage("<p>new</p>", "def"));
 
-        ResponseEntity<?> resp = controller.updatePage(PAGE_ID.toString(), "\"abc\"",
+        ResponseEntity<?> resp = controller.updatePage(PAGE_ID.toString(), "\"abc\"", false,
                 PageWriteRequest.builder().html("<p>new</p>").build(), mockRequest());
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -150,12 +150,12 @@ class PagesControllerTest {
     @Test
     void updatePage_stripsQuotesFromIfMatchHeader() {
         // Both "\"abc\"" and "abc" should reach the service as just "abc"
-        when(pageApiService.updatePage(eq(PAGE_ID), any(), any(), any(), eq("abc")))
+        when(pageApiService.updatePage(eq(PAGE_ID), any(), any(), any(), eq("abc"), eq(false)))
                 .thenReturn(stubPage("<p>n</p>", "x"));
 
-        controller.updatePage(PAGE_ID.toString(), "\"abc\"",
+        controller.updatePage(PAGE_ID.toString(), "\"abc\"", false,
                 PageWriteRequest.builder().html("<p>n</p>").build(), mockRequest());
-        controller.updatePage(PAGE_ID.toString(), "abc",
+        controller.updatePage(PAGE_ID.toString(), "abc", false,
                 PageWriteRequest.builder().html("<p>n</p>").build(), mockRequest());
 
         // Both calls reached the service with the same stripped string —
@@ -165,10 +165,10 @@ class PagesControllerTest {
     @Test
     void updatePage_returns412_andCurrentStateBody_onEtagMismatch() {
         PageResponse current = stubPage("<p>monaco</p>", "current-etag");
-        when(pageApiService.updatePage(eq(PAGE_ID), any(), any(), any(), any()))
+        when(pageApiService.updatePage(eq(PAGE_ID), any(), any(), any(), any(), eq(false)))
                 .thenThrow(new EtagMismatchException(current));
 
-        ResponseEntity<?> resp = controller.updatePage(PAGE_ID.toString(), "\"stale\"",
+        ResponseEntity<?> resp = controller.updatePage(PAGE_ID.toString(), "\"stale\"", false,
                 PageWriteRequest.builder().html("<p>mine</p>").build(), mockRequest());
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.PRECONDITION_FAILED);
@@ -178,10 +178,10 @@ class PagesControllerTest {
 
     @Test
     void updatePage_returns404_onPageNotFound() {
-        when(pageApiService.updatePage(eq(PAGE_ID), any(), any(), any(), any()))
+        when(pageApiService.updatePage(eq(PAGE_ID), any(), any(), any(), any(), eq(false)))
                 .thenThrow(new PageNotFoundException());
 
-        ResponseEntity<?> resp = controller.updatePage(PAGE_ID.toString(), "\"abc\"",
+        ResponseEntity<?> resp = controller.updatePage(PAGE_ID.toString(), "\"abc\"", false,
                 PageWriteRequest.builder().html("<p>n</p>").build(), mockRequest());
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
@@ -189,10 +189,10 @@ class PagesControllerTest {
 
     @Test
     void updatePage_returns400_onSanitizerRejection() {
-        when(pageApiService.updatePage(eq(PAGE_ID), any(), any(), any(), any()))
+        when(pageApiService.updatePage(eq(PAGE_ID), any(), any(), any(), any(), eq(false)))
                 .thenThrow(new IllegalArgumentException("too big"));
 
-        ResponseEntity<?> resp = controller.updatePage(PAGE_ID.toString(), "\"abc\"",
+        ResponseEntity<?> resp = controller.updatePage(PAGE_ID.toString(), "\"abc\"", false,
                 PageWriteRequest.builder().html("huge").build(), mockRequest());
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
@@ -200,15 +200,76 @@ class PagesControllerTest {
 
     @Test
     void updatePage_returns400_onNullBody() {
-        ResponseEntity<?> resp = controller.updatePage(PAGE_ID.toString(), "\"abc\"", null, mockRequest());
+        ResponseEntity<?> resp = controller.updatePage(PAGE_ID.toString(), "\"abc\"", false, null, mockRequest());
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
 
     @Test
     void updatePage_returns404_onMalformedUuid() {
-        ResponseEntity<?> resp = controller.updatePage("not-a-uuid", "\"abc\"",
+        ResponseEntity<?> resp = controller.updatePage("not-a-uuid", "\"abc\"", false,
                 PageWriteRequest.builder().html("<p>x</p>").build(), mockRequest());
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    // ----- updatePage: force=true (overwrite-anyway path) -----
+
+    @Test
+    void updatePage_returns428_whenIfMatchAbsent_andNotForced() {
+        // Without force, the conditional-request precondition is REQUIRED.
+        // Missing header → 428 (not 500, not 200) — distinguishes "you
+        // forgot the header" from "you sent a stale ETag" (412).
+        ResponseEntity<?> resp = controller.updatePage(PAGE_ID.toString(), null, false,
+                PageWriteRequest.builder().html("<p>n</p>").build(), mockRequest());
+        assertThat(resp.getStatusCode().value()).isEqualTo(428);
+    }
+
+    @Test
+    void updatePage_returns428_whenIfMatchBlank_andNotForced() {
+        ResponseEntity<?> resp = controller.updatePage(PAGE_ID.toString(), "  ", false,
+                PageWriteRequest.builder().html("<p>n</p>").build(), mockRequest());
+        assertThat(resp.getStatusCode().value()).isEqualTo(428);
+    }
+
+    @Test
+    void updatePage_returns200_whenForce_andIfMatchAbsent() {
+        // The "Overwrite anyway" path: RFPB sends force=true and intentionally
+        // omits If-Match (sending the stale ETag would just re-trigger 412).
+        // Service receives force=true and null ifMatch.
+        when(pageApiService.updatePage(eq(PAGE_ID), any(), any(), any(), eq(null), eq(true)))
+                .thenReturn(stubPage("<p>forced</p>", "new-etag"));
+
+        ResponseEntity<?> resp = controller.updatePage(PAGE_ID.toString(), null, true,
+                PageWriteRequest.builder().html("<p>forced</p>").build(), mockRequest());
+
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(resp.getHeaders().getETag()).isEqualTo("\"new-etag\"");
+    }
+
+    @Test
+    void updatePage_returns200_whenForce_andIfMatchStale() {
+        // Force overrides a stale If-Match too — caller can include the
+        // ETag they had at conflict time; force=true wins regardless.
+        when(pageApiService.updatePage(eq(PAGE_ID), any(), any(), any(), eq("stale"), eq(true)))
+                .thenReturn(stubPage("<p>forced</p>", "new-etag"));
+
+        ResponseEntity<?> resp = controller.updatePage(PAGE_ID.toString(), "\"stale\"", true,
+                PageWriteRequest.builder().html("<p>forced</p>").build(), mockRequest());
+
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    @Test
+    void updatePage_returns200_whenForce_andIfMatchCurrent() {
+        // Belt-and-suspenders client that sends a fresh ETag AND force=true
+        // also succeeds — force doesn't gate on the header's presence or
+        // freshness, it just disables the conditional check.
+        when(pageApiService.updatePage(eq(PAGE_ID), any(), any(), any(), eq("current"), eq(true)))
+                .thenReturn(stubPage("<p>forced</p>", "new-etag"));
+
+        ResponseEntity<?> resp = controller.updatePage(PAGE_ID.toString(), "\"current\"", true,
+                PageWriteRequest.builder().html("<p>forced</p>").build(), mockRequest());
+
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
     }
 
     // ----- me -----

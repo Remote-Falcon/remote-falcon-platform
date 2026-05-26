@@ -74,10 +74,11 @@ public class PageApiService {
     }
 
     /**
-     * Update html / name / active on a page using atomic positional
-     * arrayFilters with the supplied {@code ifMatchEtag} enforced at the
-     * DB level.
+     * Update html / name / active on a page.
      *
+     * <p>When {@code force == false} (normal path), uses atomic positional
+     * arrayFilters with the supplied {@code ifMatchEtag} enforced at the
+     * DB level:
      * <ul>
      *   <li>Returns the updated {@link PageResponse} on success.
      *   <li>Throws {@link EtagMismatchException} if the page exists but
@@ -88,11 +89,19 @@ public class PageApiService {
      *       exist (or was deleted between the launch and this PUT).
      * </ul>
      *
+     * <p>When {@code force == true} ("Overwrite anyway" in the RFPB
+     * conflict modal), both the pre-check ETag comparison and the
+     * {@code updatedAt} arrayFilter are skipped — the write is applied
+     * regardless of the {@code ifMatchEtag} value (which may be null,
+     * stale, or current). The caller has explicitly acknowledged the
+     * conflict; the server's job here is to honor the override.
+     *
      * <p>Sanitization (jsoup) and size validation (1 MB cap) run before
-     * the Mongo write so a rejected page never touches disk.
+     * the Mongo write so a rejected page never touches disk regardless
+     * of the force flag.
      */
     public PageResponse updatePage(UUID pageId, String newName, Boolean newActive,
-                                   String newHtml, String ifMatchEtag) {
+                                   String newHtml, String ifMatchEtag, boolean force) {
         Show show = currentShow();
         ViewerPage existing = requirePageOnCurrentShow(show, pageId);
 
@@ -101,10 +110,13 @@ public class PageApiService {
         // overwritten between the read and the update, but the arrayFilter
         // on updatedAt-from-ifMatch already covers that case in the DB
         // write. The pre-check here gives us the 412 with a useful body
-        // even before we touch Mongo.
-        String currentEtag = ViewerPageEtag.compute(existing);
-        if (!currentEtag.equals(ifMatchEtag)) {
-            throw new EtagMismatchException(toResponse(existing));
+        // even before we touch Mongo. Skipped on force=true: the caller
+        // has acknowledged the conflict and wants to overwrite.
+        if (!force) {
+            String currentEtag = ViewerPageEtag.compute(existing);
+            if (!currentEtag.equals(ifMatchEtag)) {
+                throw new EtagMismatchException(toResponse(existing));
+            }
         }
 
         // Stage the write on a transient ViewerPage so sanitization +
@@ -120,7 +132,9 @@ public class PageApiService {
         // Atomic positional update keyed on (pageId, updatedAt-from-ETag-time).
         // The arrayFilter on updatedAt is the DB-level If-Match — if Monaco
         // saved this page between our read above and this write, the
-        // arrayFilter won't match and modifiedCount will be 0.
+        // arrayFilter won't match and modifiedCount will be 0. Dropped on
+        // force=true so the write succeeds even when updatedAt has drifted
+        // (which is the entire point of the force path).
         Query showQuery = Query.query(Criteria.where("showToken").is(show.getShowToken()));
         Update update = new Update()
                 .set("pages.$[elem].name", staged.getName())
@@ -136,8 +150,11 @@ public class PageApiService {
         // serializes UUID fields as BSON Binary subtype 3 (UUID legacy), so a
         // String filter never matches the stored value and modifiedCount comes
         // back 0 → spurious 412 PRECONDITION_FAILED on every publish.
-        update.filterArray(Criteria.where("elem.pageId").is(pageId)
-                .and("elem.updatedAt").is(existing.getUpdatedAt()));
+        Criteria elemFilter = Criteria.where("elem.pageId").is(pageId);
+        if (!force) {
+            elemFilter = elemFilter.and("elem.updatedAt").is(existing.getUpdatedAt());
+        }
+        update.filterArray(elemFilter);
 
         UpdateResult result = mongoTemplate.updateFirst(showQuery, update, Show.class);
 
@@ -145,6 +162,9 @@ public class PageApiService {
             // Either the page was deleted, or the updatedAt arrayFilter
             // didn't match (concurrent write since our pre-check above).
             // Re-read to figure out which and throw the right exception.
+            // On force=true the updatedAt arrayFilter is dropped, so the
+            // only way to land here is a page that was deleted between
+            // the pre-check read and the write.
             Show fresh = currentShow();
             Optional<ViewerPage> nowOnShow = fresh.getPages() == null
                     ? Optional.empty()

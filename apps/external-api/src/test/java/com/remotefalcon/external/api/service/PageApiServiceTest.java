@@ -168,7 +168,7 @@ class PageApiServiceTest {
                 .thenReturn(UpdateResult.acknowledged(1, 1L, null));
         String correctEtag = ViewerPageEtag.compute(existing);
 
-        PageResponse result = service.updatePage(PAGE_ID, "newname", true, "<p>new</p>", correctEtag);
+        PageResponse result = service.updatePage(PAGE_ID, "newname", true, "<p>new</p>", correctEtag, false);
 
         assertThat(result.getPageId()).isEqualTo(PAGE_ID.toString());
         assertThat(result.getName()).isEqualTo("newname");
@@ -186,7 +186,7 @@ class PageApiServiceTest {
                 .thenReturn(Optional.of(showWithPages(List.of(existing))));
 
         assertThatThrownBy(() ->
-                service.updatePage(PAGE_ID, null, null, "<p>new</p>", "stale-etag"))
+                service.updatePage(PAGE_ID, null, null, "<p>new</p>", "stale-etag", false))
                 .isInstanceOf(EtagMismatchException.class)
                 .satisfies(ex -> {
                     EtagMismatchException ee = (EtagMismatchException) ex;
@@ -216,7 +216,7 @@ class PageApiServiceTest {
         String preCheckEtag = ViewerPageEtag.compute(atReadTime);
 
         assertThatThrownBy(() ->
-                service.updatePage(PAGE_ID, null, null, "<p>my-edit</p>", preCheckEtag))
+                service.updatePage(PAGE_ID, null, null, "<p>my-edit</p>", preCheckEtag, false))
                 .isInstanceOf(EtagMismatchException.class)
                 .satisfies(ex -> {
                     PageResponse server = ((EtagMismatchException) ex).getCurrentServerState();
@@ -238,7 +238,7 @@ class PageApiServiceTest {
         String etag = ViewerPageEtag.compute(atReadTime);
 
         assertThatThrownBy(() ->
-                service.updatePage(PAGE_ID, null, null, "<p>edit</p>", etag))
+                service.updatePage(PAGE_ID, null, null, "<p>edit</p>", etag, false))
                 .isInstanceOf(PageNotFoundException.class);
     }
 
@@ -251,7 +251,7 @@ class PageApiServiceTest {
                 .thenReturn(UpdateResult.acknowledged(1, 1L, null));
 
         PageResponse result = service.updatePage(PAGE_ID, null, null,
-                "<p>hi</p><script>bad()</script>", ViewerPageEtag.compute(existing));
+                "<p>hi</p><script>bad()</script>", ViewerPageEtag.compute(existing), false);
 
         assertThat(result.getHtml()).doesNotContain("<script>");
     }
@@ -265,9 +265,84 @@ class PageApiServiceTest {
         String huge = "<p>" + "x".repeat(1_100_000) + "</p>";
 
         assertThatThrownBy(() ->
-                service.updatePage(PAGE_ID, null, null, huge, ViewerPageEtag.compute(existing)))
+                service.updatePage(PAGE_ID, null, null, huge, ViewerPageEtag.compute(existing), false))
                 .isInstanceOf(IllegalArgumentException.class);
 
         verify(mongoTemplate, never()).updateFirst(any(), any(), eq(Show.class));
+    }
+
+    // ----- updatePage: force=true (overwrite-anyway path) -----
+
+    @Test
+    void updatePage_force_succeeds_whenIfMatchStale() {
+        // Pre-check ETag would mismatch, but force=true bypasses it.
+        ViewerPage existing = page(PAGE_ID, "home", "<p>old</p>", T0);
+        when(showRepository.findByShowToken(SHOW_TOKEN))
+                .thenReturn(Optional.of(showWithPages(List.of(existing))));
+        when(mongoTemplate.updateFirst(any(Query.class), any(Update.class), eq(Show.class)))
+                .thenReturn(UpdateResult.acknowledged(1, 1L, null));
+
+        PageResponse result = service.updatePage(PAGE_ID, null, null,
+                "<p>forced</p>", "completely-wrong-etag", true);
+
+        assertThat(result.getHtml()).isEqualTo("<p>forced</p>");
+        verify(mongoTemplate, times(1))
+                .updateFirst(any(Query.class), any(Update.class), eq(Show.class));
+    }
+
+    @Test
+    void updatePage_force_succeeds_whenIfMatchNull() {
+        // The actual RFPB conflict-modal path: client sends force=true with
+        // NO If-Match header (which arrives as null at this layer).
+        ViewerPage existing = page(PAGE_ID, "home", "<p>old</p>", T0);
+        when(showRepository.findByShowToken(SHOW_TOKEN))
+                .thenReturn(Optional.of(showWithPages(List.of(existing))));
+        when(mongoTemplate.updateFirst(any(Query.class), any(Update.class), eq(Show.class)))
+                .thenReturn(UpdateResult.acknowledged(1, 1L, null));
+
+        PageResponse result = service.updatePage(PAGE_ID, null, null,
+                "<p>forced</p>", null, true);
+
+        assertThat(result.getHtml()).isEqualTo("<p>forced</p>");
+    }
+
+    @Test
+    void updatePage_force_throws404_whenPageDeletedMidFlight() {
+        // Even on force=true the page has to exist. The pre-check read
+        // finds it, but it's deleted before the write fires — modifiedCount
+        // 0 + re-read finds no page → 404, not 412 (no ETag to mismatch
+        // against under force semantics).
+        ViewerPage atReadTime = page(PAGE_ID, "home", "<p>x</p>", T0);
+
+        when(showRepository.findByShowToken(SHOW_TOKEN))
+                .thenReturn(Optional.of(showWithPages(List.of(atReadTime))),
+                            Optional.of(showWithPages(List.of()))); // deleted mid-flight
+        when(mongoTemplate.updateFirst(any(Query.class), any(Update.class), eq(Show.class)))
+                .thenReturn(UpdateResult.acknowledged(1, 0L, null));
+
+        assertThatThrownBy(() ->
+                service.updatePage(PAGE_ID, null, null, "<p>edit</p>", null, true))
+                .isInstanceOf(PageNotFoundException.class);
+    }
+
+    @Test
+    void updatePage_force_stillSanitizes_andEnforcesSizeCap() {
+        // Force bypasses the conditional-request check, NOT the security
+        // floor. Scripts still get stripped; oversized pages still 400.
+        ViewerPage existing = page(PAGE_ID, "home", "<p>x</p>", T0);
+        when(showRepository.findByShowToken(SHOW_TOKEN))
+                .thenReturn(Optional.of(showWithPages(List.of(existing))));
+        when(mongoTemplate.updateFirst(any(Query.class), any(Update.class), eq(Show.class)))
+                .thenReturn(UpdateResult.acknowledged(1, 1L, null));
+
+        PageResponse result = service.updatePage(PAGE_ID, null, null,
+                "<p>hi</p><script>bad()</script>", null, true);
+        assertThat(result.getHtml()).doesNotContain("<script>");
+
+        // Reset mock + try oversized input
+        String huge = "<p>" + "x".repeat(1_100_000) + "</p>";
+        assertThatThrownBy(() ->
+                service.updatePage(PAGE_ID, null, null, huge, null, true))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 }

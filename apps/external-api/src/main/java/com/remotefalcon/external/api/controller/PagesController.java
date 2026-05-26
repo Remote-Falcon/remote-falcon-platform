@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -104,56 +105,78 @@ public class PagesController {
     }
 
     /**
-     * Update a page. Requires {@code If-Match} header carrying the ETag
-     * of the version the client last read; mismatch returns 412 with the
-     * current server state in the body so the client can present a
-     * conflict modal.
+     * Update a page.
+     *
+     * <p>Default path: requires the {@code If-Match} header carrying the
+     * ETag of the version the client last read. Mismatch returns 412 with
+     * the current server state in the body so the client can present a
+     * conflict modal. Missing header returns 428 Precondition Required.
+     *
+     * <p>Force path ({@code ?force=true}): {@code If-Match} is optional
+     * and any value (matching, stale, or absent) is bypassed. RFPB sets
+     * this when the user clicks "Overwrite anyway" in the conflict modal —
+     * sending the stale ETag would just re-trigger the 412, so the client
+     * intentionally omits the header. Force-PUTs are audit-logged under
+     * {@code op="page.update.force"} so a security review can spot the
+     * override pattern in the audit feed.
      */
     @PutMapping("/pages/{pageId}")
     @RequiresBearer(scope = "viewer_page:write")
     public ResponseEntity<?> updatePage(
             @PathVariable String pageId,
-            @RequestHeader(HttpHeaders.IF_MATCH) String ifMatch,
+            @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
+            @RequestParam(value = "force", required = false, defaultValue = "false") boolean force,
             @RequestBody PageWriteRequest body,
             HttpServletRequest request) {
+        String op = force ? "page.update.force" : "page.update";
         UUID id;
         try {
             id = UUID.fromString(pageId);
         } catch (IllegalArgumentException e) {
-            auditLogger.logWrite("page.update", request, 404, null, "viewer_page:write");
+            auditLogger.logWrite(op, request, 404, null, "viewer_page:write");
             return ResponseEntity.notFound().build();
         }
         if (body == null) {
-            auditLogger.logWrite("page.update", request, 400, null, "viewer_page:write");
+            auditLogger.logWrite(op, request, 400, null, "viewer_page:write");
             return ResponseEntity.badRequest().build();
+        }
+        // Conditional-request enforcement is owner-side: without force, the
+        // client MUST supply If-Match. 428 Precondition Required (RFC 6585)
+        // is the precise answer — distinguishes "you forgot the header" from
+        // "you sent a stale ETag" (412).
+        if (!force && (ifMatch == null || ifMatch.isBlank())) {
+            auditLogger.logWrite(op, request, 428, null, "viewer_page:write");
+            return ResponseEntity.status(428)
+                    .body(Map.of("error", "If-Match header required (or pass ?force=true)"));
         }
         String ifMatchClean = stripQuotes(ifMatch);
         try {
             PageResponse updated = pageApiService.updatePage(id,
-                    body.getName(), body.getActive(), body.getHtml(), ifMatchClean);
+                    body.getName(), body.getActive(), body.getHtml(), ifMatchClean, force);
             // Successful write — log the persisted content hash so an
             // auditor can correlate this audit line with the rfpb_sessions
             // + the page's current ETag.
-            auditLogger.logWrite("page.update", request, 200, updated.getHtml(), "viewer_page:write");
+            auditLogger.logWrite(op, request, 200, updated.getHtml(), "viewer_page:write");
             return ResponseEntity.ok()
                     .eTag("\"" + updated.getEtag() + "\"")
                     .body(updated);
         } catch (PageNotFoundException e) {
-            auditLogger.logWrite("page.update", request, 404, null, "viewer_page:write");
+            auditLogger.logWrite(op, request, 404, null, "viewer_page:write");
             return ResponseEntity.notFound().build();
         } catch (EtagMismatchException e) {
             // 412 with the current server state so the client can show a
             // conflict modal with the latest version. ETag header carries
             // the current ETag too — clients can use it as If-Match in
-            // their "overwrite anyway" follow-up.
-            auditLogger.logWrite("page.update", request, 412, null, "viewer_page:write");
+            // their "overwrite anyway" follow-up. Unreachable when force=true
+            // (service skips the etag check entirely in that case).
+            auditLogger.logWrite(op, request, 412, null, "viewer_page:write");
             return ResponseEntity.status(412)
                     .eTag("\"" + e.getCurrentServerState().getEtag() + "\"")
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(e.getCurrentServerState());
         } catch (IllegalArgumentException e) {
             // Sanitizer or size-cap rejection — 400 with a brief message.
-            auditLogger.logWrite("page.update", request, 400, null, "viewer_page:write");
+            auditLogger.logWrite(op, request, 400, null, "viewer_page:write");
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
     }
