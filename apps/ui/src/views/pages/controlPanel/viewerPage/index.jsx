@@ -268,18 +268,54 @@ const ViewerPage = () => {
             // Always refresh Redux from server — the base used for save-
             // time ETag comparison must be current or the next PUT 412s.
             // Dirty buffers are preserved (separate state).
-            dispatch(setShow({ ...local, ...serverShow }));
+            //
+            // Scope the merge to pages-only to match the convention used
+            // by every other setShow call site in this file. The full-
+            // Show shallow merge `{...local, ...serverShow}` would let
+            // any server-null field clobber the local value (Apollo
+            // returns null for missing nested selections); pages is the
+            // only field this flow needs to refresh.
+            dispatch(setShow({ ...local, pages: serverPages }));
+            // Prune dirtyMap + staleNotices for pages that were renamed
+            // or deleted on the server. Otherwise the dirty buffer for
+            // a no-longer-existing name leaks indefinitely and a future
+            // save would re-introduce the old name.
+            const serverNames = new Set(serverPages.map((p) => p?.name).filter(Boolean));
+            setDirtyMap((m) => {
+              const next = { ...m };
+              let pruned = false;
+              for (const k of Object.keys(next)) {
+                if (!serverNames.has(k)) { delete next[k]; pruned = true; }
+              }
+              return pruned ? next : m;
+            });
             // Merge any new stale notices (don't drop existing ones for
             // pages the user hasn't acted on yet).
             if (Object.keys(newStale).length > 0) {
               setStaleNotices((prev) => ({ ...prev, ...newStale }));
             }
+            // Prune notices for pages that no longer exist on the server.
+            setStaleNotices((prev) => {
+              const next = { ...prev };
+              let pruned = false;
+              for (const k of Object.keys(next)) {
+                if (!serverNames.has(k)) { delete next[k]; pruned = true; }
+              }
+              return pruned ? next : prev;
+            });
             // Subtle toast only when nothing was dirty — a stale-notice
             // banner is loud enough on its own when there are dirty
             // edits in play.
             if (Object.keys(newStale).length === 0) {
               showAlert(dispatch, { message: 'Viewer pages refreshed from server' });
             }
+            trackPosthogEvent('viewer_page_external_change_detected', {
+              changed_count: serverPages.filter((sp) => {
+                const lp = localByName.get(sp?.name);
+                return lp && sp?.updatedAt && sp.updatedAt !== (lp?.updatedAt || '');
+              }).length,
+              dirty_count: Object.keys(newStale).length
+            });
           }
         }
       });
@@ -315,6 +351,12 @@ const ViewerPage = () => {
       return copy;
     });
     dismissStaleNotice(pageName);
+    trackPosthogEvent('viewer_page_stale_banner_action', { action: 'discard', page_name: pageName });
+  }, [dismissStaleNotice]);
+
+  const dismissStaleNoticeTracked = useCallback((pageName) => {
+    dismissStaleNotice(pageName);
+    trackPosthogEvent('viewer_page_stale_banner_action', { action: 'dismiss', page_name: pageName });
   }, [dismissStaleNotice]);
 
   // Save handlers ---------------------------------------------------------
@@ -332,7 +374,14 @@ const ViewerPage = () => {
             const persisted = Array.isArray(response.pages) && response.pages.length > 0
               ? response.pages
               : updated;
-            dispatch(setShow({ ...show, pages: [...persisted] }));
+            // Read show from the ref, not the closure: a focus-refetch
+            // landing mid-save would have dispatched setShow already,
+            // and the closure's `show` would be stale. Spreading stale
+            // show + persisted pages overwrites the freshly-refetched
+            // non-pages fields (preferences, sequences, …) with the
+            // pre-refetch values.
+            const currentShow = showRef.current;
+            dispatch(setShow({ ...currentShow, pages: [...persisted] }));
             if (successMessage) showAlert(dispatch, { message: successMessage });
             trackPosthogEvent('viewer_page_saved', {
               page_count: (updated || []).length,
@@ -345,7 +394,7 @@ const ViewerPage = () => {
           }
         });
       }),
-    [dispatch, show, updatePagesMutation]
+    [dispatch, updatePagesMutation]
   );
 
   const handleSave = useCallback(async () => {
@@ -417,7 +466,7 @@ const ViewerPage = () => {
       });
       const url = data?.launchExternalEditor;
       if (!url) {
-        showAlert({ message: 'Could not open RF Page Builder. Try again.', severity: 'error' });
+        showAlert(dispatch, { alert: 'error', message: 'Could not open RF Page Builder. Try again.' });
         return;
       }
       trackPosthogEvent('viewer_page_launched_external_editor', {
@@ -440,12 +489,12 @@ const ViewerPage = () => {
       // control-panel tab into RFPB.
       window.open(url, '_blank', 'noopener,noreferrer');
     } catch (err) {
-      showAlert({
-        message: 'Could not open RF Page Builder: ' + (err?.message || 'unknown error'),
-        severity: 'error'
+      showAlert(dispatch, {
+        alert: 'error',
+        message: 'Could not open RF Page Builder: ' + (err?.message || 'unknown error')
       });
     }
-  }, [currentPage, isCurrentDirty, launchExternalEditorMutation]);
+  }, [currentPage, dispatch, isCurrentDirty, launchExternalEditorMutation]);
 
   // Tab selection guards against losing in-progress edits on the OUTGOING
   // tab. Selecting same tab is a no-op.
@@ -462,6 +511,15 @@ const ViewerPage = () => {
     setDirtyMap((m) => {
       if (!Object.prototype.hasOwnProperty.call(m, oldName)) return m;
       const copy = { ...m };
+      copy[newName] = copy[oldName];
+      delete copy[oldName];
+      return copy;
+    });
+    // Migrate any stale-notice under the old key so the banner still
+    // shows on the renamed tab if the change was unsynced.
+    setStaleNotices((n) => {
+      if (!Object.prototype.hasOwnProperty.call(n, oldName)) return n;
+      const copy = { ...n };
       copy[newName] = copy[oldName];
       delete copy[oldName];
       return copy;
@@ -505,6 +563,16 @@ const ViewerPage = () => {
         if (ok) {
           setDirtyMap((m) => {
             const copy = { ...m };
+            delete copy[name];
+            return copy;
+          });
+          // Drop any stale-notice for the deleted page too; otherwise
+          // the entry sits forever in state (harmless visually because
+          // the banner only renders for the active page, but a leak
+          // nonetheless).
+          setStaleNotices((n) => {
+            if (!Object.prototype.hasOwnProperty.call(n, name)) return n;
+            const copy = { ...n };
             delete copy[name];
             return copy;
           });
@@ -585,14 +653,28 @@ const ViewerPage = () => {
                   <Button
                     size="small"
                     color="inherit"
-                    onClick={() => loadServerVersion(currentPage.name)}
+                    variant="outlined"
+                    onClick={() => {
+                      // Destructive — every other destructive action in this
+                      // file routes through ConfirmDialog. Mirror the pattern
+                      // so the user can't lose work with a single click.
+                      const name = currentPage.name;
+                      setConfirm({
+                        title: `Discard unsaved edits on "${name}"?`,
+                        message:
+                          'Your local edits will be replaced with the server version. ' +
+                          'This cannot be undone.',
+                        confirmLabel: 'Discard',
+                        action: () => loadServerVersion(name)
+                      });
+                    }}
                   >
                     Discard mine, load server
                   </Button>
                   <Button
                     size="small"
                     color="inherit"
-                    onClick={() => dismissStaleNotice(currentPage.name)}
+                    onClick={() => dismissStaleNoticeTracked(currentPage.name)}
                   >
                     Keep mine
                   </Button>
