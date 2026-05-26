@@ -57,11 +57,13 @@ class ViewerPageServiceTest {
 
     @Test
     void sanitize_strips_inlineSvgScripts() {
-        // SVG can carry script tags. The relaxed Safelist doesn't allow
-        // <svg> at all, so the whole thing falls away.
+        // SVG is preserved post-RFPB integration but the dangerous
+        // descendants get scrubbed (script, foreignObject, on*, etc.).
         String dirty = "<svg><script>alert(1)</script></svg>";
         String clean = service.sanitize(dirty);
-        assertThat(clean).doesNotContain("<script>", "alert");
+        assertThat(clean).contains("<svg");
+        assertThat(clean).doesNotContain("<script>");
+        assertThat(clean).doesNotContain("alert");
     }
 
     // -------- sanitize: legitimate viewer-page markup MUST be preserved ----
@@ -116,6 +118,178 @@ class ViewerPageServiceTest {
         String html = "<a href=\"https://example.com\">x</a>";
         String clean = service.sanitize(html);
         assertThat(clean).contains("https://example.com");
+    }
+
+    // -------- RFPB round-trip preservation -------------------------------
+    // External-api's ViewerPageSanitizerAndEtagTest has the mirror image of
+    // these tests; both implementations must agree, byte-for-byte where
+    // possible (text-content matches at minimum), or the integration
+    // round-trip silently corrupts user content.
+
+    @Test
+    void sanitize_preservesInertJsonScript_withIdAndContent() {
+        // RFPB embeds page metadata in an inert <script type="application/json">.
+        // The browser never executes JSON-typed scripts.
+        String input = "<div><script type=\"application/json\" id=\"rfpb-data\">"
+                + "{\"blocks\":[{\"type\":\"now-playing\"}]}</script></div>";
+        String clean = service.sanitize(input);
+        assertThat(clean).contains("type=\"application/json\"");
+        assertThat(clean).contains("id=\"rfpb-data\"");
+        assertThat(clean).contains("{\"blocks\":[{\"type\":\"now-playing\"}]}");
+    }
+
+    @Test
+    void sanitize_keepsInertScriptInHead_whenInputHadItInHead() {
+        // RFPB emits the rfpb-data script inside <head>. A naive text-token
+        // marker triggers HTML5 "in head" insertion-mode reparenting on
+        // re-parse, which would push the restored script into <body>.
+        String input = "<!doctype html><html><head><title>x</title>"
+                + "<script type=\"application/json\" id=\"rfpb-data\">{\"v\":1}</script>"
+                + "</head><body><h1>hi</h1></body></html>";
+        String clean = service.sanitize(input);
+        int headEnd = clean.indexOf("</head>");
+        int scriptStart = clean.indexOf("id=\"rfpb-data\"");
+        assertThat(headEnd).isGreaterThan(-1);
+        assertThat(scriptStart).isGreaterThan(-1);
+        assertThat(scriptStart).isLessThan(headEnd);
+    }
+
+    @Test
+    void sanitize_preservesLdJsonScript() {
+        String input = "<script type=\"application/ld+json\">{\"@context\":\"x\"}</script>";
+        String clean = service.sanitize(input);
+        assertThat(clean).contains("application/ld+json");
+        assertThat(clean).contains("{\"@context\":\"x\"}");
+    }
+
+    @Test
+    void sanitize_stillStripsExecutableScript_withoutInertType() {
+        // Only the inert-type set is preserved.
+        assertThat(service.sanitize("<script>alert(1)</script>"))
+                .doesNotContain("alert");
+        assertThat(service.sanitize("<script type=\"text/javascript\">alert(1)</script>"))
+                .doesNotContain("alert");
+        assertThat(service.sanitize("<script type=\"module\">alert(1)</script>"))
+                .doesNotContain("alert");
+    }
+
+    @Test
+    void sanitize_dropsSrcOnInertScript() {
+        String input = "<script type=\"application/json\" src=\"https://evil.example/x.json\">{}</script>";
+        String clean = service.sanitize(input);
+        assertThat(clean).contains("application/json");
+        assertThat(clean).doesNotContain("evil.example");
+        assertThat(clean).doesNotContain("src=");
+    }
+
+    @Test
+    void sanitize_preservesInertScriptContent_withHtmlSpecialChars() {
+        String json = "{\"html\":\"<p>3 &gt; 2</p>\"}";
+        String input = "<script type=\"application/json\">" + json + "</script>";
+        String clean = service.sanitize(input);
+        assertThat(clean).contains(json);
+    }
+
+    @Test
+    void sanitize_preservesSafeSvg() {
+        String input = "<svg viewBox=\"0 0 24 24\" xmlns=\"http://www.w3.org/2000/svg\">"
+                + "<path d=\"M1 1 L2 2\"/></svg>";
+        String clean = service.sanitize(input);
+        assertThat(clean).contains("<svg");
+        assertThat(clean).contains("viewBox=\"0 0 24 24\"");
+        assertThat(clean).contains("<path");
+    }
+
+    @Test
+    void sanitize_stripsForeignObjectInsideSvg() {
+        String input = "<svg><foreignObject><div onclick=\"alert(1)\">x</div></foreignObject></svg>";
+        String clean = service.sanitize(input);
+        assertThat(clean).contains("<svg");
+        assertThat(clean).doesNotContainIgnoringCase("foreignObject");
+        assertThat(clean).doesNotContain("alert");
+    }
+
+    @Test
+    void sanitize_stripsOnEventHandlersFromSvgDescendants() {
+        String input = "<svg onload=\"alert(1)\"><circle r=\"5\" onclick=\"steal()\"/></svg>";
+        String clean = service.sanitize(input);
+        assertThat(clean).contains("<svg");
+        assertThat(clean).contains("<circle");
+        assertThat(clean).doesNotContain("onload");
+        assertThat(clean).doesNotContain("onclick");
+    }
+
+    @Test
+    void sanitize_stripsJavascriptHrefInSvg() {
+        String input = "<svg>"
+                + "<a href=\"javascript:alert(1)\"><circle r=\"5\"/></a>"
+                + "<a xlink:href=\"JAVASCRIPT:steal()\"><circle r=\"6\"/></a>"
+                + "</svg>";
+        String clean = service.sanitize(input);
+        assertThat(clean).contains("<svg");
+        assertThat(clean).doesNotContainIgnoringCase("javascript:");
+    }
+
+    @Test
+    void sanitize_stripsAnimateAttributeNameHref() {
+        // Under the denylist policy the <animate> element survives but its
+        // values= attribute (whose value starts with javascript:) is
+        // stripped, neutralizing the attack.
+        String input = "<svg><a href=\"#safe\"><animate attributeName=\"href\""
+                + " values=\"javascript:alert(1)\"/></a></svg>";
+        String clean = service.sanitize(input);
+        assertThat(clean).doesNotContainIgnoringCase("javascript:");
+        assertThat(clean).doesNotContain("alert");
+    }
+
+    @Test
+    void sanitize_preservesCurlyContainerAttribute_jukebox() {
+        String input = "<div class=\"section\" {jukebox-dynamic-container}>x</div>";
+        String clean = service.sanitize(input);
+        assertThat(clean).contains("{jukebox-dynamic-container}");
+        assertThat(clean).contains("class=\"section\"");
+    }
+
+    @Test
+    void sanitize_preservesAllFourKnownCurlyContainers() {
+        String input = "<div {jukebox-dynamic-container}>j</div>"
+                + "<div {playlist-voting-dynamic-container}>v</div>"
+                + "<div {after-hours-message}>a</div>"
+                + "<div {location-code-dynamic-container}>l</div>";
+        String clean = service.sanitize(input);
+        assertThat(clean).contains("{jukebox-dynamic-container}");
+        assertThat(clean).contains("{playlist-voting-dynamic-container}");
+        assertThat(clean).contains("{after-hours-message}");
+        assertThat(clean).contains("{location-code-dynamic-container}");
+    }
+
+    @Test
+    void sanitize_passesThroughCurlyAttrWithJunkChars_whichIsHarmless() {
+        // Under denylist, weird attribute NAMES pass through unchanged —
+        // HTML attribute names that look like JS are inert in browsers
+        // because nothing reads them as code. The exec risk lives in
+        // attribute VALUES (caught by the javascript:/vbscript: rule) and
+        // event-handler attribute NAMES (caught by the on* rule).
+        String input = "<div {javascript:alert(1)}>x</div>";
+        String clean = service.sanitize(input);
+        assertThat(clean).contains("{javascript:alert(1)}");
+    }
+
+    @Test
+    void sanitize_combinedRfpbInput_preservesAllThreeCategories() {
+        String input = "<div {jukebox-dynamic-container}>"
+                + "<svg viewBox=\"0 0 24 24\"><circle r=\"5\"/></svg>"
+                + "<script type=\"application/json\" id=\"rfpb-data\">"
+                + "{\"v\":1}"
+                + "</script>"
+                + "</div>";
+        String clean = service.sanitize(input);
+        assertThat(clean).contains("{jukebox-dynamic-container}");
+        assertThat(clean).contains("<svg");
+        assertThat(clean).contains("<circle");
+        assertThat(clean).contains("type=\"application/json\"");
+        assertThat(clean).contains("id=\"rfpb-data\"");
+        assertThat(clean).contains("{\"v\":1}");
     }
 
     // -------- sanitize: null / empty handling ----------

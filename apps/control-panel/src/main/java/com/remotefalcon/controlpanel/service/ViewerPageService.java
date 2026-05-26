@@ -5,37 +5,44 @@ import com.remotefalcon.library.models.ViewerPage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jsoup.Jsoup;
-import org.jsoup.safety.Safelist;
+import org.jsoup.nodes.Attribute;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 /**
  * Single home for viewer-page sanitization, size validation, and the lazy
  * backfill that ensures every page has a stable {@code pageId} + {@code
  * updatedAt} once it has been read or written through the control panel.
  *
- * <p>Added 2026-05-24 as the foundation for the RF Page Builder integration
- * (PRD External Viewer Page API, Phase 1 PR-A). The same write path served
- * by {@link #prepareForWrite} is intended to be reused by the external
- * {@code /v1/pages} CRUD endpoints in PR-B — sanitization must not diverge
- * between internal (Monaco/GraphQL) and external (RFPB) write paths or the
- * security guarantee evaporates.
+ * <p><b>Sanitize policy: denylist, not allowlist.</b> Show-owner HTML has
+ * always been free-form — the publisher renders it with
+ * {@code html-to-react} which only neutralizes {@code <script>} tags
+ * inserted programmatically (HTML5 spec for DOM-inserted scripts). The
+ * runtime DOES execute {@code on*} event handlers (html-to-react calls
+ * {@code Function(value)} on them) and DOES follow {@code javascript:}
+ * URLs on click, so the server-side scrubber's only job is to close
+ * those gaps. Anything else — arbitrary tags, custom attributes, comments,
+ * RFPB's curly-brace containers, inline {@code <svg>}, etc. — passes
+ * through unchanged. See {@link #sanitize} for the full denylist.
  *
- * <p>Two pre-existing security holes close with this service:
- * <ol>
- *   <li>Viewer-page HTML previously accepted {@code <script>}, {@code on*}
- *       event handlers, and {@code javascript:} URLs unchanged. Public viewer
- *       rendered them raw. Today only the show owner can write; once external
- *       writes ship in PR-B this becomes XSS-as-a-service. Closed here at the
- *       service layer so it applies to both write paths.
- *   <li>No size limit on the {@code html} field meant a buggy client (or a
- *       malicious one with PAT scope) could grow the Show document toward
- *       Mongo's 16 MB document limit. Capped at 1 MB per page here.
- * </ol>
+ * <p>External-api's {@link com.remotefalcon.library.models.ViewerPage}
+ * write path mirrors this implementation byte-for-byte; both must produce
+ * identical output for identical input or the ETag round-trip between
+ * services breaks. The cross-service drift check lives in external-api's
+ * {@code ViewerPageSanitizerAndEtagTest}.
+ *
+ * <p>1 MB size cap on the {@code html} field (Mongo doc limit is 16 MB;
+ * with up to 5 pages plus the rest of the Show document we need headroom).
  */
 @Service
 @Slf4j
@@ -51,81 +58,168 @@ public class ViewerPageService {
      */
     public static final int MAX_HTML_BYTES = 1_000_000;
 
-    /**
-     * jsoup Safelist used by {@link #sanitize}. Starts from {@link
-     * Safelist#relaxed()} (basic formatting + tables + images) and adds the
-     * elements/attributes show owners commonly use in viewer pages:
-     *
-     * <ul>
-     *   <li>{@code <style>} for inline CSS blocks
-     *   <li>{@code <link>} for external stylesheets (rel/href/type)
-     *   <li>{@code <meta>} for viewport/charset
-     *   <li>{@code class}, {@code id}, {@code style}, {@code data-*} on
-     *       every element (jsoup's {@code addAttributes(":all", ...)})
-     *   <li>{@code <video>}, {@code <audio>}, {@code <source>}, {@code <iframe>}
-     *       — embedded media is common in fan pages
-     * </ul>
-     *
-     * Explicitly stripped (relaxed already does this, called out for
-     * reviewer clarity):
-     * <ul>
-     *   <li>{@code <script>}, {@code <noscript>}
-     *   <li>All {@code on*} event-handler attributes
-     *   <li>{@code javascript:} URLs in href/src
-     * </ul>
-     *
-     * Note: {@code data:} URLs are restricted by jsoup's URL-protocol
-     * checking. We allow them on {@code <img src>} only (relaxed's default).
-     */
-    private static final Safelist SAFELIST = Safelist.relaxed()
-            .addTags("style", "link", "meta", "video", "audio", "source", "iframe")
-            .addAttributes(":all", "class", "id", "style")
-            .addAttributes("style", "type")
-            .addAttributes("link", "rel", "href", "type", "media")
-            .addAttributes("meta", "name", "content", "charset", "http-equiv")
-            .addAttributes("video", "src", "controls", "autoplay", "loop", "muted",
-                    "poster", "width", "height", "preload", "playsinline")
-            .addAttributes("audio", "src", "controls", "autoplay", "loop", "muted",
-                    "preload")
-            .addAttributes("source", "src", "type", "srcset", "media")
-            .addAttributes("iframe", "src", "width", "height", "frameborder",
-                    "allow", "allowfullscreen", "loading")
-            .addProtocols("link", "href", "http", "https")
-            .addProtocols("iframe", "src", "http", "https")
-            .addProtocols("video", "src", "http", "https")
-            .addProtocols("audio", "src", "http", "https")
-            .addProtocols("source", "src", "http", "https")
-            // Allow inline base64 images on <img src> — common pattern in
-            // viewer pages for small logos/icons that don't warrant a CDN.
-            // jsoup's relaxed() does NOT include data: by default.
-            .addProtocols("img", "src", "data")
-            // Viewer pages reference hosted assets via relative URLs
-            // (/playlist, /now-playing). Without this jsoup strips them
-            // because there's no base URI to resolve them against.
-            .preserveRelativeLinks(true);
+    private static final String BASE_URI = "https://placeholder.invalid/";
 
     /**
-     * Strip dangerous markup from a viewer-page HTML body. See {@link
-     * #SAFELIST} for the explicit allowlist. Always returns a non-null
-     * string; treats {@code null} input as empty.
+     * Script {@code type} values whose content is inert (the browser never
+     * executes them). RFPB embeds page metadata as
+     * {@code <script type="application/json" id="rfpb-data">…</script>};
+     * Next.js and JSON-LD use the same pattern.
      *
-     * <p>This is destructive — disallowed elements/attributes are dropped.
-     * Callers needing pre-sanitization HTML for diff/preview purposes should
-     * hold their own copy before invoking this.
+     * <p>Anything else — empty type, {@code text/javascript},
+     * {@code module}, {@code importmap} — is treated as executable and
+     * stripped. {@code <script>} without a {@code type} attribute is also
+     * stripped (defaults to {@code text/javascript} per HTML5).
+     */
+    private static final Set<String> INERT_SCRIPT_TYPES = Set.of(
+            "application/json", "application/ld+json", "text/plain"
+    );
+
+    /**
+     * {@code data:} URL prefixes we allow on attribute values. Media types
+     * only — image/audio/video/font are legitimate embed targets and don't
+     * carry executable surfaces. {@code data:text/html},
+     * {@code data:application/xhtml+xml}, etc. can be navigated to and
+     * become a top-level document with full XSS reach, so they're stripped.
+     */
+    private static final List<String> SAFE_DATA_URL_PREFIXES = List.of(
+            "data:image/", "data:audio/", "data:video/", "data:font/"
+    );
+
+    private static final Pattern HTML_OPEN_TAG_RE =
+            Pattern.compile("<html\\b", Pattern.CASE_INSENSITIVE);
+
+    /**
+     * Sanitize viewer-page HTML for storage. Strips:
+     * <ul>
+     *   <li>{@code <script>} except inert types ({@code application/json},
+     *       {@code application/ld+json}, {@code text/plain}). The runtime
+     *       blocks these too; this is defense-in-depth in case the
+     *       renderer ever switches off html-to-react.
+     *   <li>All {@code on*} event-handler attributes on every element.
+     *   <li>{@code javascript:} and {@code vbscript:} URLs anywhere — href,
+     *       src, formaction, animate's values=, you name it.
+     *   <li>{@code data:} URLs except media types ({@code data:image/*},
+     *       {@code data:audio/*}, {@code data:video/*}, {@code data:font/*}).
+     *   <li>{@code <foreignObject>} inside {@code <svg>}.
+     *   <li>{@code src} on inert-typed scripts.
+     * </ul>
+     * Returns a non-null string; treats {@code null} or empty input as empty.
+     * Preserves structural shape: body fragment in → body fragment out;
+     * full document in → full document out.
      */
     public String sanitize(String html) {
         if (html == null || html.isEmpty()) {
             return "";
         }
-        // jsoup's protocol check needs a base URI to resolve relative URLs
-        // against before deciding whether to keep them. With an empty base,
-        // a relative URL like "/playlist" has no protocol and gets stripped
-        // even though preserveRelativeLinks=true is set on the Safelist.
-        // Pass a sentinel base so the protocol check resolves to https
-        // (whitelisted); preserveRelativeLinks then keeps the original
-        // relative form in the output rather than the absolute version.
-        return Jsoup.clean(html, "https://placeholder.invalid/", SAFELIST,
-                new org.jsoup.nodes.Document.OutputSettings().prettyPrint(false));
+        // Body fragment in → body fragment out (Holtz-style templates have
+        // no <html> wrapper — don't introduce one or the ETag changes
+        // spuriously for every legacy page). Full document in → full
+        // document out (head/title/style/meta survive; <doctype> survives).
+        boolean isFullDoc = looksLikeFullDocument(html);
+        Document doc = isFullDoc
+                ? Jsoup.parse(html, BASE_URI)
+                : Jsoup.parseBodyFragment(html, BASE_URI);
+        doc.outputSettings().prettyPrint(false);
+
+        stripExecutableScripts(doc);
+        stripSvgForeignObject(doc);
+        stripDangerousAttributes(doc);
+
+        return isFullDoc ? doc.outerHtml() : doc.body().html();
+    }
+
+    /**
+     * Remove {@code <script>} tags whose {@code type} isn't an inert MIME.
+     * Surviving inert scripts get their {@code src} attribute stripped too
+     * — browsers fetch it even when the script body won't execute, making
+     * it usable as a tracking ping or exfil vector.
+     */
+    private static void stripExecutableScripts(Document doc) {
+        for (Element script : new ArrayList<>(doc.select("script"))) {
+            String type = script.attr("type").trim().toLowerCase(Locale.ROOT);
+            if (!INERT_SCRIPT_TYPES.contains(type)) {
+                script.remove();
+            } else {
+                script.removeAttr("src");
+            }
+        }
+    }
+
+    /**
+     * Remove {@code <foreignObject>} children from any {@code <svg>}. They
+     * carry arbitrary HTML (forms, iframes, etc.) into the SVG render tree
+     * and complicate the on* / javascript: scrubbing rules below.
+     */
+    private static void stripSvgForeignObject(Document doc) {
+        // jsoup's CSS selectors are case-insensitive — matches both
+        // <foreignObject> and <foreignobject>.
+        doc.select("svg foreignObject").remove();
+    }
+
+    /**
+     * Walk every element and strip the two attribute classes that lead to
+     * JavaScript execution at render time:
+     * <ol>
+     *   <li>{@code on*} event handlers — {@code html-to-react} converts
+     *       these into {@code Function(value)} bindings, executing on the
+     *       triggering event.
+     *   <li>Attribute values starting with {@code javascript:}/{@code vbscript:},
+     *       or {@code data:} non-media — the browser executes/navigates
+     *       these on click or programmatic activation.
+     * </ol>
+     * The rule applies to ANY attribute name, not just URL-bearing ones —
+     * this catches the SVG {@code animate values="javascript:…"} family
+     * of attacks without needing an explicit allowlist of URL-attr names.
+     */
+    private static void stripDangerousAttributes(Document doc) {
+        for (Element el : doc.getAllElements()) {
+            List<String> toRemove = new ArrayList<>();
+            for (Attribute a : el.attributes()) {
+                String key = a.getKey();
+                String lowerKey = key.toLowerCase(Locale.ROOT);
+                if (lowerKey.startsWith("on")) {
+                    toRemove.add(key);
+                    continue;
+                }
+                if (isDangerousValue(a.getValue())) {
+                    toRemove.add(key);
+                }
+            }
+            for (String key : toRemove) {
+                el.removeAttr(key);
+            }
+        }
+    }
+
+    private static boolean isDangerousValue(String raw) {
+        if (raw == null) {
+            return false;
+        }
+        String lower = raw.trim().toLowerCase(Locale.ROOT);
+        if (lower.startsWith("javascript:") || lower.startsWith("vbscript:")) {
+            return true;
+        }
+        if (lower.startsWith("data:")) {
+            for (String safe : SAFE_DATA_URL_PREFIXES) {
+                if (lower.startsWith(safe)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Heuristic: does the input look like a full HTML document the user
+     * wants preserved end-to-end, vs a body-fragment template like the
+     * Holtz template? Returns true if a {@code <html} tag is anywhere in
+     * the source. Cheap; jsoup's actual parse handles the precise edge
+     * cases (case folding, attribute syntax, etc.).
+     */
+    private static boolean looksLikeFullDocument(String html) {
+        return HTML_OPEN_TAG_RE.matcher(html).find();
     }
 
     /**
