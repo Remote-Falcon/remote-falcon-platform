@@ -221,6 +221,12 @@ class PagesControllerTest {
         ResponseEntity<?> resp = controller.updatePage(PAGE_ID.toString(), null, false,
                 PageWriteRequest.builder().html("<p>n</p>").build(), mockRequest());
         assertThat(resp.getStatusCode().value()).isEqualTo(428);
+        // Canonical v1 error envelope: error/status/ts. Audit finding from
+        // post-integration audit — used to be { error: <msg> } only.
+        @SuppressWarnings("unchecked")
+        java.util.Map<String, Object> body = (java.util.Map<String, Object>) resp.getBody();
+        assertThat(body).containsKeys("error", "status", "ts");
+        assertThat(body).containsEntry("status", 428);
     }
 
     @Test

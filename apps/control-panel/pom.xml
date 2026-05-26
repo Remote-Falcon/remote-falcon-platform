@@ -222,17 +222,18 @@
         </dependency>
 
         <!--
-            jsoup — HTML sanitization for viewer-page content. Added 2026-05-24
-            for RF Page Builder integration (PRD External Viewer Page API,
-            Phase 1 PR-A). Used by ViewerPageService.sanitize to strip
-            script tags, event handlers, and javascript:/data: URLs before
-            persisting any html field.
+            jsoup — HTML parser used by the viewer-page denylist sanitizer.
+            Added 2026-05-24 for RF Page Builder integration (PRD External
+            Viewer Page API). Used by ViewerPageService.sanitize to strip
+            execution vectors (script tags except inert types, on*
+            attributes, javascript:/vbscript: URLs, non-media data: URLs,
+            CSS exec patterns, foreignObject in svg) before persisting any
+            html field. See ViewerPageService for the full denylist.
 
-            Native-image note: jsoup uses reflection in its Cleaner +
-            Safelist classes. If the native build breaks, register the
-            relevant classes via a RuntimeHints contributor (Phase 1 PR-D
-            covers external-api; we may need a control-panel equivalent
-            here).
+            Native-image note: jsoup's HTML parser uses reflection to
+            instantiate HtmlTreeBuilder. RuntimeHints contributor is wired
+            at config/RfpbRuntimeHints.java; keep that in sync if the parse
+            chain changes.
         -->
         <dependency>
             <groupId>org.jsoup</groupId>

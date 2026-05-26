@@ -25,6 +25,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -138,7 +139,7 @@ public class PagesController {
         }
         if (body == null) {
             auditLogger.logWrite(op, request, 400, null, "viewer_page:write");
-            return ResponseEntity.badRequest().build();
+            return ResponseEntity.badRequest().body(v1ErrorBody(400, "bad_request"));
         }
         // Conditional-request enforcement is owner-side: without force, the
         // client MUST supply If-Match. 428 Precondition Required (RFC 6585)
@@ -146,8 +147,7 @@ public class PagesController {
         // "you sent a stale ETag" (412).
         if (!force && (ifMatch == null || ifMatch.isBlank())) {
             auditLogger.logWrite(op, request, 428, null, "viewer_page:write");
-            return ResponseEntity.status(428)
-                    .body(Map.of("error", "If-Match header required (or pass ?force=true)"));
+            return ResponseEntity.status(428).body(v1ErrorBody(428, "precondition_required"));
         }
         String ifMatchClean = stripQuotes(ifMatch);
         try {
@@ -175,10 +175,28 @@ public class PagesController {
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(e.getCurrentServerState());
         } catch (IllegalArgumentException e) {
-            // Sanitizer or size-cap rejection — 400 with a brief message.
+            // Sanitizer or size-cap rejection — 400 with the canonical
+            // v1 envelope. The exception message is omitted from the
+            // body (could leak DB internals on a future refactor); the
+            // status code distinguishes this from the missing-body 400
+            // via the audit log's status field.
             auditLogger.logWrite(op, request, 400, null, "viewer_page:write");
-            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+            return ResponseEntity.badRequest().body(v1ErrorBody(400, "bad_request"));
         }
+    }
+
+    /**
+     * Build the canonical {@code /v1/**} error envelope used by both this
+     * controller (for typed 4xx responses it owns) and {@link V1ErrorHandler}
+     * (for uncaught exceptions). Same shape on every 4xx/5xx return from a
+     * /v1 endpoint so clients can branch on the {@code error} code without
+     * special-casing each origin.
+     */
+    private static Map<String, Object> v1ErrorBody(int status, String code) {
+        return Map.of(
+                "error", code,
+                "status", status,
+                "ts", Instant.now().toString());
     }
 
     /**

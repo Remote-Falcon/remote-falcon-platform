@@ -1,6 +1,9 @@
 package com.remotefalcon.external.api.controller;
 
 import com.remotefalcon.external.api.service.PageApiService.SessionContextMissingException;
+import com.remotefalcon.external.api.service.RfpbAuditLogger;
+import jakarta.servlet.http.HttpServletRequest;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.annotation.Order;
 import org.springframework.core.Ordered;
@@ -8,7 +11,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
-import org.springframework.web.context.request.WebRequest;
 
 import java.time.Instant;
 import java.util.Map;
@@ -39,13 +41,19 @@ import java.util.Map;
 @RestControllerAdvice(basePackageClasses = PagesController.class)
 @Order(Ordered.LOWEST_PRECEDENCE)
 @Slf4j
+@RequiredArgsConstructor
 public class V1ErrorHandler {
+
+    private final RfpbAuditLogger auditLogger;
 
     /** Missing or empty session context — surfaces as 401 rather than 500. */
     @ExceptionHandler(SessionContextMissingException.class)
     public ResponseEntity<Map<String, Object>> handleSessionContextMissing(
-            SessionContextMissingException ex, WebRequest req) {
+            SessionContextMissingException ex, HttpServletRequest req) {
         log.warn("Session context missing on /v1 request — call path bypassed BearerAspect");
+        // Audit 401s on /v1/** so a probe-the-bearer-aspect attack surfaces
+        // in the audit feed alongside legitimate writes.
+        auditLogger.logWrite("v1.unauthorized", req, 401, null, "");
         return error(HttpStatus.UNAUTHORIZED, "unauthorized");
     }
 
@@ -54,10 +62,17 @@ public class V1ErrorHandler {
      * — no class name from the exception, no message (could leak internals
      * like DB error text), no stack. The full exception still hits the
      * server log via {@code log.error}.
+     *
+     * <p>Also writes an audit line so server-side failures on {@code /v1/**}
+     * show up in the audit feed alongside the per-controller 200/4xx
+     * entries — operationally important: a spike of audit lines with
+     * {@code op="v1.error"} is a strong "the integration is broken"
+     * signal that's otherwise only visible in raw app logs.
      */
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<Map<String, Object>> handleAny(Exception ex, WebRequest req) {
+    public ResponseEntity<Map<String, Object>> handleAny(Exception ex, HttpServletRequest req) {
         log.error("Unhandled /v1 exception", ex);
+        auditLogger.logWrite("v1.error", req, 500, null, "");
         return error(HttpStatus.INTERNAL_SERVER_ERROR, "internal_error");
     }
 

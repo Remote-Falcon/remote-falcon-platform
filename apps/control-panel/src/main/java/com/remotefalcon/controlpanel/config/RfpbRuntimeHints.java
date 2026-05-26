@@ -4,8 +4,6 @@ import com.remotefalcon.auth.LaunchTokenPayload;
 import org.jsoup.nodes.Document;
 import org.jsoup.parser.HtmlTreeBuilder;
 import org.jsoup.parser.Parser;
-import org.jsoup.safety.Cleaner;
-import org.jsoup.safety.Safelist;
 import org.springframework.aot.hint.MemberCategory;
 import org.springframework.aot.hint.RuntimeHints;
 import org.springframework.aot.hint.RuntimeHintsRegistrar;
@@ -31,8 +29,11 @@ public class RfpbRuntimeHints implements RuntimeHintsRegistrar {
     public void registerHints(RuntimeHints hints, ClassLoader classLoader) {
         register(hints, LaunchTokenPayload.class);
 
-        register(hints, Safelist.class);
-        register(hints, Cleaner.class);
+        // jsoup parse chain — Parser instantiates HtmlTreeBuilder
+        // reflectively. Safelist/Cleaner used to be needed here when
+        // the sanitizer was allowlist-based; the denylist rewrite
+        // (commit 3b30423) operates directly on the parsed Document
+        // so neither is reachable at runtime anymore.
         register(hints, Parser.class);
         register(hints, HtmlTreeBuilder.class);
         register(hints, Document.class);
