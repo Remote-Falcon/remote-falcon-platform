@@ -42,9 +42,25 @@ public interface ShowRepository extends MongoRepository<Show, String> {
 
     Optional<Show> findByPasswordResetLinkAndPasswordResetExpiryGreaterThan(String passwordResetLink, LocalDateTime passwordResetExpiry);
     List<Show> findByPreferencesNotificationPreferencesEnableFppHeartbeatIsTrueAndLastFppHeartbeatBefore(LocalDateTime lastFppHeartbeat);
+    // Admin show-name autosuggest. Returns full Show documents with ONLY
+    // the showName field populated (the `fields` filter is enforced by
+    // Mongo, not by Spring Data, so the wire payload is just _id +
+    // showName per row). Used to use a ShowNameOnly interface projection,
+    // but Spring Data MongoDB's projection-interface materialization is
+    // unreliable in GraalVM native image — PropertyDescriptorSource logs
+    // "Couldn't read class metadata" and silently returns empty results
+    // in prod even with the standard JDK proxy + reflection RuntimeHints
+    // registered. The other repository methods on this interface that
+    // return Show with fields filters (see getShowsOnMap above) work
+    // fine in native, so we use the same proven pattern here.
+    //
+    // The findTop25 prefix is preserved for legibility but is IGNORED
+    // when @Query is supplied — Spring Data uses the literal query.
+    // If a hard cap is needed, add `{ $limit: 25 }` to the query
+    // pipeline; for now the admin autosuggest UI handles the volume.
     @Query(value = "{ 'showName': { '$regex': ?0, '$options': 'i' } }",
             fields = "{ 'showName': 1 }")
-    List<ShowNameOnly> findTop25ByShowNameContainingIgnoreCase(String showName);
+    List<Show> findTop25ByShowNameContainingIgnoreCase(String showName);
 
     @Query(value = "{ 'preferences.showOnMap': true, " +
                    "'preferences.showLatitude':  { $gte: -90,  $lte: 90 }, " +

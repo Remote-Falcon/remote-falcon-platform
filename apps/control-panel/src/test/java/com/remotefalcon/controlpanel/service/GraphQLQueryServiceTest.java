@@ -214,12 +214,11 @@ class GraphQLQueryServiceTest {
 
     @Test
     void getShowsAutoSuggest_mapsShowNames() {
-        // Note: findTop25... returns the ShowNameOnly projection (a one-method
-        // interface). The service code calls .getShowName() on each row, but
-        // the lambda goes through Show::getShowName style — we just need a
-        // List<ShowNameOnly> impl that returns the names we want.
-        com.remotefalcon.controlpanel.repository.ShowNameOnly a = () -> "Holiday Lights";
-        com.remotefalcon.controlpanel.repository.ShowNameOnly b = () -> "Christmas Lights";
+        // findTop25... returns List<Show> with only showName populated
+        // (Mongo's fields filter enforces the field-projection). The
+        // service code calls Show::getShowName on each row.
+        Show a = Show.builder().showName("Holiday Lights").build();
+        Show b = Show.builder().showName("Christmas Lights").build();
         when(showRepository.findTop25ByShowNameContainingIgnoreCase("lights"))
                 .thenReturn(List.of(a, b));
 
