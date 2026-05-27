@@ -43,33 +43,37 @@ public interface ShowRepository extends MongoRepository<Show, String> {
 
     Optional<Show> findByPasswordResetLinkAndPasswordResetExpiryGreaterThan(String passwordResetLink, LocalDateTime passwordResetExpiry);
     List<Show> findByPreferencesNotificationPreferencesEnableFppHeartbeatIsTrueAndLastFppHeartbeatBefore(LocalDateTime lastFppHeartbeat);
-    // Admin show-name autosuggest. Case-insensitive prefix match on showName,
-    // index-backed by idx_showName_ci (collation strength=2). Caller passes
-    // PageRequest.of(0, 25) to cap the result set server-side — the result
-    // size is bounded regardless of how many shows share the prefix.
+    // Admin show-name autosuggest. Case-insensitive prefix match on
+    // showName, index-backed by idx_showName (plain btree). Caller passes
+    // PageRequest.of(0, 25) to cap the result set server-side. Returns
+    // full Show documents with ONLY the showName field populated.
     //
-    // Returns full Show documents with ONLY the showName field populated
-    // (Mongo's `fields` filter does the per-row projection at the DB level,
-    // so wire payload is just _id + showName). Used to use a ShowNameOnly
-    // interface projection but that fails silently in GraalVM native image;
-    // see commit 1537f5e (PR #59) for the projection-failure history.
+    // Two important Mongo behaviors driving the shape of this query:
     //
-    // Why prefix-only (^?0): a contains-anywhere regex with $options: 'i'
-    // can't use ANY index in MongoDB. Even with a collation index, the
-    // engine has to scan every doc because btree indexes can only be
-    // walked left-to-right. Anchored prefix matching with collation lets
-    // Mongo binary-search to the prefix range and walk forward, which is
-    // sub-millisecond for autosuggest payloads. Trade-off accepted: typing
-    // "lights" no longer finds "Killarney Lane Lights" — only shows whose
-    // name starts with "lights*". Standard autosuggest UX.
+    //   1. Collation indexes CANNOT be used for $regex queries even
+    //      with matching collation (SERVER-44284). So the index here
+    //      is plain btree, and we use $options: 'i' for case-
+    //      insensitivity at the matcher level.
     //
-    // ^?0 anchors the regex. The collation strength=2 matches idx_showName_ci.
-    // Pageable parameter enforces the limit server-side (the old findTop25
-    // method-name prefix was being ignored by Spring Data when @Query is set).
-    @Query(value = "{ 'showName': { '$regex': '^?0' } }",
-            fields = "{ 'showName': 1 }",
-            collation = "{ 'locale': 'en', 'strength': 2 }")
-    List<Show> findByShowNameStartingWithIgnoreCase(String prefix, Pageable pageable);
+    //   2. Spring Data MongoDB substitutes ?N placeholders OUTSIDE
+    //      string literals only. The caller must therefore build the
+    //      full regex pattern (anchor + escaped user input) in Java
+    //      and pass it as a plain ?0 value. The caller MUST anchor
+    //      the regex with ^ for the planner to use the index range
+    //      scan; without ^ the planner falls back to a COLLSCAN
+    //      across every doc.
+    //
+    // Verified by explain() on dev (2598 shows): IXSCAN on idx_showName,
+    // ~3ms for "^lights" with $options: 'i' and limit=25.
+    //
+    // Why prefix-only: a contains-anywhere regex cannot use ANY index in
+    // MongoDB. The trade-off: typing "lights" no longer matches
+    // "Killarney Lane Lights" -- only shows whose name starts with
+    // "lights*". Standard autosuggest UX (Mongo Atlas Search would be
+    // required for contains-match; not on the roadmap).
+    @Query(value = "{ 'showName': { '$regex': ?0, '$options': 'i' } }",
+            fields = "{ 'showName': 1 }")
+    List<Show> findByShowNameStartingWith(String anchoredRegexPattern, Pageable pageable);
 
     @Query(value = "{ 'preferences.showOnMap': true, " +
                    "'preferences.showLatitude':  { $gte: -90,  $lte: 90 }, " +

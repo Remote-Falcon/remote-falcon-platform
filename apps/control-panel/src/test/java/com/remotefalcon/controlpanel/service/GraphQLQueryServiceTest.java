@@ -209,30 +209,52 @@ class GraphQLQueryServiceTest {
         assertThat(service.getShowsAutoSuggest("")).isEmpty();
         assertThat(service.getShowsAutoSuggest(null)).isEmpty();
         assertThat(service.getShowsAutoSuggest("   ")).isEmpty();
-        verify(showRepository, never()).findByShowNameStartingWithIgnoreCase(any(), any());
+        verify(showRepository, never()).findByShowNameStartingWith(any(), any());
     }
 
     @Test
-    void getShowsAutoSuggest_mapsShowNames_andPassesPageableLimit25() {
-        // Repository returns List<Show> with only showName populated
-        // (Mongo's fields filter enforces the field-projection). Service
-        // maps to Show::getShowName.
+    void getShowsAutoSuggest_passesAnchoredQuotedPrefix_andPageable25() {
+        // The service MUST hand the repository the FULL regex pattern
+        // (^ + Pattern.quote(input)). Spring Data MongoDB doesn't
+        // substitute placeholders inside string literals, so the ^ has
+        // to be in the Java-built value. Pattern.quote escapes regex
+        // metacharacters so user input like "(test)" doesn't break the
+        // regex.
         Show a = Show.builder().showName("Holiday Lights").build();
         Show b = Show.builder().showName("Christmas Lights").build();
+        org.mockito.ArgumentCaptor<String> patternCaptor =
+                org.mockito.ArgumentCaptor.forClass(String.class);
         org.mockito.ArgumentCaptor<org.springframework.data.domain.Pageable> pageableCaptor =
                 org.mockito.ArgumentCaptor.forClass(org.springframework.data.domain.Pageable.class);
-        when(showRepository.findByShowNameStartingWithIgnoreCase(
-                org.mockito.ArgumentMatchers.eq("lights"), pageableCaptor.capture()))
+        when(showRepository.findByShowNameStartingWith(
+                patternCaptor.capture(), pageableCaptor.capture()))
                 .thenReturn(List.of(a, b));
 
         assertThat(service.getShowsAutoSuggest("lights"))
                 .containsExactly("Holiday Lights", "Christmas Lights");
-        // The service MUST pass a Pageable with size=25 — the old @Query +
-        // findTop25 method-name combo silently returned all matches because
-        // Spring Data ignores the method-name limit prefix when @Query
-        // is supplied. We now enforce server-side pagination explicitly.
+
+        // Pattern.quote wraps with \Q..\E to escape metacharacters
+        assertThat(patternCaptor.getValue()).isEqualTo("^\\Qlights\\E");
         assertThat(pageableCaptor.getValue().getPageSize()).isEqualTo(25);
         assertThat(pageableCaptor.getValue().getPageNumber()).isEqualTo(0);
+    }
+
+    @Test
+    void getShowsAutoSuggest_escapesRegexMetacharacters() {
+        // User typing "(test)" or ".*" must not break the regex. The
+        // Pattern.quote in the service handles this.
+        when(showRepository.findByShowNameStartingWith(any(), any()))
+                .thenReturn(List.of());
+
+        service.getShowsAutoSuggest("(.*");
+
+        org.mockito.ArgumentCaptor<String> patternCaptor =
+                org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(showRepository).findByShowNameStartingWith(patternCaptor.capture(), any());
+        // Must NOT be a literal "^(.*" -- that's a wildcard that defeats
+        // the prefix index. Must be "^\Q(.*\E" -- a literal match for
+        // the characters "(.*".
+        assertThat(patternCaptor.getValue()).isEqualTo("^\\Q(.*\\E");
     }
 
     // ---- verifyPasswordResetLink ----

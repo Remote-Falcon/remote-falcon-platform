@@ -79,15 +79,18 @@ public class GraphQLQueryService {
         if (StringUtils.isBlank(showName)) {
             return Collections.emptyList();
         }
-        // Cap at 25 — repository method honors PageRequest.of(0, 25) via
-        // its Pageable param. The prior method (findTop25...IgnoreCase)
-        // looked limited but the findTop25 prefix is ignored when @Query
-        // is supplied, so it was returning ALL matches and the UI was
-        // showing a fast empty result (native image projection failure)
-        // or now a slow large result. Explicit pagination fixes both.
+        // Build the anchored regex in Java. Spring Data MongoDB's ?N
+        // placeholder substitutes outside string literals only, so we
+        // can't put the ^ inside the @Query string -- the caller has to
+        // hand the repository the full pattern. Pattern.quote escapes
+        // regex metacharacters in the user input so a typed "(test)"
+        // doesn't break the regex. The repository @Query adds
+        // $options: 'i' so the match is case-insensitive against the
+        // plain idx_showName btree index.
+        String anchored = "^" + java.util.regex.Pattern.quote(showName);
         return this.showRepository
-                .findByShowNameStartingWithIgnoreCase(
-                        showName, org.springframework.data.domain.PageRequest.of(0, 25))
+                .findByShowNameStartingWith(
+                        anchored, org.springframework.data.domain.PageRequest.of(0, 25))
                 .stream()
                 .map(show -> show.getShowName())
                 .toList();
