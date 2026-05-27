@@ -11,12 +11,13 @@ import org.springframework.context.annotation.ImportRuntimeHints;
 import org.springframework.data.mongodb.repository.config.EnableMongoRepositories;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import com.remotefalcon.controlpanel.config.MailerSendRuntimeHints;
+import com.remotefalcon.controlpanel.config.RepositoryProjectionRuntimeHints;
 
 @SpringBootApplication(exclude = {DataSourceAutoConfiguration.class })
 @EnableAspectJAutoProxy
 @EnableMongoRepositories
 @EnableScheduling
-@ImportRuntimeHints(MailerSendRuntimeHints.class)
+@ImportRuntimeHints({MailerSendRuntimeHints.class, RepositoryProjectionRuntimeHints.class})
 public class Application {
   public static void main(String[] args) {
     SpringApplication.run(Application.class, args);
