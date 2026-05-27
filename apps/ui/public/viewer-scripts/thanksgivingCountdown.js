@@ -1,58 +1,76 @@
-function countdown() {
-  let now = new Date();
-  let year = now.getFullYear();
+(function () {
+  'use strict';
 
-  // Thanksgiving is the 4th Thursday of November
-  let evenDate = getThanksgiving(year);
+  if (window.__rfThanksgivingCountdown) return;
+  window.__rfThanksgivingCountdown = true;
 
-  // If Thanksgiving has passed, count down to next year
-  if (now > evenDate) {
-    evenDate = getThanksgiving(year + 1);
+  let elDays, elHours, elMinutes, elSeconds;
+
+  // Calculate the 4th Thursday of November for a given year
+  function getThanksgiving(year) {
+    let november = new Date(year, 10, 1);
+    let dayOfWeek = november.getDay();
+    let firstThursday = 1 + ((4 - dayOfWeek + 7) % 7);
+    let fourthThursday = firstThursday + 21;
+    return new Date(year, 10, fourthThursday);
   }
 
-  let actualTime = now.getTime();
-  let eventTime = evenDate.getTime();
-  let remTime = eventTime - actualTime;
+  function update() {
+    let now = new Date();
+    let year = now.getFullYear();
+    let evenDate = getThanksgiving(year);
 
-  let s = Math.floor(remTime / 1000);
-  let m = Math.floor(s / 60);
-  let h = Math.floor(m / 60);
-  let d = Math.floor(h / 24);
+    // Roll over only after Thanksgiving Day has fully passed.
+    let dayAfter = new Date(evenDate.getTime());
+    dayAfter.setDate(dayAfter.getDate() + 1);
+    if (now > dayAfter) {
+      evenDate = getThanksgiving(year + 1);
+    }
 
-  h %= 24;
-  m %= 60;
-  s %= 60;
+    let remTime = evenDate.getTime() - now.getTime();
+    if (remTime < 0) remTime = 0;
 
-  h = h < 10 ? '0' + h : h;
-  m = m < 10 ? '0' + m : m;
-  s = s < 10 ? '0' + s : s;
+    let s = Math.floor(remTime / 1000);
+    let m = Math.floor(s / 60);
+    let h = Math.floor(m / 60);
+    let d = Math.floor(h / 24);
 
-  if(document.querySelector('#to-thanksgiving-days') != null) {
-    document.querySelector('#to-thanksgiving-days').textContent = d;
+    h %= 24;
+    m %= 60;
+    s %= 60;
+
+    h = h < 10 ? '0' + h : h;
+    m = m < 10 ? '0' + m : m;
+    s = s < 10 ? '0' + s : s;
+
+    if (elDays) elDays.textContent = d;
+    if (elHours) elHours.textContent = h;
+    if (elMinutes) elMinutes.textContent = m;
+    if (elSeconds) elSeconds.textContent = s;
   }
-  if(document.querySelector('#to-thanksgiving-hours') != null) {
-    document.querySelector('#to-thanksgiving-hours').textContent = h;
-  }
-  if(document.querySelector('#to-thanksgiving-minutes') != null) {
-    document.querySelector('#to-thanksgiving-minutes').textContent = m;
-  }
-  if(document.querySelector('#to-thanksgiving-seconds') != null) {
-    document.querySelector('#to-thanksgiving-seconds').textContent = s;
+
+  function loop() {
+    if (!document.hidden) update();
+    setTimeout(loop, 1000);
   }
 
-  setTimeout(countdown, 1000)
-};
+  function start() {
+    elDays = document.querySelector('#to-thanksgiving-days');
+    elHours = document.querySelector('#to-thanksgiving-hours');
+    elMinutes = document.querySelector('#to-thanksgiving-minutes');
+    elSeconds = document.querySelector('#to-thanksgiving-seconds');
 
-// Calculate the 4th Thursday of November for a given year
-function getThanksgiving(year) {
-  // Start with November 1st
-  let november = new Date(year, 10, 1);
-  // Find the first Thursday (day 4)
-  let dayOfWeek = november.getDay();
-  let firstThursday = 1 + ((4 - dayOfWeek + 7) % 7);
-  // 4th Thursday is 3 weeks later
-  let fourthThursday = firstThursday + 21;
-  return new Date(year, 10, fourthThursday);
-}
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) update();
+    });
 
-countdown();
+    update();
+    loop();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', start);
+  } else {
+    start();
+  }
+})();
