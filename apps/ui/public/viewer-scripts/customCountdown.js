@@ -4,10 +4,24 @@
   if (window.__rfCustomCountdown) return;
   window.__rfCustomCountdown = true;
 
-  let container, elDays, elHours, elMinutes, elSeconds;
   let warned = false;
+  let containerWarned = false;
 
+  // Re-query the DOM each tick rather than caching refs in start().
+  // The platform viewer re-parses the page HTML through html-to-react every
+  // 500ms (see externalViewer/index.jsx), which replaces/overwrites the text
+  // nodes the script writes into. Cached refs go stale after the first tick.
   function update() {
+    const container = document.querySelector('#custom-countdown');
+    if (container == null) {
+      if (!containerWarned) {
+        console.warn('[remote-falcon] custom-countdown: missing #custom-countdown container');
+        containerWarned = true;
+      }
+      return;
+    }
+    containerWarned = false;
+
     const targetValue = container.getAttribute('data-target');
     if (targetValue == null) {
       if (!warned) {
@@ -65,6 +79,11 @@
     m = m < 10 ? '0' + m : m;
     s = s < 10 ? '0' + s : s;
 
+    const elDays = document.querySelector('#custom-countdown-days');
+    const elHours = document.querySelector('#custom-countdown-hours');
+    const elMinutes = document.querySelector('#custom-countdown-minutes');
+    const elSeconds = document.querySelector('#custom-countdown-seconds');
+
     if (elDays) elDays.textContent = d;
     if (elHours) elHours.textContent = h;
     if (elMinutes) elMinutes.textContent = m;
@@ -77,17 +96,6 @@
   }
 
   function start() {
-    container = document.querySelector('#custom-countdown');
-    if (container == null) {
-      console.warn('[remote-falcon] custom-countdown: missing #custom-countdown container');
-      return;
-    }
-
-    elDays = document.querySelector('#custom-countdown-days');
-    elHours = document.querySelector('#custom-countdown-hours');
-    elMinutes = document.querySelector('#custom-countdown-minutes');
-    elSeconds = document.querySelector('#custom-countdown-seconds');
-
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden) update();
     });

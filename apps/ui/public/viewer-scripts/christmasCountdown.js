@@ -4,8 +4,10 @@
   if (window.__rfChristmasCountdown) return;
   window.__rfChristmasCountdown = true;
 
-  let elDays, elHours, elMinutes, elSeconds;
-
+  // Re-query the DOM each tick rather than caching refs in start().
+  // The platform viewer re-parses the page HTML through html-to-react every
+  // 500ms (see externalViewer/index.jsx), which replaces/overwrites the text
+  // nodes the script writes into. Cached refs go stale after the first tick.
   function update() {
     let now = new Date();
     let year = now.getFullYear();
@@ -33,6 +35,11 @@
     m = m < 10 ? '0' + m : m;
     s = s < 10 ? '0' + s : s;
 
+    const elDays = document.querySelector('#to-christmas-days');
+    const elHours = document.querySelector('#to-christmas-hours');
+    const elMinutes = document.querySelector('#to-christmas-minutes');
+    const elSeconds = document.querySelector('#to-christmas-seconds');
+
     if (elDays) elDays.textContent = d;
     if (elHours) elHours.textContent = h;
     if (elMinutes) elMinutes.textContent = m;
@@ -45,11 +52,6 @@
   }
 
   function start() {
-    elDays = document.querySelector('#to-christmas-days');
-    elHours = document.querySelector('#to-christmas-hours');
-    elMinutes = document.querySelector('#to-christmas-minutes');
-    elSeconds = document.querySelector('#to-christmas-seconds');
-
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden) update();
     });

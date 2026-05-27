@@ -4,8 +4,6 @@
   if (window.__rfThanksgivingCountdown) return;
   window.__rfThanksgivingCountdown = true;
 
-  let elDays, elHours, elMinutes, elSeconds;
-
   // Calculate the 4th Thursday of November for a given year
   function getThanksgiving(year) {
     let november = new Date(year, 10, 1);
@@ -15,6 +13,10 @@
     return new Date(year, 10, fourthThursday);
   }
 
+  // Re-query the DOM each tick rather than caching refs in start().
+  // The platform viewer re-parses the page HTML through html-to-react every
+  // 500ms (see externalViewer/index.jsx), which replaces/overwrites the text
+  // nodes the script writes into. Cached refs go stale after the first tick.
   function update() {
     let now = new Date();
     let year = now.getFullYear();
@@ -43,6 +45,11 @@
     m = m < 10 ? '0' + m : m;
     s = s < 10 ? '0' + s : s;
 
+    const elDays = document.querySelector('#to-thanksgiving-days');
+    const elHours = document.querySelector('#to-thanksgiving-hours');
+    const elMinutes = document.querySelector('#to-thanksgiving-minutes');
+    const elSeconds = document.querySelector('#to-thanksgiving-seconds');
+
     if (elDays) elDays.textContent = d;
     if (elHours) elHours.textContent = h;
     if (elMinutes) elMinutes.textContent = m;
@@ -55,11 +62,6 @@
   }
 
   function start() {
-    elDays = document.querySelector('#to-thanksgiving-days');
-    elHours = document.querySelector('#to-thanksgiving-hours');
-    elMinutes = document.querySelector('#to-thanksgiving-minutes');
-    elSeconds = document.querySelector('#to-thanksgiving-seconds');
-
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden) update();
     });
