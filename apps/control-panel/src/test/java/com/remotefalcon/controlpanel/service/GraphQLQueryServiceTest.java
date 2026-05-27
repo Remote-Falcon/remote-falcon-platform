@@ -209,21 +209,30 @@ class GraphQLQueryServiceTest {
         assertThat(service.getShowsAutoSuggest("")).isEmpty();
         assertThat(service.getShowsAutoSuggest(null)).isEmpty();
         assertThat(service.getShowsAutoSuggest("   ")).isEmpty();
-        verify(showRepository, never()).findTop25ByShowNameContainingIgnoreCase(any());
+        verify(showRepository, never()).findByShowNameStartingWithIgnoreCase(any(), any());
     }
 
     @Test
-    void getShowsAutoSuggest_mapsShowNames() {
-        // findTop25... returns List<Show> with only showName populated
-        // (Mongo's fields filter enforces the field-projection). The
-        // service code calls Show::getShowName on each row.
+    void getShowsAutoSuggest_mapsShowNames_andPassesPageableLimit25() {
+        // Repository returns List<Show> with only showName populated
+        // (Mongo's fields filter enforces the field-projection). Service
+        // maps to Show::getShowName.
         Show a = Show.builder().showName("Holiday Lights").build();
         Show b = Show.builder().showName("Christmas Lights").build();
-        when(showRepository.findTop25ByShowNameContainingIgnoreCase("lights"))
+        org.mockito.ArgumentCaptor<org.springframework.data.domain.Pageable> pageableCaptor =
+                org.mockito.ArgumentCaptor.forClass(org.springframework.data.domain.Pageable.class);
+        when(showRepository.findByShowNameStartingWithIgnoreCase(
+                org.mockito.ArgumentMatchers.eq("lights"), pageableCaptor.capture()))
                 .thenReturn(List.of(a, b));
 
         assertThat(service.getShowsAutoSuggest("lights"))
                 .containsExactly("Holiday Lights", "Christmas Lights");
+        // The service MUST pass a Pageable with size=25 — the old @Query +
+        // findTop25 method-name combo silently returned all matches because
+        // Spring Data ignores the method-name limit prefix when @Query
+        // is supplied. We now enforce server-side pagination explicitly.
+        assertThat(pageableCaptor.getValue().getPageSize()).isEqualTo(25);
+        assertThat(pageableCaptor.getValue().getPageNumber()).isEqualTo(0);
     }
 
     // ---- verifyPasswordResetLink ----

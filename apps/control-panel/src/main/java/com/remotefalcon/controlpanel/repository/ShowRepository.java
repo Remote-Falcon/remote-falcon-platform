@@ -3,6 +3,7 @@ package com.remotefalcon.controlpanel.repository;
 import com.remotefalcon.library.documents.Show;
 import com.remotefalcon.library.models.Sequence;
 import jakarta.transaction.Transactional;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.mongodb.repository.Aggregation;
 import org.springframework.data.mongodb.repository.MongoRepository;
 import org.springframework.data.mongodb.repository.Query;
@@ -42,25 +43,33 @@ public interface ShowRepository extends MongoRepository<Show, String> {
 
     Optional<Show> findByPasswordResetLinkAndPasswordResetExpiryGreaterThan(String passwordResetLink, LocalDateTime passwordResetExpiry);
     List<Show> findByPreferencesNotificationPreferencesEnableFppHeartbeatIsTrueAndLastFppHeartbeatBefore(LocalDateTime lastFppHeartbeat);
-    // Admin show-name autosuggest. Returns full Show documents with ONLY
-    // the showName field populated (the `fields` filter is enforced by
-    // Mongo, not by Spring Data, so the wire payload is just _id +
-    // showName per row). Used to use a ShowNameOnly interface projection,
-    // but Spring Data MongoDB's projection-interface materialization is
-    // unreliable in GraalVM native image — PropertyDescriptorSource logs
-    // "Couldn't read class metadata" and silently returns empty results
-    // in prod even with the standard JDK proxy + reflection RuntimeHints
-    // registered. The other repository methods on this interface that
-    // return Show with fields filters (see getShowsOnMap above) work
-    // fine in native, so we use the same proven pattern here.
+    // Admin show-name autosuggest. Case-insensitive prefix match on showName,
+    // index-backed by idx_showName_ci (collation strength=2). Caller passes
+    // PageRequest.of(0, 25) to cap the result set server-side — the result
+    // size is bounded regardless of how many shows share the prefix.
     //
-    // The findTop25 prefix is preserved for legibility but is IGNORED
-    // when @Query is supplied — Spring Data uses the literal query.
-    // If a hard cap is needed, add `{ $limit: 25 }` to the query
-    // pipeline; for now the admin autosuggest UI handles the volume.
-    @Query(value = "{ 'showName': { '$regex': ?0, '$options': 'i' } }",
-            fields = "{ 'showName': 1 }")
-    List<Show> findTop25ByShowNameContainingIgnoreCase(String showName);
+    // Returns full Show documents with ONLY the showName field populated
+    // (Mongo's `fields` filter does the per-row projection at the DB level,
+    // so wire payload is just _id + showName). Used to use a ShowNameOnly
+    // interface projection but that fails silently in GraalVM native image;
+    // see commit 1537f5e (PR #59) for the projection-failure history.
+    //
+    // Why prefix-only (^?0): a contains-anywhere regex with $options: 'i'
+    // can't use ANY index in MongoDB. Even with a collation index, the
+    // engine has to scan every doc because btree indexes can only be
+    // walked left-to-right. Anchored prefix matching with collation lets
+    // Mongo binary-search to the prefix range and walk forward, which is
+    // sub-millisecond for autosuggest payloads. Trade-off accepted: typing
+    // "lights" no longer finds "Killarney Lane Lights" — only shows whose
+    // name starts with "lights*". Standard autosuggest UX.
+    //
+    // ^?0 anchors the regex. The collation strength=2 matches idx_showName_ci.
+    // Pageable parameter enforces the limit server-side (the old findTop25
+    // method-name prefix was being ignored by Spring Data when @Query is set).
+    @Query(value = "{ 'showName': { '$regex': '^?0' } }",
+            fields = "{ 'showName': 1 }",
+            collation = "{ 'locale': 'en', 'strength': 2 }")
+    List<Show> findByShowNameStartingWithIgnoreCase(String prefix, Pageable pageable);
 
     @Query(value = "{ 'preferences.showOnMap': true, " +
                    "'preferences.showLatitude':  { $gte: -90,  $lte: 90 }, " +

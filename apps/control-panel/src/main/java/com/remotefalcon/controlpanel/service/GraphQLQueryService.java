@@ -79,7 +79,15 @@ public class GraphQLQueryService {
         if (StringUtils.isBlank(showName)) {
             return Collections.emptyList();
         }
-        return this.showRepository.findTop25ByShowNameContainingIgnoreCase(showName)
+        // Cap at 25 — repository method honors PageRequest.of(0, 25) via
+        // its Pageable param. The prior method (findTop25...IgnoreCase)
+        // looked limited but the findTop25 prefix is ignored when @Query
+        // is supplied, so it was returning ALL matches and the UI was
+        // showing a fast empty result (native image projection failure)
+        // or now a slow large result. Explicit pagination fixes both.
+        return this.showRepository
+                .findByShowNameStartingWithIgnoreCase(
+                        showName, org.springframework.data.domain.PageRequest.of(0, 25))
                 .stream()
                 .map(show -> show.getShowName())
                 .toList();

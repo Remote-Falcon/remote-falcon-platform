@@ -71,6 +71,23 @@ public class MongoIndexInitializer {
             .collation(Collation.of("en").strength(Collation.ComparisonLevel.secondary()))
     );
 
+    // Case-insensitive collation index on showName, used by the admin
+    // show-name autosuggest (ShowRepository.findByShowNameStartingWithIgnoreCase).
+    // Without this index, the autosuggest query falls back to a full
+    // COLLSCAN on every keystroke (~5,000+ docs in prod), making the
+    // admin search effectively unusable.
+    //
+    // Collation strength=2 means case-insensitive but accent-sensitive.
+    // The repository query MUST set a matching collation or Mongo won't
+    // use this index. NOT unique (multiple shows can share a name across
+    // owners, though that's rare).
+    ensure("idx_showName_ci",
+        new Index()
+            .on("showName", Sort.Direction.ASC)
+            .named("idx_showName_ci")
+            .collation(Collation.of("en").strength(Collation.ComparisonLevel.secondary()))
+    );
+
     ensure("idx_showSubdomain",
         new Index()
             .on("showSubdomain", Sort.Direction.ASC)

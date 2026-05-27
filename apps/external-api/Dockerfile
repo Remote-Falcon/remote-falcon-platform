@@ -15,11 +15,27 @@ COPY libs/schema/pom.xml .
 COPY libs/schema/src ./src
 RUN mvn install -DskipTests -B
 
-# Stage 1: GraalVM 21 native build for the service, inheriting the schema jar.
+# Stage 0b: build libs/test-fixtures on the same JDK 17. external-api's pom.xml
+# declares it as a test-scope dep. Even with -Dmaven.test.skip=true, Maven still
+# resolves the full dep tree at build time and fails if test-fixtures isn't
+# reachable in mavenLocal. Without this stage the native build fails with:
+#   "Could not find artifact com.remotefalcon:remote-falcon-test-fixtures:
+#    jar:1.0.0-LOCAL in central"
+# Previously masked by GHA's Docker layer cache; surfaced when the cache
+# rotated. Mirrors the same stage in apps/control-panel/Dockerfile.
+FROM maven:3-eclipse-temurin-17 AS test-fixtures-build
+WORKDIR /lib
+COPY --from=schema-build /root/.m2/repository /root/.m2/repository
+COPY libs/test-fixtures/pom.xml .
+COPY libs/test-fixtures/src ./src
+RUN mvn install -DskipTests -B
+
+# Stage 1: GraalVM 21 native build for the service, inheriting the schema +
+# test-fixtures jars from mavenLocal.
 FROM ghcr.io/graalvm/native-image-community:21 AS build
 WORKDIR /usr/src/app
 RUN microdnf install -y maven && microdnf clean all
-COPY --from=schema-build /root/.m2/repository /root/.m2/repository
+COPY --from=test-fixtures-build /root/.m2/repository /root/.m2/repository
 COPY apps/external-api/pom.xml .
 COPY apps/external-api/src ./src
 RUN mvn -Pnative -DskipTests package
