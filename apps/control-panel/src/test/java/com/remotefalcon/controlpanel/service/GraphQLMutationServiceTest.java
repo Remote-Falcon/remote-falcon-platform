@@ -412,14 +412,23 @@ class GraphQLMutationServiceTest {
     // ---- updatePages / updatePsaSequences / updateSequences / updateSequenceGroups ----
 
     @Test
-    void updatePages_setsListAndSaves() {
+    void updatePages_setsListAndSaves_andReturnsPersistedPages() {
         stubAuth();
         Show show = Show.builder().showToken(SHOW_TOKEN).build();
         when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
 
         List<ViewerPage> pages = List.of(ViewerPage.builder().name("p1").active(true).html("h").build());
-        assertThat(service.updatePages(pages)).isTrue();
-        assertThat(show.getPages()).isEqualTo(pages);
+        List<ViewerPage> returned = service.updatePages(pages);
+
+        // Contract: the service returns the persisted page list so the UI
+        // can dispatch authoritative state including server-minted pageIds
+        // (populated inside ViewerPageService.prepareForWrite, which is
+        // mocked in this test — its own coverage lives in
+        // ViewerPageServiceTest). Same list reference because prepareForWrite
+        // mutates in place.
+        assertThat(returned).isNotNull();
+        assertThat(returned).isSameAs(pages);
+        assertThat(show.getPages()).isSameAs(pages);
     }
 
     @Test

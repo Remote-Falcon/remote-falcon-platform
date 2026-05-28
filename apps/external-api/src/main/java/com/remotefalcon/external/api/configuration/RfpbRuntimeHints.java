@@ -15,8 +15,6 @@ import io.github.bucket4j.local.LocalBucket;
 import org.jsoup.nodes.Document;
 import org.jsoup.parser.HtmlTreeBuilder;
 import org.jsoup.parser.Parser;
-import org.jsoup.safety.Cleaner;
-import org.jsoup.safety.Safelist;
 import org.springframework.aot.hint.MemberCategory;
 import org.springframework.aot.hint.RuntimeHints;
 import org.springframework.aot.hint.RuntimeHintsRegistrar;
@@ -61,11 +59,12 @@ public class RfpbRuntimeHints implements RuntimeHintsRegistrar {
         // Schema POJO that flows through the page API
         register(hints, ViewerPage.class);
 
-        // jsoup sanitize chain — Cleaner instantiates HtmlTreeBuilder
-        // reflectively; Safelist is the config we hand it; Document
-        // gets reflected on .toString output settings.
-        register(hints, Safelist.class);
-        register(hints, Cleaner.class);
+        // jsoup parse chain — Parser instantiates HtmlTreeBuilder
+        // reflectively; Document gets reflected on .toString output
+        // settings. Safelist/Cleaner used to be needed here when the
+        // sanitizer was allowlist-based; the denylist rewrite (commit
+        // 3b30423) operates directly on the parsed Document so neither
+        // is reachable at runtime anymore.
         register(hints, Parser.class);
         register(hints, HtmlTreeBuilder.class);
         register(hints, Document.class);

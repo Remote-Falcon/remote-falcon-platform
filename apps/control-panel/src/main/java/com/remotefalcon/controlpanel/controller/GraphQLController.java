@@ -96,7 +96,7 @@ public class GraphQLController {
 
     @MutationMapping
     @RequiresAccess
-    public Boolean updatePages(@Argument List<ViewerPage> pages) {
+    public List<ViewerPage> updatePages(@Argument List<ViewerPage> pages) {
         return this.graphQLMutationService.updatePages(pages);
     }
 

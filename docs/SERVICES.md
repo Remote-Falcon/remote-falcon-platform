@@ -118,7 +118,7 @@ This is the operator's map of the Remote Falcon stack: every service, what it do
 ### 6. remote-falcon-external-api
 | | |
 |---|---|
-| **Purpose** | Third-party / external integrations API (GraphQL surface) for partners |
+| **Purpose** | Third-party / external integrations API (GraphQL surface) for partners **plus** the RFPB-facing `/v1/**` REST surface (viewer-page CRUD + session exchange) |
 | **Stack** | Spring Boot 3, Java 21 native image |
 | **Container port** | 8080 |
 | **Replicas** | 1 |
@@ -128,6 +128,39 @@ This is the operator's map of the Remote Falcon stack: every service, what it do
 | **Talks to** | MongoDB |
 | **GH Actions secrets** | `DIGITALOCEAN_ACCESS_TOKEN` (no Mongo build-arg — uses runtime env) |
 | **In-cluster secret** | `remote-falcon-external-api` — key: `mongo-uri` |
+
+#### `/v1/**` (RFPB integration)
+
+Bearer-authenticated REST surface added 2026-05-24 for the RF Page Builder integration. Sessions are minted via the launch-JWT exchange flow; every `/v1/**` request carries `Authorization: Bearer <session-token>` and the controllers enforce scope via the `@RequiresBearer` aspect.
+
+| Endpoint | Scope | Notes |
+|---|---|---|
+| `POST /v1/session/exchange` | (launch JWT) | One-shot launch-JWT → session-bearer exchange. Single-use JTI. |
+| `GET /v1/me` | (any) | Session introspection — returns `showSubdomain`, `pageId`, `scopes`. `Cache-Control: no-store`. |
+| `GET /v1/pages` | `viewer_page:read` | List all pages on the bearer's show. ETag header per page. |
+| `GET /v1/pages/{pageId}` | `viewer_page:read` | Fetch one page. ETag header carries `sha256(html\|updatedAt)` so the client can use it as `If-Match` on PUT. |
+| `PUT /v1/pages/{pageId}` | `viewer_page:write` | Update a page. **Default path** requires `If-Match` (412 on stale, 428 on missing). **Force path** (`?force=true`) skips the conditional check — used by RFPB's "Overwrite anyway" conflict-modal action. Both paths run sanitizer + 1 MB size cap. |
+
+**Audit log** — every write emits one structured line via `RfpbAuditLogger` (`marker == "RFPB_AUDIT"`):
+
+| Op | When |
+|---|---|
+| `page.update` | Normal PUT |
+| `page.update.force` | `?force=true` PUT — security review should watch for spikes |
+| `v1.unauthorized` | 401 from `V1ErrorHandler` (BearerAspect bypassed) |
+| `v1.error` | 500 from `V1ErrorHandler` (uncaught exception) |
+
+**Error envelope** — all 4xx/5xx from `/v1/**` return the canonical shape:
+```json
+{ "error": "<code>", "status": 4xx|5xx, "ts": "<iso8601>" }
+```
+Sanitized — no path echo, no header echo, no exception message. The 412 conflict response is the documented exception: it returns the current `PageResponse` body so the client can hydrate its conflict modal.
+
+**Rate limit** — per-bearer bucket via `RfpbRateLimitFilter` (60/min, 600/hr). Force-PUTs consume the same bucket.
+
+**Security headers** — `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` set on every `/v1/**` response by `V1SecurityHeadersFilter`.
+
+**Sanitizer** — denylist on the persisted HTML: strips `<script>` except inert types (`application/json`/`application/ld+json`/`text/plain`), `on*` attrs, `javascript:`/`vbscript:` URLs (control-char-tolerant scheme detection), non-media `data:` URLs (including `data:image/svg+xml`), `<foreignObject>` in `<svg>`, `<iframe srcdoc>`, and CSS exec patterns in `<style>` blocks / `style=""` attrs (`expression(`, `-moz-binding`, `behavior:`, `url(javascript:…)`, `@import url(javascript:…)`). Byte-identical to the control-panel `ViewerPageService` sanitizer (cross-service drift test pins the contract).
 
 ### 7. remote-falcon-mongo-backup
 | | |

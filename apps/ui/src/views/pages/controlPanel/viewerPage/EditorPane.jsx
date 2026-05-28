@@ -89,7 +89,7 @@ const EditorPane = ({
           <Tooltip
             title={
               canLaunchExternal
-                ? 'Open this page in RF Page Builder (separate product, opens in this tab)'
+                ? 'Open this page in RF Page Builder (separate product, opens in a new tab)'
                 : 'Save the page first to enable the visual editor handoff'
             }
           >

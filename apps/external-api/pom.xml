@@ -143,10 +143,10 @@
         </dependency>
 
         <!--
-            jsoup — HTML sanitization for viewer-page content on the
-            external write path (PR-B M4). Same Safelist + size cap as
-            control-panel's ViewerPageService (PR-A) — duplicated rather
-            than extracted to libs/ for v1; consolidate later if a third
+            jsoup — HTML parser used by the viewer-page denylist sanitizer
+            on the external write path. Same denylist + size cap as
+            control-panel's ViewerPageService — duplicated rather than
+            extracted to libs/ for v1; consolidate later if a third
             consumer appears.
         -->
         <dependency>

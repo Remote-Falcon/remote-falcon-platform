@@ -58,9 +58,19 @@ export const DELETE_ACCOUNT = gql`
   }
 `;
 
+// Returns the persisted page list with server-minted pageIds + updatedAt
+// (selected explicitly here so the UI can re-dispatch authoritative state
+// instead of falling back to the pre-save local snapshot, which is missing
+// pageId on freshly-created pages).
 export const UPDATE_PAGES = gql`
   mutation ($pages: [PageInput]!) @api(name: controlPanel) {
-    updatePages(pages: $pages)
+    updatePages(pages: $pages) {
+      name
+      active
+      html
+      pageId
+      updatedAt
+    }
   }
 `;
 
