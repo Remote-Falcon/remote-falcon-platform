@@ -71,6 +71,31 @@ public class MongoIndexInitializer {
             .collation(Collation.of("en").strength(Collation.ComparisonLevel.secondary()))
     );
 
+    // Plain (non-collation) btree index on showName, used by the admin
+    // show-name autosuggest (ShowRepository.findByShowNameStartingWith).
+    //
+    // Why plain instead of collation: MongoDB explicitly cannot use
+    // case-insensitive collation indexes for $regex queries even when
+    // the query has matching collation. See SERVER-44284 (still open).
+    // For prefix-anchored case-insensitive regex (^prefix + $options: 'i'),
+    // the planner walks the index range of both case variants on a plain
+    // btree -- verified via explain() in dev: IXSCAN, 25 docs examined,
+    // ~3ms on a 2598-doc collection.
+    //
+    // NOT unique (multiple shows can share a name across owners; rare
+    // but allowed by legacy data).
+    //
+    // Note: an earlier idx_showName_ci (collation strength=2) was
+    // registered in commit 828c888 but is unused for any query. It
+    // remains in prod Mongo as dead weight (~250KB). Cleanup is a
+    // manual `db.show.dropIndex("idx_showName_ci")` -- not done at
+    // startup to avoid concurrent-drop races during rolling deploys.
+    ensure("idx_showName",
+        new Index()
+            .on("showName", Sort.Direction.ASC)
+            .named("idx_showName")
+    );
+
     ensure("idx_showSubdomain",
         new Index()
             .on("showSubdomain", Sort.Direction.ASC)

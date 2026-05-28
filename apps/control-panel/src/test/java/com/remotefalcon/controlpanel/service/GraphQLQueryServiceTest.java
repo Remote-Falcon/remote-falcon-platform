@@ -210,22 +210,52 @@ class GraphQLQueryServiceTest {
         assertThat(service.getShowsAutoSuggest("")).isEmpty();
         assertThat(service.getShowsAutoSuggest(null)).isEmpty();
         assertThat(service.getShowsAutoSuggest("   ")).isEmpty();
-        verify(showRepository, never()).findTop25ByShowNameContainingIgnoreCase(any());
+        verify(showRepository, never()).findByShowNameStartingWith(any(), any());
     }
 
     @Test
-    void getShowsAutoSuggest_mapsShowNames() {
-        // Note: findTop25... returns the ShowNameOnly projection (a one-method
-        // interface). The service code calls .getShowName() on each row, but
-        // the lambda goes through Show::getShowName style — we just need a
-        // List<ShowNameOnly> impl that returns the names we want.
-        com.remotefalcon.controlpanel.repository.ShowNameOnly a = () -> "Holiday Lights";
-        com.remotefalcon.controlpanel.repository.ShowNameOnly b = () -> "Christmas Lights";
-        when(showRepository.findTop25ByShowNameContainingIgnoreCase("lights"))
+    void getShowsAutoSuggest_passesAnchoredQuotedPrefix_andPageable25() {
+        // The service MUST hand the repository the FULL regex pattern
+        // (^ + Pattern.quote(input)). Spring Data MongoDB doesn't
+        // substitute placeholders inside string literals, so the ^ has
+        // to be in the Java-built value. Pattern.quote escapes regex
+        // metacharacters so user input like "(test)" doesn't break the
+        // regex.
+        Show a = Show.builder().showName("Holiday Lights").build();
+        Show b = Show.builder().showName("Christmas Lights").build();
+        org.mockito.ArgumentCaptor<String> patternCaptor =
+                org.mockito.ArgumentCaptor.forClass(String.class);
+        org.mockito.ArgumentCaptor<org.springframework.data.domain.Pageable> pageableCaptor =
+                org.mockito.ArgumentCaptor.forClass(org.springframework.data.domain.Pageable.class);
+        when(showRepository.findByShowNameStartingWith(
+                patternCaptor.capture(), pageableCaptor.capture()))
                 .thenReturn(List.of(a, b));
 
         assertThat(service.getShowsAutoSuggest("lights"))
                 .containsExactly("Holiday Lights", "Christmas Lights");
+
+        // Pattern.quote wraps with \Q..\E to escape metacharacters
+        assertThat(patternCaptor.getValue()).isEqualTo("^\\Qlights\\E");
+        assertThat(pageableCaptor.getValue().getPageSize()).isEqualTo(25);
+        assertThat(pageableCaptor.getValue().getPageNumber()).isEqualTo(0);
+    }
+
+    @Test
+    void getShowsAutoSuggest_escapesRegexMetacharacters() {
+        // User typing "(test)" or ".*" must not break the regex. The
+        // Pattern.quote in the service handles this.
+        when(showRepository.findByShowNameStartingWith(any(), any()))
+                .thenReturn(List.of());
+
+        service.getShowsAutoSuggest("(.*");
+
+        org.mockito.ArgumentCaptor<String> patternCaptor =
+                org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(showRepository).findByShowNameStartingWith(patternCaptor.capture(), any());
+        // Must NOT be a literal "^(.*" -- that's a wildcard that defeats
+        // the prefix index. Must be "^\Q(.*\E" -- a literal match for
+        // the characters "(.*".
+        assertThat(patternCaptor.getValue()).isEqualTo("^\\Q(.*\\E");
     }
 
     // ---- verifyPasswordResetLink ----

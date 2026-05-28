@@ -80,7 +80,18 @@ public class GraphQLQueryService {
         if (StringUtils.isBlank(showName)) {
             return Collections.emptyList();
         }
-        return this.showRepository.findTop25ByShowNameContainingIgnoreCase(showName)
+        // Build the anchored regex in Java. Spring Data MongoDB's ?N
+        // placeholder substitutes outside string literals only, so we
+        // can't put the ^ inside the @Query string -- the caller has to
+        // hand the repository the full pattern. Pattern.quote escapes
+        // regex metacharacters in the user input so a typed "(test)"
+        // doesn't break the regex. The repository @Query adds
+        // $options: 'i' so the match is case-insensitive against the
+        // plain idx_showName btree index.
+        String anchored = "^" + java.util.regex.Pattern.quote(showName);
+        return this.showRepository
+                .findByShowNameStartingWith(
+                        anchored, org.springframework.data.domain.PageRequest.of(0, 25))
                 .stream()
                 .map(show -> show.getShowName())
                 .toList();

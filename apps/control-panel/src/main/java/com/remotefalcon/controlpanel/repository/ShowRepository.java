@@ -3,6 +3,7 @@ package com.remotefalcon.controlpanel.repository;
 import com.remotefalcon.library.documents.Show;
 import com.remotefalcon.library.models.Sequence;
 import jakarta.transaction.Transactional;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.mongodb.repository.Aggregation;
 import org.springframework.data.mongodb.repository.MongoRepository;
 import org.springframework.data.mongodb.repository.Query;
@@ -42,9 +43,37 @@ public interface ShowRepository extends MongoRepository<Show, String> {
 
     Optional<Show> findByPasswordResetLinkAndPasswordResetExpiryGreaterThan(String passwordResetLink, LocalDateTime passwordResetExpiry);
     List<Show> findByPreferencesNotificationPreferencesEnableFppHeartbeatIsTrueAndLastFppHeartbeatBefore(LocalDateTime lastFppHeartbeat);
+    // Admin show-name autosuggest. Case-insensitive prefix match on
+    // showName, index-backed by idx_showName (plain btree). Caller passes
+    // PageRequest.of(0, 25) to cap the result set server-side. Returns
+    // full Show documents with ONLY the showName field populated.
+    //
+    // Two important Mongo behaviors driving the shape of this query:
+    //
+    //   1. Collation indexes CANNOT be used for $regex queries even
+    //      with matching collation (SERVER-44284). So the index here
+    //      is plain btree, and we use $options: 'i' for case-
+    //      insensitivity at the matcher level.
+    //
+    //   2. Spring Data MongoDB substitutes ?N placeholders OUTSIDE
+    //      string literals only. The caller must therefore build the
+    //      full regex pattern (anchor + escaped user input) in Java
+    //      and pass it as a plain ?0 value. The caller MUST anchor
+    //      the regex with ^ for the planner to use the index range
+    //      scan; without ^ the planner falls back to a COLLSCAN
+    //      across every doc.
+    //
+    // Verified by explain() on dev (2598 shows): IXSCAN on idx_showName,
+    // ~3ms for "^lights" with $options: 'i' and limit=25.
+    //
+    // Why prefix-only: a contains-anywhere regex cannot use ANY index in
+    // MongoDB. The trade-off: typing "lights" no longer matches
+    // "Killarney Lane Lights" -- only shows whose name starts with
+    // "lights*". Standard autosuggest UX (Mongo Atlas Search would be
+    // required for contains-match; not on the roadmap).
     @Query(value = "{ 'showName': { '$regex': ?0, '$options': 'i' } }",
             fields = "{ 'showName': 1 }")
-    List<ShowNameOnly> findTop25ByShowNameContainingIgnoreCase(String showName);
+    List<Show> findByShowNameStartingWith(String anchoredRegexPattern, Pageable pageable);
 
     @Query(value = "{ 'preferences.showOnMap': true, " +
                    "'preferences.showLatitude':  { $gte: -90,  $lte: 90 }, " +

@@ -9,10 +9,13 @@ COPY libs/schema/src ./src
 RUN mvn install -DskipTests -B
 
 # libs/test-fixtures: external-api's pom.xml declares it as a test-scope dep
-# (added in PR-B M3 for BearerAspectTest et al). Even with
-# -Dmaven.test.skip=true, Maven still resolves the full dep tree and fails
-# if test-fixtures isn't reachable. Install into mavenLocal so the
-# subsequent build resolves it; tests then skipped via the flag below.
+# (added during the RFPB integration work, PR-B M3, for BearerAspectTest et al).
+# Even with -Dmaven.test.skip=true, Maven still resolves the full dep tree at
+# build time and fails if test-fixtures isn't reachable. Mirrors the same stage
+# in apps/control-panel/Dockerfile.dev. Without this stage, a fresh build (no
+# Docker layer cache) fails with "Could not find artifact com.remotefalcon:
+# remote-falcon-test-fixtures:jar:1.0.0-LOCAL in central". Previously masked by
+# the cache.
 FROM maven:3-eclipse-temurin-17 AS test-fixtures-build
 WORKDIR /lib
 COPY --from=schema-build /root/.m2/repository /root/.m2/repository
