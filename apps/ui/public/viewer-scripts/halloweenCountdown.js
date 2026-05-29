@@ -40,15 +40,27 @@
     const elMinutes = document.querySelector('#to-halloween-minutes');
     const elSeconds = document.querySelector('#to-halloween-seconds');
 
-    if (elDays) elDays.textContent = d;
-    if (elHours) elHours.textContent = h;
-    if (elMinutes) elMinutes.textContent = m;
-    if (elSeconds) elSeconds.textContent = s;
+    // Only write when the value actually changed. update() runs every animation
+    // frame (see loop()), but the digits change at most once a second, so the
+    // guard keeps this to a handful of DOM writes per second instead of ~60.
+    if (elDays && elDays.textContent !== String(d)) elDays.textContent = d;
+    if (elHours && elHours.textContent !== String(h)) elHours.textContent = h;
+    if (elMinutes && elMinutes.textContent !== String(m)) elMinutes.textContent = m;
+    if (elSeconds && elSeconds.textContent !== String(s)) elSeconds.textContent = s;
   }
 
+  // Repaint on every animation frame rather than once a second. The platform
+  // viewer re-parses the page through html-to-react every 500ms (see
+  // externalViewer/index.jsx), recreating these nodes with the template's
+  // static "0". A 1s timer loses that race ~half the time (visible flicker on
+  // desktop, near-constant "0" on mobile where timers are throttled harder).
+  // requestAnimationFrame runs after the re-render's DOM mutation and before
+  // the browser paints, so the real value is restored before "0" ever shows.
+  // rAF is paused while the tab is hidden, which is fine — the countdown isn't
+  // visible then, and the visibilitychange handler repaints on return.
   function loop() {
-    if (!document.hidden) update();
-    setTimeout(loop, 1000);
+    update();
+    window.requestAnimationFrame(loop);
   }
 
   function start() {
@@ -57,7 +69,7 @@
     });
 
     update();
-    loop();
+    window.requestAnimationFrame(loop);
   }
 
   if (document.readyState === 'loading') {
