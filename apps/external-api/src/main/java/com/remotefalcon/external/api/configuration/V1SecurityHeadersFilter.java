@@ -16,7 +16,7 @@ import java.io.IOException;
  * surface (PR-F of the RFPB integration, audit finding L4 + companion
  * hardening).
  *
- * <p>Three headers, all set unconditionally on /v1/** responses:
+ * <p>Four headers, all set unconditionally on /v1/** responses:
  *
  * <ul>
  *   <li>{@code Referrer-Policy: no-referrer} — the bearer token never
@@ -33,6 +33,16 @@ import java.io.IOException;
  *       for any page to frame it. Defends against clickjacking-style
  *       chains that would frame an authenticated API surface (e.g. to
  *       trick a user into triggering a request via a hidden iframe).
+ *   <li>{@code Cache-Control: no-store} — set as a default for the
+ *       entire /v1 surface so credential-returning endpoints (notably
+ *       {@code POST /v1/sessions/exchange}, which returns the session
+ *       bearer in the response body) can never be cached by an
+ *       intermediate proxy. {@link
+ *       com.remotefalcon.external.api.controller.PagesController}'s
+ *       GETs additionally set {@code private} via
+ *       {@code ResponseEntity.cacheControl()}, which writes after the
+ *       filter and is strictly more restrictive — that override stays
+ *       intact.
  * </ul>
  *
  * <p>Ordered after the rate-limit filter (PR-C) so a 429 still carries
@@ -69,6 +79,7 @@ public class V1SecurityHeadersFilter {
             response.setHeader("Referrer-Policy", "no-referrer");
             response.setHeader("X-Content-Type-Options", "nosniff");
             response.setHeader("X-Frame-Options", "DENY");
+            response.setHeader("Cache-Control", "no-store");
             chain.doFilter(request, response);
         }
     }

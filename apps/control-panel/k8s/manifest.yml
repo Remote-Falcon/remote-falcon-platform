@@ -93,6 +93,13 @@ spec:
           value: remote-falcon-uploads
         - name: IMAGES_CDN_ENDPOINT
           value: https://remote-falcon-uploads.nyc3.cdn.digitaloceanspaces.com
+        - name: RF_RFPB_LAUNCH_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: remote-falcon-control-panel
+              key: rfpb-launch-secret
+        - name: RFPB_BASE_URL
+          value: https://rfpagebuilder.com
         startupProbe:
           httpGet:
             path: /remote-falcon-control-panel/actuator/health
