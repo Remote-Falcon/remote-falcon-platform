@@ -122,16 +122,36 @@ public class RfpbAuditLogger {
     /**
      * Client IP — honors X-Forwarded-For if present (production traffic
      * goes through nginx-ingress), falls back to remote address. Takes
-     * the leftmost entry of XFF (the originating client). Not validated
-     * — XFF can be spoofed but that's true of every IP-derived field
-     * and acceptable for audit context.
+     * the leftmost entry of XFF (the originating client).
+     *
+     * <p>XFF is client-controlled. Tomcat rejects CR/LF in the request
+     * line, but not in arbitrary header values, so an attacker could put
+     * {@code "\nfake_audit_line\n} in the leftmost XFF entry and forge
+     * additional audit log lines for forensic confusion. SLF4J parameter
+     * substitution does not scrub these. {@link #scrub(String)} strips
+     * the characters that would terminate or break out of our
+     * quoted-field log format before the value reaches any logger.
      */
     private static String clientIp(HttpServletRequest request) {
         String xff = request.getHeader("X-Forwarded-For");
         if (xff != null && !xff.isBlank()) {
             int comma = xff.indexOf(',');
-            return comma > 0 ? xff.substring(0, comma).trim() : xff.trim();
+            String raw = comma > 0 ? xff.substring(0, comma).trim() : xff.trim();
+            return scrub(raw);
         }
-        return request.getRemoteAddr();
+        return scrub(request.getRemoteAddr());
+    }
+
+    /**
+     * Strips CR, LF, and double-quote chars from a value bound for the
+     * audit log. Keeps everything else verbatim — the goal is log
+     * integrity (no line injection, no field escape), not input
+     * validation.
+     */
+    private static String scrub(String value) {
+        if (value == null) {
+            return null;
+        }
+        return value.replaceAll("[\\r\\n\"]", "_");
     }
 }

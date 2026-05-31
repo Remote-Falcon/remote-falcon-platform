@@ -97,6 +97,30 @@ class RfpbAuditLoggerTest {
     }
 
     @Test
+    void scrubsCrLfAndQuotes_fromXForwardedFor_toPreventLogInjection() {
+        // X-Forwarded-For is client-controlled. An attacker that puts a
+        // newline + forged audit line in the leftmost XFF entry should
+        // not be able to escape our quoted-field log format. The single
+        // emitted message should contain only the scrubbed value, never
+        // the injected payload.
+        MockHttpServletRequest r = req();
+        r.addHeader("X-Forwarded-For",
+                "1.2.3.4\r\nop=\"page.update\" status=200 ip=\"forged");
+
+        auditLogger.logWrite("page.update", r, 200, "x", "viewer_page:write");
+
+        assertThat(appender.list).hasSize(1);
+        String formatted = appender.list.get(0).getFormattedMessage();
+        assertThat(formatted).doesNotContain("\r");
+        assertThat(formatted).doesNotContain("\n");
+        // Each \r and \n becomes a single _; each " also becomes a single _.
+        // The forged segment lands wholly inside the ip="..." field, with
+        // no quote escape to terminate it early.
+        assertThat(formatted)
+                .contains("ip=\"1.2.3.4__op=_page.update_ status=200 ip=_forged\"");
+    }
+
+    @Test
     void emptyContent_andEmptySession_areLoggedAsEmptyStrings() {
         // Failure path: page not found → no persisted content, audit line
         // still emitted so the auditor sees the rejection.

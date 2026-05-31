@@ -41,6 +41,16 @@ spec:
             secretKeyRef:
               name: remote-falcon-external-api
               key: mongo-uri
+        - name: RF_RFPB_LAUNCH_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: remote-falcon-external-api
+              key: rfpb-launch-secret
+        - name: RF_RFPB_CORS_ALLOWED_ORIGINS
+          valueFrom:
+            secretKeyRef:
+              name: remote-falcon-external-api
+              key: rfpb-cors-allowed-origins
         startupProbe:
           httpGet:
             path: /actuator/health
