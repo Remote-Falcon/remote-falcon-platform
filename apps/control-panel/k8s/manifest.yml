@@ -168,8 +168,8 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: #{Application}#
-  minReplicas: 2
-  maxReplicas: 4
+  minReplicas: #{Replicas.Min}#
+  maxReplicas: #{Replicas.Max}#
   metrics:
     - type: Resource
       resource:

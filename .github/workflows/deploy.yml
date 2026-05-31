@@ -287,13 +287,22 @@ jobs:
           # original build-and-release.yml shipped (also documented in SERVICES.md).
           # Tokens not referenced by a given service's manifest are simply ignored
           # by replace-tokens, so we set a superset here.
+          #
+          # control-panel + external-api both set replicas_min=2, replicas_max=4
+          # because their k8s manifests' HPAs default to those values (legacy
+          # from when each was a standalone repo with a deliberate capacity
+          # choice). Mismatching the HPA's minReplicas here causes a post-apply
+          # race: kubectl rollout completes with ready=1, HPA immediately bumps
+          # spec.replicas to its minReplicas=2, the post-deploy verify step
+          # reads spec=2/ready=1 mid-scale-up, and auto-rolls-back. Keep
+          # replicas in lockstep with replicas_min for any HPA-managed service.
           case "$SERVICE" in
             ui)              replicas=1; replicas_min=1; replicas_max=1; req_mem=64Mi;   req_cpu=5m;   lim_mem=128Mi;  lim_cpu=100m  ;;
             gateway)         replicas=2; replicas_min=2; replicas_max=2; req_mem=1000Mi; req_cpu=750m; lim_mem=1250Mi; lim_cpu=1000m ;;
-            control-panel)   replicas=1; replicas_min=1; replicas_max=1; req_mem=256Mi;  req_cpu=100m; lim_mem=512Mi;  lim_cpu=500m  ;;
+            control-panel)   replicas=2; replicas_min=2; replicas_max=4; req_mem=256Mi;  req_cpu=100m; lim_mem=512Mi;  lim_cpu=500m  ;;
             viewer)          replicas=1; replicas_min=1; replicas_max=1; req_mem=160Mi;  req_cpu=50m;  lim_mem=320Mi;  lim_cpu=500m  ;;
             plugins-api)     replicas=1; replicas_min=1; replicas_max=1; req_mem=192Mi;  req_cpu=150m; lim_mem=384Mi;  lim_cpu=750m  ;;
-            external-api)    replicas=1; replicas_min=1; replicas_max=1; req_mem=256Mi;  req_cpu=100m; lim_mem=512Mi;  lim_cpu=500m  ;;
+            external-api)    replicas=2; replicas_min=2; replicas_max=4; req_mem=256Mi;  req_cpu=100m; lim_mem=512Mi;  lim_cpu=500m  ;;
             mongo-backup)    replicas=1; replicas_min=1; replicas_max=1; req_mem=128Mi;  req_cpu=25m;  lim_mem=750Mi;  lim_cpu=200m  ;;
             account-archive) replicas=1; replicas_min=1; replicas_max=1; req_mem=64Mi;   req_cpu=10m;  lim_mem=128Mi;  lim_cpu=100m  ;;
           esac
