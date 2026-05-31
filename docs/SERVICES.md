@@ -135,7 +135,7 @@ Bearer-authenticated REST surface added 2026-05-24 for the RF Page Builder integ
 
 | Endpoint | Scope | Notes |
 |---|---|---|
-| `POST /v1/session/exchange` | (launch JWT) | One-shot launch-JWT → session-bearer exchange. Single-use JTI. |
+| `POST /v1/sessions/exchange` | (launch JWT) | One-shot launch-JWT → session-bearer exchange. Single-use JTI. |
 | `GET /v1/me` | (any) | Session introspection — returns `showSubdomain`, `pageId`, `scopes`. `Cache-Control: no-store`. |
 | `GET /v1/pages` | `viewer_page:read` | List all pages on the bearer's show. ETag header per page. |
 | `GET /v1/pages/{pageId}` | `viewer_page:read` | Fetch one page. ETag header carries `sha256(html\|updatedAt)` so the client can use it as `If-Match` on PUT. |
