@@ -92,7 +92,7 @@ const MainSettings = () => {
                   <InfoTwoToneIcon
                     onClick={() =>
                       window.open(
-                        'https://docs.remotefalcon.com/docs/docs/control-panel/remote-falcon-settings#viewer-control',
+                        'https://docs.remotefalcon.com/docs/docs/control-panel/account/remote-falcon-settings#viewer-control',
                         '_blank',
                         'noreferrer'
                       )
@@ -123,7 +123,7 @@ const MainSettings = () => {
                   <InfoTwoToneIcon
                     onClick={() =>
                       window.open(
-                        'https://docs.remotefalcon.com/docs/docs/control-panel/remote-falcon-settings#viewer-control-mode',
+                        'https://docs.remotefalcon.com/docs/docs/control-panel/account/remote-falcon-settings#viewer-control-mode',
                         '_blank',
                         'noreferrer'
                       )

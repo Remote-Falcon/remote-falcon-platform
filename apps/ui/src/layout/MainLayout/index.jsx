@@ -1,6 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 
-import { AppBar, Box, Container, CssBaseline, Modal, Toolbar, useMediaQuery } from '@mui/material';
+import { AppBar, Box, Container, CssBaseline, Toolbar, useMediaQuery } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import { Outlet } from 'react-router-dom';
 
@@ -12,7 +12,6 @@ import CommandPalette from '../../ui-component/CommandPalette';
 import Header from './Header';
 import ImpersonationBanner from './ImpersonationBanner';
 import Sidebar from './Sidebar';
-import WhatsNew from './WhatsNew.modal';
 
 // v2 layout: full-height sidebar (logo at top, footer at bottom) with the
 // AppBar living inside the content column — not spanning the viewport.
@@ -29,17 +28,8 @@ const MainLayout = () => {
   const { drawerOpen } = useSelector((state) => state.menu);
   const { container } = useConfig();
 
-  const [whatsNewOpen, setWhatsNewOpen] = useState(false);
-
-  const newStuffDateString = '2023-11-21';
-  const newStuffDate = Date.parse(newStuffDateString);
-
   React.useEffect(() => {
     dispatch(openDrawer(!matchDownMd));
-    const whatsNewDateViewed = window.localStorage.getItem('whatsNew');
-    if (!whatsNewDateViewed || newStuffDate > Date.parse(whatsNewDateViewed)) {
-      setWhatsNewOpen(false);
-    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [matchDownMd]);
 
@@ -54,11 +44,6 @@ const MainLayout = () => {
     ),
     []
   );
-
-  const closeWhatsNew = () => {
-    window.localStorage.setItem('whatsNew', newStuffDateString);
-    setWhatsNewOpen(false);
-  };
 
   return (
     <Box sx={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
@@ -109,10 +94,6 @@ const MainLayout = () => {
               p: { xs: 2, md: 3 }
             }}
           >
-            <Modal open={whatsNewOpen} aria-labelledby="simple-modal-title" aria-describedby="simple-modal-description">
-              <WhatsNew handleClose={() => closeWhatsNew()} />
-            </Modal>
-
             {container ? (
               <Container maxWidth="lg" disableGutters>
                 <Outlet />

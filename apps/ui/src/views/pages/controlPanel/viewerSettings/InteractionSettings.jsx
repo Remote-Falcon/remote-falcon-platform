@@ -216,7 +216,7 @@ const InteractionSettings = () => {
                   <InfoTwoToneIcon
                     onClick={() =>
                       window.open(
-                        'https://docs.remotefalcon.com/docs/docs/control-panel/remote-falcon-settings#play-psa',
+                        'https://docs.remotefalcon.com/docs/docs/control-panel/account/remote-falcon-settings#play-psa',
                         '_blank',
                         'noreferrer'
                       )
@@ -249,7 +249,7 @@ const InteractionSettings = () => {
                       <InfoTwoToneIcon
                         onClick={() =>
                           window.open(
-                            'https://docs.remotefalcon.com/docs/docs/control-panel/remote-falcon-settings#managed-psa',
+                            'https://docs.remotefalcon.com/docs/docs/control-panel/account/remote-falcon-settings#managed-psa',
                             '_blank',
                             'noreferrer'
                           )
@@ -281,7 +281,7 @@ const InteractionSettings = () => {
                       <InfoTwoToneIcon
                         onClick={() =>
                           window.open(
-                            'https://docs.remotefalcon.com/docs/docs/control-panel/remote-falcon-settings#psa-sequences',
+                            'https://docs.remotefalcon.com/docs/docs/control-panel/account/remote-falcon-settings#psa-sequences',
                             '_blank',
                             'noreferrer'
                           )
@@ -318,7 +318,7 @@ const InteractionSettings = () => {
                       <InfoTwoToneIcon
                         onClick={() =>
                           window.open(
-                            'https://docs.remotefalcon.com/docs/docs/control-panel/remote-falcon-settings#psa-frequency',
+                            'https://docs.remotefalcon.com/docs/docs/control-panel/account/remote-falcon-settings#psa-frequency',
                             '_blank',
                             'noreferrer'
                           )
@@ -352,7 +352,7 @@ const InteractionSettings = () => {
                   <InfoTwoToneIcon
                     onClick={() =>
                       window.open(
-                        'https://docs.remotefalcon.com/docs/docs/control-panel/remote-falcon-settings#check-viewer-present',
+                        'https://docs.remotefalcon.com/docs/docs/control-panel/account/remote-falcon-settings#check-viewer-present',
                         '_blank',
                         'noreferrer'
                       )
@@ -380,7 +380,7 @@ const InteractionSettings = () => {
                       <InfoTwoToneIcon
                         onClick={() =>
                           window.open(
-                            'https://docs.remotefalcon.com/docs/docs/control-panel/remote-falcon-settings#viewer-present-mode',
+                            'https://docs.remotefalcon.com/docs/docs/control-panel/account/remote-falcon-settings#viewer-present-mode',
                             '_blank',
                             'noreferrer'
                           )
@@ -414,7 +414,7 @@ const InteractionSettings = () => {
                           <InfoTwoToneIcon
                             onClick={() =>
                               window.open(
-                                'https://docs.remotefalcon.com/docs/docs/control-panel/remote-falcon-settings#show-location',
+                                'https://docs.remotefalcon.com/docs/docs/control-panel/account/remote-falcon-settings#show-location',
                                 '_blank',
                                 'noreferrer'
                               )
@@ -474,7 +474,7 @@ const InteractionSettings = () => {
                           <InfoTwoToneIcon
                             onClick={() =>
                               window.open(
-                                'https://docs.remotefalcon.com/docs/docs/control-panel/remote-falcon-settings#check-radius-in-miles',
+                                'https://docs.remotefalcon.com/docs/docs/control-panel/account/remote-falcon-settings#check-radius-in-miles',
                                 '_blank',
                                 'noreferrer'
                               )
@@ -512,7 +512,7 @@ const InteractionSettings = () => {
                           <InfoTwoToneIcon
                             onClick={() =>
                               window.open(
-                                'https://docs.remotefalcon.com/docs/docs/control-panel/remote-falcon-settings#location-code',
+                                'https://docs.remotefalcon.com/docs/docs/control-panel/account/remote-falcon-settings#location-code',
                                 '_blank',
                                 'noreferrer'
                               )
@@ -548,7 +548,7 @@ const InteractionSettings = () => {
                   <InfoTwoToneIcon
                     onClick={() =>
                       window.open(
-                        'https://docs.remotefalcon.com/docs/docs/control-panel/remote-falcon-settings#hide-sequence-after-played',
+                        'https://docs.remotefalcon.com/docs/docs/control-panel/account/remote-falcon-settings#hide-sequence-after-played',
                         '_blank',
                         'noreferrer'
                       )
@@ -581,7 +581,7 @@ const InteractionSettings = () => {
                   <InfoTwoToneIcon
                     onClick={() =>
                       window.open(
-                        'https://docs.remotefalcon.com/docs/docs/control-panel/remote-falcon-settings#block-viewer-ip-addresses',
+                        'https://docs.remotefalcon.com/docs/docs/control-panel/account/remote-falcon-settings#block-viewer-ip-addresses',
                         '_blank',
                         'noreferrer'
                       )

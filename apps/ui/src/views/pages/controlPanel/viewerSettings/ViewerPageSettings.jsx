@@ -122,7 +122,7 @@ const ViewerPageSettings = () => {
                   <InfoTwoToneIcon
                     onClick={() =>
                       window.open(
-                        'https://docs.remotefalcon.com/docs/docs/control-panel/remote-falcon-settings#viewer-page-view-only',
+                        'https://docs.remotefalcon.com/docs/docs/control-panel/account/remote-falcon-settings#view-only-mode',
                         '_blank',
                         'noreferrer'
                       )
@@ -152,7 +152,7 @@ const ViewerPageSettings = () => {
                   <InfoTwoToneIcon
                     onClick={() =>
                       window.open(
-                        'https://docs.remotefalcon.com/docs/docs/control-panel/remote-falcon-settings#active-viewer-page',
+                        'https://docs.remotefalcon.com/docs/docs/control-panel/account/remote-falcon-settings#active-viewer-page',
                         '_blank',
                         'noreferrer'
                       )
@@ -184,7 +184,7 @@ const ViewerPageSettings = () => {
                   <InfoTwoToneIcon
                     onClick={() =>
                       window.open(
-                        'https://docs.remotefalcon.com/docs/docs/control-panel/remote-falcon-settings#self-hosted-redirect-url',
+                        'https://docs.remotefalcon.com/docs/docs/control-panel/account/remote-falcon-settings#self-hosted-redirect-url',
                         '_blank',
                         'noreferrer'
                       )
@@ -216,7 +216,7 @@ const ViewerPageSettings = () => {
                   <InfoTwoToneIcon
                     onClick={() =>
                       window.open(
-                        'https://docs.remotefalcon.com/docs/docs/control-panel/remote-falcon-settings#viewer-page-title',
+                        'https://docs.remotefalcon.com/docs/docs/control-panel/account/remote-falcon-settings#viewer-page-title',
                         '_blank',
                         'noreferrer'
                       )
@@ -247,7 +247,7 @@ const ViewerPageSettings = () => {
                   <InfoTwoToneIcon
                     onClick={() =>
                       window.open(
-                        'https://docs.remotefalcon.com/docs/docs/control-panel/remote-falcon-settings#viewer-page-icon-url',
+                        'https://docs.remotefalcon.com/docs/docs/control-panel/account/remote-falcon-settings#viewer-page-icon-url',
                         '_blank',
                         'noreferrer'
                       )
@@ -278,7 +278,7 @@ const ViewerPageSettings = () => {
                   <InfoTwoToneIcon
                     onClick={() =>
                       window.open(
-                        'https://docs.remotefalcon.com/docs/docs/control-panel/remote-falcon-settings#make-it-snow',
+                        'https://docs.remotefalcon.com/docs/docs/control-panel/account/remote-falcon-settings#make-it-snow',
                         '_blank',
                         'noreferrer'
                       )

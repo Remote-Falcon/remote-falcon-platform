@@ -78,7 +78,7 @@ const JukeboxSettings = () => {
                   <InfoTwoToneIcon
                     onClick={() =>
                       window.open(
-                        'https://docs.remotefalcon.com/docs/docs/control-panel/remote-falcon-settings#jukebox-queue-depth',
+                        'https://docs.remotefalcon.com/docs/docs/control-panel/account/remote-falcon-settings#jukebox-queue-depth',
                         '_blank',
                         'noreferrer'
                       )
@@ -112,7 +112,7 @@ const JukeboxSettings = () => {
                   <InfoTwoToneIcon
                     onClick={() =>
                       window.open(
-                        'https://docs.remotefalcon.com/docs/docs/control-panel/remote-falcon-settings#jukebox-sequence-request-limit',
+                        'https://docs.remotefalcon.com/docs/docs/control-panel/account/remote-falcon-settings#jukebox-sequence-request-limit',
                         '_blank',
                         'noreferrer'
                       )
@@ -147,7 +147,7 @@ const JukeboxSettings = () => {
                   <InfoTwoToneIcon
                     onClick={() =>
                       window.open(
-                        'https://docs.remotefalcon.com/docs/docs/control-panel/remote-falcon-settings#prevent-multiple-requests',
+                        'https://docs.remotefalcon.com/docs/docs/control-panel/account/remote-falcon-settings#prevent-multiple-requests',
                         '_blank',
                         'noreferrer'
                       )
