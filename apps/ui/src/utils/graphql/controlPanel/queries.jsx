@@ -48,6 +48,7 @@ export const SIGN_IN = gql`
         hideSequenceCount
         makeItSnow
         managePsa
+        playAllPsas
         sequencesPlayed
         pageTitle
         pageIconUrl
@@ -86,7 +87,11 @@ export const SIGN_IN = gql`
         name
         order
         lastPlayed
+        enabled
       }
+      requestLeaderSequence
+      voteLeaderSequence
+      nextPsaOverride
       pages {
         name
         active
@@ -173,6 +178,7 @@ export const GET_SHOW = gql`
         hideSequenceCount
         makeItSnow
         managePsa
+        playAllPsas
         sequencesPlayed
         pageTitle
         pageIconUrl
@@ -211,7 +217,11 @@ export const GET_SHOW = gql`
         name
         order
         lastPlayed
+        enabled
       }
+      requestLeaderSequence
+      voteLeaderSequence
+      nextPsaOverride
       pages {
         name
         active
@@ -466,6 +476,7 @@ export const GET_SHOW_BY_SHOW_NAME = gql`
         hideSequenceCount
         makeItSnow
         managePsa
+        playAllPsas
         sequencesPlayed
         pageTitle
         pageIconUrl
@@ -497,7 +508,11 @@ export const GET_SHOW_BY_SHOW_NAME = gql`
         name
         order
         lastPlayed
+        enabled
       }
+      requestLeaderSequence
+      voteLeaderSequence
+      nextPsaOverride
       pages {
         name
         active

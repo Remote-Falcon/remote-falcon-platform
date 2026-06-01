@@ -25,6 +25,13 @@ type Show {
     playingNow: String
     playingNext: String
 
+    # PSA-v2 PR-1 schema deltas. PR-5 surfaces them in the Sequences
+    # page → Special Roles tab; PR-3 consumes the leader fields; PR-2
+    # consumes the override field.
+    requestLeaderSequence: String
+    voteLeaderSequence: String
+    nextPsaOverride: String
+
     showNotifications: [ShowNotification]
 
     serviceToken: String
@@ -73,6 +80,9 @@ type Preference {
     analyticsBetaOptIn: Boolean
     wrappedPublic: Boolean
     wrappedShareToken: String
+    # PSA-v2 PR-1 schema delta surfaced here so the UI's Show Settings
+    # page can read/write it via the existing updatePreferences mutation.
+    playAllPsas: Boolean
 }
 
 type NotificationPreference {
@@ -127,6 +137,9 @@ type PsaSequence {
     name: String
     order: Int
     lastPlayed: String
+    # PSA-v2 PR-1 — soft-disable flag. Null is treated as enabled
+    # (default true) so legacy documents read cleanly.
+    enabled: Boolean
 }
 
 type Page {

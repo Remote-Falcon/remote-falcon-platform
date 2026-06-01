@@ -24,5 +24,8 @@ export const StatusResponse = {
   INVALID_JWT: 'INVALID_JWT',
   API_ACCESS_REQUESTED: 'API_ACCESS_REQUESTED',
   UNEXPECTED_ERROR: 'UNEXPECTED_ERROR',
-  OWNER_REQUESTED: 'OWNER_REQUESTED'
+  OWNER_REQUESTED: 'OWNER_REQUESTED',
+  // PSA-v2 PR-5 — raised by updatePsaEnabled / setNextPsaOverride
+  // when the name doesn't match any PSA in Show.psaSequences[].
+  INVALID_PSA_NAME: 'INVALID_PSA_NAME'
 };

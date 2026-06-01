@@ -16,6 +16,24 @@ type Mutation {
     # doesn't accept it; backfill happens via ViewerPageService.prepareForWrite).
     updatePages(pages: [PageInput]!): [Page]
     updatePsaSequences(psaSequences: [PsaSequenceInput]!): Boolean
+    # PSA-v2 PR-5 (Q1) — soft-enable/disable a PSA without removing it
+    # from `Show.psaSequences[]`. Matches by `name` (sequence names are
+    # unique within a show). Returns true on success; throws if the show
+    # is missing or the named PSA isn't in the list.
+    updatePsaEnabled(name: String!, enabled: Boolean!): Boolean
+    # PSA-v2 PR-5 (Q7) — operator pick of the next PSA to play. Setting
+    # a non-null name validates it against `Show.psaSequences[]` and
+    # stores it in `Show.nextPsaOverride`; PR-2 will consume + clear it
+    # at the next sequence boundary. Pass null (or omit) to clear a
+    # pending override.
+    setNextPsaOverride(name: String): Boolean
+    # PSA-v2 PR-5 (Q6) — leader sequence played right before a viewer
+    # request. Null/empty clears the field. PR-3 consumes both leader
+    # fields.
+    setRequestLeaderSequence(name: String): Boolean
+    # PSA-v2 PR-5 (Q6) — leader sequence played right before a voting
+    # winner. Null/empty clears the field.
+    setVoteLeaderSequence(name: String): Boolean
     updateSequences(sequences: [SequenceInput]!): Boolean
     updateSequenceGroups(sequenceGroups: [SequenceGroupInput]!): Boolean
     playSequenceFromControlPanel(sequence: SequenceInput!): Boolean

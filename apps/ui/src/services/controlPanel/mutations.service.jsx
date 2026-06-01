@@ -201,6 +201,128 @@ export const savePsaSequencesService = (updatedPsaSequences, updatePsaSequencesM
   });
 };
 
+// PSA-v2 PR-5 — Special Roles tab service helpers.
+//
+// updatePsaEnabledService (Q1) — per-row enabled toggle. Mirrors the
+// chip-remove inline-save pattern from #66: every Switch flip is its
+// own server call, no batched "Save" button.
+//
+// setNextPsaOverrideService (Q7) — operator "Play Next" pick. Pass
+// null to clear. The backend rejects names that don't match an
+// existing PSA with INVALID_PSA_NAME; the toast surfaces the typed
+// status so operators see what went wrong.
+//
+// setRequestLeaderSequenceService / setVoteLeaderSequenceService (Q6)
+// — leader dropdown saves. The "(none)" option clears the field by
+// passing null.
+export const updatePsaEnabledService = (name, enabled, updatePsaEnabledMutation, callback) => {
+  updatePsaEnabledMutation({
+    context: {
+      headers: {
+        Route: 'Control-Panel'
+      }
+    },
+    variables: { name, enabled },
+    onCompleted: () => {
+      callback({
+        success: true,
+        toast: { message: enabled ? `${name} enabled` : `${name} disabled` }
+      });
+    },
+    onError: (error) => {
+      if (error?.message === StatusResponse.INVALID_PSA_NAME) {
+        callback({
+          success: false,
+          toast: { alert: 'error', message: `${name} is no longer in the PSA list` }
+        });
+      } else {
+        callback({
+          success: false,
+          toast: { alert: 'error' }
+        });
+      }
+    }
+  });
+};
+
+export const setNextPsaOverrideService = (name, setNextPsaOverrideMutation, callback) => {
+  setNextPsaOverrideMutation({
+    context: {
+      headers: {
+        Route: 'Control-Panel'
+      }
+    },
+    variables: { name: name ?? null },
+    onCompleted: () => {
+      callback({
+        success: true,
+        toast: name
+          ? { message: `${name} will play next` }
+          : { message: 'Next PSA override cleared' }
+      });
+    },
+    onError: (error) => {
+      if (error?.message === StatusResponse.INVALID_PSA_NAME) {
+        callback({
+          success: false,
+          toast: { alert: 'error', message: `${name} is not in your PSA list` }
+        });
+      } else {
+        callback({
+          success: false,
+          toast: { alert: 'error' }
+        });
+      }
+    }
+  });
+};
+
+export const setRequestLeaderSequenceService = (name, setRequestLeaderSequenceMutation, callback) => {
+  setRequestLeaderSequenceMutation({
+    context: {
+      headers: {
+        Route: 'Control-Panel'
+      }
+    },
+    variables: { name: name ?? null },
+    onCompleted: () => {
+      callback({
+        success: true,
+        toast: { message: name ? `Request leader set to ${name}` : 'Request leader cleared' }
+      });
+    },
+    onError: () => {
+      callback({
+        success: false,
+        toast: { alert: 'error' }
+      });
+    }
+  });
+};
+
+export const setVoteLeaderSequenceService = (name, setVoteLeaderSequenceMutation, callback) => {
+  setVoteLeaderSequenceMutation({
+    context: {
+      headers: {
+        Route: 'Control-Panel'
+      }
+    },
+    variables: { name: name ?? null },
+    onCompleted: () => {
+      callback({
+        success: true,
+        toast: { message: name ? `Vote leader set to ${name}` : 'Vote leader cleared' }
+      });
+    },
+    onError: () => {
+      callback({
+        success: false,
+        toast: { alert: 'error' }
+      });
+    }
+  });
+};
+
 export const saveSequencesService = (updatedSequences, updateSequencesMutation, callback) => {
   updateSequencesMutation({
     context: {

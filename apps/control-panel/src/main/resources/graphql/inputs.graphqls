@@ -72,6 +72,10 @@ input PreferenceInput {
     notificationPreferences: NotificationPreferenceInput
     analyticsBetaOptIn: Boolean
     wrappedPublic: Boolean
+    # PSA-v2 PR-5 (Q4) — burst all enabled PSAs in `order` ascending at
+    # each cadence tick, instead of picking one round-robin. Default
+    # false preserves the existing single-PSA-per-tick behavior.
+    playAllPsas: Boolean
 }
 
 input NotificationPreferenceInput {
@@ -121,6 +125,10 @@ input PsaSequenceInput {
     name: String
     order: Int
     lastPlayed: String
+    # PSA-v2 PR-5 (Q1) — soft-disable flag. Schema-additive: existing
+    # clients that omit it still round-trip cleanly because the server
+    # treats null as "enabled" (default true).
+    enabled: Boolean
 }
 
 input PageInput {

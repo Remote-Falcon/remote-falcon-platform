@@ -18,9 +18,15 @@ import { downloadSequencesToExcelService, importSequencesFromExcelService } from
 
 // Sub-route entries — exported so CommandPalette + RouteBreadcrumb pick
 // them up automatically (same pattern as the other tabbed pages).
+//
+// PSA-v2 PR-5 — Special Roles tab houses PSAs + Leaders, relocated out
+// of Show Settings → Safeguards per the PSA-v2 PRD's UI relocation
+// decision. Mobile-friendly because Q7's "Play Next" is meant to be
+// used from the operator's phone during the show.
 export const sequencesRoutes = [
   { label: 'Sequences', to: '/control-panel/sequences/list' },
-  { label: 'Sequence Groups', to: '/control-panel/sequences/groups' }
+  { label: 'Sequence Groups', to: '/control-panel/sequences/groups' },
+  { label: 'Special Roles', to: '/control-panel/sequences/special-roles' }
 ];
 
 // v2 Sequences shell. Import / export are page-level (apply across both

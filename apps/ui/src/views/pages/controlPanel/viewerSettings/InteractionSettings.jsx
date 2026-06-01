@@ -3,19 +3,21 @@ import { useCallback, useEffect, useState } from 'react';
 import { useMutation } from '@apollo/client';
 import InfoTwoToneIcon from '@mui/icons-material/InfoTwoTone';
 import SaveTwoToneIcon from '@mui/icons-material/SaveTwoTone';
-import { Grid, CardActions, Divider, Typography, Switch, TextField, Autocomplete, IconButton, Tooltip, Stack } from '@mui/material';
+import { Button, Grid, CardActions, Divider, Typography, Switch, TextField, Autocomplete, IconButton, Tooltip, Stack } from '@mui/material';
+import { IconChevronRight } from '@tabler/icons-react';
 import _ from 'lodash';
 import moment from 'moment/moment';
+import { Link as RouterLink } from 'react-router-dom';
 
 import MainCard from '../../../../ui-component/cards/MainCard';
 import StickyFormBar from '../../../../ui-component/StickyFormBar';
 import useAutoSave from '../../../../hooks/useAutoSave';
 
-import { savePreferencesService, savePsaSequencesService } from '../../../../services/controlPanel/mutations.service';
+import { savePreferencesService } from '../../../../services/controlPanel/mutations.service';
 import { useDispatch, useSelector } from '../../../../store';
 import { setShow } from '../../../../store/slices/show';
 import { LocationCheckMethod } from '../../../../utils/enum';
-import { UPDATE_PREFERENCES, UPDATE_PSA_SEQUENCES } from '../../../../utils/graphql/controlPanel/mutations';
+import { UPDATE_PREFERENCES } from '../../../../utils/graphql/controlPanel/mutations';
 import { showAlert } from '../../globalPageHelpers';
 
 const locationCheckMethods = [
@@ -23,12 +25,12 @@ const locationCheckMethods = [
   { label: 'Code', id: 'CODE' }
 ];
 
-// Convert the MUI Autocomplete `value` (array of {label, id}) into the
-// two shapes we need: the server-side `psaSequences` payload (with
-// normalized 0..N-1 order + lastPlayed timestamp) and the UI's
-// `selectedPsaOptions` chips array. Exported for unit testing — the
-// PSA-list save-on-remove bug (#66) hinged on getting this shape
-// right and persisting it on every change, not only on blur.
+// Kept for backwards-compatible test coverage of the #66 chip-save
+// regression guard. The list-management UI itself moved to the
+// Sequences page → Special Roles tab in PSA-v2 PR-5, but the helper's
+// contract (array-shape, normalized order, stamped lastPlayed) is
+// still useful to keep pinned because the new tab uses the same shape
+// when it persists wholesale add/remove ops.
 export const buildPsaSequencesFromAutocompleteValue = (value) => {
   const safeValue = Array.isArray(value) ? value : [];
   const seqs = safeValue.map((psaSequence, index) => ({
@@ -48,16 +50,18 @@ const InteractionSettings = () => {
   const { show } = useSelector((state) => state.show);
 
   const [updatePreferencesMutation] = useMutation(UPDATE_PREFERENCES);
-  const [updatePsaSequencesMutation] = useMutation(UPDATE_PSA_SEQUENCES);
 
   // Auto-saved preference subset. Booleans + numbers + the IP list all
-  // funnel through useAutoSave; the PSA sequence list and detected
-  // geolocation stay on explicit click-actions because they're paired
-  // multi-field operations.
+  // funnel through useAutoSave; geolocation stays on explicit click-action
+  // because it's a paired multi-field operation. PSA list management
+  // moved to the Sequences page → Special Roles tab in PSA-v2 PR-5.
   const [values, setValues] = useState({
     psaEnabled: !!show?.preferences?.psaEnabled,
     managePsa: !!show?.preferences?.managePsa,
     psaFrequency: show?.preferences?.psaFrequency ?? 0,
+    // PSA-v2 PR-5 (Q4) — toggle next to PSA Frequency. False default
+    // preserves the existing single-PSA-per-tick rotation behavior.
+    playAllPsas: !!show?.preferences?.playAllPsas,
     locationCheckMethod: show?.preferences?.locationCheckMethod || LocationCheckMethod.NONE,
     allowedRadius: show?.preferences?.allowedRadius ?? 0,
     locationCode: show?.preferences?.locationCode ?? 0,
@@ -70,6 +74,7 @@ const InteractionSettings = () => {
       psaEnabled: !!show?.preferences?.psaEnabled,
       managePsa: !!show?.preferences?.managePsa,
       psaFrequency: show?.preferences?.psaFrequency ?? 0,
+      playAllPsas: !!show?.preferences?.playAllPsas,
       locationCheckMethod: show?.preferences?.locationCheckMethod || LocationCheckMethod.NONE,
       allowedRadius: show?.preferences?.allowedRadius ?? 0,
       locationCode: show?.preferences?.locationCode ?? 0,
@@ -80,26 +85,10 @@ const InteractionSettings = () => {
   }, [show?.preferences]);
 
   // Click-action state — not auto-saved.
-  const [psaOptions, setPsaOptions] = useState([]);
-  const [selectedPsaOptions, setSelectedPsaOptions] = useState([]);
   const [currentLatitude, setCurrentLatitude] = useState(0.0);
   const [currentLongitude, setCurrentLongitude] = useState(0.0);
 
   const checkViewerPresent = values.locationCheckMethod !== LocationCheckMethod.NONE;
-
-  const getPsaOptions = useCallback(() => {
-    const opts = [];
-    _.forEach(show?.sequences, (sequence) => {
-      opts.push({ label: sequence.name, id: sequence.name });
-    });
-    setPsaOptions(opts);
-  }, [show]);
-
-  const getSelectedPsaOptions = useCallback(() => {
-    const selected = [];
-    _.forEach(show?.psaSequences, (psa) => selected.push({ label: psa?.name, id: psa?.name }));
-    setSelectedPsaOptions(selected);
-  }, [show]);
 
   const refreshLocation = useCallback(() => {
     if ('geolocation' in navigator) {
@@ -113,10 +102,8 @@ const InteractionSettings = () => {
   }, [dispatch]);
 
   useEffect(() => {
-    getPsaOptions();
-    getSelectedPsaOptions();
     refreshLocation();
-  }, [getPsaOptions, getSelectedPsaOptions, refreshLocation]);
+  }, [refreshLocation]);
 
   const isValid = useCallback(
     () =>
@@ -152,27 +139,6 @@ const InteractionSettings = () => {
       ...prev,
       locationCheckMethod: value ? LocationCheckMethod.GEO : LocationCheckMethod.NONE
     }));
-  };
-
-  const handlePsaSequencesChange = (_event, value) => {
-    const { seqs, selected } = buildPsaSequencesFromAutocompleteValue(value);
-    setSelectedPsaOptions(selected);
-    // Persist on every change. Previously this only ran from
-    // Autocomplete's onBlur, which the chip X-button does not fire —
-    // removing a PSA looked like it stuck visually but did not save
-    // until the user clicked elsewhere (#66). Saving inline with the
-    // fresh `seqs` (not the not-yet-committed React state) also
-    // sidesteps a stale-state race on the next render.
-    savePsaSequencesService(seqs, updatePsaSequencesMutation, (response) => {
-      if (response?.success) {
-        // Preserve array shape in the Redux dispatch. The previous
-        // `{ ...psaSequences }` spread turned the array into an
-        // object keyed by index, which the next useEffect's lodash
-        // forEach iterated in unstable order.
-        dispatch(setShow({ ...show, psaSequences: [...seqs] }));
-      }
-      showAlert(dispatch, response?.toast);
-    });
   };
 
   const saveCustomLocation = () => {
@@ -273,39 +239,36 @@ const InteractionSettings = () => {
                 </Grid>
               </CardActions>
               <Divider />
-              <CardActions>
+              {/*
+                PSA-v2 PR-5 — the PSA list management UI (Autocomplete with
+                multi-select chips) moved to the Sequences page → Special
+                Roles tab. This redirect keeps the affordance discoverable
+                from the old location for existing users until everyone has
+                learned the new path. On ship-day a global admin bell
+                notification (PRD-002) announces the move, so the redirect
+                is the safety net rather than the primary path.
+              */}
+              <CardActions data-testid="psa-redirect">
                 <Grid container alignItems="center" justifyContent="space-between" spacing={2}>
                   <Grid item xs={12} md={6} lg={4} ml={2}>
                     <Stack direction="row" spacing={2} pb={1}>
                       <Typography variant="h4">PSA Sequences</Typography>
-                      <InfoTwoToneIcon
-                        onClick={() =>
-                          window.open(
-                            'https://docs.remotefalcon.com/docs/docs/control-panel/account/remote-falcon-settings#psa-sequences',
-                            '_blank',
-                            'noreferrer'
-                          )
-                        }
-                        fontSize="small"
-                      />
                     </Stack>
                     <Typography component="div" variant="caption">
-                      These are the PSA sequences you want to be played. Multiple sequences can be selected and will be played through in the
-                      order of selection.
+                      PSA management moved to the Sequences page. Add, remove, enable, and
+                      choose the next PSA to play from a single place.
                     </Typography>
                   </Grid>
                   <Grid item xs={12} md={6} lg={4}>
-                    <Autocomplete
-                      multiple
-                      disableCloseOnSelect
-                      filterSelectedOptions
-                      options={psaOptions}
-                      getOptionLabel={(psaSequence) => psaSequence.label}
-                      isOptionEqualToValue={(option, value) => option.id === value.id}
-                      value={selectedPsaOptions}
-                      renderInput={(params) => <TextField {...params} />}
-                      onChange={handlePsaSequencesChange}
-                    />
+                    <Button
+                      component={RouterLink}
+                      to="/control-panel/sequences/special-roles"
+                      variant="outlined"
+                      endIcon={<IconChevronRight size={16} />}
+                      data-testid="manage-psas-link"
+                    >
+                      Manage PSAs
+                    </Button>
                   </Grid>
                 </Grid>
               </CardActions>
@@ -337,6 +300,40 @@ const InteractionSettings = () => {
                       label="PSA Frequency"
                       value={Number.isFinite(values.psaFrequency) ? values.psaFrequency : ''}
                       onChange={(e) => setValues((prev) => ({ ...prev, psaFrequency: parseInt(e.target.value, 10) }))}
+                    />
+                  </Grid>
+                </Grid>
+              </CardActions>
+              <Divider />
+              {/*
+                PSA-v2 PR-5 (Q4) — "Play all PSAs at cadence" toggle. When
+                on, the cadence tick bursts ALL enabled PSAs in `order`
+                ascending instead of picking one round-robin. PR-2 owns
+                the burst implementation; this toggle just persists the
+                preference. Default false keeps the rotation behavior
+                unchanged on first deploy.
+              */}
+              <CardActions>
+                <Grid container alignItems="center" justifyContent="space-between" spacing={2}>
+                  <Grid item xs={12} md={6} lg={4} ml={2}>
+                    <Stack direction="row" spacing={2} pb={1}>
+                      <Typography variant="h4">Play all PSAs at cadence</Typography>
+                    </Stack>
+                    <Typography component="div" variant="caption">
+                      Burst every enabled PSA back-to-back at each cadence tick instead
+                      of rotating one at a time.
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} md={6} lg={4}>
+                    <Switch
+                      name="playAllPsas"
+                      color="primary"
+                      checked={values.playAllPsas}
+                      onChange={(_e, v) => setValues((prev) => ({ ...prev, playAllPsas: v }))}
+                      inputProps={{
+                        'aria-label': 'Play all PSAs at cadence',
+                        'data-testid': 'play-all-psas-toggle'
+                      }}
                     />
                   </Grid>
                 </Grid>
