@@ -1,7 +1,8 @@
+import { useMemo } from 'react';
 import * as React from 'react';
 
 import { useMutation } from '@apollo/client';
-import { Box, IconButton, Link as MuiLink, Stack, Tooltip, Typography } from '@mui/material';
+import { Box, Chip, IconButton, Link as MuiLink, Stack, Tooltip, Typography } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import { IconMusic, IconX } from '@tabler/icons-react';
 import _ from 'lodash';
@@ -33,6 +34,26 @@ const NowPlayingCard = () => {
   const [deleteAllRequestsMutation] = useMutation(DELETE_ALL_REQUESTS);
 
   const isJukebox = show?.preferences?.viewerControlMode === ViewerControlMode.JUKEBOX;
+
+  // PSA-v2: surface what *kind* of thing is playing right now. Operator
+  // looks at this widget for situational awareness; without a type tag,
+  // a PSA name and a song name look identical and you can't tell why
+  // the queue feels stuck or why a viewer is hearing what they're hearing.
+  // PSA and Leader are both operator-policy items (not viewer requests),
+  // so both deserve a distinct visual.
+  const playingNowLower = (stats.playingNow || '').toLowerCase();
+  const isPlayingPsa = useMemo(() => {
+    if (!playingNowLower || playingNowLower === '--') return false;
+    return (show?.psaSequences || []).some(
+      (p) => p?.name?.toLowerCase() === playingNowLower
+    );
+  }, [playingNowLower, show?.psaSequences]);
+  const isPlayingLeader = useMemo(() => {
+    if (!playingNowLower || playingNowLower === '--') return false;
+    const req = show?.requestLeaderSequence?.toLowerCase();
+    const vote = show?.voteLeaderSequence?.toLowerCase();
+    return playingNowLower === req || playingNowLower === vote;
+  }, [playingNowLower, show?.requestLeaderSequence, show?.voteLeaderSequence]);
 
   const deleteSingleRequest = (sequenceName, position) => {
     deleteSingleRequestMutation({
@@ -102,9 +123,29 @@ const NowPlayingCard = () => {
           <IconMusic size={28} stroke={1.5} />
         </Box>
         <Box sx={{ minWidth: 0, flex: 1 }}>
-          <Typography variant="subtitle1" sx={{ fontWeight: 600 }} noWrap>
-            {stats.playingNow}
-          </Typography>
+          <Stack direction="row" spacing={0.75} alignItems="center" sx={{ minWidth: 0 }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 600, minWidth: 0 }} noWrap>
+              {stats.playingNow}
+            </Typography>
+            {isPlayingPsa && (
+              <Chip
+                label="PSA"
+                size="small"
+                color="warning"
+                sx={{ height: 20, fontSize: 10, fontWeight: 700, letterSpacing: '0.04em', flexShrink: 0 }}
+                data-testid="now-playing-psa-chip"
+              />
+            )}
+            {isPlayingLeader && (
+              <Chip
+                label="Leader"
+                size="small"
+                color="info"
+                sx={{ height: 20, fontSize: 10, fontWeight: 700, letterSpacing: '0.04em', flexShrink: 0 }}
+                data-testid="now-playing-leader-chip"
+              />
+            )}
+          </Stack>
           <Typography variant="caption" sx={{ color: 'text.secondary' }} noWrap>
             Up next: {stats.playingNext}
           </Typography>
