@@ -385,53 +385,232 @@ public class PluginService {
     return PluginResponse.builder().currentPlaylist(request.getPlaylist()).build();
   }
 
+  /**
+   * PSA-v2 cadence-tick handler. Implements three design decisions in order:
+   *
+   * <ol>
+   *   <li><b>Q7 — operator-pick override</b>: if {@code Show.nextPsaOverride}
+   *       is set, fire that PSA out-of-band (does NOT tick the cadence
+   *       counter — Q4 cadence-counter fix already makes PSAs transparent to
+   *       sequencesPlayed). The field clears after firing (single-shot).
+   *       If the override target is missing/disabled/non-existent in FPP,
+   *       the field is still cleared (with a warning logged) so a broken
+   *       override doesn't get stuck.</li>
+   *   <li><b>Q4 — play-all PSAs burst</b>: at a cadence tick, when
+   *       {@code Preference.playAllPsas} is true, inject ALL enabled +
+   *       FPP-existent PSAs in {@code order} ascending. All share a single
+   *       {@code lastPlayed} timestamp. The Q7 override, if it fired in
+   *       step 1, runs BEFORE the burst (override first, then burst).</li>
+   *   <li><b>Q1 — round-robin pick</b>: default behavior. Pick the enabled,
+   *       FPP-existent PSA with min {@code lastPlayed} (null plays first),
+   *       tie-break by {@code order} ascending then by name. Inject it and
+   *       update {@code lastPlayed}.</li>
+   * </ol>
+   *
+   * <p><b>No-loop invariant</b>: PR-1 removed the {@code sequencesPlayed=0}
+   * reset on PSA. Back-to-back PSA prevention now relies on the existing
+   * {@code isPSAPlayingNow} guard (playingNow matching a PSA name). The
+   * guard runs before BOTH the override path and the cadence-tick path, so
+   * a PSA injected this tick cannot trigger another at the next tick while
+   * it's still playing.
+   *
+   * <p><b>Legacy null handling</b>: {@code playAllPsas} and
+   * {@code PsaSequence.enabled} are boxed Booleans with no default. Legacy
+   * shows have them null. {@code playAllPsas} null is treated as false
+   * ({@link Boolean#TRUE}{@code .equals(...)}); {@code enabled} null is
+   * treated as true (a PSA is enabled unless explicitly disabled).
+   */
   private void handleManagedPSA(int sequencesPlayed, Show show, Set<String> psaNamesLowerCase) {
     List<PsaSequence> psaSequences = show.getPsaSequences();
     if (CollectionUtils.isEmpty(psaSequences) || CollectionUtils.isEmpty(psaNamesLowerCase)) {
       return;
     }
-    if (sequencesPlayed == 0
-        || !show.getPreferences().getPsaEnabled()
-        || !show.getPreferences().getManagePsa()
-        || show.getPreferences().getPsaFrequency() == null
-        || show.getPreferences().getPsaFrequency() <= 0
-        || sequencesPlayed % show.getPreferences().getPsaFrequency() != 0) {
-      return;
-    }
 
-    Optional<PsaSequence> nextPsaSequence = psaSequences.stream()
-        .filter(Objects::nonNull)
-        .filter(psaSequence -> psaSequence.getLastPlayed() != null)
-        .filter(psaSequence -> psaSequence.getOrder() != null)
-        .min(Comparator.comparing(PsaSequence::getLastPlayed)
-            .thenComparing(PsaSequence::getOrder));
-
-    if (nextPsaSequence.isEmpty()) {
-      return;
-    }
-
+    // No-loop guard — refuses to fire a PSA while one is already playing.
+    // Same predicate is used by both the override path (Q7) and the
+    // cadence-tick path (Q1/Q4), so a PSA injected this tick cannot trigger
+    // another at the next tick while it's still in playingNow.
     boolean isPSAPlayingNow = StringUtils.isNotEmpty(show.getPlayingNow())
         && psaNamesLowerCase.contains(StringUtils.lowerCase(show.getPlayingNow()));
     if (isPSAPlayingNow) {
       return;
     }
 
-    Optional<Sequence> sequenceToAdd = Optional.empty();
-    if (CollectionUtils.isNotEmpty(show.getSequences())) {
-      sequenceToAdd = show.getSequences().stream()
-          .filter(sequence -> StringUtils.equalsIgnoreCase(sequence.getName(), nextPsaSequence.get().getName()))
+    // Step 1 — Q7 override check. Out-of-band: doesn't depend on the cadence
+    // window, doesn't tick sequencesPlayed (already transparent per PR-1).
+    boolean overrideFired = this.handlePsaOverride(show, psaSequences, psaNamesLowerCase);
+
+    // Step 2/3 are gated on the cadence window AND the managed-PSA toggles.
+    // The override above is intentionally NOT gated on these — operator
+    // intent is honored regardless of cadence state. Burst-with-override
+    // still requires the cadence window to elapse (per PRD §7 "Q4 burst
+    // interaction": override fires first AT the cadence boundary).
+    if (!show.getPreferences().getPsaEnabled()
+        || !show.getPreferences().getManagePsa()
+        || show.getPreferences().getPsaFrequency() == null
+        || show.getPreferences().getPsaFrequency() <= 0
+        || sequencesPlayed == 0
+        || sequencesPlayed % show.getPreferences().getPsaFrequency() != 0) {
+      return;
+    }
+
+    // Step 2 — Q4 burst. When playAllPsas is true, fire all enabled +
+    // FPP-existent PSAs in `order` ascending, sharing one timestamp.
+    if (Boolean.TRUE.equals(show.getPreferences().getPlayAllPsas())) {
+      this.handlePsaBurst(show, psaSequences, psaNamesLowerCase);
+      return;
+    }
+
+    // Step 3 — Q1 round-robin pick (default). Skip if the override already
+    // fired at this tick — operator's pick replaces the round-robin slot
+    // (PRD §7 Q7e). The override's lastPlayed update is enough; no need to
+    // also pick a round-robin PSA at the same tick.
+    if (overrideFired) {
+      return;
+    }
+    this.handlePsaRoundRobin(show, psaSequences, psaNamesLowerCase);
+  }
+
+  /**
+   * Q7 — fires the operator-picked override PSA if one is pending.
+   * Returns true if an override was processed (whether or not it was
+   * actually injected — a missing/disabled target still clears the field).
+   */
+  private boolean handlePsaOverride(Show show, List<PsaSequence> psaSequences, Set<String> psaNamesLowerCase) {
+    String overrideName = show.getNextPsaOverride();
+    if (StringUtils.isEmpty(overrideName)) {
+      return false;
+    }
+
+    Optional<PsaSequence> overridePsa = psaSequences.stream()
+        .filter(Objects::nonNull)
+        .filter(psa -> StringUtils.equalsIgnoreCase(psa.getName(), overrideName))
+        .findFirst();
+
+    boolean playable = overridePsa.isPresent()
+        && !Boolean.FALSE.equals(overridePsa.get().getEnabled())
+        && this.sequenceExistsInFPP(show, overridePsa.get().getName());
+
+    if (playable) {
+      Optional<Sequence> sequenceToAdd = show.getSequences().stream()
+          .filter(seq -> StringUtils.equalsIgnoreCase(seq.getName(), overridePsa.get().getName()))
           .findFirst();
+      if (sequenceToAdd.isPresent()) {
+        overridePsa.get().setLastPlayed(LocalDateTime.now());
+        this.injectPsa(show, sequenceToAdd.get(), psaNamesLowerCase);
+      } else {
+        // Defensive: sequenceExistsInFPP passed but stream lookup failed.
+        // Treat as missing — clear the override.
+        LOG.warnf("PSA-v2 override for showToken=%s: PSA '%s' resolved but sequence missing on lookup; clearing override.",
+            show.getShowToken(), overrideName);
+        playable = false;
+      }
+    } else {
+      LOG.warnf("PSA-v2 override for showToken=%s: target PSA '%s' missing, disabled, or has no matching FPP sequence; clearing override.",
+          show.getShowToken(), overrideName);
     }
 
-    int index = psaSequences.indexOf(nextPsaSequence.get());
-    if (index >= 0) {
-      psaSequences.get(index).setLastPlayed(LocalDateTime.now());
+    // Single-shot — clear regardless of success so a broken override
+    // doesn't stay pending.
+    show.setNextPsaOverride(null);
+    return playable;
+  }
+
+  /**
+   * Q4 — bursts all enabled + FPP-existent PSAs in `order` ascending,
+   * tie-breaking by name. All PSAs share the same `lastPlayed` timestamp.
+   */
+  private void handlePsaBurst(Show show, List<PsaSequence> psaSequences, Set<String> psaNamesLowerCase) {
+    LocalDateTime burstTimestamp = LocalDateTime.now();
+
+    List<PsaSequence> burst = psaSequences.stream()
+        .filter(Objects::nonNull)
+        .filter(psa -> !Boolean.FALSE.equals(psa.getEnabled()))
+        .filter(psa -> this.sequenceExistsInFPP(show, psa.getName()))
+        .sorted(Comparator
+            .comparing((PsaSequence p) -> p.getOrder() != null ? p.getOrder() : Integer.MAX_VALUE)
+            .thenComparing(p -> p.getName() != null ? p.getName() : ""))
+        .toList();
+
+    if (burst.isEmpty()) {
+      LOG.warnf("PSA-v2 burst for showToken=%s: no enabled PSAs match an FPP sequence; nothing to inject.",
+          show.getShowToken());
+      return;
     }
 
+    for (PsaSequence psa : burst) {
+      Optional<Sequence> sequenceToAdd = show.getSequences().stream()
+          .filter(seq -> StringUtils.equalsIgnoreCase(seq.getName(), psa.getName()))
+          .findFirst();
+      if (sequenceToAdd.isPresent()) {
+        psa.setLastPlayed(burstTimestamp);
+        this.injectPsa(show, sequenceToAdd.get(), psaNamesLowerCase);
+      }
+    }
+  }
+
+  /**
+   * Q1 — round-robin: pick the enabled + FPP-existent PSA with min
+   * {@code lastPlayed} (null plays first — treated as -infinity by sorting
+   * null-firsts), tie-break by {@code order} ascending then by name.
+   */
+  private void handlePsaRoundRobin(Show show, List<PsaSequence> psaSequences, Set<String> psaNamesLowerCase) {
+    Optional<PsaSequence> nextPsaSequence = psaSequences.stream()
+        .filter(Objects::nonNull)
+        .filter(psa -> !Boolean.FALSE.equals(psa.getEnabled()))
+        .filter(psa -> this.sequenceExistsInFPP(show, psa.getName()))
+        .min(Comparator
+            .comparing(PsaSequence::getLastPlayed, Comparator.nullsFirst(Comparator.naturalOrder()))
+            .thenComparing((PsaSequence p) -> p.getOrder() != null ? p.getOrder() : Integer.MAX_VALUE)
+            .thenComparing(p -> p.getName() != null ? p.getName() : ""));
+
+    if (nextPsaSequence.isEmpty()) {
+      LOG.warnf("PSA-v2 round-robin for showToken=%s: no enabled PSAs match an FPP sequence; nothing to inject.",
+          show.getShowToken());
+      return;
+    }
+
+    Optional<Sequence> sequenceToAdd = show.getSequences().stream()
+        .filter(seq -> StringUtils.equalsIgnoreCase(seq.getName(), nextPsaSequence.get().getName()))
+        .findFirst();
+    if (sequenceToAdd.isEmpty()) {
+      // sequenceExistsInFPP passed but stream lookup failed (e.g. case-only
+      // mismatch caught by case-insensitive compare). Skip rather than NPE.
+      return;
+    }
+
+    nextPsaSequence.get().setLastPlayed(LocalDateTime.now());
+    this.injectPsa(show, sequenceToAdd.get(), psaNamesLowerCase);
+  }
+
+  /**
+   * Returns true when {@code psaName} matches an active sequence on the
+   * show's FPP-synced sequence list (case-insensitive). Mirrors the existing
+   * pattern used elsewhere in this file (e.g. round-robin's
+   * {@code show.getSequences().stream()...equalsIgnoreCase}). The Show's
+   * sequences list is the FPP-synced source of truth — populated by
+   * {@link #syncPlaylists(SyncPlaylistRequest)} — so a name absent from it
+   * means the PSA references a sequence that no longer exists in FPP.
+   */
+  private boolean sequenceExistsInFPP(Show show, String psaName) {
+    if (StringUtils.isEmpty(psaName) || CollectionUtils.isEmpty(show.getSequences())) {
+      return false;
+    }
+    return show.getSequences().stream()
+        .filter(Objects::nonNull)
+        .anyMatch(seq -> StringUtils.equalsIgnoreCase(seq.getName(), psaName));
+  }
+
+  /**
+   * Mode-aware PSA injection — routes to the jukebox or voting helper based
+   * on viewer control mode. Centralizes the JUKEBOX vs VOTING branch so the
+   * override, burst, and round-robin paths all inject identically.
+   */
+  private void injectPsa(Show show, Sequence sequence, Set<String> psaNamesLowerCase) {
     if (show.getPreferences().getViewerControlMode() == ViewerControlMode.JUKEBOX) {
-      sequenceToAdd.ifPresent(sequence -> this.setPSASequenceRequest(show, sequence, psaNamesLowerCase));
+      this.setPSASequenceRequest(show, sequence, psaNamesLowerCase);
     } else if (show.getPreferences().getViewerControlMode() == ViewerControlMode.VOTING) {
-      sequenceToAdd.ifPresent(sequence -> this.setPSASequenceVote(show, sequence, psaNamesLowerCase));
+      this.setPSASequenceVote(show, sequence, psaNamesLowerCase);
     }
   }
 
