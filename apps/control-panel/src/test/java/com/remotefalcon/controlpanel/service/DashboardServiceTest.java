@@ -499,6 +499,124 @@ class DashboardServiceTest {
         assertThat(r.getPlayingNext()).isEqualTo("Sched Display");
     }
 
+    // ---- PSA-v2 PR-4: queue-depth + NEXT_PLAYLIST predicate rollout ----
+
+    @Test
+    void dashboardLiveStats_currentRequests_excludesPsaSequences() {
+        // PSA-v2 Q3: the operator's "current requests" tile must match the
+        // viewer-facing jukeboxDepth cap, which now excludes PSAs/leaders.
+        Show show = Show.builder().showToken(SHOW_TOKEN)
+                .requests(new ArrayList<>(List.of(
+                        Request.builder().position(1).sequence(Sequence.builder().name("PSA1").build()).build(),
+                        Request.builder().position(2).sequence(Sequence.builder().name("Song1").build()).build(),
+                        Request.builder().position(3).sequence(Sequence.builder().name("Song2").build()).build())))
+                .votes(new ArrayList<>())
+                .sequences(new ArrayList<>())
+                .psaSequences(new ArrayList<>(List.of(
+                        PsaSequence.builder().name("PSA1").build())))
+                .playingNow("")
+                .playingNext("")
+                .playingNextFromSchedule("")
+                .stats(Stat.builder().jukebox(new ArrayList<>()).voting(new ArrayList<>()).build())
+                .build();
+        stubAuth(SHOW_TOKEN);
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        DashboardLiveStatsResponse r = service.dashboardLiveStats(0L, 0L, TZ);
+        // PSA1 is excluded; 2 viewer requests counted.
+        assertThat(r.getCurrentRequests()).isEqualTo(2);
+    }
+
+    @Test
+    void dashboardLiveStats_currentRequests_excludesLeaderSequences() {
+        Show show = Show.builder().showToken(SHOW_TOKEN)
+                .requests(new ArrayList<>(List.of(
+                        Request.builder().position(1).sequence(Sequence.builder().name("ReqLeader").build()).build(),
+                        Request.builder().position(2).sequence(Sequence.builder().name("Song1").build()).build())))
+                .votes(new ArrayList<>())
+                .sequences(new ArrayList<>())
+                .psaSequences(new ArrayList<>())
+                .requestLeaderSequence("ReqLeader")
+                .playingNow("")
+                .playingNext("")
+                .playingNextFromSchedule("")
+                .stats(Stat.builder().jukebox(new ArrayList<>()).voting(new ArrayList<>()).build())
+                .build();
+        stubAuth(SHOW_TOKEN);
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        DashboardLiveStatsResponse r = service.dashboardLiveStats(0L, 0L, TZ);
+        assertThat(r.getCurrentRequests()).isEqualTo(1);
+    }
+
+    @Test
+    void dashboardLiveStats_playingNext_skipsPsaAtFront_ofRequestQueue() {
+        // PSA-v2 Q2: NEXT_PLAYLIST scans past non-song items.
+        Show show = Show.builder().showToken(SHOW_TOKEN)
+                .requests(new ArrayList<>(List.of(
+                        Request.builder().position(1).sequence(Sequence.builder().name("PSA1").displayName("PSA1").build()).build(),
+                        Request.builder().position(2).sequence(Sequence.builder().name("Song1").displayName("Song One").build()).build())))
+                .votes(new ArrayList<>())
+                .sequences(new ArrayList<>(List.of(
+                        Sequence.builder().name("Song1").displayName("Song One").build())))
+                .psaSequences(new ArrayList<>(List.of(PsaSequence.builder().name("PSA1").build())))
+                .playingNow("")
+                .playingNext("")
+                .playingNextFromSchedule("")
+                .stats(Stat.builder().jukebox(new ArrayList<>()).voting(new ArrayList<>()).build())
+                .build();
+        stubAuth(SHOW_TOKEN);
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        DashboardLiveStatsResponse r = service.dashboardLiveStats(0L, 0L, TZ);
+        assertThat(r.getPlayingNext()).isEqualTo("Song One");
+    }
+
+    @Test
+    void dashboardLiveStats_playingNext_emptyString_whenScheduleIsPsa() {
+        // PSA-v2 Q2 / #56: when FPP itself reports a PSA in
+        // playingNextFromSchedule, the dashboard must not surface the PSA name.
+        Show show = Show.builder().showToken(SHOW_TOKEN)
+                .requests(new ArrayList<>())
+                .votes(new ArrayList<>())
+                .sequences(new ArrayList<>(List.of(
+                        Sequence.builder().name("PSA1").displayName("PSA1 Display").build())))
+                .psaSequences(new ArrayList<>(List.of(PsaSequence.builder().name("PSA1").build())))
+                .playingNow("")
+                .playingNext("")
+                .playingNextFromSchedule("PSA1")
+                .stats(Stat.builder().jukebox(new ArrayList<>()).voting(new ArrayList<>()).build())
+                .build();
+        stubAuth(SHOW_TOKEN);
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        DashboardLiveStatsResponse r = service.dashboardLiveStats(0L, 0L, TZ);
+        // Empty rather than the PSA name — the operator dashboard sees what
+        // viewers see.
+        assertThat(r.getPlayingNext()).isEmpty();
+    }
+
+    @Test
+    void dashboardLiveStats_playingNext_emptyString_whenScheduleIsLeader() {
+        Show show = Show.builder().showToken(SHOW_TOKEN)
+                .requests(new ArrayList<>())
+                .votes(new ArrayList<>())
+                .sequences(new ArrayList<>(List.of(
+                        Sequence.builder().name("VoteLeader").displayName("Vote Leader").build())))
+                .psaSequences(new ArrayList<>())
+                .voteLeaderSequence("VoteLeader")
+                .playingNow("")
+                .playingNext("")
+                .playingNextFromSchedule("VoteLeader")
+                .stats(Stat.builder().jukebox(new ArrayList<>()).voting(new ArrayList<>()).build())
+                .build();
+        stubAuth(SHOW_TOKEN);
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        DashboardLiveStatsResponse r = service.dashboardLiveStats(0L, 0L, TZ);
+        assertThat(r.getPlayingNext()).isEmpty();
+    }
+
     // ---- downloadStatsToExcel ----
 
     @Test

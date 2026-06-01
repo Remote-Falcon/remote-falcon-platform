@@ -267,9 +267,15 @@ class GraphQLMutationServiceTest {
     @Test
     @DisplayName("Should throw QUEUE_FULL when queue depth reached and depth != 0")
     void shouldThrowQueueFull() {
+      // PSA-v2 Q3 — the queue-full check counts viewer-initiated requests
+      // only (helper filters out null sequences and PSA/leader names). Stub
+      // a real Sequence on the request so the helper sees it as song-like.
       Show show = mockShowWithPrefsAndCollections();
       when(show.getPreferences().getJukeboxDepth()).thenReturn(1);
       Request r = mock(Request.class);
+      Sequence seq = mock(Sequence.class);
+      when(seq.getName()).thenReturn("SomeSong");
+      when(r.getSequence()).thenReturn(seq);
       show.getRequests().add(r);
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
       assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "name", 0f, 0f, ""));
@@ -291,6 +297,132 @@ class GraphQLMutationServiceTest {
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
       // Pass valid coords (location check NONE by default in mock)
       assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "unknown", 0f, 0f, ""));
+    }
+
+    // ---- PSA-v2 PR-4 Q3 — countViewerRequests in isQueueFull ----
+
+    @Test
+    @DisplayName("PSA-v2 Q3: PSAs in queue do not count against jukeboxDepth (3 viewer + 2 PSAs, depth=5 → not full)")
+    void psaDoesNotConsumeCap() {
+      Show show = mockShowWithPrefsAndCollections();
+      when(show.getPreferences().getJukeboxDepth()).thenReturn(5);
+      when(show.getPsaSequences()).thenReturn(new ArrayList<>(List.of(
+          PsaSequence.builder().name("PSA1").build())));
+      // 3 viewer requests + 2 PSA requests = 5 total entries; viewer count = 3.
+      for (int i = 0; i < 3; i++) {
+        Request r = mock(Request.class);
+        Sequence seq = mock(Sequence.class);
+        when(seq.getName()).thenReturn("Song" + i);
+        when(r.getSequence()).thenReturn(seq);
+        show.getRequests().add(r);
+      }
+      for (int i = 0; i < 2; i++) {
+        Request r = mock(Request.class);
+        Sequence seq = mock(Sequence.class);
+        when(seq.getName()).thenReturn("PSA1");
+        when(r.getSequence()).thenReturn(seq);
+        show.getRequests().add(r);
+      }
+      when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
+
+      // Queue is NOT full → falls through to next validation. Since no
+      // sequences match name "unknown", it throws SEQUENCE_NOT_FOUND. The
+      // important thing is that QUEUE_FULL is NOT what gets thrown — verify
+      // by inspecting the message.
+      try {
+        service.addSequenceToQueue("sub", "unknown", 0f, 0f, "");
+        fail("expected exception");
+      } catch (CustomGraphQLExceptionResolver e) {
+        assertNotEquals("QUEUE_FULL", e.getMessage());
+      }
+    }
+
+    @Test
+    @DisplayName("PSA-v2 Q3: viewer requests at cap reject regardless of PSAs (5 viewer + 2 PSAs, depth=5 → full)")
+    void viewerCapStillEnforcedWithPsasPresent() {
+      Show show = mockShowWithPrefsAndCollections();
+      when(show.getPreferences().getJukeboxDepth()).thenReturn(5);
+      when(show.getPsaSequences()).thenReturn(new ArrayList<>(List.of(
+          PsaSequence.builder().name("PSA1").build())));
+      for (int i = 0; i < 5; i++) {
+        Request r = mock(Request.class);
+        Sequence seq = mock(Sequence.class);
+        when(seq.getName()).thenReturn("Song" + i);
+        when(r.getSequence()).thenReturn(seq);
+        show.getRequests().add(r);
+      }
+      for (int i = 0; i < 2; i++) {
+        Request r = mock(Request.class);
+        Sequence seq = mock(Sequence.class);
+        when(seq.getName()).thenReturn("PSA1");
+        when(r.getSequence()).thenReturn(seq);
+        show.getRequests().add(r);
+      }
+      when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
+
+      try {
+        service.addSequenceToQueue("sub", "name", 0f, 0f, "");
+        fail("expected exception");
+      } catch (CustomGraphQLExceptionResolver e) {
+        assertEquals("QUEUE_FULL", e.getMessage());
+      }
+    }
+
+    @Test
+    @DisplayName("PSA-v2 Q3: leader sequences also bypass the cap (5 viewer + 2 leaders, depth=5 → full)")
+    void leaderDoesNotConsumeCap() {
+      Show show = mockShowWithPrefsAndCollections();
+      when(show.getPreferences().getJukeboxDepth()).thenReturn(5);
+      when(show.getPsaSequences()).thenReturn(new ArrayList<>());
+      when(show.getRequestLeaderSequence()).thenReturn("ReqLeader");
+      // 5 viewer + 2 leaders = 7 total; viewer count = 5; cap reached.
+      for (int i = 0; i < 5; i++) {
+        Request r = mock(Request.class);
+        Sequence seq = mock(Sequence.class);
+        when(seq.getName()).thenReturn("Song" + i);
+        when(r.getSequence()).thenReturn(seq);
+        show.getRequests().add(r);
+      }
+      for (int i = 0; i < 2; i++) {
+        Request r = mock(Request.class);
+        Sequence seq = mock(Sequence.class);
+        when(seq.getName()).thenReturn("ReqLeader");
+        when(r.getSequence()).thenReturn(seq);
+        show.getRequests().add(r);
+      }
+      when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
+
+      try {
+        service.addSequenceToQueue("sub", "name", 0f, 0f, "");
+        fail("expected exception");
+      } catch (CustomGraphQLExceptionResolver e) {
+        assertEquals("QUEUE_FULL", e.getMessage());
+      }
+    }
+
+    @Test
+    @DisplayName("PSA-v2 Q3: jukeboxDepth=0 is never full (existing semantic preserved)")
+    void depthZeroNeverFull() {
+      Show show = mockShowWithPrefsAndCollections();
+      when(show.getPreferences().getJukeboxDepth()).thenReturn(0);
+      // Lots of requests, but depth=0 means unlimited.
+      for (int i = 0; i < 50; i++) {
+        Request r = mock(Request.class);
+        Sequence seq = mock(Sequence.class);
+        when(seq.getName()).thenReturn("Song" + i);
+        when(r.getSequence()).thenReturn(seq);
+        show.getRequests().add(r);
+      }
+      when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
+
+      // Should NOT throw QUEUE_FULL — falls through and throws because
+      // sequence not found.
+      try {
+        service.addSequenceToQueue("sub", "unknown", 0f, 0f, "");
+        fail("expected exception");
+      } catch (CustomGraphQLExceptionResolver e) {
+        assertNotEquals("QUEUE_FULL", e.getMessage());
+      }
     }
   }
 
