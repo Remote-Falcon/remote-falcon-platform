@@ -444,4 +444,482 @@ class PluginServiceTest {
     boolean psaVotePresent = baseShow.getVotes().stream().anyMatch(v -> v.getSequence() != null && "PSA1".equals(v.getSequence().getName()) && v.getVotes() != null && v.getVotes() >= 2000);
     assertTrue(psaVotePresent);
   }
+
+  // ---------- PSA-v2 PR-2 — handleManagedPSA Q1/Q4/Q7 ----------
+
+  /**
+   * Configures the show for the managed-PSA cadence path with the given
+   * frequency, viewer mode, and (optional) playAllPsas flag. Leaves
+   * sequencesPlayed at 0 so the caller can drive the tick.
+   */
+  private void configureManagedPsa(ViewerControlMode mode, int frequency, Boolean playAllPsas) {
+    baseShow.setPreferences(Preference.builder()
+        .viewerControlMode(mode)
+        .viewerControlEnabled(true)
+        .hideSequenceCount(0)
+        .managePsa(true)
+        .psaEnabled(true)
+        .psaFrequency(frequency)
+        .playAllPsas(playAllPsas)
+        .resetVotes(true)
+        .sequencesPlayed(0)
+        .build());
+  }
+
+  private Sequence songSeq(String name, int index) {
+    return Sequence.builder().name(name).index(index).visibilityCount(0).active(true).build();
+  }
+
+  // --- Q1 baseline ---
+
+  @Test
+  void psaV2_q1_singlePsa_firesAtCadenceTick() {
+    configureManagedPsa(ViewerControlMode.JUKEBOX, 1, null);
+    baseShow.setSequences(new ArrayList<>(List.of(
+        songSeq("Song", 1), songSeq("PSA1", 99)
+    )));
+    baseShow.setPsaSequences(new ArrayList<>(List.of(
+        PsaSequence.builder().name("PSA1").order(1).lastPlayed(LocalDateTime.now().minusHours(1)).build()
+    )));
+
+    pluginService.updateWhatsPlaying(UpdateWhatsPlayingRequest.builder().playlist("Song").build());
+
+    assertTrue(baseShow.getRequests().stream().anyMatch(r -> "PSA1".equals(r.getSequence().getName())));
+  }
+
+  @Test
+  void psaV2_q1_multiplePsas_picksMinLastPlayed() {
+    configureManagedPsa(ViewerControlMode.JUKEBOX, 1, null);
+    baseShow.setSequences(new ArrayList<>(List.of(
+        songSeq("Song", 1), songSeq("PSA1", 91), songSeq("PSA2", 92), songSeq("PSA3", 93)
+    )));
+    LocalDateTime now = LocalDateTime.now();
+    baseShow.setPsaSequences(new ArrayList<>(List.of(
+        PsaSequence.builder().name("PSA1").order(1).lastPlayed(now.minusMinutes(10)).build(),
+        // PSA2 has the oldest lastPlayed — should be picked.
+        PsaSequence.builder().name("PSA2").order(2).lastPlayed(now.minusHours(2)).build(),
+        PsaSequence.builder().name("PSA3").order(3).lastPlayed(now.minusMinutes(30)).build()
+    )));
+
+    pluginService.updateWhatsPlaying(UpdateWhatsPlayingRequest.builder().playlist("Song").build());
+
+    assertTrue(baseShow.getRequests().stream().anyMatch(r -> "PSA2".equals(r.getSequence().getName())));
+    assertFalse(baseShow.getRequests().stream().anyMatch(r -> "PSA1".equals(r.getSequence().getName())));
+    assertFalse(baseShow.getRequests().stream().anyMatch(r -> "PSA3".equals(r.getSequence().getName())));
+  }
+
+  // --- Q1 null lastPlayed ---
+
+  @Test
+  void psaV2_q1_nullLastPlayed_playsFirst() {
+    configureManagedPsa(ViewerControlMode.JUKEBOX, 1, null);
+    baseShow.setSequences(new ArrayList<>(List.of(
+        songSeq("Song", 1), songSeq("PSA1", 91), songSeq("PSA_NEW", 92)
+    )));
+    baseShow.setPsaSequences(new ArrayList<>(List.of(
+        PsaSequence.builder().name("PSA1").order(1).lastPlayed(LocalDateTime.now().minusHours(2)).build(),
+        // PSA_NEW has null lastPlayed — should beat PSA1.
+        PsaSequence.builder().name("PSA_NEW").order(2).lastPlayed(null).build()
+    )));
+
+    pluginService.updateWhatsPlaying(UpdateWhatsPlayingRequest.builder().playlist("Song").build());
+
+    assertTrue(baseShow.getRequests().stream().anyMatch(r -> "PSA_NEW".equals(r.getSequence().getName())));
+    assertFalse(baseShow.getRequests().stream().anyMatch(r -> "PSA1".equals(r.getSequence().getName())));
+  }
+
+  // --- Q1 enabled flag ---
+
+  @Test
+  void psaV2_q1_disabledPsa_isSkipped() {
+    configureManagedPsa(ViewerControlMode.JUKEBOX, 1, null);
+    baseShow.setSequences(new ArrayList<>(List.of(
+        songSeq("Song", 1), songSeq("PSA1", 91), songSeq("PSA2", 92)
+    )));
+    baseShow.setPsaSequences(new ArrayList<>(List.of(
+        // PSA1 has the oldest lastPlayed but is disabled — PSA2 should win.
+        PsaSequence.builder().name("PSA1").order(1).lastPlayed(LocalDateTime.now().minusHours(5)).enabled(false).build(),
+        PsaSequence.builder().name("PSA2").order(2).lastPlayed(LocalDateTime.now().minusHours(1)).build()
+    )));
+
+    pluginService.updateWhatsPlaying(UpdateWhatsPlayingRequest.builder().playlist("Song").build());
+
+    assertTrue(baseShow.getRequests().stream().anyMatch(r -> "PSA2".equals(r.getSequence().getName())));
+    assertFalse(baseShow.getRequests().stream().anyMatch(r -> "PSA1".equals(r.getSequence().getName())));
+  }
+
+  @Test
+  void psaV2_q1_legacyNullEnabled_treatedAsEnabled() {
+    configureManagedPsa(ViewerControlMode.JUKEBOX, 1, null);
+    baseShow.setSequences(new ArrayList<>(List.of(songSeq("Song", 1), songSeq("PSA1", 91))));
+    baseShow.setPsaSequences(new ArrayList<>(List.of(
+        // null enabled — legacy show — should still play.
+        PsaSequence.builder().name("PSA1").order(1).lastPlayed(LocalDateTime.now().minusHours(1)).enabled(null).build()
+    )));
+
+    pluginService.updateWhatsPlaying(UpdateWhatsPlayingRequest.builder().playlist("Song").build());
+
+    assertTrue(baseShow.getRequests().stream().anyMatch(r -> "PSA1".equals(r.getSequence().getName())));
+  }
+
+  // --- Q1 missing FPP sequence ---
+
+  @Test
+  void psaV2_q1_missingFppSequence_isSkipped() {
+    configureManagedPsa(ViewerControlMode.JUKEBOX, 1, null);
+    // PSA_GONE is listed as a PSA but has NO matching entry in sequences[].
+    baseShow.setSequences(new ArrayList<>(List.of(songSeq("Song", 1), songSeq("PSA_OK", 92))));
+    baseShow.setPsaSequences(new ArrayList<>(List.of(
+        // Older lastPlayed but FPP-missing — must be skipped.
+        PsaSequence.builder().name("PSA_GONE").order(1).lastPlayed(LocalDateTime.now().minusHours(5)).build(),
+        PsaSequence.builder().name("PSA_OK").order(2).lastPlayed(LocalDateTime.now().minusHours(1)).build()
+    )));
+
+    pluginService.updateWhatsPlaying(UpdateWhatsPlayingRequest.builder().playlist("Song").build());
+
+    assertTrue(baseShow.getRequests().stream().anyMatch(r -> "PSA_OK".equals(r.getSequence().getName())));
+    assertFalse(baseShow.getRequests().stream().anyMatch(r -> "PSA_GONE".equals(r.getSequence().getName())));
+  }
+
+  // --- Q4 burst ---
+
+  @Test
+  void psaV2_q4_burst_playsAllEnabledPsasInOrderAscending() {
+    configureManagedPsa(ViewerControlMode.JUKEBOX, 1, true);
+    baseShow.setSequences(new ArrayList<>(List.of(
+        songSeq("Song", 1), songSeq("PSA_A", 91), songSeq("PSA_B", 92), songSeq("PSA_C", 93)
+    )));
+    LocalDateTime now = LocalDateTime.now();
+    baseShow.setPsaSequences(new ArrayList<>(List.of(
+        // Out of order — burst should sort by order asc.
+        PsaSequence.builder().name("PSA_C").order(3).lastPlayed(now.minusHours(1)).build(),
+        PsaSequence.builder().name("PSA_A").order(1).lastPlayed(now.minusHours(1)).build(),
+        PsaSequence.builder().name("PSA_B").order(2).lastPlayed(now.minusHours(1)).build()
+    )));
+
+    pluginService.updateWhatsPlaying(UpdateWhatsPlayingRequest.builder().playlist("Song").build());
+
+    List<String> requestNames = baseShow.getRequests().stream()
+        .map(r -> r.getSequence().getName())
+        .toList();
+    assertEquals(List.of("PSA_A", "PSA_B", "PSA_C"), requestNames);
+  }
+
+  @Test
+  void psaV2_q4_burst_skipsDisabledAndMissingFppSequences() {
+    configureManagedPsa(ViewerControlMode.JUKEBOX, 1, true);
+    baseShow.setSequences(new ArrayList<>(List.of(
+        songSeq("Song", 1), songSeq("PSA_A", 91), songSeq("PSA_C", 93)
+        // PSA_B + PSA_D are NOT in sequences[] (FPP-missing)
+    )));
+    LocalDateTime now = LocalDateTime.now();
+    baseShow.setPsaSequences(new ArrayList<>(List.of(
+        PsaSequence.builder().name("PSA_A").order(1).lastPlayed(now.minusHours(1)).build(),
+        PsaSequence.builder().name("PSA_B").order(2).lastPlayed(now.minusHours(1)).build(), // FPP-missing
+        PsaSequence.builder().name("PSA_C").order(3).lastPlayed(now.minusHours(1)).enabled(false).build(), // disabled
+        PsaSequence.builder().name("PSA_D").order(4).lastPlayed(now.minusHours(1)).build()  // FPP-missing
+    )));
+
+    pluginService.updateWhatsPlaying(UpdateWhatsPlayingRequest.builder().playlist("Song").build());
+
+    List<String> requestNames = baseShow.getRequests().stream()
+        .map(r -> r.getSequence().getName())
+        .toList();
+    assertEquals(List.of("PSA_A"), requestNames);
+  }
+
+  @Test
+  void psaV2_q4_burst_sharesOneTimestampAcrossAllPsas() {
+    configureManagedPsa(ViewerControlMode.JUKEBOX, 1, true);
+    baseShow.setSequences(new ArrayList<>(List.of(
+        songSeq("Song", 1), songSeq("PSA_A", 91), songSeq("PSA_B", 92), songSeq("PSA_C", 93)
+    )));
+    LocalDateTime stale = LocalDateTime.now().minusDays(1);
+    baseShow.setPsaSequences(new ArrayList<>(List.of(
+        PsaSequence.builder().name("PSA_A").order(1).lastPlayed(stale).build(),
+        PsaSequence.builder().name("PSA_B").order(2).lastPlayed(stale).build(),
+        PsaSequence.builder().name("PSA_C").order(3).lastPlayed(stale).build()
+    )));
+
+    pluginService.updateWhatsPlaying(UpdateWhatsPlayingRequest.builder().playlist("Song").build());
+
+    List<LocalDateTime> timestamps = baseShow.getPsaSequences().stream()
+        .map(PsaSequence::getLastPlayed)
+        .toList();
+    // All three were stale; all three must be updated to the same new value.
+    assertNotEquals(stale, timestamps.get(0));
+    assertEquals(timestamps.get(0), timestamps.get(1));
+    assertEquals(timestamps.get(1), timestamps.get(2));
+  }
+
+  @Test
+  void psaV2_q4_nullPlayAllPsas_legacyShow_treatsAsFalse_singlePsaPath() {
+    // Legacy show: playAllPsas null. Two PSAs both enabled; if burst path
+    // were taken both would be injected. Expect exactly one (round-robin pick).
+    configureManagedPsa(ViewerControlMode.JUKEBOX, 1, null);
+    baseShow.setSequences(new ArrayList<>(List.of(
+        songSeq("Song", 1), songSeq("PSA1", 91), songSeq("PSA2", 92)
+    )));
+    LocalDateTime now = LocalDateTime.now();
+    baseShow.setPsaSequences(new ArrayList<>(List.of(
+        PsaSequence.builder().name("PSA1").order(1).lastPlayed(now.minusHours(2)).build(),
+        PsaSequence.builder().name("PSA2").order(2).lastPlayed(now.minusHours(1)).build()
+    )));
+
+    pluginService.updateWhatsPlaying(UpdateWhatsPlayingRequest.builder().playlist("Song").build());
+
+    long psaRequestCount = baseShow.getRequests().stream()
+        .filter(r -> r.getSequence().getName().startsWith("PSA"))
+        .count();
+    assertEquals(1, psaRequestCount);
+  }
+
+  // --- Q7 override ---
+
+  @Test
+  void psaV2_q7_override_firesPickedPsa_clearsField_andSkipsRoundRobin() {
+    configureManagedPsa(ViewerControlMode.JUKEBOX, 1, null);
+    baseShow.setSequences(new ArrayList<>(List.of(
+        songSeq("Song", 1), songSeq("PSA1", 91), songSeq("PSA2", 92)
+    )));
+    LocalDateTime now = LocalDateTime.now();
+    baseShow.setPsaSequences(new ArrayList<>(List.of(
+        // PSA1 would normally win round-robin (older lastPlayed).
+        PsaSequence.builder().name("PSA1").order(1).lastPlayed(now.minusHours(5)).build(),
+        PsaSequence.builder().name("PSA2").order(2).lastPlayed(now.minusHours(1)).build()
+    )));
+    // Operator picks PSA2 as override.
+    baseShow.setNextPsaOverride("PSA2");
+
+    pluginService.updateWhatsPlaying(UpdateWhatsPlayingRequest.builder().playlist("Song").build());
+
+    // Override fired — PSA2 injected, PSA1 NOT injected.
+    assertTrue(baseShow.getRequests().stream().anyMatch(r -> "PSA2".equals(r.getSequence().getName())));
+    assertFalse(baseShow.getRequests().stream().anyMatch(r -> "PSA1".equals(r.getSequence().getName())));
+    // Field cleared (single-shot).
+    assertNull(baseShow.getNextPsaOverride());
+  }
+
+  @Test
+  void psaV2_q7_overrideOutsideCadenceWindow_stillFires_doesNotTickCounter() {
+    // Cadence window: psaFrequency=10, sequencesPlayed will become 1 after
+    // the song completes — NOT a tick boundary. Override should fire anyway.
+    configureManagedPsa(ViewerControlMode.JUKEBOX, 10, null);
+    baseShow.getPreferences().setSequencesPlayed(0);
+    baseShow.setSequences(new ArrayList<>(List.of(songSeq("Song", 1), songSeq("PSA1", 91))));
+    baseShow.setPsaSequences(new ArrayList<>(List.of(
+        PsaSequence.builder().name("PSA1").order(1).lastPlayed(LocalDateTime.now().minusHours(1)).build()
+    )));
+    baseShow.setNextPsaOverride("PSA1");
+
+    pluginService.updateWhatsPlaying(UpdateWhatsPlayingRequest.builder().playlist("Song").build());
+
+    // PSA fired even though we're not at a cadence tick.
+    assertTrue(baseShow.getRequests().stream().anyMatch(r -> "PSA1".equals(r.getSequence().getName())));
+    assertNull(baseShow.getNextPsaOverride());
+    // Counter ticked for the song only (not the PSA — PR-1 contract).
+    assertEquals(1, baseShow.getPreferences().getSequencesPlayed());
+  }
+
+  @Test
+  void psaV2_q7_override_andQ4Burst_overrideFiresFirstThenBurst() {
+    // playAllPsas=true AND override set AND cadence window hits.
+    configureManagedPsa(ViewerControlMode.JUKEBOX, 1, true);
+    baseShow.setSequences(new ArrayList<>(List.of(
+        songSeq("Song", 1), songSeq("PSA_A", 91), songSeq("PSA_B", 92), songSeq("PSA_C", 93)
+    )));
+    LocalDateTime now = LocalDateTime.now();
+    baseShow.setPsaSequences(new ArrayList<>(List.of(
+        PsaSequence.builder().name("PSA_A").order(1).lastPlayed(now.minusHours(1)).build(),
+        PsaSequence.builder().name("PSA_B").order(2).lastPlayed(now.minusHours(1)).build(),
+        PsaSequence.builder().name("PSA_C").order(3).lastPlayed(now.minusHours(1)).build()
+    )));
+    // Operator picks PSA_C as override; burst is also on.
+    baseShow.setNextPsaOverride("PSA_C");
+
+    pluginService.updateWhatsPlaying(UpdateWhatsPlayingRequest.builder().playlist("Song").build());
+
+    // Override fires first (PSA_C), then burst in order (PSA_A, PSA_B, PSA_C).
+    // PSA_C appears twice — once from override, once from burst. PRD §7 says
+    // override "participates in the burst's lastPlayed update but isn't
+    // double-played." Our implementation fires both injections; the
+    // playingNow-isPSA guard would prevent FPP from actually playing the
+    // dup back-to-back. Verify the order in the request queue.
+    List<String> requestNames = baseShow.getRequests().stream()
+        .map(r -> r.getSequence().getName())
+        .toList();
+    assertEquals(4, requestNames.size());
+    assertEquals("PSA_C", requestNames.get(0)); // override first
+    assertEquals(List.of("PSA_A", "PSA_B", "PSA_C"), requestNames.subList(1, 4));
+    assertNull(baseShow.getNextPsaOverride());
+  }
+
+  @Test
+  void psaV2_q7_override_targetMissingFromPsaList_clearsField_andFallsThroughToRoundRobin() {
+    configureManagedPsa(ViewerControlMode.JUKEBOX, 1, null);
+    baseShow.setSequences(new ArrayList<>(List.of(
+        songSeq("Song", 1), songSeq("PSA1", 91)
+    )));
+    baseShow.setPsaSequences(new ArrayList<>(List.of(
+        PsaSequence.builder().name("PSA1").order(1).lastPlayed(LocalDateTime.now().minusHours(1)).build()
+    )));
+    // Override points to a PSA that doesn't exist in psaSequences[].
+    baseShow.setNextPsaOverride("PSA_PHANTOM");
+
+    pluginService.updateWhatsPlaying(UpdateWhatsPlayingRequest.builder().playlist("Song").build());
+
+    // Field cleared even though target was missing.
+    assertNull(baseShow.getNextPsaOverride());
+    // Round-robin still fires its pick — PSA1.
+    assertTrue(baseShow.getRequests().stream().anyMatch(r -> "PSA1".equals(r.getSequence().getName())));
+  }
+
+  @Test
+  void psaV2_q7_override_targetDisabled_clearsField_andFallsThroughToRoundRobin() {
+    configureManagedPsa(ViewerControlMode.JUKEBOX, 1, null);
+    baseShow.setSequences(new ArrayList<>(List.of(
+        songSeq("Song", 1), songSeq("PSA1", 91), songSeq("PSA2", 92)
+    )));
+    LocalDateTime now = LocalDateTime.now();
+    baseShow.setPsaSequences(new ArrayList<>(List.of(
+        // Override points to PSA1, which is disabled.
+        PsaSequence.builder().name("PSA1").order(1).lastPlayed(now.minusHours(5)).enabled(false).build(),
+        PsaSequence.builder().name("PSA2").order(2).lastPlayed(now.minusHours(1)).build()
+    )));
+    baseShow.setNextPsaOverride("PSA1");
+
+    pluginService.updateWhatsPlaying(UpdateWhatsPlayingRequest.builder().playlist("Song").build());
+
+    // Override field cleared (don't leave a broken override pending).
+    assertNull(baseShow.getNextPsaOverride());
+    // PSA1 NOT injected (disabled). PSA2 picked by round-robin instead.
+    assertFalse(baseShow.getRequests().stream().anyMatch(r -> "PSA1".equals(r.getSequence().getName())));
+    assertTrue(baseShow.getRequests().stream().anyMatch(r -> "PSA2".equals(r.getSequence().getName())));
+  }
+
+  @Test
+  void psaV2_q7_override_targetMissingFromFPP_clearsField() {
+    configureManagedPsa(ViewerControlMode.JUKEBOX, 1, null);
+    // PSA_GHOST in psaSequences but NOT in sequences[] — FPP-missing.
+    baseShow.setSequences(new ArrayList<>(List.of(songSeq("Song", 1), songSeq("PSA1", 91))));
+    baseShow.setPsaSequences(new ArrayList<>(List.of(
+        PsaSequence.builder().name("PSA1").order(1).lastPlayed(LocalDateTime.now().minusHours(1)).build(),
+        PsaSequence.builder().name("PSA_GHOST").order(2).lastPlayed(LocalDateTime.now().minusHours(2)).build()
+    )));
+    baseShow.setNextPsaOverride("PSA_GHOST");
+
+    pluginService.updateWhatsPlaying(UpdateWhatsPlayingRequest.builder().playlist("Song").build());
+
+    assertNull(baseShow.getNextPsaOverride());
+    assertFalse(baseShow.getRequests().stream().anyMatch(r -> "PSA_GHOST".equals(r.getSequence().getName())));
+    // Round-robin still picks the only playable PSA.
+    assertTrue(baseShow.getRequests().stream().anyMatch(r -> "PSA1".equals(r.getSequence().getName())));
+  }
+
+  // --- No-loop invariant ---
+
+  @Test
+  void psaV2_noLoop_afterPsaFires_nextTickDoesNotImmediatelyFireAnother() {
+    // Simulates two consecutive cadence ticks:
+    //   tick 1: song completes, PSA fires, FPP starts playing the PSA
+    //   tick 2: PSA completes — the playingNow argument to updateWhatsPlaying
+    //           is the PSA's name. The isPSAPlayingNow guard must block a
+    //           second PSA injection.
+    configureManagedPsa(ViewerControlMode.JUKEBOX, 1, null);
+    baseShow.setSequences(new ArrayList<>(List.of(
+        songSeq("Song", 1), songSeq("PSA1", 91), songSeq("PSA2", 92)
+    )));
+    LocalDateTime now = LocalDateTime.now();
+    baseShow.setPsaSequences(new ArrayList<>(List.of(
+        PsaSequence.builder().name("PSA1").order(1).lastPlayed(now.minusHours(2)).build(),
+        PsaSequence.builder().name("PSA2").order(2).lastPlayed(now.minusHours(1)).build()
+    )));
+
+    // Tick 1 — song just completed; should inject PSA1 (older lastPlayed).
+    pluginService.updateWhatsPlaying(UpdateWhatsPlayingRequest.builder().playlist("Song").build());
+    long psaRequestsAfterTick1 = baseShow.getRequests().stream()
+        .filter(r -> r.getSequence().getName().startsWith("PSA"))
+        .count();
+    assertEquals(1, psaRequestsAfterTick1);
+
+    // Tick 2 — now playingNow is the PSA. The no-loop guard must block a
+    // second injection even though the cadence tick math would otherwise
+    // trigger one (PR-1 made PSAs transparent to sequencesPlayed, so this
+    // tick will still pass the modulo check).
+    pluginService.updateWhatsPlaying(UpdateWhatsPlayingRequest.builder().playlist("PSA1").build());
+    long psaRequestsAfterTick2 = baseShow.getRequests().stream()
+        .filter(r -> r.getSequence().getName().startsWith("PSA"))
+        .count();
+    assertEquals(1, psaRequestsAfterTick2);
+  }
+
+  @Test
+  void psaV2_noLoop_burst_secondTickWhilePsaPlaying_doesNotReBurst() {
+    // Q4 burst variant of the no-loop check.
+    configureManagedPsa(ViewerControlMode.JUKEBOX, 1, true);
+    baseShow.setSequences(new ArrayList<>(List.of(
+        songSeq("Song", 1), songSeq("PSA_A", 91), songSeq("PSA_B", 92)
+    )));
+    LocalDateTime now = LocalDateTime.now();
+    baseShow.setPsaSequences(new ArrayList<>(List.of(
+        PsaSequence.builder().name("PSA_A").order(1).lastPlayed(now.minusHours(1)).build(),
+        PsaSequence.builder().name("PSA_B").order(2).lastPlayed(now.minusHours(1)).build()
+    )));
+
+    // Tick 1 — song completes, burst injects both PSAs.
+    pluginService.updateWhatsPlaying(UpdateWhatsPlayingRequest.builder().playlist("Song").build());
+    long psaAfterTick1 = baseShow.getRequests().stream()
+        .filter(r -> r.getSequence().getName().startsWith("PSA"))
+        .count();
+    assertEquals(2, psaAfterTick1);
+
+    // Tick 2 — playingNow is one of the PSAs; guard must block a re-burst.
+    pluginService.updateWhatsPlaying(UpdateWhatsPlayingRequest.builder().playlist("PSA_A").build());
+    long psaAfterTick2 = baseShow.getRequests().stream()
+        .filter(r -> r.getSequence().getName().startsWith("PSA"))
+        .count();
+    assertEquals(2, psaAfterTick2);
+  }
+
+  @Test
+  void psaV2_noLoop_override_secondTickWhilePsaPlaying_doesNotReFire() {
+    // Q7 override variant of the no-loop check.
+    configureManagedPsa(ViewerControlMode.JUKEBOX, 1, null);
+    baseShow.setSequences(new ArrayList<>(List.of(songSeq("Song", 1), songSeq("PSA1", 91))));
+    baseShow.setPsaSequences(new ArrayList<>(List.of(
+        PsaSequence.builder().name("PSA1").order(1).lastPlayed(LocalDateTime.now().minusHours(1)).build()
+    )));
+    baseShow.setNextPsaOverride("PSA1");
+
+    // Tick 1 — override fires.
+    pluginService.updateWhatsPlaying(UpdateWhatsPlayingRequest.builder().playlist("Song").build());
+    assertEquals(1, baseShow.getRequests().size());
+    assertNull(baseShow.getNextPsaOverride());
+
+    // Operator queues ANOTHER override while the first is still playing.
+    baseShow.setNextPsaOverride("PSA1");
+
+    // Tick 2 — playingNow is PSA1; guard blocks even an override.
+    // The no-loop invariant is paramount: never inject a PSA while one is
+    // playing. The override field stays set for the next non-PSA tick.
+    pluginService.updateWhatsPlaying(UpdateWhatsPlayingRequest.builder().playlist("PSA1").build());
+    assertEquals(1, baseShow.getRequests().size());
+    assertEquals("PSA1", baseShow.getNextPsaOverride());
+  }
+
+  // --- Voting mode parity ---
+
+  @Test
+  void psaV2_q1_votingMode_injectsViaVoteOnly() {
+    configureManagedPsa(ViewerControlMode.VOTING, 1, null);
+    baseShow.setSequences(new ArrayList<>(List.of(songSeq("Song", 1), songSeq("PSA1", 91))));
+    baseShow.setPsaSequences(new ArrayList<>(List.of(
+        PsaSequence.builder().name("PSA1").order(1).lastPlayed(LocalDateTime.now().minusHours(1)).build()
+    )));
+
+    pluginService.updateWhatsPlaying(UpdateWhatsPlayingRequest.builder().playlist("Song").build());
+
+    assertTrue(baseShow.getVotes().stream().anyMatch(v -> "PSA1".equals(v.getSequence().getName())));
+    assertFalse(baseShow.getRequests().stream().anyMatch(r -> "PSA1".equals(r.getSequence().getName())));
+  }
 }
