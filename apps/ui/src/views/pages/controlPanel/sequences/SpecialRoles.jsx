@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import * as React from 'react';
 
 import { useMutation } from '@apollo/client';
+import { DragDropContext, Draggable, Droppable } from '@hello-pangea/dnd';
 import {
   Autocomplete,
   Box,
@@ -23,7 +24,7 @@ import {
   Tooltip,
   Typography
 } from '@mui/material';
-import { IconChevronRight, IconPlayerPlay, IconPlus, IconTrash } from '@tabler/icons-react';
+import { IconChevronRight, IconGripVertical, IconPlayerPlay, IconPlus, IconTrash } from '@tabler/icons-react';
 import _ from 'lodash';
 import moment from 'moment/moment';
 
@@ -138,6 +139,32 @@ const SpecialRoles = () => {
       .filter((p) => p.name !== name)
       .map((p, idx) => ({ ...p, order: idx }));
     persistPsaSequences(next);
+  };
+
+  // Drag-to-reorder PSA list. Mirrors SequencesList.reorderSequences:
+  // optimistic Redux dispatch first so @hello-pangea/dnd's drop animation
+  // sees the new order before the save round-trip finishes (otherwise the
+  // dragged row snaps back to its origin then re-renders — visible flicker).
+  // On save failure the toast surfaces and a refresh resyncs from server.
+  const reorderPsas = (result) => {
+    if (!result.destination) return;
+    if (result.source.index === result.destination.index) return;
+    const updated = _.cloneDeep(psaSequences);
+    const [moved] = updated.splice(result.source.index, 1);
+    updated.splice(result.destination.index, 0, moved);
+    updated.forEach((p, i) => {
+      p.order = i;
+    });
+    dispatch(setShow({ ...show, psaSequences: [...updated] }));
+    setBusy(true);
+    savePsaSequencesService(updated, updatePsaSequencesMutation, (response) => {
+      if (!response?.success) {
+        showAlert(dispatch, response?.toast);
+      } else {
+        showAlert(dispatch, { message: 'PSA Order Updated' });
+      }
+      setBusy(false);
+    });
   };
 
   const handleToggleEnabled = (psa) => {
@@ -287,85 +314,119 @@ const SpecialRoles = () => {
             <Table size="small" data-testid="psa-table">
               <TableHead>
                 <TableRow>
+                  <TableCell sx={{ width: 28, p: 0 }} />
                   <TableCell>Name</TableCell>
-                  <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>Order</TableCell>
                   <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>Last Played</TableCell>
                   <TableCell align="center">Enabled</TableCell>
                   <TableCell align="right">Actions</TableCell>
                 </TableRow>
               </TableHead>
-              <TableBody>
-                {psaSequences.map((psa) => {
-                  const enabled = psa.enabled !== false; // null/undefined → enabled
-                  return (
-                    <TableRow key={psa.name} hover>
-                      <TableCell>
-                        <Typography variant="body2" fontWeight={500}>
-                          {psa.name}
-                        </Typography>
-                        <Typography
-                          variant="caption"
-                          color="text.secondary"
-                          sx={{ display: { xs: 'block', md: 'none' } }}
-                        >
-                          {formatLastPlayed(psa.lastPlayed)}
-                        </Typography>
-                      </TableCell>
-                      <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
-                        {psa.order ?? 0}
-                      </TableCell>
-                      <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
-                        {formatLastPlayed(psa.lastPlayed)}
-                      </TableCell>
-                      <TableCell align="center">
-                        <Switch
-                          checked={enabled}
-                          onChange={() => handleToggleEnabled(psa)}
-                          disabled={busy}
-                          inputProps={{
-                            'aria-label': `Enable ${psa.name}`,
-                            'data-testid': `psa-enabled-${psa.name}`
-                          }}
-                        />
-                      </TableCell>
-                      <TableCell align="right">
-                        <Stack direction="row" spacing={0.5} justifyContent="flex-end">
-                          <Tooltip title="Play this PSA next">
-                            <span>
-                              <IconButton
-                                color="primary"
-                                size="medium"
-                                disabled={busy}
-                                onClick={() => handlePlayNext(psa.name)}
-                                // 44px minimum hit area for phone use (Q7 mobile use case).
-                                sx={{ minWidth: 44, minHeight: 44 }}
-                                aria-label={`Play ${psa.name} next`}
-                                data-testid={`psa-play-next-${psa.name}`}
+              <DragDropContext onDragEnd={reorderPsas}>
+                <Droppable droppableId="psa-sequences" isDropDisabled={busy}>
+                  {(provided) => (
+                    <TableBody {...provided.droppableProps} ref={provided.innerRef}>
+                      {psaSequences.map((psa, index) => {
+                        const enabled = psa.enabled !== false; // null/undefined → enabled
+                        return (
+                          <Draggable
+                            key={psa.name}
+                            draggableId={psa.name}
+                            index={index}
+                            isDragDisabled={busy}
+                          >
+                            {(dragProvided) => (
+                              <TableRow
+                                ref={dragProvided.innerRef}
+                                {...dragProvided.draggableProps}
+                                hover
                               >
-                                <IconPlayerPlay size={18} />
-                              </IconButton>
-                            </span>
-                          </Tooltip>
-                          <Tooltip title="Remove from PSAs">
-                            <span>
-                              <IconButton
-                                color="error"
-                                size="medium"
-                                disabled={busy}
-                                onClick={() => handleRemovePsa(psa.name)}
-                                sx={{ minWidth: 44, minHeight: 44 }}
-                                aria-label={`Remove ${psa.name}`}
-                              >
-                                <IconTrash size={18} />
-                              </IconButton>
-                            </span>
-                          </Tooltip>
-                        </Stack>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
+                                <TableCell sx={{ width: 28, p: 0, color: 'text.disabled' }}>
+                                  <Tooltip title={busy ? 'Saving…' : 'Drag to reorder'}>
+                                    <Box
+                                      {...(!busy ? dragProvided.dragHandleProps : {})}
+                                      sx={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        height: '100%',
+                                        cursor: busy ? 'default' : 'grab',
+                                        opacity: busy ? 0.3 : 1
+                                      }}
+                                    >
+                                      <IconGripVertical size={14} />
+                                    </Box>
+                                  </Tooltip>
+                                </TableCell>
+                                <TableCell>
+                                  <Typography variant="body2" fontWeight={500}>
+                                    {psa.name}
+                                  </Typography>
+                                  <Typography
+                                    variant="caption"
+                                    color="text.secondary"
+                                    sx={{ display: { xs: 'block', md: 'none' } }}
+                                  >
+                                    {formatLastPlayed(psa.lastPlayed)}
+                                  </Typography>
+                                </TableCell>
+                                <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
+                                  {formatLastPlayed(psa.lastPlayed)}
+                                </TableCell>
+                                <TableCell align="center">
+                                  <Switch
+                                    checked={enabled}
+                                    onChange={() => handleToggleEnabled(psa)}
+                                    disabled={busy}
+                                    inputProps={{
+                                      'aria-label': `Enable ${psa.name}`,
+                                      'data-testid': `psa-enabled-${psa.name}`
+                                    }}
+                                  />
+                                </TableCell>
+                                <TableCell align="right">
+                                  <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+                                    <Tooltip title="Play this PSA next">
+                                      <span>
+                                        <IconButton
+                                          color="primary"
+                                          size="medium"
+                                          disabled={busy}
+                                          onClick={() => handlePlayNext(psa.name)}
+                                          // 44px minimum hit area for phone use (Q7 mobile use case).
+                                          sx={{ minWidth: 44, minHeight: 44 }}
+                                          aria-label={`Play ${psa.name} next`}
+                                          data-testid={`psa-play-next-${psa.name}`}
+                                        >
+                                          <IconPlayerPlay size={18} />
+                                        </IconButton>
+                                      </span>
+                                    </Tooltip>
+                                    <Tooltip title="Remove from PSAs">
+                                      <span>
+                                        <IconButton
+                                          color="error"
+                                          size="medium"
+                                          disabled={busy}
+                                          onClick={() => handleRemovePsa(psa.name)}
+                                          sx={{ minWidth: 44, minHeight: 44 }}
+                                          aria-label={`Remove ${psa.name}`}
+                                        >
+                                          <IconTrash size={18} />
+                                        </IconButton>
+                                      </span>
+                                    </Tooltip>
+                                  </Stack>
+                                </TableCell>
+                              </TableRow>
+                            )}
+                          </Draggable>
+                        );
+                      })}
+                      {provided.placeholder}
+                    </TableBody>
+                  )}
+                </Droppable>
+              </DragDropContext>
             </Table>
           </TableContainer>
         )}
