@@ -366,7 +366,10 @@ public class PluginService {
         show.getVotes().forEach(vote -> vote.setViewersVoted(new ArrayList<>()));
       }
 
-      // Atomic update for all the modified fields
+      // Atomic update for all the modified fields. nextPsaOverride is included
+      // because handlePsaOverride clears it in memory after consuming —
+      // without persisting that null, the pill on Special Roles would never
+      // disappear after FPP fires the override (PSA-v2 PR-2 smoke-test bug).
       Show.mongoCollection().updateOne(
           Filters.eq("showToken", show.getShowToken()),
           Updates.combine(
@@ -376,7 +379,8 @@ public class PluginService {
               Updates.set("sequenceGroups", sequenceGroups),
               Updates.set("psaSequences", show.getPsaSequences() != null ? show.getPsaSequences() : new ArrayList<>()),
               Updates.set("requests", show.getRequests() != null ? show.getRequests() : new ArrayList<>()),
-              Updates.set("votes", show.getVotes() != null ? show.getVotes() : new ArrayList<>())
+              Updates.set("votes", show.getVotes() != null ? show.getVotes() : new ArrayList<>()),
+              Updates.set("nextPsaOverride", show.getNextPsaOverride())
           )
       );
     } else {
