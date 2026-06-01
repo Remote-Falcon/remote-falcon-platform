@@ -156,6 +156,8 @@ class ShowSchemaRoundTripTest {
                 .hideSequenceCount(0)
                 .makeItSnow(false)
                 .managePsa(false)
+                // PSA-v2 PR-1 — `playAllPsas` added 2026-06-01.
+                .playAllPsas(false)
                 .sequencesPlayed(7)
                 .pageTitle("Test Show Page")
                 .pageIconUrl("https://example/icon.png")
@@ -190,6 +192,9 @@ class ShowSchemaRoundTripTest {
                 .name("psa-1")
                 .order(1)
                 .lastPlayed(FIXED_TIME)
+                // PSA-v2 PR-1 — `enabled` added 2026-06-01. Including it in
+                // the canonical fixture gives it round-trip coverage.
+                .enabled(true)
                 .build();
 
         ViewerPage viewerPage = ViewerPage.builder()
@@ -282,6 +287,11 @@ class ShowSchemaRoundTripTest {
                 .playingNextSequence(sequence)
                 .lastFppHeartbeat(FIXED_TIME)
                 .showNotifications(List.of(showNotification))
+                // PSA-v2 PR-1 — leader sequences (Q6) and operator-pick
+                // override (Q7) added 2026-06-01.
+                .requestLeaderSequence("leader-req-seq")
+                .voteLeaderSequence("leader-vote-seq")
+                .nextPsaOverride("psa-1")
                 // serviceToken intentionally left null -- it's @JsonIgnore'd
                 // and a non-null value would never round-trip cleanly.
                 .build();

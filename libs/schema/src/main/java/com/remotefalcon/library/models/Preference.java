@@ -34,6 +34,10 @@ public class Preference {
     private Integer hideSequenceCount;
     private Boolean makeItSnow;
     private Boolean managePsa;
+    // PSA-v2 Q4 — when true, the cadence-tick PSA injection bursts ALL enabled
+    // PSAs in `order` ascending instead of picking one round-robin. Default
+    // false preserves the existing single-PSA-per-tick behavior on first deploy.
+    private Boolean playAllPsas;
     private Integer sequencesPlayed;
     private String pageTitle;
     private String pageIconUrl;

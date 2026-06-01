@@ -76,6 +76,16 @@ public class Show {
 
     private List<ShowNotification> showNotifications;
 
+    // PSA-v2 Q6 — optional leader sequence played immediately before a
+    // viewer-requested song (jukebox mode). Null/empty = no leader.
+    private String requestLeaderSequence;
+    // PSA-v2 Q6 — optional leader sequence played immediately before a
+    // vote-winner song (voting mode). Null/empty = no leader.
+    private String voteLeaderSequence;
+    // PSA-v2 Q7 — operator-picked next PSA, fires once at the next sequence
+    // boundary (out-of-band from cadence) and then clears. Null = no override.
+    private String nextPsaOverride;
+
     @JsonIgnore
     private String serviceToken;
 }

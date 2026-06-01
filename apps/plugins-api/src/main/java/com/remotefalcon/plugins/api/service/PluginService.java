@@ -5,6 +5,7 @@ import com.mongodb.client.model.Updates;
 import com.remotefalcon.library.enums.ViewerControlMode;
 import com.remotefalcon.library.models.*;
 import com.remotefalcon.library.quarkus.entity.Show;
+import com.remotefalcon.library.util.PluginQueueHelper;
 import com.remotefalcon.plugins.api.context.ShowContext;
 import com.remotefalcon.plugins.api.model.*;
 
@@ -311,13 +312,13 @@ public class PluginService {
           .filter(sequence -> StringUtils.equalsIgnoreCase(sequence.getName(), request.getPlaylist()))
           .findFirst();
 
-      Optional<PsaSequence> psaSequence = psaSequences.stream()
-          .filter(psa -> StringUtils.equalsIgnoreCase(psa.getName(), request.getPlaylist()))
-          .findFirst();
-
-      if (psaSequence.isPresent()) {
-        sequencesPlayed = 0;
-      } else {
+      // PSA-v2 Q4 — PSAs are transparent to the cadence counter: do not
+      // increment (do not reset either). Songs increment as before. This
+      // makes psaFrequency=N honestly mean "every N songs."
+      // Observable behavior change: show owners with active PSAs and
+      // psaFrequency=N will see PSAs fire on a slightly different cadence
+      // than before (one slot less drift per PSA played).
+      if (!PluginQueueHelper.isPsaSequence(show, request.getPlaylist())) {
         sequencesPlayed++;
       }
 
