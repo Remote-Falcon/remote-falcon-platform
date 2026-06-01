@@ -16,5 +16,10 @@ public enum StatusResponse {
   OWNER_REQUESTED,
   NAUGHTY,
   PAGE_NOT_FOUND,
+  // PSA-v2 PR-5 — setNextPsaOverride / updatePsaEnabled raise this
+  // when the named PSA isn't present in Show.psaSequences[]. Surfacing
+  // a typed status (rather than UNEXPECTED_ERROR) lets the UI render
+  // a useful toast instead of the generic error fallback.
+  INVALID_PSA_NAME,
   UNEXPECTED_ERROR;
 }

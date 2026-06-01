@@ -442,6 +442,161 @@ class GraphQLMutationServiceTest {
         assertThat(show.getPsaSequences()).isEqualTo(psas);
     }
 
+    // ---- PSA-v2 PR-5 mutations: updatePsaEnabled / setNextPsaOverride /
+    //                            setRequestLeaderSequence / setVoteLeaderSequence
+
+    @Test
+    void updatePsaEnabled_flipsEnabledFlag_byName() {
+        stubAuth();
+        PsaSequence p1 = PsaSequence.builder().name("psa-1").enabled(true).build();
+        PsaSequence p2 = PsaSequence.builder().name("psa-2").enabled(true).build();
+        Show show = Show.builder().showToken(SHOW_TOKEN)
+                .psaSequences(new ArrayList<>(List.of(p1, p2)))
+                .build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        assertThat(service.updatePsaEnabled("psa-2", false)).isTrue();
+        // Only the matching row flips; the others are untouched.
+        assertThat(p1.getEnabled()).isTrue();
+        assertThat(p2.getEnabled()).isFalse();
+        verify(showRepository).save(show);
+    }
+
+    @Test
+    void updatePsaEnabled_rejects_whenNameNotInList() {
+        stubAuth();
+        Show show = Show.builder().showToken(SHOW_TOKEN)
+                .psaSequences(new ArrayList<>(List.of(
+                        PsaSequence.builder().name("psa-1").enabled(true).build())))
+                .build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        assertThatThrownBy(() -> service.updatePsaEnabled("not-a-real-psa", false))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage(StatusResponse.INVALID_PSA_NAME.name());
+        // Nothing saved on rejection — the operator should fix the input
+        // and try again.
+        verify(showRepository, never()).save(any(Show.class));
+    }
+
+    @Test
+    void updatePsaEnabled_rejects_whenPsaListNull() {
+        stubAuth();
+        // Pre-PR-1 documents may not have a psaSequences list at all.
+        Show show = Show.builder().showToken(SHOW_TOKEN).build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        assertThatThrownBy(() -> service.updatePsaEnabled("anything", true))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage(StatusResponse.INVALID_PSA_NAME.name());
+    }
+
+    @Test
+    void setNextPsaOverride_setsField_whenNameMatchesAPsa() {
+        stubAuth();
+        Show show = Show.builder().showToken(SHOW_TOKEN)
+                .psaSequences(new ArrayList<>(List.of(
+                        PsaSequence.builder().name("Donation").enabled(true).build())))
+                .build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        assertThat(service.setNextPsaOverride("Donation")).isTrue();
+        assertThat(show.getNextPsaOverride()).isEqualTo("Donation");
+        verify(showRepository).save(show);
+    }
+
+    @Test
+    void setNextPsaOverride_rejects_whenNameDoesNotMatchAnyPsa() {
+        stubAuth();
+        Show show = Show.builder().showToken(SHOW_TOKEN)
+                .psaSequences(new ArrayList<>(List.of(
+                        PsaSequence.builder().name("Donation").enabled(true).build())))
+                .build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        assertThatThrownBy(() -> service.setNextPsaOverride("Not a PSA"))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage(StatusResponse.INVALID_PSA_NAME.name());
+        // Field stays unset on rejection.
+        assertThat(show.getNextPsaOverride()).isNull();
+        verify(showRepository, never()).save(any(Show.class));
+    }
+
+    @Test
+    void setNextPsaOverride_clearsField_whenNameIsNull() {
+        stubAuth();
+        Show show = Show.builder().showToken(SHOW_TOKEN)
+                .nextPsaOverride("PreviouslySet")
+                .psaSequences(new ArrayList<>(List.of(
+                        PsaSequence.builder().name("Donation").enabled(true).build())))
+                .build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        assertThat(service.setNextPsaOverride(null)).isTrue();
+        assertThat(show.getNextPsaOverride()).isNull();
+        verify(showRepository).save(show);
+    }
+
+    @Test
+    void setNextPsaOverride_clearsField_whenNameIsBlank() {
+        stubAuth();
+        Show show = Show.builder().showToken(SHOW_TOKEN)
+                .nextPsaOverride("PreviouslySet")
+                .psaSequences(new ArrayList<>(List.of(
+                        PsaSequence.builder().name("Donation").enabled(true).build())))
+                .build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        assertThat(service.setNextPsaOverride("")).isTrue();
+        assertThat(show.getNextPsaOverride()).isNull();
+    }
+
+    @Test
+    void setRequestLeaderSequence_setsField_andClearsOnNull() {
+        stubAuth();
+        Show show = Show.builder().showToken(SHOW_TOKEN).build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        assertThat(service.setRequestLeaderSequence("Bumper Intro")).isTrue();
+        assertThat(show.getRequestLeaderSequence()).isEqualTo("Bumper Intro");
+
+        // Pass null to clear — service treats null/blank uniformly.
+        assertThat(service.setRequestLeaderSequence(null)).isTrue();
+        assertThat(show.getRequestLeaderSequence()).isNull();
+    }
+
+    @Test
+    void setVoteLeaderSequence_setsField_andClearsOnBlank() {
+        stubAuth();
+        Show show = Show.builder().showToken(SHOW_TOKEN).build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        assertThat(service.setVoteLeaderSequence("Vote Winner Bumper")).isTrue();
+        assertThat(show.getVoteLeaderSequence()).isEqualTo("Vote Winner Bumper");
+
+        assertThat(service.setVoteLeaderSequence("   ")).isTrue();
+        assertThat(show.getVoteLeaderSequence()).isNull();
+    }
+
+    @Test
+    void newMutations_throwUnexpected_whenShowMissing() {
+        stubAuth();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.updatePsaEnabled("x", true))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage(StatusResponse.UNEXPECTED_ERROR.name());
+        assertThatThrownBy(() -> service.setNextPsaOverride("x"))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage(StatusResponse.UNEXPECTED_ERROR.name());
+        assertThatThrownBy(() -> service.setRequestLeaderSequence("x"))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage(StatusResponse.UNEXPECTED_ERROR.name());
+        assertThatThrownBy(() -> service.setVoteLeaderSequence("x"))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage(StatusResponse.UNEXPECTED_ERROR.name());
+    }
+
     @Test
     void updateSequences_dedupesViaSet_andSaves() {
         stubAuth();

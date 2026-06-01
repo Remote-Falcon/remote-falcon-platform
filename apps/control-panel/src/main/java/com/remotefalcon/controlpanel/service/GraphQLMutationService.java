@@ -431,6 +431,90 @@ public class GraphQLMutationService {
         throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());
     }
 
+    // PSA-v2 PR-5 (Q1) — soft-enable/disable a PSA by name without
+    // touching its position in the list or the lastPlayed timestamp.
+    // Throws UNEXPECTED_ERROR if the show is missing; throws
+    // INVALID_PSA_NAME if the named PSA isn't present in
+    // psaSequences[] (UI is expected to keep the list in sync, so
+    // mismatch here means stale state worth surfacing as an error
+    // rather than silently no-op'ing).
+    public Boolean updatePsaEnabled(String name, Boolean enabled) {
+        Optional<Show> show = this.showRepository.findByShowToken(authUtil.getTokenDTO().getShowToken());
+        if(show.isEmpty()) {
+            throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());
+        }
+        List<PsaSequence> list = show.get().getPsaSequences();
+        if(list == null) {
+            throw new RuntimeException(StatusResponse.INVALID_PSA_NAME.name());
+        }
+        PsaSequence match = list.stream()
+                .filter(p -> p != null && StringUtils.equals(p.getName(), name))
+                .findFirst()
+                .orElse(null);
+        if(match == null) {
+            throw new RuntimeException(StatusResponse.INVALID_PSA_NAME.name());
+        }
+        match.setEnabled(enabled);
+        this.showRepository.save(show.get());
+        return true;
+    }
+
+    // PSA-v2 PR-5 (Q7) — operator pick of the next PSA. Single-shot
+    // override: PR-2 will read + clear it at the next sequence
+    // boundary. Pass null/empty to clear a pending override. A
+    // non-null/non-empty name MUST match a PSA in
+    // Show.psaSequences[]; otherwise reject so the operator sees a
+    // clear error rather than silently saving a name that will never
+    // fire.
+    public Boolean setNextPsaOverride(String name) {
+        Optional<Show> show = this.showRepository.findByShowToken(authUtil.getTokenDTO().getShowToken());
+        if(show.isEmpty()) {
+            throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());
+        }
+        if(StringUtils.isBlank(name)) {
+            show.get().setNextPsaOverride(null);
+            this.showRepository.save(show.get());
+            return true;
+        }
+        List<PsaSequence> list = show.get().getPsaSequences();
+        boolean exists = list != null && list.stream()
+                .anyMatch(p -> p != null && StringUtils.equals(p.getName(), name));
+        if(!exists) {
+            throw new RuntimeException(StatusResponse.INVALID_PSA_NAME.name());
+        }
+        show.get().setNextPsaOverride(name);
+        this.showRepository.save(show.get());
+        return true;
+    }
+
+    // PSA-v2 PR-5 (Q6) — leader sequence played right before each
+    // viewer-requested song. Null/empty clears the field. We don't
+    // validate that the name matches an FPP sequence today — the
+    // existing updatePsaSequences mutation also accepts arbitrary
+    // names, and PR-2's "skip-on-missing" predicate handles drift at
+    // selection time. Keep the validation surface consistent.
+    public Boolean setRequestLeaderSequence(String name) {
+        Optional<Show> show = this.showRepository.findByShowToken(authUtil.getTokenDTO().getShowToken());
+        if(show.isEmpty()) {
+            throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());
+        }
+        show.get().setRequestLeaderSequence(StringUtils.isBlank(name) ? null : name);
+        this.showRepository.save(show.get());
+        return true;
+    }
+
+    // PSA-v2 PR-5 (Q6) — leader sequence played right before each
+    // voting winner. Same shape as setRequestLeaderSequence.
+    public Boolean setVoteLeaderSequence(String name) {
+        Optional<Show> show = this.showRepository.findByShowToken(authUtil.getTokenDTO().getShowToken());
+        if(show.isEmpty()) {
+            throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());
+        }
+        show.get().setVoteLeaderSequence(StringUtils.isBlank(name) ? null : name);
+        this.showRepository.save(show.get());
+        return true;
+    }
+
     public Boolean updateSequences(List<Sequence> sequences) {
         Optional<Show> show = this.showRepository.findByShowToken(authUtil.getTokenDTO().getShowToken());
         if(show.isPresent()) {

@@ -96,6 +96,43 @@ export const UPDATE_PSA_SEQUENCES = gql`
   }
 `;
 
+// PSA-v2 PR-5 — Special Roles tab mutations.
+//
+// UPDATE_PSA_ENABLED (Q1) — flips the soft-disable flag on a single
+// PSA without rewriting the whole list. The Special Roles row Switch
+// posts straight to this so it stays snappy on a phone.
+//
+// SET_NEXT_PSA_OVERRIDE (Q7) — operator pick of the next PSA to play.
+// The override fires at the next sequence boundary and is single-shot
+// (the backend clears Show.nextPsaOverride after firing in PR-2). Pass
+// `null` (or omit the variable) to clear a pending override.
+//
+// SET_REQUEST_LEADER_SEQUENCE / SET_VOTE_LEADER_SEQUENCE (Q6) — leader
+// dropdowns on the Special Roles tab. Pass `null` to clear.
+export const UPDATE_PSA_ENABLED = gql`
+  mutation ($name: String!, $enabled: Boolean!) @api(name: controlPanel) {
+    updatePsaEnabled(name: $name, enabled: $enabled)
+  }
+`;
+
+export const SET_NEXT_PSA_OVERRIDE = gql`
+  mutation ($name: String) @api(name: controlPanel) {
+    setNextPsaOverride(name: $name)
+  }
+`;
+
+export const SET_REQUEST_LEADER_SEQUENCE = gql`
+  mutation ($name: String) @api(name: controlPanel) {
+    setRequestLeaderSequence(name: $name)
+  }
+`;
+
+export const SET_VOTE_LEADER_SEQUENCE = gql`
+  mutation ($name: String) @api(name: controlPanel) {
+    setVoteLeaderSequence(name: $name)
+  }
+`;
+
 export const UPDATE_SEQUENCES = gql`
   mutation ($sequences: [SequenceInput]!) @api(name: controlPanel) {
     updateSequences(sequences: $sequences)

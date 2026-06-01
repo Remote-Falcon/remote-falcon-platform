@@ -121,6 +121,38 @@ public class GraphQLController {
         return this.graphQLMutationService.updatePsaSequences(psaSequences);
     }
 
+    // PSA-v2 PR-5 (Q1) — per-PSA enabled toggle. Targeted mutation
+    // instead of a wholesale updatePsaSequences write because the
+    // Special Roles tab toggles a single row at a time.
+    @MutationMapping
+    @RequiresAccess
+    public Boolean updatePsaEnabled(@Argument String name, @Argument Boolean enabled) {
+        return this.graphQLMutationService.updatePsaEnabled(name, enabled);
+    }
+
+    // PSA-v2 PR-5 (Q7) — operator pick of the next PSA. Null/empty
+    // clears the pending override.
+    @MutationMapping
+    @RequiresAccess
+    public Boolean setNextPsaOverride(@Argument String name) {
+        return this.graphQLMutationService.setNextPsaOverride(name);
+    }
+
+    // PSA-v2 PR-5 (Q6) — leader sequence dropdowns on the Special
+    // Roles tab. Each leader has its own mutation so the UI can save
+    // the two fields independently without re-sending the other.
+    @MutationMapping
+    @RequiresAccess
+    public Boolean setRequestLeaderSequence(@Argument String name) {
+        return this.graphQLMutationService.setRequestLeaderSequence(name);
+    }
+
+    @MutationMapping
+    @RequiresAccess
+    public Boolean setVoteLeaderSequence(@Argument String name) {
+        return this.graphQLMutationService.setVoteLeaderSequence(name);
+    }
+
     @MutationMapping
     @RequiresAccess
     public Boolean updateSequences(@Argument List<Sequence> sequences) {
