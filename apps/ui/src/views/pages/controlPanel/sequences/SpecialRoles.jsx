@@ -1,7 +1,7 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import * as React from 'react';
 
-import { useMutation } from '@apollo/client';
+import { useLazyQuery, useMutation } from '@apollo/client';
 import { DragDropContext, Draggable, Droppable } from '@hello-pangea/dnd';
 import {
   Autocomplete,
@@ -46,6 +46,7 @@ import {
   UPDATE_PSA_ENABLED,
   UPDATE_PSA_SEQUENCES
 } from '../../../../utils/graphql/controlPanel/mutations';
+import { GET_SHOW } from '../../../../utils/graphql/controlPanel/queries';
 import { showAlert } from '../../globalPageHelpers';
 
 // PSA-v2 PR-5 — "Special Roles" tab on the Sequences page. Houses PSAs
@@ -78,6 +79,15 @@ const SpecialRoles = () => {
   const [setRequestLeaderSequenceMutation] = useMutation(SET_REQUEST_LEADER_SEQUENCE);
   const [setVoteLeaderSequenceMutation] = useMutation(SET_VOTE_LEADER_SEQUENCE);
 
+  // Refetch the show so the Q7 "Next override" pill clears soon after FPP
+  // consumes the override server-side. The plugin path's atomic update in
+  // PluginService.updateWhatsPlaying persists nextPsaOverride = null when
+  // handlePsaOverride fires; we just need to surface that on the client.
+  // onCompleted is passed at call time (not as a hook option) to match the
+  // pattern used elsewhere — Apollo warns about onCompleted in useLazyQuery
+  // when it's set at hook construction.
+  const [refetchShowQuery] = useLazyQuery(GET_SHOW, { fetchPolicy: 'network-only' });
+
   const [busy, setBusy] = useState(false);
   const [addPsaName, setAddPsaName] = useState(null);
 
@@ -86,6 +96,24 @@ const SpecialRoles = () => {
   const requestLeader = show?.requestLeaderSequence || '';
   const voteLeader = show?.voteLeaderSequence || '';
   const nextOverride = show?.nextPsaOverride || '';
+
+  // Poll for the override clearing while one is pending. FPP consumes the
+  // override at its next sequence boundary; without polling, the operator
+  // would see a stale pill until they manually refreshed. 10s is fast
+  // enough to feel responsive and slow enough to be cheap.
+  useEffect(() => {
+    if (!nextOverride) return undefined;
+    const id = setInterval(() => {
+      refetchShowQuery({
+        onCompleted: (data) => {
+          if (data?.getShow) {
+            dispatch(setShow(data.getShow));
+          }
+        }
+      });
+    }, 10000);
+    return () => clearInterval(id);
+  }, [nextOverride, refetchShowQuery, dispatch]);
 
   // FPP sequence list — both PSAs and leaders pick from this.
   const sequenceOptions = useMemo(
