@@ -159,13 +159,22 @@ public class GraphQLMutationService {
       if (requestedSequence.isPresent()) {
         this.checkIfSequenceRequested(show.get(), requestedSequence.get());
 
+        // PSA-v2 PR-3 (Q6): leader sequence injection. If the show has a
+        // requestLeaderSequence configured and the named sequence exists in
+        // the FPP-synced sequence list, inject it at the lower position so
+        // the existing min-position dequeue plays the leader first, then
+        // the viewer's request. Leader is marked viewerRequested="LEADER"
+        // to mirror the PSA marker pattern. Same null/empty/missing-target
+        // handling as PSAs: silently fall through if leader can't play.
+        Optional<Sequence> leaderSequence = this.resolveRequestLeaderSequence(show.get());
+
         // Build request and stat
         long nextPosition = this.showRepository.nextRequestPosition(existingShow);
         Request request = Request.builder()
             .sequence(requestedSequence.get())
             .ownerRequested(false)
             .viewerRequested(StringUtils.isEmpty(clientIp) ? "" : clientIp)
-            .position(Math.toIntExact(nextPosition))
+            .position(Math.toIntExact(leaderSequence.isPresent() ? nextPosition + 1 : nextPosition))
             .build();
         Stat.Jukebox jukeboxStat = Stat.Jukebox.builder()
             .dateTime(LocalDateTime.now())
@@ -173,8 +182,21 @@ public class GraphQLMutationService {
             .viewerId(viewerId)
             .build();
 
-        // Batched write: single DB call for both request and stat
-        this.showRepository.appendRequestAndJukeboxStat(showSubdomain, request, jukeboxStat);
+        if (leaderSequence.isPresent()) {
+          // Leader gets the lower position so min-position dequeue plays it first.
+          Request leaderRequest = Request.builder()
+              .sequence(leaderSequence.get())
+              .ownerRequested(false)
+              .viewerRequested("LEADER")
+              .position(Math.toIntExact(nextPosition))
+              .build();
+          // Batched write: single DB call for both rows + the (viewer-named) stat.
+          this.showRepository.appendMultipleRequestsAndJukeboxStat(
+              showSubdomain, List.of(leaderRequest, request), jukeboxStat);
+        } else {
+          // Batched write: single DB call for both request and stat
+          this.showRepository.appendRequestAndJukeboxStat(showSubdomain, request, jukeboxStat);
+        }
 
         // Bump session window so the request counts toward dwell tracking
         try {
@@ -187,6 +209,12 @@ public class GraphQLMutationService {
         if (show.get().getRequests() == null) {
           show.get().setRequests(new ArrayList<>());
         }
+        leaderSequence.ifPresent(seq -> show.get().getRequests().add(Request.builder()
+            .sequence(seq)
+            .ownerRequested(false)
+            .viewerRequested("LEADER")
+            .position(Math.toIntExact(nextPosition))
+            .build()));
         show.get().getRequests().add(request);
 
         // Handle PSA if needed (calculate inline without re-fetching)
@@ -444,6 +472,28 @@ public class GraphQLMutationService {
       show.setRequests(new ArrayList<>());
     }
     show.getRequests().add(request);
+  }
+
+  /**
+   * PSA-v2 PR-3 (Q6): resolves the configured request-leader sequence to a
+   * playable {@link Sequence}. Returns empty when:
+   * <ul>
+   *   <li>the show has no {@code requestLeaderSequence} configured
+   *       (null or blank — admin cleared the field), or</li>
+   *   <li>the configured name doesn't match any sequence in
+   *       {@code show.getSequences()} (FPP-synced source of truth) — same
+   *       silent-skip semantics PSAs use when their target sequence is missing
+   *       from FPP.</li>
+   * </ul>
+   */
+  private Optional<Sequence> resolveRequestLeaderSequence(Show show) {
+    String leaderName = show.getRequestLeaderSequence();
+    if (StringUtils.isBlank(leaderName) || CollectionUtils.isEmpty(show.getSequences())) {
+      return Optional.empty();
+    }
+    return show.getSequences().stream()
+        .filter(seq -> StringUtils.equalsIgnoreCase(seq.getName(), leaderName))
+        .findFirst();
   }
 
   private void handlePsaForJukeboxInline(String showSubdomain, Show show, int requestsMadeToday) {

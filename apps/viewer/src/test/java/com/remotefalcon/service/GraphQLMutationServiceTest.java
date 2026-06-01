@@ -571,6 +571,186 @@ class GraphQLMutationServiceTest {
     }
   }
 
+  /**
+   * PSA-v2 PR-3 (Q6) — request-leader sequence injection on the jukebox path.
+   * When {@code Show.requestLeaderSequence} resolves to a real sequence in
+   * {@code show.getSequences()}, the leader is injected at the position
+   * immediately before the viewer's request so the existing min-position
+   * dequeue plays the leader first.
+   */
+  @Nested
+  @DisplayName("addSequenceToQueue leader injection (PSA-v2 PR-3, Q6)")
+  class AddSequenceToQueueLeaderInjectionTests {
+
+    @Test
+    @DisplayName("requestLeaderSequence set: leader injected at lower position, request at +1; batched write used")
+    void leaderInjectedBeforeRequest() {
+      Show show = mockShowWithPrefsAndCollections();
+      when(show.getRequestLeaderSequence()).thenReturn("Leader-Seq");
+
+      Sequence requested = mock(Sequence.class);
+      when(requested.getName()).thenReturn("song-a");
+      when(requested.getDisplayName()).thenReturn("Song A");
+      Sequence leader = mock(Sequence.class);
+      when(leader.getName()).thenReturn("Leader-Seq");
+      show.getSequences().add(requested);
+      show.getSequences().add(leader);
+
+      when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
+      when(showRepository.nextRequestPosition(show)).thenReturn(1L);
+
+      Boolean result = service.addSequenceToQueue("sub", "song-a", 0f, 0f, "");
+      assertTrue(result);
+
+      // Verify the batched write was used with leader at position 1 and the
+      // viewer's request at position 2 (leader plays first via min-position
+      // dequeue). The leader is marked viewerRequested="LEADER" so it isn't
+      // mistaken for a real viewer request.
+      verify(showRepository).appendMultipleRequestsAndJukeboxStat(eq("sub"), argThat(reqs ->
+          reqs.size() == 2
+              && "Leader-Seq".equals(reqs.get(0).getSequence().getName())
+              && reqs.get(0).getPosition() == 1
+              && "LEADER".equals(reqs.get(0).getViewerRequested())
+              && "song-a".equals(reqs.get(1).getSequence().getName())
+              && reqs.get(1).getPosition() == 2
+              && "1.2.3.4".equals(reqs.get(1).getViewerRequested())
+      ), argThat(stat -> "song-a".equals(stat.getName())));
+
+      // The single-row path must NOT be used when a leader fired.
+      verify(showRepository, never()).appendRequestAndJukeboxStat(anyString(), any(), any());
+    }
+
+    @Test
+    @DisplayName("requestLeaderSequence null: no leader injected; existing single-row path used")
+    void noLeaderWhenFieldNull() {
+      Show show = mockShowWithPrefsAndCollections();
+      when(show.getRequestLeaderSequence()).thenReturn(null);
+
+      Sequence requested = mock(Sequence.class);
+      when(requested.getName()).thenReturn("song-a");
+      when(requested.getDisplayName()).thenReturn("Song A");
+      show.getSequences().add(requested);
+
+      when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
+      when(showRepository.nextRequestPosition(show)).thenReturn(1L);
+
+      Boolean result = service.addSequenceToQueue("sub", "song-a", 0f, 0f, "");
+      assertTrue(result);
+
+      verify(showRepository).appendRequestAndJukeboxStat(eq("sub"), argThat(req ->
+          req.getPosition() == 1 && "1.2.3.4".equals(req.getViewerRequested())
+      ), any());
+      verify(showRepository, never()).appendMultipleRequestsAndJukeboxStat(anyString(), any(), any());
+    }
+
+    @Test
+    @DisplayName("requestLeaderSequence empty string: treated as no leader (admin cleared the field)")
+    void noLeaderWhenFieldEmpty() {
+      Show show = mockShowWithPrefsAndCollections();
+      when(show.getRequestLeaderSequence()).thenReturn("");
+
+      Sequence requested = mock(Sequence.class);
+      when(requested.getName()).thenReturn("song-a");
+      when(requested.getDisplayName()).thenReturn("Song A");
+      show.getSequences().add(requested);
+
+      when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
+      when(showRepository.nextRequestPosition(show)).thenReturn(1L);
+
+      Boolean result = service.addSequenceToQueue("sub", "song-a", 0f, 0f, "");
+      assertTrue(result);
+
+      verify(showRepository).appendRequestAndJukeboxStat(eq("sub"), any(), any());
+      verify(showRepository, never()).appendMultipleRequestsAndJukeboxStat(anyString(), any(), any());
+    }
+
+    @Test
+    @DisplayName("requestLeaderSequence set but missing from sequences: silently skipped (no leader injected)")
+    void noLeaderWhenSequenceMissingFromFpp() {
+      Show show = mockShowWithPrefsAndCollections();
+      when(show.getRequestLeaderSequence()).thenReturn("Leader-Seq");
+
+      // Only the requested sequence is present; the configured leader is NOT
+      // in show.getSequences() (e.g., admin renamed/deleted in FPP).
+      Sequence requested = mock(Sequence.class);
+      when(requested.getName()).thenReturn("song-a");
+      when(requested.getDisplayName()).thenReturn("Song A");
+      show.getSequences().add(requested);
+
+      when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
+      when(showRepository.nextRequestPosition(show)).thenReturn(1L);
+
+      Boolean result = service.addSequenceToQueue("sub", "song-a", 0f, 0f, "");
+      assertTrue(result);
+
+      verify(showRepository).appendRequestAndJukeboxStat(eq("sub"), any(), any());
+      verify(showRepository, never()).appendMultipleRequestsAndJukeboxStat(anyString(), any(), any());
+    }
+
+    @Test
+    @DisplayName("voteLeaderSequence set on same show does NOT fire on jukebox path")
+    void voteLeaderDoesNotFireOnJukeboxPath() {
+      // The two leader fields are independent — voteLeaderSequence is only
+      // consulted in the vote-winner promotion path (plugins-api). Setting
+      // it on this side should have no effect on jukebox requests.
+      Show show = mockShowWithPrefsAndCollections();
+      when(show.getRequestLeaderSequence()).thenReturn(null);
+      when(show.getVoteLeaderSequence()).thenReturn("Vote-Leader");
+
+      Sequence requested = mock(Sequence.class);
+      when(requested.getName()).thenReturn("song-a");
+      when(requested.getDisplayName()).thenReturn("Song A");
+      Sequence voteLeader = mock(Sequence.class);
+      when(voteLeader.getName()).thenReturn("Vote-Leader");
+      show.getSequences().add(requested);
+      show.getSequences().add(voteLeader);
+
+      when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
+      when(showRepository.nextRequestPosition(show)).thenReturn(1L);
+
+      Boolean result = service.addSequenceToQueue("sub", "song-a", 0f, 0f, "");
+      assertTrue(result);
+
+      verify(showRepository).appendRequestAndJukeboxStat(eq("sub"), argThat(req ->
+          req.getPosition() == 1
+      ), any());
+      verify(showRepository, never()).appendMultipleRequestsAndJukeboxStat(anyString(), any(), any());
+    }
+
+    @Test
+    @DisplayName("Same value in both leader fields: jukebox uses requestLeaderSequence (shared leader behavior)")
+    void sameLeaderInBothFieldsWorks() {
+      // Admin convention: set the same name for "🎵 You picked this!" applied
+      // to both request and vote triggers. The jukebox path only reads
+      // requestLeaderSequence, so this must still inject normally.
+      Show show = mockShowWithPrefsAndCollections();
+      when(show.getRequestLeaderSequence()).thenReturn("Shared-Leader");
+      when(show.getVoteLeaderSequence()).thenReturn("Shared-Leader");
+
+      Sequence requested = mock(Sequence.class);
+      when(requested.getName()).thenReturn("song-a");
+      when(requested.getDisplayName()).thenReturn("Song A");
+      Sequence shared = mock(Sequence.class);
+      when(shared.getName()).thenReturn("Shared-Leader");
+      show.getSequences().add(requested);
+      show.getSequences().add(shared);
+
+      when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
+      when(showRepository.nextRequestPosition(show)).thenReturn(5L);
+
+      Boolean result = service.addSequenceToQueue("sub", "song-a", 0f, 0f, "");
+      assertTrue(result);
+
+      verify(showRepository).appendMultipleRequestsAndJukeboxStat(eq("sub"), argThat(reqs ->
+          reqs.size() == 2
+              && "Shared-Leader".equals(reqs.get(0).getSequence().getName())
+              && reqs.get(0).getPosition() == 5
+              && "song-a".equals(reqs.get(1).getSequence().getName())
+              && reqs.get(1).getPosition() == 6
+      ), any());
+    }
+  }
+
   @Nested
   @DisplayName("voteForSequence success paths")
   class VoteForSequenceSuccessTests {

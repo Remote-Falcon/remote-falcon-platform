@@ -672,6 +672,45 @@ public class PluginService {
           }
         }
 
+        // PSA-v2 PR-3 (Q6): voting-mode leader injection. When the show has a
+        // voteLeaderSequence configured and the name resolves to a real
+        // sequence in show.getSequences(), play the leader THIS cycle and
+        // re-queue the actual winner with a high vote count so it wins NEXT
+        // cycle. votes=2001 beats the PSA injection above (2000) and any
+        // genuine viewer vote, so the order is guaranteed: leader now, then
+        // winner, then any PSA. Skip when the winner is itself a PSA (don't
+        // gild operator-policy interstitials) or when the configured leader
+        // name matches the winning sequence (would create a no-op loop).
+        Optional<Sequence> leaderSequence = this.resolveVoteLeaderSequence(show);
+        if (leaderSequence.isPresent()
+            && !winningSequenceIsPSA
+            && !StringUtils.equalsIgnoreCase(leaderSequence.get().getName(), actualSequence.get().getName())) {
+          show.getVotes().add(Vote.builder()
+              .sequence(actualSequence.get())
+              .ownerVoted(false)
+              .lastVoteTime(LocalDateTime.now())
+              .votes(2001)
+              .build());
+
+          // Atomic update for all changes
+          Show.mongoCollection().updateOne(
+              Filters.eq("showToken", show.getShowToken()),
+              Updates.combine(
+                  Updates.set("votes", show.getVotes()),
+                  Updates.set("stats.votingWin", show.getStats().getVotingWin()),
+                  Updates.set("sequences", show.getSequences()),
+                  Updates.set("psaSequences", show.getPsaSequences())
+              )
+          );
+
+          // Return the leader as this cycle's winner. The actual winner is
+          // queued above and will be returned by the next call.
+          return HighestVotedPlaylistResponse.builder()
+              .winningPlaylist(leaderSequence.get().getName())
+              .playlistIndex(leaderSequence.get().getIndex())
+              .build();
+        }
+
         // Atomic update for all changes
         Show.mongoCollection().updateOne(
             Filters.eq("showToken", show.getShowToken()),
@@ -691,6 +730,25 @@ public class PluginService {
       }
     }
     return null;
+  }
+
+  /**
+   * PSA-v2 PR-3 (Q6): resolves the configured vote-leader sequence to a
+   * playable {@link Sequence}. Returns empty when the show has no
+   * {@code voteLeaderSequence} (null or blank — admin cleared the field), or
+   * when the configured name doesn't match any sequence in
+   * {@code show.getSequences()} (FPP-synced source of truth). Same
+   * silent-skip semantics PSAs use when their target sequence is missing.
+   */
+  private Optional<Sequence> resolveVoteLeaderSequence(Show show) {
+    String leaderName = show.getVoteLeaderSequence();
+    if (StringUtils.isBlank(leaderName) || CollectionUtils.isEmpty(show.getSequences())) {
+      return Optional.empty();
+    }
+    return show.getSequences().stream()
+        .filter(Objects::nonNull)
+        .filter(seq -> StringUtils.equalsIgnoreCase(seq.getName(), leaderName))
+        .findFirst();
   }
 
   // V18 — when the reported plugin/FPP version differs from what's stored,
