@@ -922,4 +922,202 @@ class PluginServiceTest {
     assertTrue(baseShow.getVotes().stream().anyMatch(v -> "PSA1".equals(v.getSequence().getName())));
     assertFalse(baseShow.getRequests().stream().anyMatch(r -> "PSA1".equals(r.getSequence().getName())));
   }
+
+  // ---------- PSA-v2 PR-3 (Q6) — vote-leader sequence injection ----------
+  //
+  // When Show.voteLeaderSequence resolves to a real sequence in
+  // show.getSequences(), the leader plays THIS cycle and the actual winner
+  // is re-queued with votes=2001 so it wins the NEXT cycle. The 2001
+  // priority beats both the PSA injection (2000) and any genuine viewer
+  // vote, guaranteeing the order: leader now → winner next → PSA after.
+
+  @Test
+  void highestVotedPlaylist_voteLeaderSet_returnsLeader_andRequeuesWinner() {
+    baseShow.getPreferences().setHideSequenceCount(0);
+    baseShow.getPreferences().setResetVotes(true);
+    baseShow.setStats(Stat.builder().votingWin(new ArrayList<>()).build());
+
+    Sequence winner = Sequence.builder().name("WIN").index(5).build();
+    Sequence leader = Sequence.builder().name("Leader-Vote").index(77).build();
+    baseShow.setSequences(new ArrayList<>(List.of(winner, leader)));
+    baseShow.setVoteLeaderSequence("Leader-Vote");
+    baseShow.setVotes(new ArrayList<>(List.of(
+        Vote.builder().sequence(winner).votes(10).lastVoteTime(LocalDateTime.now()).ownerVoted(false).build()
+    )));
+
+    HighestVotedPlaylistResponse resp = pluginService.highestVotedPlaylist();
+    assertEquals("Leader-Vote", resp.getWinningPlaylist());
+    assertEquals(77, resp.getPlaylistIndex());
+
+    // Winner must be re-queued with the leader-priority vote (2001) so it
+    // wins the next cycle.
+    boolean winnerRequeued = baseShow.getVotes().stream().anyMatch(v ->
+        v.getSequence() != null
+            && "WIN".equals(v.getSequence().getName())
+            && v.getVotes() != null
+            && v.getVotes() == 2001
+    );
+    assertTrue(winnerRequeued, "Winner should be re-queued with votes=2001");
+  }
+
+  @Test
+  void highestVotedPlaylist_voteLeaderNull_returnsWinner_noLeader() {
+    baseShow.getPreferences().setHideSequenceCount(0);
+    baseShow.getPreferences().setResetVotes(true);
+    baseShow.setStats(Stat.builder().votingWin(new ArrayList<>()).build());
+
+    Sequence winner = Sequence.builder().name("WIN").index(5).build();
+    baseShow.setSequences(new ArrayList<>(List.of(winner)));
+    baseShow.setVoteLeaderSequence(null);
+    baseShow.setVotes(new ArrayList<>(List.of(
+        Vote.builder().sequence(winner).votes(10).lastVoteTime(LocalDateTime.now()).ownerVoted(false).build()
+    )));
+
+    HighestVotedPlaylistResponse resp = pluginService.highestVotedPlaylist();
+    assertEquals("WIN", resp.getWinningPlaylist());
+
+    // No 2001-priority re-queue when the leader didn't fire.
+    boolean anyHighPriority = baseShow.getVotes().stream().anyMatch(v ->
+        v.getVotes() != null && v.getVotes() >= 2001
+    );
+    assertFalse(anyHighPriority);
+  }
+
+  @Test
+  void highestVotedPlaylist_voteLeaderEmpty_returnsWinner_noLeader() {
+    // Empty string is meaningful — admin cleared the field. Same treatment
+    // as null (no leader fires).
+    baseShow.getPreferences().setHideSequenceCount(0);
+    baseShow.getPreferences().setResetVotes(true);
+    baseShow.setStats(Stat.builder().votingWin(new ArrayList<>()).build());
+
+    Sequence winner = Sequence.builder().name("WIN").index(5).build();
+    baseShow.setSequences(new ArrayList<>(List.of(winner)));
+    baseShow.setVoteLeaderSequence("");
+    baseShow.setVotes(new ArrayList<>(List.of(
+        Vote.builder().sequence(winner).votes(10).lastVoteTime(LocalDateTime.now()).ownerVoted(false).build()
+    )));
+
+    HighestVotedPlaylistResponse resp = pluginService.highestVotedPlaylist();
+    assertEquals("WIN", resp.getWinningPlaylist());
+  }
+
+  @Test
+  void highestVotedPlaylist_voteLeaderConfiguredButMissingFromFpp_returnsWinner() {
+    // Configured leader name doesn't match any sequence in
+    // show.getSequences() (FPP-synced). Silently skip — same behavior PSAs
+    // use when their target sequence is missing.
+    baseShow.getPreferences().setHideSequenceCount(0);
+    baseShow.getPreferences().setResetVotes(true);
+    baseShow.setStats(Stat.builder().votingWin(new ArrayList<>()).build());
+
+    Sequence winner = Sequence.builder().name("WIN").index(5).build();
+    baseShow.setSequences(new ArrayList<>(List.of(winner)));
+    baseShow.setVoteLeaderSequence("Missing-From-FPP");
+    baseShow.setVotes(new ArrayList<>(List.of(
+        Vote.builder().sequence(winner).votes(10).lastVoteTime(LocalDateTime.now()).ownerVoted(false).build()
+    )));
+
+    HighestVotedPlaylistResponse resp = pluginService.highestVotedPlaylist();
+    assertEquals("WIN", resp.getWinningPlaylist());
+  }
+
+  @Test
+  void highestVotedPlaylist_voteLeaderSet_winnerIsPSA_doesNotFireLeader() {
+    // Don't gild operator-policy interstitials: when the winning vote is
+    // itself a PSA (e.g., from upstream PSA-vote injection), the leader
+    // should not fire ahead of it.
+    baseShow.getPreferences().setHideSequenceCount(0);
+    baseShow.getPreferences().setResetVotes(true);
+    baseShow.getPreferences().setPsaEnabled(false);
+    baseShow.setStats(Stat.builder().votingWin(new ArrayList<>()).build());
+
+    Sequence psa = Sequence.builder().name("PSA1").index(99).build();
+    Sequence leader = Sequence.builder().name("Leader-Vote").index(77).build();
+    baseShow.setSequences(new ArrayList<>(List.of(psa, leader)));
+    baseShow.setPsaSequences(new ArrayList<>(List.of(
+        PsaSequence.builder().name("PSA1").order(1).lastPlayed(LocalDateTime.now().minusHours(1)).build()
+    )));
+    baseShow.setVoteLeaderSequence("Leader-Vote");
+    baseShow.setVotes(new ArrayList<>(List.of(
+        Vote.builder().sequence(psa).votes(2000).lastVoteTime(LocalDateTime.now()).ownerVoted(false).build()
+    )));
+
+    HighestVotedPlaylistResponse resp = pluginService.highestVotedPlaylist();
+    assertEquals("PSA1", resp.getWinningPlaylist());
+  }
+
+  @Test
+  void highestVotedPlaylist_bothLeaderFieldsSet_voteSideUsesVoteLeader() {
+    // Both requestLeaderSequence and voteLeaderSequence are set with
+    // DIFFERENT names. The voting path must read voteLeaderSequence only.
+    baseShow.getPreferences().setHideSequenceCount(0);
+    baseShow.getPreferences().setResetVotes(true);
+    baseShow.setStats(Stat.builder().votingWin(new ArrayList<>()).build());
+
+    Sequence winner = Sequence.builder().name("WIN").index(5).build();
+    Sequence reqLeader = Sequence.builder().name("Leader-Req").index(66).build();
+    Sequence voteLeader = Sequence.builder().name("Leader-Vote").index(77).build();
+    baseShow.setSequences(new ArrayList<>(List.of(winner, reqLeader, voteLeader)));
+    baseShow.setRequestLeaderSequence("Leader-Req");
+    baseShow.setVoteLeaderSequence("Leader-Vote");
+    baseShow.setVotes(new ArrayList<>(List.of(
+        Vote.builder().sequence(winner).votes(10).lastVoteTime(LocalDateTime.now()).ownerVoted(false).build()
+    )));
+
+    HighestVotedPlaylistResponse resp = pluginService.highestVotedPlaylist();
+    assertEquals("Leader-Vote", resp.getWinningPlaylist());
+    assertEquals(77, resp.getPlaylistIndex());
+  }
+
+  @Test
+  void highestVotedPlaylist_sameLeaderInBothFields_voteSideStillFires() {
+    // Admin convention: same leader name in both request and vote fields
+    // for shared behavior. The voting path must still fire normally.
+    baseShow.getPreferences().setHideSequenceCount(0);
+    baseShow.getPreferences().setResetVotes(true);
+    baseShow.setStats(Stat.builder().votingWin(new ArrayList<>()).build());
+
+    Sequence winner = Sequence.builder().name("WIN").index(5).build();
+    Sequence shared = Sequence.builder().name("Shared-Leader").index(88).build();
+    baseShow.setSequences(new ArrayList<>(List.of(winner, shared)));
+    baseShow.setRequestLeaderSequence("Shared-Leader");
+    baseShow.setVoteLeaderSequence("Shared-Leader");
+    baseShow.setVotes(new ArrayList<>(List.of(
+        Vote.builder().sequence(winner).votes(10).lastVoteTime(LocalDateTime.now()).ownerVoted(false).build()
+    )));
+
+    HighestVotedPlaylistResponse resp = pluginService.highestVotedPlaylist();
+    assertEquals("Shared-Leader", resp.getWinningPlaylist());
+    assertEquals(88, resp.getPlaylistIndex());
+
+    boolean winnerRequeued = baseShow.getVotes().stream().anyMatch(v ->
+        v.getSequence() != null
+            && "WIN".equals(v.getSequence().getName())
+            && v.getVotes() != null
+            && v.getVotes() == 2001
+    );
+    assertTrue(winnerRequeued);
+  }
+
+  @Test
+  void highestVotedPlaylist_leaderNameMatchesWinnerName_doesNotLoop() {
+    // Defensive: if admin somehow configures voteLeaderSequence to the same
+    // name as the winning sequence (e.g., picked a sequence that itself is
+    // a "Leader-Vote" type), the injection would create a no-op infinite
+    // loop. Skip in that case and return the winner.
+    baseShow.getPreferences().setHideSequenceCount(0);
+    baseShow.getPreferences().setResetVotes(true);
+    baseShow.setStats(Stat.builder().votingWin(new ArrayList<>()).build());
+
+    Sequence winner = Sequence.builder().name("Same-Name").index(5).build();
+    baseShow.setSequences(new ArrayList<>(List.of(winner)));
+    baseShow.setVoteLeaderSequence("Same-Name");
+    baseShow.setVotes(new ArrayList<>(List.of(
+        Vote.builder().sequence(winner).votes(10).lastVoteTime(LocalDateTime.now()).ownerVoted(false).build()
+    )));
+
+    HighestVotedPlaylistResponse resp = pluginService.highestVotedPlaylist();
+    assertEquals("Same-Name", resp.getWinningPlaylist());
+  }
 }
