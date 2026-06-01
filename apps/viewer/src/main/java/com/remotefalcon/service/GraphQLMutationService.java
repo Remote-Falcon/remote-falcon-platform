@@ -5,6 +5,7 @@ import com.remotefalcon.library.enums.LocationCheckMethod;
 import com.remotefalcon.library.enums.StatusResponse;
 import com.remotefalcon.library.models.*;
 import com.remotefalcon.library.quarkus.entity.Show;
+import com.remotefalcon.library.util.PluginQueueHelper;
 import com.remotefalcon.metrics.ViewerMetrics;
 import com.remotefalcon.repository.ShowRepository;
 import com.remotefalcon.util.ClientUtil;
@@ -375,11 +376,19 @@ public class GraphQLMutationService {
   }
 
   private Boolean isQueueFull(Show show) {
-    if (CollectionUtils.isNotEmpty(show.getRequests())) {
-      return show.getPreferences().getJukeboxDepth() != 0
-          && show.getRequests().size() >= show.getPreferences().getJukeboxDepth();
+    // PSA-v2 Q3 (#49) — count only viewer-initiated requests against
+    // jukeboxDepth. PSAs and leader sequences (operator-policy injects)
+    // bypass the cap entirely: they're not viewer demand and shouldn't
+    // compete with viewers for the slots the setting is meant to govern.
+    // Previous behavior counted everything in the requests array, which
+    // silently halved viewer capacity at steady state when PSAs were
+    // interleaved (e.g., jukeboxDepth=5 + psaFrequency=3 produced ~2
+    // PSAs + ~3 viewer slots).
+    if (show.getPreferences().getJukeboxDepth() == null
+        || show.getPreferences().getJukeboxDepth() == 0) {
+      return false;
     }
-    return false;
+    return PluginQueueHelper.countViewerRequests(show) >= show.getPreferences().getJukeboxDepth();
   }
 
   private Boolean isViewerPresent(Show show, Float latitude, Float longitude) {

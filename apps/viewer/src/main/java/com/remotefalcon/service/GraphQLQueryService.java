@@ -6,6 +6,7 @@ import com.remotefalcon.library.models.Sequence;
 import com.remotefalcon.library.models.SequenceGroup;
 import com.remotefalcon.library.models.ViewerPage;
 import com.remotefalcon.library.quarkus.entity.Show;
+import com.remotefalcon.library.util.PluginQueueHelper;
 import com.remotefalcon.repository.ShowRepository;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -61,9 +62,17 @@ public class GraphQLQueryService {
     boolean isVotingMode = show.getPreferences() != null
         && ViewerControlMode.VOTING.equals(show.getPreferences().getViewerControlMode());
 
+    // PSA-v2 Q2 — apply the isSongLike skip predicate to the request-queue
+    // scan in jukebox mode. PSAs and leaders interleaved with viewer
+    // requests don't surface to the viewer-visible "playing next" — the
+    // viewer sees the next actual song, not the operator-policy
+    // interstitial that happens to play first.
     Optional<Request> nextRequest = isVotingMode
         ? Optional.empty()
-        : show.getRequests().stream().min(Comparator.comparing(Request::getPosition));
+        : show.getRequests().stream()
+            .filter(r -> r != null && r.getSequence() != null
+                && PluginQueueHelper.isSongLike(show, r.getSequence().getName()))
+            .min(Comparator.comparing(Request::getPosition));
 
     if (nextRequest.isPresent()) {
       show.setPlayingNext(nextRequest.get().getSequence().getDisplayName());
@@ -74,8 +83,20 @@ public class GraphQLQueryService {
     // Fall through to the FPP-reported next-scheduled sequence. This is
     // the source of truth in voting mode and the fallback in jukebox mode
     // when the request queue is empty.
+    //
+    // PSA-v2 Q2 (#56) — apply isSongLike here too. FPP has no concept of
+    // PSAs; it reports whatever sequence is next on its own schedule,
+    // including PSA sequences. Without this filter, the voting-mode UI
+    // shows the PSA name as "playing next," which is the exact symptom
+    // #78's fix only partially addressed. If the schedule-reported name
+    // is a PSA or leader, leave playingNext untouched (the caller has
+    // already cleared/initialized it).
+    String fromSchedule = show.getPlayingNextFromSchedule();
+    if (StringUtils.isEmpty(fromSchedule) || !PluginQueueHelper.isSongLike(show, fromSchedule)) {
+      return;
+    }
     Optional<Sequence> playingNextScheduledSequence = show.getSequences().stream()
-        .filter(sequence -> StringUtils.equalsIgnoreCase(sequence.getName(), show.getPlayingNextFromSchedule()))
+        .filter(sequence -> StringUtils.equalsIgnoreCase(sequence.getName(), fromSchedule))
         .findFirst();
     playingNextScheduledSequence.ifPresent(sequence -> {
       show.setPlayingNext(sequence.getDisplayName());

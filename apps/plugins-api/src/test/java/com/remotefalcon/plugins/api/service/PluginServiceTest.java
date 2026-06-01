@@ -312,6 +312,77 @@ class PluginServiceTest {
     assertEquals(3, seqOpt.get().getVisibilityCount());
   }
 
+  // ---- PSA-v2 PR-4 Q2 — isSongLike skip predicate in nextPlaylistInQueue ----
+
+  @Test
+  void nextPlaylistInQueue_psaAtFront_returnsSongBehindIt() {
+    // PSA at position 1, song at position 2 → returns the song.
+    baseShow.setPsaSequences(new ArrayList<>(List.of(
+        PsaSequence.builder().name("PSA1").order(1).build())));
+    Sequence psa = Sequence.builder().name("PSA1").index(99).group("").visibilityCount(0).active(true).build();
+    Sequence song = Sequence.builder().name("Song1").index(7).group("").visibilityCount(0).active(true).build();
+    baseShow.setSequences(new ArrayList<>(List.of(psa, song)));
+    baseShow.setRequests(new ArrayList<>(List.of(
+        Request.builder().position(1).sequence(psa).build(),
+        Request.builder().position(2).sequence(song).build())));
+
+    NextPlaylistResponse resp = pluginService.nextPlaylistInQueue();
+    assertEquals("Song1", resp.getNextPlaylist());
+    assertEquals(7, resp.getPlaylistIndex());
+  }
+
+  @Test
+  void nextPlaylistInQueue_allPsa_returnsDefault() {
+    // Queue full of PSAs only → returns null/empty default.
+    baseShow.setPsaSequences(new ArrayList<>(List.of(
+        PsaSequence.builder().name("PSA1").order(1).build())));
+    Sequence psa = Sequence.builder().name("PSA1").index(99).group("").visibilityCount(0).active(true).build();
+    baseShow.setSequences(new ArrayList<>(List.of(psa)));
+    baseShow.setRequests(new ArrayList<>(List.of(
+        Request.builder().position(1).sequence(psa).build(),
+        Request.builder().position(2).sequence(psa).build())));
+
+    NextPlaylistResponse resp = pluginService.nextPlaylistInQueue();
+    assertNull(resp.getNextPlaylist());
+    assertEquals(-1, resp.getPlaylistIndex());
+  }
+
+  @Test
+  void nextPlaylistInQueue_multiplePsasBeforeSong_returnsSong() {
+    // PSA-PSA-PSA-song → returns the song (multi-skip).
+    baseShow.setPsaSequences(new ArrayList<>(List.of(
+        PsaSequence.builder().name("PSA1").order(1).build(),
+        PsaSequence.builder().name("PSA2").order(2).build())));
+    Sequence psa1 = Sequence.builder().name("PSA1").index(98).group("").visibilityCount(0).active(true).build();
+    Sequence psa2 = Sequence.builder().name("PSA2").index(99).group("").visibilityCount(0).active(true).build();
+    Sequence song = Sequence.builder().name("RealSong").index(5).group("").visibilityCount(0).active(true).build();
+    baseShow.setSequences(new ArrayList<>(List.of(psa1, psa2, song)));
+    baseShow.setRequests(new ArrayList<>(List.of(
+        Request.builder().position(1).sequence(psa1).build(),
+        Request.builder().position(2).sequence(psa2).build(),
+        Request.builder().position(3).sequence(psa1).build(),
+        Request.builder().position(4).sequence(song).build())));
+
+    NextPlaylistResponse resp = pluginService.nextPlaylistInQueue();
+    assertEquals("RealSong", resp.getNextPlaylist());
+    assertEquals(5, resp.getPlaylistIndex());
+  }
+
+  @Test
+  void nextPlaylistInQueue_leaderAtFront_returnsSongBehindIt() {
+    baseShow.setRequestLeaderSequence("ReqLeader");
+    Sequence leader = Sequence.builder().name("ReqLeader").index(50).group("").visibilityCount(0).active(true).build();
+    Sequence song = Sequence.builder().name("Song1").index(7).group("").visibilityCount(0).active(true).build();
+    baseShow.setSequences(new ArrayList<>(List.of(leader, song)));
+    baseShow.setRequests(new ArrayList<>(List.of(
+        Request.builder().position(1).sequence(leader).build(),
+        Request.builder().position(2).sequence(song).build())));
+
+    NextPlaylistResponse resp = pluginService.nextPlaylistInQueue();
+    assertEquals("Song1", resp.getNextPlaylist());
+    assertEquals(7, resp.getPlaylistIndex());
+  }
+
   @Test
   void updateWhatsPlaying_triggersManagedPSA_Jukebox_addsVoteAndRequest() {
     baseShow.setPreferences(Preference.builder()

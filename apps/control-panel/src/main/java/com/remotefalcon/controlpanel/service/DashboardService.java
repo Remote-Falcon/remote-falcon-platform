@@ -28,6 +28,7 @@ import com.remotefalcon.controlpanel.util.ClientUtil;
 import com.remotefalcon.controlpanel.util.ExcelUtil;
 import com.remotefalcon.library.documents.Show;
 import com.remotefalcon.library.enums.StatusResponse;
+import com.remotefalcon.library.util.PluginQueueHelper;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
@@ -642,7 +643,12 @@ public class DashboardService {
     }
 
     return DashboardLiveStatsResponse.builder()
-            .currentRequests(show.get().getRequests() != null ? show.get().getRequests().size() : 0)
+            // PSA-v2 Q3 — display only viewer-initiated requests in the
+            // operator's "current requests" tile to stay consistent with the
+            // jukeboxDepth cap that now also excludes PSAs/leaders. Otherwise
+            // an operator sees "5 of 5" while the cap predicate sees "3 of 5"
+            // and accepts a new request, which is confusing.
+            .currentRequests(PluginQueueHelper.countViewerRequests(show.get()))
             .totalRequests(this.buildTotalRequestsLiveStat(startDateAtZone, endDateAtZone, timezone, show.get(), false))
             .currentVotes(show.get().getVotes() != null ? show.get().getVotes().stream().mapToInt(Vote::getVotes).sum() : 0)
             .totalVotes(this.buildTotalVotesLiveStat(startDateAtZone, endDateAtZone, timezone, show.get(), false))
@@ -664,16 +670,29 @@ public class DashboardService {
   }
 
   private String getPlayingNext(Show show) {
-    Optional<Request> nextRequest = show.getRequests().stream()
-            .min(Comparator.comparing(Request::getPosition));
+    // PSA-v2 Q2 — operator dashboard mirrors the viewer-facing NEXT_PLAYLIST
+    // semantics: skip past any run of non-song items (PSAs, leaders) in the
+    // request queue, and don't surface a PSA/leader name from
+    // playingNextFromSchedule. Keeps the dashboard tile honest about what
+    // viewers will actually see as their next song.
+    Optional<Request> nextRequest = show.getRequests() == null
+            ? Optional.empty()
+            : show.getRequests().stream()
+                    .filter(r -> r != null && r.getSequence() != null
+                            && PluginQueueHelper.isSongLike(show, r.getSequence().getName()))
+                    .min(Comparator.comparing(Request::getPosition));
 
     if(nextRequest.isPresent()) {
       return nextRequest.get().getSequence().getDisplayName();
     }else {
+      String fromSchedule = show.getPlayingNextFromSchedule();
+      if (StringUtils.isEmpty(fromSchedule) || !PluginQueueHelper.isSongLike(show, fromSchedule)) {
+        return "";
+      }
       Optional<Sequence> playingNextScheduledSequence = show.getSequences().stream()
-              .filter(sequence -> StringUtils.equalsIgnoreCase(sequence.getName(), show.getPlayingNextFromSchedule()))
+              .filter(sequence -> StringUtils.equalsIgnoreCase(sequence.getName(), fromSchedule))
               .findFirst();
-      return playingNextScheduledSequence.map(Sequence::getDisplayName).orElse(show.getPlayingNextFromSchedule());
+      return playingNextScheduledSequence.map(Sequence::getDisplayName).orElse(fromSchedule);
     }
   }
 

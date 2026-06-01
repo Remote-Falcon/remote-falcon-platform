@@ -45,7 +45,16 @@ public class PluginService {
     if (CollectionUtils.isEmpty(show.getRequests())) {
       return defaultResponse;
     }
-    Optional<Request> nextRequest = show.getRequests().stream().min(Comparator.comparing(Request::getPosition));
+    // PSA-v2 Q2 — scan past any run of non-song items (PSAs, leaders) and
+    // report the first song-like request as NEXT_PLAYLIST. PSAs/leaders
+    // remain in the requests array (they still play in order via FPP's own
+    // playback machinery); this only changes what we tell the plugin to
+    // *announce* as the upcoming track. If the entire queue is non-song,
+    // fall through to the default empty response.
+    Optional<Request> nextRequest = show.getRequests().stream()
+        .filter(r -> r != null && r.getSequence() != null
+            && PluginQueueHelper.isSongLike(show, r.getSequence().getName()))
+        .min(Comparator.comparing(Request::getPosition));
     if (nextRequest.isEmpty()) {
       return defaultResponse;
     }
