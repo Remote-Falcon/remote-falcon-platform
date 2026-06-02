@@ -670,23 +670,26 @@ public class DashboardService {
   }
 
   private String getPlayingNext(Show show) {
-    // PSA-v2 Q2 — operator dashboard mirrors the viewer-facing NEXT_PLAYLIST
-    // semantics: skip past any run of non-song items (PSAs, leaders) in the
-    // request queue, and don't surface a PSA/leader name from
-    // playingNextFromSchedule. Keeps the dashboard tile honest about what
-    // viewers will actually see as their next song.
+    // Report whatever is *actually* next from the operator's POV — including
+    // PSAs and leader sequences. The operator dashboard is NOT the same
+    // surface as the viewer's NEXT_PLAYLIST: the viewer should be insulated
+    // from operator-policy interstitials (handled in viewer's
+    // GraphQLQueryService.updatePlayingNext), but the operator wants to
+    // know exactly what FPP will play next so they aren't surprised when a
+    // PSA fires. The PSA/Leader chip on the NowPlayingCard already
+    // classifies the item visually; the operator gets both the name and
+    // the type.
     Optional<Request> nextRequest = show.getRequests() == null
             ? Optional.empty()
             : show.getRequests().stream()
-                    .filter(r -> r != null && r.getSequence() != null
-                            && PluginQueueHelper.isSongLike(show, r.getSequence().getName()))
+                    .filter(r -> r != null && r.getSequence() != null)
                     .min(Comparator.comparing(Request::getPosition));
 
     if(nextRequest.isPresent()) {
       return nextRequest.get().getSequence().getDisplayName();
     }else {
       String fromSchedule = show.getPlayingNextFromSchedule();
-      if (StringUtils.isEmpty(fromSchedule) || !PluginQueueHelper.isSongLike(show, fromSchedule)) {
+      if (StringUtils.isEmpty(fromSchedule)) {
         return "";
       }
       Optional<Sequence> playingNextScheduledSequence = show.getSequences().stream()

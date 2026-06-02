@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { useMutation, useQuery } from '@apollo/client';
+import { useLazyQuery, useMutation, useQuery } from '@apollo/client';
 import {
   Box,
   Button,
@@ -24,6 +24,7 @@ import PropTypes from 'prop-types';
 
 import { savePreferencesService } from '../../../../services/controlPanel/mutations.service';
 import useDashboardLiveStats from '../../../../hooks/useDashboardLiveStats';
+import useInterval from '../../../../hooks/useInterval';
 import useDismissedNotifications from '../../../../hooks/useDismissedNotifications';
 import useShowPublicUrl from '../../../../hooks/useShowPublicUrl';
 import { useDispatch, useSelector } from '../../../../store';
@@ -39,7 +40,7 @@ import {
   RESET_ALL_VOTES,
   UPDATE_PREFERENCES
 } from '../../../../utils/graphql/controlPanel/mutations';
-import { NOTIFICATIONS } from '../../../../utils/graphql/controlPanel/queries';
+import { GET_SHOW, NOTIFICATIONS } from '../../../../utils/graphql/controlPanel/queries';
 import { showAlert } from '../../globalPageHelpers';
 
 import HealthRow from './HealthRow';
@@ -128,6 +129,36 @@ const Dashboard = () => {
   const [resetAllVotesMutation] = useMutation(RESET_ALL_VOTES);
   const [deleteNowPlayingMutation] = useMutation(DELETE_NOW_PLAYING);
   const [updatePreferencesMutation] = useMutation(UPDATE_PREFERENCES);
+
+  // Refresh the show document on the same 5s cadence as dashboardLiveStats
+  // so the whole NowPlayingCard updates in lockstep instead of having a
+  // split-rate UX (top of card polling, queue list refreshing only on page
+  // reload). Reaches every widget on the dashboard that reads from
+  // Redux `show.*` — queue rows, PSA/Leader chip classification, leader
+  // settings, override pill, etc.
+  //
+  // **Merge, don't replace.** GET_SHOW selects a subset of Show fields —
+  // notably it omits `timezone`. If we replaced the Redux show outright,
+  // timezone would null out and useDashboardLiveStats would short-circuit
+  // forever (it gates on show.timezone), parking the cards in their
+  // skeleton-loading state. The ref pattern is needed because onCompleted
+  // would otherwise close over the show snapshot from when the interval
+  // tick was scheduled.
+  const [refetchShowQuery] = useLazyQuery(GET_SHOW, { fetchPolicy: 'network-only' });
+  const showRef = useRef(show);
+  useEffect(() => {
+    showRef.current = show;
+  }, [show]);
+  useInterval(() => {
+    refetchShowQuery({
+      context: { headers: { Route: 'Control-Panel' } },
+      onCompleted: (data) => {
+        if (data?.getShow) {
+          dispatch(setShow({ ...showRef.current, ...data.getShow }));
+        }
+      }
+    });
+  }, 5000);
 
   // Notification nudge — when the operator lands on the dashboard and
   // has unread items, fire a one-line snackbar pointing at the bell.

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as React from 'react';
 
 import { useLazyQuery, useMutation } from '@apollo/client';
@@ -101,13 +101,23 @@ const SpecialRoles = () => {
   // override at its next sequence boundary; without polling, the operator
   // would see a stale pill until they manually refreshed. 10s is fast
   // enough to feel responsive and slow enough to be cheap.
+  //
+  // Merge, don't replace — GET_SHOW omits some fields (notably timezone)
+  // that other surfaces depend on. Replacing the Redux show parks the
+  // dashboard's useDashboardLiveStats in a permanent loading state when
+  // the user navigates back. The ref guards against onCompleted closing
+  // over a stale `show`.
+  const showRef = useRef(show);
+  useEffect(() => {
+    showRef.current = show;
+  }, [show]);
   useEffect(() => {
     if (!nextOverride) return undefined;
     const id = setInterval(() => {
       refetchShowQuery({
         onCompleted: (data) => {
           if (data?.getShow) {
-            dispatch(setShow(data.getShow));
+            dispatch(setShow({ ...showRef.current, ...data.getShow }));
           }
         }
       });

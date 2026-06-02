@@ -45,15 +45,19 @@ public class PluginService {
     if (CollectionUtils.isEmpty(show.getRequests())) {
       return defaultResponse;
     }
-    // PSA-v2 Q2 — scan past any run of non-song items (PSAs, leaders) and
-    // report the first song-like request as NEXT_PLAYLIST. PSAs/leaders
-    // remain in the requests array (they still play in order via FPP's own
-    // playback machinery); this only changes what we tell the plugin to
-    // *announce* as the upcoming track. If the entire queue is non-song,
-    // fall through to the default empty response.
+    // Return the next queued item (by position) verbatim, including PSAs
+    // and leaders. This endpoint is the *plugin-facing* one — FPP calls it
+    // to ask "what should play next?" and then actually plays whatever we
+    // return. PSAs injected via handleManagedPSA (Q1/Q4/Q7) and leaders
+    // injected via addSequenceToQueue (Q6) only reach playback if FPP can
+    // fetch them here, so we must NOT skip them.
+    //
+    // The viewer-facing filtering (the Q2 isSongLike skip predicate) still
+    // happens — but at the viewer's GraphQLQueryService.updatePlayingNext.
+    // That's the correct boundary: viewer doesn't see PSAs as "up next";
+    // FPP still plays them.
     Optional<Request> nextRequest = show.getRequests().stream()
-        .filter(r -> r != null && r.getSequence() != null
-            && PluginQueueHelper.isSongLike(show, r.getSequence().getName()))
+        .filter(r -> r != null && r.getSequence() != null)
         .min(Comparator.comparing(Request::getPosition));
     if (nextRequest.isEmpty()) {
       return defaultResponse;
@@ -321,13 +325,17 @@ public class PluginService {
           .filter(sequence -> StringUtils.equalsIgnoreCase(sequence.getName(), request.getPlaylist()))
           .findFirst();
 
-      // PSA-v2 Q4 — PSAs are transparent to the cadence counter: do not
-      // increment (do not reset either). Songs increment as before. This
-      // makes psaFrequency=N honestly mean "every N songs."
-      // Observable behavior change: show owners with active PSAs and
-      // psaFrequency=N will see PSAs fire on a slightly different cadence
-      // than before (one slot less drift per PSA played).
-      if (!PluginQueueHelper.isPsaSequence(show, request.getPlaylist())) {
+      // PSA-v2 — operator-policy items (PSAs and leader sequences) are both
+      // transparent to the cadence counter: do not increment (do not reset
+      // either). Songs increment as before. This makes psaFrequency=N
+      // honestly mean "every N audience-facing songs."
+      //
+      // Leaders are treated the same as PSAs here (PSA-v2 design symmetry):
+      // both are operator-policy interstitials, both bypass jukeboxDepth,
+      // both are filtered from viewer-facing NEXT_PLAYLIST, and both must
+      // be transparent to the cadence so leader playback doesn't
+      // accidentally shorten the PSA-frequency window.
+      if (PluginQueueHelper.isSongLike(show, request.getPlaylist())) {
         sequencesPlayed++;
       }
 
@@ -439,13 +447,14 @@ public class PluginService {
       return;
     }
 
-    // No-loop guard — refuses to fire a PSA while one is already playing.
-    // Same predicate is used by both the override path (Q7) and the
-    // cadence-tick path (Q1/Q4), so a PSA injected this tick cannot trigger
-    // another at the next tick while it's still in playingNow.
-    boolean isPSAPlayingNow = StringUtils.isNotEmpty(show.getPlayingNow())
-        && psaNamesLowerCase.contains(StringUtils.lowerCase(show.getPlayingNow()));
-    if (isPSAPlayingNow) {
+    // No-loop guard — refuses to fire a PSA while another operator-policy
+    // non-song item (PSA or leader) is already playing. Same predicate
+    // applies to override (Q7) and cadence-tick (Q1/Q4) paths, so a PSA
+    // can't trigger right after another PSA OR a leader. Symmetric with
+    // PSA-v2 design: leaders are treated like PSAs everywhere.
+    boolean isNonSongPlayingNow = StringUtils.isNotEmpty(show.getPlayingNow())
+        && !PluginQueueHelper.isSongLike(show, show.getPlayingNow());
+    if (isNonSongPlayingNow) {
       return;
     }
 
@@ -510,7 +519,10 @@ public class PluginService {
           .findFirst();
       if (sequenceToAdd.isPresent()) {
         overridePsa.get().setLastPlayed(LocalDateTime.now());
-        this.injectPsa(show, sequenceToAdd.get(), psaNamesLowerCase);
+        // Q7: operator-pick fires at NEXT sequence boundary — use the priority
+        // variant so the PSA pre-empts whatever was already queued by cadence,
+        // burst, or stale prior runs.
+        this.injectPsaPriority(show, sequenceToAdd.get(), psaNamesLowerCase);
       } else {
         // Defensive: sequenceExistsInFPP passed but stream lookup failed.
         // Treat as missing — clear the override.
@@ -618,16 +630,38 @@ public class PluginService {
    * Mode-aware PSA injection — routes to the jukebox or voting helper based
    * on viewer control mode. Centralizes the JUKEBOX vs VOTING branch so the
    * override, burst, and round-robin paths all inject identically.
+   *
+   * <p>Cadence-driven injections (Q1 round-robin, Q4 burst) append at the
+   * end of the queue. Use {@link #injectPsaPriority} for the Q7 operator
+   * override path so the PSA pre-empts whatever is already queued.
    */
   private void injectPsa(Show show, Sequence sequence, Set<String> psaNamesLowerCase) {
     if (show.getPreferences().getViewerControlMode() == ViewerControlMode.JUKEBOX) {
-      this.setPSASequenceRequest(show, sequence, psaNamesLowerCase);
+      this.setPSASequenceRequest(show, sequence, psaNamesLowerCase, false);
     } else if (show.getPreferences().getViewerControlMode() == ViewerControlMode.VOTING) {
       this.setPSASequenceVote(show, sequence, psaNamesLowerCase);
     }
   }
 
-  private void setPSASequenceRequest(Show show, Sequence requestedSequence, Set<String> psaNamesLowerCase) {
+  /**
+   * Q7 operator-override variant of {@link #injectPsa} — the PSA is placed
+   * at the front of the queue (position = current min - 1, or 1 if empty)
+   * so it plays at the next sequence boundary rather than after whatever
+   * cadence-injected PSAs were already queued.
+   */
+  private void injectPsaPriority(Show show, Sequence sequence, Set<String> psaNamesLowerCase) {
+    if (show.getPreferences().getViewerControlMode() == ViewerControlMode.JUKEBOX) {
+      this.setPSASequenceRequest(show, sequence, psaNamesLowerCase, true);
+    } else if (show.getPreferences().getViewerControlMode() == ViewerControlMode.VOTING) {
+      // Voting-mode override: leave at the existing PSA priority (2000)
+      // for now. Voting-winner promotion (PR-3) already runs the leader at
+      // 2001; bumping the override to 2002 would require a coordinated
+      // priority tier rework. Tracked as a follow-up.
+      this.setPSASequenceVote(show, sequence, psaNamesLowerCase);
+    }
+  }
+
+  private void setPSASequenceRequest(Show show, Sequence requestedSequence, Set<String> psaNamesLowerCase, boolean priority) {
     if (show.getRequests() == null) {
       show.setRequests(new ArrayList<>());
     }
@@ -635,9 +669,19 @@ public class PluginService {
       show.setVotes(new ArrayList<>());
     }
 
-    // Calculate the next position in the queue
-    int nextPosition = 1;
-    if (CollectionUtils.isNotEmpty(show.getRequests())) {
+    // Position assignment depends on whether this is a Q7 operator-override
+    // (priority=true → front of queue, plays next) or a normal Q1 round-robin
+    // / Q4 burst injection (priority=false → back of queue, plays after
+    // anything already there).
+    int nextPosition;
+    if (CollectionUtils.isEmpty(show.getRequests())) {
+      nextPosition = 1;
+    } else if (priority) {
+      nextPosition = show.getRequests().stream()
+          .map(Request::getPosition)
+          .min(Integer::compareTo)
+          .orElse(1) - 1;
+    } else {
       nextPosition = show.getRequests().stream()
           .map(Request::getPosition)
           .max(Integer::compareTo)

@@ -33,8 +33,41 @@ public class GraphQLQueryService {
       this.updatePlayingNext(existingShow);
       existingShow.setSequences(this.processSequencesForViewer(existingShow));
       existingShow.setPages(this.filterActivePageOnly(existingShow.getPages()));
+      // PSA-v2 — strip operator-injected items from the request list before
+      // sending to viewers. Viewers shouldn't see (or count) leader
+      // sequences (viewerRequested="LEADER"), Q7 override PSAs
+      // (viewerRequested="OVERRIDE"), or cadence-fired PSAs (no marker but
+      // name matches a configured PSA). Viewer-side same-name edge case:
+      // if a viewer actually requested a PSA-named sequence themselves,
+      // viewerRequested is the IP (non-null, non-marker) — that request
+      // stays visible to them. Mirrors the isSongLike treatment already
+      // applied to updatePlayingNext for the same reasons.
+      existingShow.setRequests(this.stripOperatorInjectedRequests(existingShow));
     }
     return show.orElse(null);
+  }
+
+  private List<Request> stripOperatorInjectedRequests(Show show) {
+    List<Request> all = show.getRequests();
+    if (all == null || all.isEmpty()) {
+      return all;
+    }
+    List<Request> visible = new ArrayList<>(all.size());
+    for (Request r : all) {
+      if (r == null || r.getSequence() == null) continue;
+      String marker = r.getViewerRequested();
+      // Filter known operator-injected markers (leader from PR-3, override from PR-5 mutation).
+      if ("LEADER".equals(marker) || "OVERRIDE".equals(marker)) continue;
+      // Cadence PSA: no marker AND name matches a PSA. ownerRequested=true
+      // (explicit owner-played item) stays visible regardless.
+      if ((marker == null || marker.isEmpty())
+          && (r.getOwnerRequested() == null || !r.getOwnerRequested())
+          && PluginQueueHelper.isPsaSequence(show, r.getSequence().getName())) {
+        continue;
+      }
+      visible.add(r);
+    }
+    return visible;
   }
 
   private void updatePlayingNow(Show show) {

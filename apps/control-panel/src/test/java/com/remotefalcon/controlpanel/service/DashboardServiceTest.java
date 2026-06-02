@@ -550,11 +550,14 @@ class DashboardServiceTest {
     }
 
     @Test
-    void dashboardLiveStats_playingNext_skipsPsaAtFront_ofRequestQueue() {
-        // PSA-v2 Q2: NEXT_PLAYLIST scans past non-song items.
+    void dashboardLiveStats_playingNext_returnsPsaAtFront_ofRequestQueue() {
+        // Operator dashboard must surface the *actual* next item, including
+        // PSAs. The viewer's NEXT_PLAYLIST filters PSAs (viewer service); the
+        // operator's tile does not. The PSA chip on NowPlayingCard tags it
+        // visually.
         Show show = Show.builder().showToken(SHOW_TOKEN)
                 .requests(new ArrayList<>(List.of(
-                        Request.builder().position(1).sequence(Sequence.builder().name("PSA1").displayName("PSA1").build()).build(),
+                        Request.builder().position(1).sequence(Sequence.builder().name("PSA1").displayName("PSA1 Display").build()).build(),
                         Request.builder().position(2).sequence(Sequence.builder().name("Song1").displayName("Song One").build()).build())))
                 .votes(new ArrayList<>())
                 .sequences(new ArrayList<>(List.of(
@@ -569,13 +572,14 @@ class DashboardServiceTest {
         when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
 
         DashboardLiveStatsResponse r = service.dashboardLiveStats(0L, 0L, TZ);
-        assertThat(r.getPlayingNext()).isEqualTo("Song One");
+        assertThat(r.getPlayingNext()).isEqualTo("PSA1 Display");
     }
 
     @Test
-    void dashboardLiveStats_playingNext_emptyString_whenScheduleIsPsa() {
-        // PSA-v2 Q2 / #56: when FPP itself reports a PSA in
-        // playingNextFromSchedule, the dashboard must not surface the PSA name.
+    void dashboardLiveStats_playingNext_returnsScheduledPsa_whenScheduleIsPsa() {
+        // When FPP itself reports a PSA in playingNextFromSchedule, the
+        // operator dashboard surfaces the PSA name. Operator needs to know
+        // what's actually coming so they can react to it.
         Show show = Show.builder().showToken(SHOW_TOKEN)
                 .requests(new ArrayList<>())
                 .votes(new ArrayList<>())
@@ -591,13 +595,11 @@ class DashboardServiceTest {
         when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
 
         DashboardLiveStatsResponse r = service.dashboardLiveStats(0L, 0L, TZ);
-        // Empty rather than the PSA name — the operator dashboard sees what
-        // viewers see.
-        assertThat(r.getPlayingNext()).isEmpty();
+        assertThat(r.getPlayingNext()).isEqualTo("PSA1 Display");
     }
 
     @Test
-    void dashboardLiveStats_playingNext_emptyString_whenScheduleIsLeader() {
+    void dashboardLiveStats_playingNext_returnsScheduledLeader_whenScheduleIsLeader() {
         Show show = Show.builder().showToken(SHOW_TOKEN)
                 .requests(new ArrayList<>())
                 .votes(new ArrayList<>())
@@ -614,7 +616,7 @@ class DashboardServiceTest {
         when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
 
         DashboardLiveStatsResponse r = service.dashboardLiveStats(0L, 0L, TZ);
-        assertThat(r.getPlayingNext()).isEmpty();
+        assertThat(r.getPlayingNext()).isEqualTo("Vote Leader");
     }
 
     // ---- downloadStatsToExcel ----

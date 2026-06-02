@@ -339,6 +339,13 @@ const ExternalViewerPage = () => {
     const categoriesPlaced = [];
     let jukeboxRequestsElement = [];
 
+    // PSA-v2 — operator-injected items (leaders, override PSAs, cadence
+    // PSAs) are stripped by the viewer service in getShow before reaching
+    // the client. show.requests therefore contains only what the viewer
+    // should see and count. No client-side filter needed; just use the
+    // array as-is for both the queue list iteration and the queueDepth
+    // template variable below.
+
     let playingNow = <>{show?.playingNow}</>;
     let playingNext = <>{show?.playingNext}</>;
 
@@ -630,8 +637,9 @@ const ExternalViewerPage = () => {
           }
 
           jukeboxRequestsElement = [];
-          let updatedRequests = show?.requests;
-          updatedRequests = _.orderBy(updatedRequests, ['position'], ['asc']);
+          // show.requests is already filtered server-side to only the items
+          // the viewer should see (no leaders, no operator PSAs).
+          let updatedRequests = _.orderBy(show?.requests || [], ['position'], ['asc']);
           _.map(updatedRequests, (request, index) => {
             // Don't add Playing Now or Next Playing to list
             if (index !== 0) {
@@ -681,6 +689,7 @@ const ExternalViewerPage = () => {
       jukeboxRequestsElement,
       playingNow,
       playingNext,
+      // Already filtered server-side to viewer-visible requests only.
       show?.requests?.length,
       locationCodeElement,
       formattedNowPlayingTimer

@@ -312,11 +312,19 @@ class PluginServiceTest {
     assertEquals(3, seqOpt.get().getVisibilityCount());
   }
 
-  // ---- PSA-v2 PR-4 Q2 — isSongLike skip predicate in nextPlaylistInQueue ----
+  // ---- PSA-v2 PR-4 (revised) — nextPlaylistInQueue is plugin-facing ----
+  //
+  // The isSongLike skip predicate is intentionally NOT applied here.
+  // nextPlaylistInQueue is what FPP polls to ask "what should play next?" —
+  // PSAs and leaders injected by RF (Q1/Q4/Q6/Q7) only reach playback if
+  // FPP can fetch them via this endpoint. The viewer-facing equivalent
+  // (GraphQLQueryService.updatePlayingNext on the viewer service) still
+  // filters non-songs for the audience-facing "up next" display.
 
   @Test
-  void nextPlaylistInQueue_psaAtFront_returnsSongBehindIt() {
-    // PSA at position 1, song at position 2 → returns the song.
+  void nextPlaylistInQueue_psaAtFront_returnsThePsa() {
+    // PSA at position 1, song at position 2 → returns the PSA (min position).
+    // FPP needs PSAs returned here so they actually play.
     baseShow.setPsaSequences(new ArrayList<>(List.of(
         PsaSequence.builder().name("PSA1").order(1).build())));
     Sequence psa = Sequence.builder().name("PSA1").index(99).group("").visibilityCount(0).active(true).build();
@@ -327,13 +335,14 @@ class PluginServiceTest {
         Request.builder().position(2).sequence(song).build())));
 
     NextPlaylistResponse resp = pluginService.nextPlaylistInQueue();
-    assertEquals("Song1", resp.getNextPlaylist());
-    assertEquals(7, resp.getPlaylistIndex());
+    assertEquals("PSA1", resp.getNextPlaylist());
+    assertEquals(99, resp.getPlaylistIndex());
   }
 
   @Test
-  void nextPlaylistInQueue_allPsa_returnsDefault() {
-    // Queue full of PSAs only → returns null/empty default.
+  void nextPlaylistInQueue_allPsa_returnsFirstPsa() {
+    // Queue full of PSAs → returns the min-position PSA. FPP plays it,
+    // satisfying the cadence/override design.
     baseShow.setPsaSequences(new ArrayList<>(List.of(
         PsaSequence.builder().name("PSA1").order(1).build())));
     Sequence psa = Sequence.builder().name("PSA1").index(99).group("").visibilityCount(0).active(true).build();
@@ -343,13 +352,14 @@ class PluginServiceTest {
         Request.builder().position(2).sequence(psa).build())));
 
     NextPlaylistResponse resp = pluginService.nextPlaylistInQueue();
-    assertNull(resp.getNextPlaylist());
-    assertEquals(-1, resp.getPlaylistIndex());
+    assertEquals("PSA1", resp.getNextPlaylist());
+    assertEquals(99, resp.getPlaylistIndex());
   }
 
   @Test
-  void nextPlaylistInQueue_multiplePsasBeforeSong_returnsSong() {
-    // PSA-PSA-PSA-song → returns the song (multi-skip).
+  void nextPlaylistInQueue_multiplePsasBeforeSong_returnsFirstPsa() {
+    // PSA-PSA-PSA-song → returns the first PSA. Each subsequent FPP poll
+    // will pull the next item by min-position, so PSAs play in queue order.
     baseShow.setPsaSequences(new ArrayList<>(List.of(
         PsaSequence.builder().name("PSA1").order(1).build(),
         PsaSequence.builder().name("PSA2").order(2).build())));
@@ -364,12 +374,14 @@ class PluginServiceTest {
         Request.builder().position(4).sequence(song).build())));
 
     NextPlaylistResponse resp = pluginService.nextPlaylistInQueue();
-    assertEquals("RealSong", resp.getNextPlaylist());
-    assertEquals(5, resp.getPlaylistIndex());
+    assertEquals("PSA1", resp.getNextPlaylist());
+    assertEquals(98, resp.getPlaylistIndex());
   }
 
   @Test
-  void nextPlaylistInQueue_leaderAtFront_returnsSongBehindIt() {
+  void nextPlaylistInQueue_leaderAtFront_returnsTheLeader() {
+    // Leader injected ahead of a viewer request — FPP plays the leader
+    // first via this endpoint, then the request on the next poll.
     baseShow.setRequestLeaderSequence("ReqLeader");
     Sequence leader = Sequence.builder().name("ReqLeader").index(50).group("").visibilityCount(0).active(true).build();
     Sequence song = Sequence.builder().name("Song1").index(7).group("").visibilityCount(0).active(true).build();
@@ -379,8 +391,8 @@ class PluginServiceTest {
         Request.builder().position(2).sequence(song).build())));
 
     NextPlaylistResponse resp = pluginService.nextPlaylistInQueue();
-    assertEquals("Song1", resp.getNextPlaylist());
-    assertEquals(7, resp.getPlaylistIndex());
+    assertEquals("ReqLeader", resp.getNextPlaylist());
+    assertEquals(50, resp.getPlaylistIndex());
   }
 
   @Test
@@ -746,6 +758,39 @@ class PluginServiceTest {
   }
 
   // --- Q7 override ---
+
+  @Test
+  void psaV2_q7_override_injectedAtFrontOfQueue_preEmptingExistingItems() {
+    // Operator picks override while queue has stale items at positions 2, 3, 4.
+    // The override must go to the FRONT (min-1 = 1) so FPP's next poll
+    // returns it ahead of whatever was already queued. Without this,
+    // "Play Next" feels like "Play eventually."
+    configureManagedPsa(ViewerControlMode.JUKEBOX, 1, null);
+    baseShow.setSequences(new ArrayList<>(List.of(
+        songSeq("Song", 1), songSeq("PSA_OVERRIDE", 91), songSeq("StaleA", 50), songSeq("StaleB", 51)
+    )));
+    baseShow.setPsaSequences(new ArrayList<>(List.of(
+        PsaSequence.builder().name("PSA_OVERRIDE").order(1).lastPlayed(LocalDateTime.now().minusHours(1)).build()
+    )));
+    // Pre-populate the queue with stale items at positions 2, 3, 4.
+    baseShow.setRequests(new ArrayList<>(List.of(
+        Request.builder().position(2).sequence(Sequence.builder().name("StaleA").build()).build(),
+        Request.builder().position(3).sequence(Sequence.builder().name("StaleB").build()).build(),
+        Request.builder().position(4).sequence(Sequence.builder().name("StaleA").build()).build()
+    )));
+    baseShow.setNextPsaOverride("PSA_OVERRIDE");
+
+    pluginService.updateWhatsPlaying(UpdateWhatsPlayingRequest.builder().playlist("Song").build());
+
+    // Override is at position 1 (min - 1 = 2 - 1 = 1), ahead of the stale items.
+    Optional<Request> overrideRequest = baseShow.getRequests().stream()
+        .filter(r -> "PSA_OVERRIDE".equals(r.getSequence().getName()))
+        .findFirst();
+    assertTrue(overrideRequest.isPresent(), "Override PSA should be in requests");
+    assertEquals(1, overrideRequest.get().getPosition(),
+        "Override PSA must be at front of queue (min existing - 1 = 1), not appended");
+    assertNull(baseShow.getNextPsaOverride());
+  }
 
   @Test
   void psaV2_q7_override_firesPickedPsa_clearsField_andSkipsRoundRobin() {

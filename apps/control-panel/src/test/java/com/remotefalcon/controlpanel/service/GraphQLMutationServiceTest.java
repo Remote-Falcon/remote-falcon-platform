@@ -492,17 +492,114 @@ class GraphQLMutationServiceTest {
     }
 
     @Test
-    void setNextPsaOverride_setsField_whenNameMatchesAPsa() {
+    void setNextPsaOverride_injectsPsa_intoJukeboxQueueImmediately_atFrontOfQueue() {
+        // PSA-v2 Q7 (revised): the mutation injects the PSA into requests
+        // at mutation time rather than setting a field for handleManagedPSA
+        // to consume on the next sequence change. Eliminates the one-song
+        // delay caused by FPP polling nextPlaylistInQueue before the
+        // override was consumed.
         stubAuth();
         Show show = Show.builder().showToken(SHOW_TOKEN)
+                .preferences(Preference.builder().viewerControlMode(ViewerControlMode.JUKEBOX).build())
                 .psaSequences(new ArrayList<>(List.of(
                         PsaSequence.builder().name("Donation").enabled(true).build())))
+                .sequences(new ArrayList<>(List.of(
+                        Sequence.builder().name("Donation").index(7).build())))
+                .requests(new ArrayList<>(List.of(
+                        Request.builder().position(2).sequence(Sequence.builder().name("Existing").build()).build())))
+                .votes(new ArrayList<>())
+                .build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        assertThat(service.setNextPsaOverride("Donation")).isTrue();
+        // Field stays null — we don't use the safety-net path on the happy flow.
+        assertThat(show.getNextPsaOverride()).isNull();
+        // PSA queued at min-1 = 1, with the OVERRIDE marker so cancel can find it.
+        Optional<Request> injected = show.getRequests().stream()
+                .filter(r -> "Donation".equals(r.getSequence().getName()))
+                .findFirst();
+        assertThat(injected).isPresent();
+        assertThat(injected.get().getPosition()).isEqualTo(1);
+        assertThat(injected.get().getViewerRequested()).isEqualTo("OVERRIDE");
+        // PSA's lastPlayed updated.
+        assertThat(show.getPsaSequences().get(0).getLastPlayed()).isNotNull();
+        verify(showRepository).save(show);
+    }
+
+    @Test
+    void setNextPsaOverride_fallsBackToFieldSet_whenSequenceMissingFromFppList() {
+        // PSA exists in psaSequences but the FPP-synced sequence isn't present
+        // (likely a stale config). Falls back to the safety-net field-set so
+        // handlePsaOverride can warn-and-clear on next tick.
+        stubAuth();
+        Show show = Show.builder().showToken(SHOW_TOKEN)
+                .preferences(Preference.builder().viewerControlMode(ViewerControlMode.JUKEBOX).build())
+                .psaSequences(new ArrayList<>(List.of(
+                        PsaSequence.builder().name("Donation").enabled(true).build())))
+                .sequences(new ArrayList<>())
+                .requests(new ArrayList<>())
+                .votes(new ArrayList<>())
                 .build();
         when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
 
         assertThat(service.setNextPsaOverride("Donation")).isTrue();
         assertThat(show.getNextPsaOverride()).isEqualTo("Donation");
+        // Queue stays empty — no immediate injection on the fallback path.
+        assertThat(show.getRequests()).isEmpty();
         verify(showRepository).save(show);
+    }
+
+    @Test
+    void setNextPsaOverride_addsVote_atPsaPriority_inVotingMode() {
+        stubAuth();
+        Show show = Show.builder().showToken(SHOW_TOKEN)
+                .preferences(Preference.builder().viewerControlMode(ViewerControlMode.VOTING).build())
+                .psaSequences(new ArrayList<>(List.of(
+                        PsaSequence.builder().name("Donation").enabled(true).build())))
+                .sequences(new ArrayList<>(List.of(
+                        Sequence.builder().name("Donation").index(7).build())))
+                .requests(new ArrayList<>())
+                .votes(new ArrayList<>())
+                .build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        assertThat(service.setNextPsaOverride("Donation")).isTrue();
+        assertThat(show.getNextPsaOverride()).isNull();
+        // Vote added at PSA priority.
+        assertThat(show.getVotes()).hasSize(1);
+        assertThat(show.getVotes().get(0).getVotes()).isEqualTo(2000);
+        assertThat(show.getVotes().get(0).getSequence().getName()).isEqualTo("Donation");
+        // Queue stays empty in voting mode (votes path, not requests path).
+        assertThat(show.getRequests()).isEmpty();
+    }
+
+    @Test
+    void setNextPsaOverride_replacesPriorOverride_onSecondCall_latestClickWins() {
+        // Click PSA A → click PSA B before A consumed → A is removed, B is queued.
+        // Single-shot semantics: only one OVERRIDE-marked entry at a time.
+        stubAuth();
+        Show show = Show.builder().showToken(SHOW_TOKEN)
+                .preferences(Preference.builder().viewerControlMode(ViewerControlMode.JUKEBOX).build())
+                .psaSequences(new ArrayList<>(List.of(
+                        PsaSequence.builder().name("PSA_A").enabled(true).build(),
+                        PsaSequence.builder().name("PSA_B").enabled(true).build())))
+                .sequences(new ArrayList<>(List.of(
+                        Sequence.builder().name("PSA_A").index(7).build(),
+                        Sequence.builder().name("PSA_B").index(8).build())))
+                .requests(new ArrayList<>())
+                .votes(new ArrayList<>())
+                .build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        service.setNextPsaOverride("PSA_A");
+        service.setNextPsaOverride("PSA_B");
+
+        long aCount = show.getRequests().stream()
+                .filter(r -> "PSA_A".equals(r.getSequence().getName())).count();
+        long bCount = show.getRequests().stream()
+                .filter(r -> "PSA_B".equals(r.getSequence().getName())).count();
+        assertThat(aCount).isEqualTo(0);
+        assertThat(bCount).isEqualTo(1);
     }
 
     @Test
@@ -517,23 +614,33 @@ class GraphQLMutationServiceTest {
         assertThatThrownBy(() -> service.setNextPsaOverride("Not a PSA"))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessage(StatusResponse.INVALID_PSA_NAME.name());
-        // Field stays unset on rejection.
         assertThat(show.getNextPsaOverride()).isNull();
         verify(showRepository, never()).save(any(Show.class));
     }
 
     @Test
-    void setNextPsaOverride_clearsField_whenNameIsNull() {
+    void setNextPsaOverride_clearsField_andRemovesOverrideMarkedRequests_whenNameIsNull() {
+        // Cancel: remove the OVERRIDE-marked entry from requests AND clear
+        // the safety-net field. Operator-initiated via X on the dashboard
+        // pseudo-row or the SpecialRoles pill.
         stubAuth();
+        Sequence donationSeq = Sequence.builder().name("Donation").index(7).build();
         Show show = Show.builder().showToken(SHOW_TOKEN)
                 .nextPsaOverride("PreviouslySet")
+                .preferences(Preference.builder().viewerControlMode(ViewerControlMode.JUKEBOX).build())
                 .psaSequences(new ArrayList<>(List.of(
                         PsaSequence.builder().name("Donation").enabled(true).build())))
+                .requests(new ArrayList<>(List.of(
+                        Request.builder().position(0).sequence(donationSeq).viewerRequested("OVERRIDE").build(),
+                        Request.builder().position(1).sequence(Sequence.builder().name("OtherSong").build()).build())))
                 .build();
         when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
 
         assertThat(service.setNextPsaOverride(null)).isTrue();
         assertThat(show.getNextPsaOverride()).isNull();
+        // OVERRIDE-marked request removed; the other request remains.
+        assertThat(show.getRequests()).hasSize(1);
+        assertThat(show.getRequests().get(0).getSequence().getName()).isEqualTo("OtherSong");
         verify(showRepository).save(show);
     }
 
