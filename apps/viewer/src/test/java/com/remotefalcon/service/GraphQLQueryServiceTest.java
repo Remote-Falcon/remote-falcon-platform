@@ -427,6 +427,8 @@ class GraphQLQueryServiceTest {
       // playingNext must NOT be updated to the PSA name.
       verify(show, never()).setPlayingNext("PSA Display");
       verify(show, never()).setPlayingNextSequence(psaSeq);
+      // ...and any stale value is cleared rather than left to leak (item 11).
+      verify(show).setPlayingNext("");
     }
 
     @Test
@@ -472,6 +474,8 @@ class GraphQLQueryServiceTest {
 
       verify(show, never()).setPlayingNext("Vote Leader Display");
       verify(show, never()).setPlayingNextSequence(leader);
+      // Stale value cleared rather than left to leak (review item 11).
+      verify(show).setPlayingNext("");
     }
 
     @Test

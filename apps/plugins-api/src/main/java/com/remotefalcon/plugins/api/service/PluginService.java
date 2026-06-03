@@ -36,6 +36,19 @@ public class PluginService {
   @ConfigProperty(name = "sequence.limit")
   int sequenceLimit;
 
+  // Markers stored in Request.viewerRequested for operator-injected (not
+  // viewer-driven) queue entries. These must survive the per-poll viewer-IP
+  // scrub in updateWhatsPlaying: control-panel's "cancel pending override"
+  // and the viewer's strip filter both identify injected rows by these.
+  private static final Set<String> OPERATOR_INJECTION_MARKERS = Set.of("OVERRIDE", "LEADER", "PSA");
+
+  // Vote priority tiers (higher wins): cadence/override PSA = 2000, a winner
+  // re-queued after its vote-leader played = 2001. The 2001 value doubles as
+  // the "already led" sentinel — a promoted winner coming back around must
+  // NOT re-trigger the leader, or the leader plays every cycle and the
+  // winning song never plays (PSA-v2 review item 1).
+  private static final int LEADER_PROMOTED_WINNER_VOTES = 2001;
+
   public NextPlaylistResponse nextPlaylistInQueue() {
     Show show = showContext.getShow();
     NextPlaylistResponse defaultResponse = NextPlaylistResponse.builder()
@@ -366,9 +379,18 @@ public class PluginService {
 
       this.handleManagedPSA(sequencesPlayed, show, psaNamesLowerCase);
 
-      // Clear viewer flags before persisting
+      // Clear viewer IPs before persisting, but PRESERVE operator-injection
+      // markers (OVERRIDE/LEADER/PSA). Nulling them on every FPP poll silently
+      // broke control-panel's "cancel pending override" (removeIf OVERRIDE)
+      // and the viewer's strip filter after a single tick (PSA-v2 review
+      // item 6) — they could no longer identify the injected rows.
       if (show.getRequests() != null) {
-        show.getRequests().forEach(req -> req.setViewerRequested(null));
+        show.getRequests().forEach(req -> {
+          String marker = req.getViewerRequested();
+          if (marker == null || !OPERATOR_INJECTION_MARKERS.contains(marker)) {
+            req.setViewerRequested(null);
+          }
+        });
       }
       if (show.getVotes() != null) {
         show.getVotes().forEach(vote -> vote.setViewersVoted(new ArrayList<>()));
@@ -460,6 +482,9 @@ public class PluginService {
 
     // Step 1 — Q7 override check. Out-of-band: doesn't depend on the cadence
     // window, doesn't tick sequencesPlayed (already transparent per PR-1).
+    // Capture the target BEFORE handlePsaOverride consumes/clears it so the
+    // burst below can skip it (it's already queued at the front).
+    String overrideTarget = show.getNextPsaOverride();
     boolean overrideFired = this.handlePsaOverride(show, psaSequences, psaNamesLowerCase);
 
     // Step 2/3 are gated on the cadence window AND the managed-PSA toggles.
@@ -477,9 +502,12 @@ public class PluginService {
     }
 
     // Step 2 — Q4 burst. When playAllPsas is true, fire all enabled +
-    // FPP-existent PSAs in `order` ascending, sharing one timestamp.
+    // FPP-existent PSAs in `order` ascending, sharing one timestamp. Exclude
+    // the override PSA when it already fired this tick — otherwise the
+    // operator's pick is injected twice (front via override + again in the
+    // burst) and plays twice in one cycle (PSA-v2 review item 5).
     if (Boolean.TRUE.equals(show.getPreferences().getPlayAllPsas())) {
-      this.handlePsaBurst(show, psaSequences, psaNamesLowerCase);
+      this.handlePsaBurst(show, psaSequences, psaNamesLowerCase, overrideFired ? overrideTarget : null);
       return;
     }
 
@@ -545,12 +573,13 @@ public class PluginService {
    * Q4 — bursts all enabled + FPP-existent PSAs in `order` ascending,
    * tie-breaking by name. All PSAs share the same `lastPlayed` timestamp.
    */
-  private void handlePsaBurst(Show show, List<PsaSequence> psaSequences, Set<String> psaNamesLowerCase) {
+  private void handlePsaBurst(Show show, List<PsaSequence> psaSequences, Set<String> psaNamesLowerCase, String excludeName) {
     LocalDateTime burstTimestamp = LocalDateTime.now();
 
     List<PsaSequence> burst = psaSequences.stream()
         .filter(Objects::nonNull)
         .filter(psa -> !Boolean.FALSE.equals(psa.getEnabled()))
+        .filter(psa -> StringUtils.isBlank(excludeName) || !StringUtils.equalsIgnoreCase(psa.getName(), excludeName))
         .filter(psa -> this.sequenceExistsInFPP(show, psa.getName()))
         .sorted(Comparator
             .comparing((PsaSequence p) -> p.getOrder() != null ? p.getOrder() : Integer.MAX_VALUE)
@@ -880,12 +909,18 @@ public class PluginService {
           boolean isPSAPlayingNow = show.getPsaSequences().stream()
               .anyMatch(psaSequence -> StringUtils.equalsIgnoreCase(show.getPlayingNow(), psaSequence.getName()));
           if (voteWinsToday % show.getPreferences().getPsaFrequency() == 0 && !isPSAPlayingNow) {
+            // Honor the Q1 enabled toggle (review item 7) and treat a
+            // never-played PSA (null lastPlayed) as highest priority via
+            // nullsFirst rather than excluding it (review item 12) — a
+            // freshly-added PSA was previously never selectable in unmanaged
+            // voting. Mirrors handlePsaRoundRobin's comparator.
             Optional<PsaSequence> nextPsaSequence = show.getPsaSequences().stream()
                 .filter(Objects::nonNull)
-                .filter(psaSequence -> psaSequence.getLastPlayed() != null)
-                .filter(psaSequence -> psaSequence.getOrder() != null)
-                .min(Comparator.comparing(PsaSequence::getLastPlayed)
-                    .thenComparing(PsaSequence::getOrder));
+                .filter(psaSequence -> !Boolean.FALSE.equals(psaSequence.getEnabled()))
+                .min(Comparator
+                    .comparing(PsaSequence::getLastPlayed, Comparator.nullsFirst(Comparator.naturalOrder()))
+                    .thenComparing(psaSequence -> psaSequence.getOrder() != null ? psaSequence.getOrder() : Integer.MAX_VALUE)
+                    .thenComparing(psaSequence -> psaSequence.getName() != null ? psaSequence.getName() : ""));
             if (nextPsaSequence.isPresent()) {
               Optional<Sequence> sequenceToAdd = show.getSequences().stream()
                   .filter(sequence -> StringUtils.equalsIgnoreCase(sequence.getName(), nextPsaSequence.get().getName()))
@@ -917,15 +952,24 @@ public class PluginService {
         // winner, then any PSA. Skip when the winner is itself a PSA (don't
         // gild operator-policy interstitials) or when the configured leader
         // name matches the winning sequence (would create a no-op loop).
+        // A winner re-queued by a prior leader cycle comes back at
+        // LEADER_PROMOTED_WINNER_VOTES. It must NOT re-trigger the leader, or
+        // the leader plays every cycle and the winning song never plays —
+        // the re-queued winner would win, fire the leader, get re-queued, and
+        // loop forever (PSA-v2 review item 1). When already-led, fall through
+        // to play the winner.
+        boolean winnerAlreadyLed = winningVote.getVotes() != null
+            && winningVote.getVotes() == LEADER_PROMOTED_WINNER_VOTES;
         Optional<Sequence> leaderSequence = this.resolveVoteLeaderSequence(show);
         if (leaderSequence.isPresent()
             && !winningSequenceIsPSA
+            && !winnerAlreadyLed
             && !StringUtils.equalsIgnoreCase(leaderSequence.get().getName(), actualSequence.get().getName())) {
           show.getVotes().add(Vote.builder()
               .sequence(actualSequence.get())
               .ownerVoted(false)
               .lastVoteTime(LocalDateTime.now())
-              .votes(2001)
+              .votes(LEADER_PROMOTED_WINNER_VOTES)
               .build());
 
           // Atomic update for all changes

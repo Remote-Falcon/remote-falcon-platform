@@ -820,6 +820,31 @@ class GraphQLMutationServiceTest {
     }
 
     @Test
+    @DisplayName("requestLeaderSequence equals the requested sequence: no leader injected (review item 9)")
+    void noLeaderWhenRequestedSequenceIsTheLeader() {
+      // A viewer requests the exact sequence configured as the request leader.
+      // Injecting the leader would queue it twice back-to-back, so the leader
+      // is skipped and the normal single-row path is used.
+      Show show = mockShowWithPrefsAndCollections();
+      when(show.getRequestLeaderSequence()).thenReturn("Leader-Seq");
+
+      Sequence leader = mock(Sequence.class);
+      when(leader.getName()).thenReturn("Leader-Seq");
+      when(leader.getDisplayName()).thenReturn("Leader Seq");
+      show.getSequences().add(leader);
+
+      when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
+      when(showRepository.nextRequestPosition(show)).thenReturn(1L);
+
+      Boolean result = service.addSequenceToQueue("sub", "Leader-Seq", 0f, 0f, "");
+      assertTrue(result);
+
+      // Single-row path used; the leader is NOT injected as a second row.
+      verify(showRepository).appendRequestAndJukeboxStat(eq("sub"), any(), any());
+      verify(showRepository, never()).appendMultipleRequestsAndJukeboxStat(anyString(), any(), any());
+    }
+
+    @Test
     @DisplayName("voteLeaderSequence set on same show does NOT fire on jukebox path")
     void voteLeaderDoesNotFireOnJukeboxPath() {
       // The two leader fields are independent — voteLeaderSequence is only

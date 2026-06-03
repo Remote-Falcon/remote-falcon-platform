@@ -21,4 +21,11 @@ public class Vote {
     private List<String> viewersVoted;
     private LocalDateTime lastVoteTime;
     private Boolean ownerVoted;
+    // PSA-v2 Q7 — marks a vote injected by an operator "Play Next" override
+    // (setNextPsaOverride). Lets the cancel / single-shot-dedup paths find
+    // and pull the override vote, which is otherwise indistinguishable from a
+    // cadence-fired PSA vote (both at priority 2000). Null/absent on every
+    // other vote. Distinct from ownerVoted, which means "the owner cast a
+    // normal vote" and is read by the owner-vote winner logic.
+    private Boolean ownerOverride;
 }

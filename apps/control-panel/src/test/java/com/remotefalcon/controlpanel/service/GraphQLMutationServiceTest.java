@@ -23,12 +23,16 @@ import com.remotefalcon.library.models.UserProfile;
 import com.remotefalcon.library.models.ViewerPage;
 import com.remotefalcon.library.models.Vote;
 import jakarta.servlet.http.HttpServletRequest;
+import org.bson.Document;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -70,8 +74,19 @@ class GraphQLMutationServiceTest {
     @Mock private NotificationRepository notificationRepository;
     @Mock private ClientUtil clientUtil;
     @Mock private ViewerPageService viewerPageService;
+    @Mock private MongoTemplate mongoTemplate;
 
     @InjectMocks private GraphQLMutationService service;
+
+    // setNextPsaOverride now writes via atomic MongoTemplate updates rather
+    // than showRepository.save() (PSA-v2 review item 3), so its tests inspect
+    // the captured Update document instead of an in-memory Show. Helper:
+    // returns the sub-document for a given update operator ($set/$pull/$push),
+    // or an empty Document if the operator isn't present.
+    private static Document op(Update update, String operator) {
+        Object sub = update.getUpdateObject().get(operator);
+        return sub == null ? new Document() : (Document) sub;
+    }
 
     private void stubAuth() {
         when(authUtil.getTokenDTO()).thenReturn(TokenDTO.builder().showToken(SHOW_TOKEN).build());
@@ -493,11 +508,10 @@ class GraphQLMutationServiceTest {
 
     @Test
     void setNextPsaOverride_injectsPsa_intoJukeboxQueueImmediately_atFrontOfQueue() {
-        // PSA-v2 Q7 (revised): the mutation injects the PSA into requests
-        // at mutation time rather than setting a field for handleManagedPSA
-        // to consume on the next sequence change. Eliminates the one-song
-        // delay caused by FPP polling nextPlaylistInQueue before the
-        // override was consumed.
+        // PSA-v2 Q7 (revised): the mutation injects the PSA at mutation time.
+        // Review item 3: it now writes via atomic MongoTemplate updates — a
+        // dedup/stamp step then an inject step — instead of a full-document
+        // save(), so we assert on the captured Update operations.
         stubAuth();
         Show show = Show.builder().showToken(SHOW_TOKEN)
                 .preferences(Preference.builder().viewerControlMode(ViewerControlMode.JUKEBOX).build())
@@ -512,25 +526,38 @@ class GraphQLMutationServiceTest {
         when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
 
         assertThat(service.setNextPsaOverride("Donation")).isTrue();
-        // Field stays null — we don't use the safety-net path on the happy flow.
-        assertThat(show.getNextPsaOverride()).isNull();
-        // PSA queued at min-1 = 1, with the OVERRIDE marker so cancel can find it.
-        Optional<Request> injected = show.getRequests().stream()
-                .filter(r -> "Donation".equals(r.getSequence().getName()))
-                .findFirst();
-        assertThat(injected).isPresent();
-        assertThat(injected.get().getPosition()).isEqualTo(1);
-        assertThat(injected.get().getViewerRequested()).isEqualTo("OVERRIDE");
-        // PSA's lastPlayed updated.
-        assertThat(show.getPsaSequences().get(0).getLastPlayed()).isNotNull();
-        verify(showRepository).save(show);
+
+        ArgumentCaptor<Update> updates = ArgumentCaptor.forClass(Update.class);
+        verify(mongoTemplate, times(2)).updateFirst(any(Query.class), updates.capture(), eq(Show.class));
+        Update dedup = updates.getAllValues().get(0);
+        Update inject = updates.getAllValues().get(1);
+
+        // Step 1 dedups any prior OVERRIDE request + override vote, stamps
+        // lastPlayed, and clears the safety-net field.
+        assertThat(op(dedup, "$pull")).containsKey("requests");
+        assertThat(op(dedup, "$pull")).containsKey("votes");
+        assertThat(op(dedup, "$set")).containsKey("psaSequences.$[psa].lastPlayed");
+        assertThat(op(dedup, "$set")).containsKey("nextPsaOverride");
+
+        // Step 2 pushes the override request (OVERRIDE marker, min-1 = 1) and
+        // its parity vote (marked so it can be cancelled).
+        Request pushedRequest = (Request) op(inject, "$push").get("requests");
+        assertThat(pushedRequest.getViewerRequested()).isEqualTo("OVERRIDE");
+        assertThat(pushedRequest.getPosition()).isEqualTo(1);
+        Vote pushedVote = (Vote) op(inject, "$push").get("votes");
+        assertThat(pushedVote.getVotes()).isEqualTo(2000);
+        assertThat(pushedVote.getOwnerOverride()).isTrue();
+
+        // No full-document save — the whole point of item 3.
+        verify(showRepository, never()).save(any(Show.class));
     }
 
     @Test
     void setNextPsaOverride_fallsBackToFieldSet_whenSequenceMissingFromFppList() {
         // PSA exists in psaSequences but the FPP-synced sequence isn't present
         // (likely a stale config). Falls back to the safety-net field-set so
-        // handlePsaOverride can warn-and-clear on next tick.
+        // handlePsaOverride can warn-and-clear on next tick — one atomic $set,
+        // no injection.
         stubAuth();
         Show show = Show.builder().showToken(SHOW_TOKEN)
                 .preferences(Preference.builder().viewerControlMode(ViewerControlMode.JUKEBOX).build())
@@ -543,14 +570,17 @@ class GraphQLMutationServiceTest {
         when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
 
         assertThat(service.setNextPsaOverride("Donation")).isTrue();
-        assertThat(show.getNextPsaOverride()).isEqualTo("Donation");
-        // Queue stays empty — no immediate injection on the fallback path.
-        assertThat(show.getRequests()).isEmpty();
-        verify(showRepository).save(show);
+
+        ArgumentCaptor<Update> update = ArgumentCaptor.forClass(Update.class);
+        verify(mongoTemplate, times(1)).updateFirst(any(Query.class), update.capture(), eq(Show.class));
+        assertThat(op(update.getValue(), "$set").get("nextPsaOverride")).isEqualTo("Donation");
+        verify(showRepository, never()).save(any(Show.class));
     }
 
     @Test
-    void setNextPsaOverride_addsVote_atPsaPriority_inVotingMode() {
+    void setNextPsaOverride_addsMarkedVote_inVotingMode_andNoRequest() {
+        // Voting mode: the override is a vote, not a request. Review item 8 —
+        // it must be marked ownerOverride so cancel/dedup can pull it.
         stubAuth();
         Show show = Show.builder().showToken(SHOW_TOKEN)
                 .preferences(Preference.builder().viewerControlMode(ViewerControlMode.VOTING).build())
@@ -564,19 +594,24 @@ class GraphQLMutationServiceTest {
         when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
 
         assertThat(service.setNextPsaOverride("Donation")).isTrue();
-        assertThat(show.getNextPsaOverride()).isNull();
-        // Vote added at PSA priority.
-        assertThat(show.getVotes()).hasSize(1);
-        assertThat(show.getVotes().get(0).getVotes()).isEqualTo(2000);
-        assertThat(show.getVotes().get(0).getSequence().getName()).isEqualTo("Donation");
-        // Queue stays empty in voting mode (votes path, not requests path).
-        assertThat(show.getRequests()).isEmpty();
+
+        ArgumentCaptor<Update> updates = ArgumentCaptor.forClass(Update.class);
+        verify(mongoTemplate, times(2)).updateFirst(any(Query.class), updates.capture(), eq(Show.class));
+        Update inject = updates.getAllValues().get(1);
+        Vote pushedVote = (Vote) op(inject, "$push").get("votes");
+        assertThat(pushedVote.getVotes()).isEqualTo(2000);
+        assertThat(pushedVote.getSequence().getName()).isEqualTo("Donation");
+        assertThat(pushedVote.getOwnerOverride()).isTrue();
+        // No request push in voting mode.
+        assertThat(op(inject, "$push").containsKey("requests")).isFalse();
+        verify(showRepository, never()).save(any(Show.class));
     }
 
     @Test
     void setNextPsaOverride_replacesPriorOverride_onSecondCall_latestClickWins() {
-        // Click PSA A → click PSA B before A consumed → A is removed, B is queued.
-        // Single-shot semantics: only one OVERRIDE-marked entry at a time.
+        // Click PSA A → click PSA B. Single-shot: each call's dedup step pulls
+        // any prior override (request + vote) before injecting the new one, so
+        // the latest click wins atomically rather than piling up.
         stubAuth();
         Show show = Show.builder().showToken(SHOW_TOKEN)
                 .preferences(Preference.builder().viewerControlMode(ViewerControlMode.JUKEBOX).build())
@@ -594,12 +629,15 @@ class GraphQLMutationServiceTest {
         service.setNextPsaOverride("PSA_A");
         service.setNextPsaOverride("PSA_B");
 
-        long aCount = show.getRequests().stream()
-                .filter(r -> "PSA_A".equals(r.getSequence().getName())).count();
-        long bCount = show.getRequests().stream()
-                .filter(r -> "PSA_B".equals(r.getSequence().getName())).count();
-        assertThat(aCount).isEqualTo(0);
-        assertThat(bCount).isEqualTo(1);
+        // Two calls × (dedup + inject) = 4 atomic updates.
+        ArgumentCaptor<Update> updates = ArgumentCaptor.forClass(Update.class);
+        verify(mongoTemplate, times(4)).updateFirst(any(Query.class), updates.capture(), eq(Show.class));
+        Request firstInject = (Request) op(updates.getAllValues().get(1), "$push").get("requests");
+        Request secondInject = (Request) op(updates.getAllValues().get(3), "$push").get("requests");
+        assertThat(firstInject.getSequence().getName()).isEqualTo("PSA_A");
+        // The second call's dedup step pulls the prior OVERRIDE before injecting.
+        assertThat(op(updates.getAllValues().get(2), "$pull")).containsKey("requests");
+        assertThat(secondInject.getSequence().getName()).isEqualTo("PSA_B");
     }
 
     @Test
@@ -614,48 +652,45 @@ class GraphQLMutationServiceTest {
         assertThatThrownBy(() -> service.setNextPsaOverride("Not a PSA"))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessage(StatusResponse.INVALID_PSA_NAME.name());
-        assertThat(show.getNextPsaOverride()).isNull();
+        // Nothing written on rejection.
+        verify(mongoTemplate, never()).updateFirst(any(Query.class), any(Update.class), eq(Show.class));
         verify(showRepository, never()).save(any(Show.class));
     }
 
     @Test
-    void setNextPsaOverride_clearsField_andRemovesOverrideMarkedRequests_whenNameIsNull() {
-        // Cancel: remove the OVERRIDE-marked entry from requests AND clear
-        // the safety-net field. Operator-initiated via X on the dashboard
-        // pseudo-row or the SpecialRoles pill.
+    void setNextPsaOverride_cancel_pullsOverrideRequestAndVote_andClearsField_whenNameIsNull() {
+        // Cancel (item 8): pull the OVERRIDE-marked request AND the
+        // ownerOverride vote (voting-mode overrides leave only a vote), and
+        // clear the safety-net field — all in one atomic update.
         stubAuth();
-        Sequence donationSeq = Sequence.builder().name("Donation").index(7).build();
         Show show = Show.builder().showToken(SHOW_TOKEN)
                 .nextPsaOverride("PreviouslySet")
-                .preferences(Preference.builder().viewerControlMode(ViewerControlMode.JUKEBOX).build())
-                .psaSequences(new ArrayList<>(List.of(
-                        PsaSequence.builder().name("Donation").enabled(true).build())))
-                .requests(new ArrayList<>(List.of(
-                        Request.builder().position(0).sequence(donationSeq).viewerRequested("OVERRIDE").build(),
-                        Request.builder().position(1).sequence(Sequence.builder().name("OtherSong").build()).build())))
                 .build();
         when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
 
         assertThat(service.setNextPsaOverride(null)).isTrue();
-        assertThat(show.getNextPsaOverride()).isNull();
-        // OVERRIDE-marked request removed; the other request remains.
-        assertThat(show.getRequests()).hasSize(1);
-        assertThat(show.getRequests().get(0).getSequence().getName()).isEqualTo("OtherSong");
-        verify(showRepository).save(show);
+
+        ArgumentCaptor<Update> update = ArgumentCaptor.forClass(Update.class);
+        verify(mongoTemplate, times(1)).updateFirst(any(Query.class), update.capture(), eq(Show.class));
+        Document pull = op(update.getValue(), "$pull");
+        assertThat(((Document) pull.get("requests")).get("viewerRequested")).isEqualTo("OVERRIDE");
+        assertThat(((Document) pull.get("votes")).get("ownerOverride")).isEqualTo(true);
+        assertThat(op(update.getValue(), "$set")).containsKey("nextPsaOverride");
+        verify(showRepository, never()).save(any(Show.class));
     }
 
     @Test
-    void setNextPsaOverride_clearsField_whenNameIsBlank() {
+    void setNextPsaOverride_cancel_whenNameIsBlank() {
         stubAuth();
         Show show = Show.builder().showToken(SHOW_TOKEN)
                 .nextPsaOverride("PreviouslySet")
-                .psaSequences(new ArrayList<>(List.of(
-                        PsaSequence.builder().name("Donation").enabled(true).build())))
                 .build();
         when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
 
         assertThat(service.setNextPsaOverride("")).isTrue();
-        assertThat(show.getNextPsaOverride()).isNull();
+        // Blank is treated like null — one cancel update, no save.
+        verify(mongoTemplate, times(1)).updateFirst(any(Query.class), any(Update.class), eq(Show.class));
+        verify(showRepository, never()).save(any(Show.class));
     }
 
     @Test

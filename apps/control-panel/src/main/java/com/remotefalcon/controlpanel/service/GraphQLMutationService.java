@@ -18,7 +18,12 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.bson.Document;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
@@ -40,6 +45,7 @@ public class GraphQLMutationService {
     private final NotificationRepository notificationRepository;
     private final ClientUtil clientUtil;
     private final ViewerPageService viewerPageService;
+    private final MongoTemplate mongoTemplate;
 
     @Value("${auto-validate-email}")
     Boolean autoValidateEmail;
@@ -472,19 +478,26 @@ public class GraphQLMutationService {
     private static final String OVERRIDE_REQUEST_MARKER = "OVERRIDE";
 
     public Boolean setNextPsaOverride(String name) {
-        Show s = this.showRepository.findByShowToken(authUtil.getTokenDTO().getShowToken())
+        String showToken = authUtil.getTokenDTO().getShowToken();
+        Show s = this.showRepository.findByShowToken(showToken)
                 .orElseThrow(() -> new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name()));
+        Query query = Query.query(Criteria.where("showToken").is(showToken));
 
-        // Cancel pending: remove any OVERRIDE-marked entries from requests
-        // AND clear the safety-net field. The X on Special Roles / the
-        // dashboard pseudo-row both call this with null.
+        // PSA-v2 review item 3: write with targeted atomic $pull/$push/$set
+        // instead of showRepository.save() (a full-document replace). During a
+        // live show, viewers ($push request/vote) and the FPP plugin
+        // (updateWhatsPlaying) write this same document concurrently, so a
+        // read-modify-save here silently clobbered their writes (lost updates).
+
+        // Cancel pending: drop OVERRIDE-marked requests AND the override vote
+        // (item 8 — voting-mode overrides leave a vote, not a request) and
+        // clear the safety-net field. The X on Special Roles / the dashboard
+        // pseudo-row both call this with null.
         if(StringUtils.isBlank(name)) {
-            if(s.getRequests() != null) {
-                s.getRequests().removeIf(r -> r != null
-                        && StringUtils.equals(r.getViewerRequested(), OVERRIDE_REQUEST_MARKER));
-            }
-            s.setNextPsaOverride(null);
-            this.showRepository.save(s);
+            this.mongoTemplate.updateFirst(query, new Update()
+                    .pull("requests", new Document("viewerRequested", OVERRIDE_REQUEST_MARKER))
+                    .pull("votes", new Document("ownerOverride", true))
+                    .set("nextPsaOverride", null), Show.class);
             return true;
         }
 
@@ -498,89 +511,75 @@ public class GraphQLMutationService {
         }
 
         // PSA-v2 Q7 (revised 2026-06-01): inject the PSA into the queue at
-        // mutation time, not on the next FPP updateWhatsPlaying. The
-        // original "set field, consume on next sequence change" design
-        // introduced a full-song delay — FPP polls nextPlaylistInQueue
-        // ~3 seconds before sequence end, and by that point the override
-        // hadn't been consumed yet (handleManagedPSA only runs on the next
-        // sequence change). With immediate injection, the very next FPP
-        // poll picks the PSA up and inserts it after the current sequence.
+        // mutation time, not on the next FPP updateWhatsPlaying. The original
+        // "set field, consume on next sequence change" design introduced a
+        // full-song delay — FPP polls nextPlaylistInQueue ~3 seconds before
+        // sequence end, and by that point the override hadn't been consumed
+        // yet. With immediate injection, the very next FPP poll picks it up.
         //
-        // The plugin-side handlePsaOverride still exists as a safety net
-        // for any pathway that writes Show.nextPsaOverride directly without
-        // going through this mutation.
+        // The plugin-side handlePsaOverride still exists as a safety net for
+        // any pathway that writes Show.nextPsaOverride directly.
         Optional<Sequence> sequenceMatch = (s.getSequences() == null) ? Optional.empty() : s.getSequences().stream()
                 .filter(seq -> seq != null && StringUtils.equalsIgnoreCase(seq.getName(), name))
                 .findFirst();
         if(sequenceMatch.isEmpty()) {
             // PSA name is in the list but the FPP-synced sequence isn't —
-            // fall back to the field-set / handlePsaOverride safety-net so
-            // a warning surfaces on the next FPP tick.
-            s.setNextPsaOverride(name);
-            this.showRepository.save(s);
+            // fall back to the field-set / handlePsaOverride safety-net so a
+            // warning surfaces on the next FPP tick.
+            this.mongoTemplate.updateFirst(query, new Update().set("nextPsaOverride", name), Show.class);
             return true;
         }
         Sequence seq = sequenceMatch.get();
 
-        // Remove any prior OVERRIDE-marked entry so click-click-click
-        // doesn't pile up multiple pending PSAs in the queue. Single-shot
-        // semantics: the latest click wins.
-        if(s.getRequests() != null) {
-            s.getRequests().removeIf(r -> r != null
-                    && StringUtils.equals(r.getViewerRequested(), OVERRIDE_REQUEST_MARKER));
-        }
+        // Step 1 (atomic): single-shot dedup — pull any prior override request
+        // + vote so click-click-click doesn't pile up — stamp the PSA's
+        // lastPlayed, and clear the safety-net field. $pull and $push can't
+        // touch the same array path in one update, so the push is Step 2.
+        this.mongoTemplate.updateFirst(query, new Update()
+                .pull("requests", new Document("viewerRequested", OVERRIDE_REQUEST_MARKER))
+                .pull("votes", new Document("ownerOverride", true))
+                .set("psaSequences.$[psa].lastPlayed", LocalDateTime.now())
+                .filterArray(Criteria.where("psa.name").is(name))
+                .set("nextPsaOverride", null), Show.class);
 
-        // Initialize collections if missing.
-        if(s.getRequests() == null) {
-            s.setRequests(new ArrayList<>());
-        }
-        if(s.getVotes() == null) {
-            s.setVotes(new ArrayList<>());
-        }
+        // Step 2 (atomic): inject the override. The vote is marked
+        // ownerOverride=true so the cancel / dedup paths above can find and
+        // remove it — votes carry no position, and in voting mode there's no
+        // request to mark, so without this an override vote could never be
+        // cancelled and repeated clicks piled up (review item 8).
+        Update inject = new Update().push("votes", Vote.builder()
+                .sequence(seq)
+                .ownerVoted(false)
+                .ownerOverride(true)
+                .lastVoteTime(LocalDateTime.now())
+                .votes(2000)
+                .build());
 
         ViewerControlMode mode = s.getPreferences() != null ? s.getPreferences().getViewerControlMode() : null;
-        if(mode == ViewerControlMode.VOTING) {
-            // Voting mode: add a vote at PSA priority (2000). Same priority
-            // as cadence-fired PSAs; leader injections still beat at 2001
-            // (PR-3 contract preserved).
-            s.getVotes().add(Vote.builder()
-                    .sequence(seq)
-                    .ownerVoted(false)
-                    .lastVoteTime(LocalDateTime.now())
-                    .votes(2000)
-                    .build());
-        } else {
+        if(mode != ViewerControlMode.VOTING) {
             // JUKEBOX (default): priority position so this plays first.
-            // Position = min(existing positions) - 1, or 1 if queue is empty.
-            int position;
-            if(s.getRequests().isEmpty()) {
-                position = 1;
-            } else {
-                position = s.getRequests().stream()
+            // Position = min(existing non-override positions) - 1, or 1 if the
+            // queue is empty (computed from the read snapshot).
+            int position = 1;
+            if(s.getRequests() != null) {
+                Optional<Integer> minPosition = s.getRequests().stream()
+                        .filter(r -> r != null
+                                && !StringUtils.equals(r.getViewerRequested(), OVERRIDE_REQUEST_MARKER))
                         .map(Request::getPosition)
-                        .min(Integer::compareTo)
-                        .orElse(1) - 1;
+                        .filter(Objects::nonNull)
+                        .min(Integer::compareTo);
+                if(minPosition.isPresent()) {
+                    position = minPosition.get() - 1;
+                }
             }
-            s.getRequests().add(Request.builder()
+            inject.push("requests", Request.builder()
                     .sequence(seq)
                     .ownerRequested(false)
                     .viewerRequested(OVERRIDE_REQUEST_MARKER)
                     .position(position)
                     .build());
-            // Parity with setPSASequenceRequest: also add to votes at PSA priority.
-            s.getVotes().add(Vote.builder()
-                    .sequence(seq)
-                    .ownerVoted(false)
-                    .lastVoteTime(LocalDateTime.now())
-                    .votes(2000)
-                    .build());
         }
-
-        psaMatch.get().setLastPlayed(LocalDateTime.now());
-        // Don't set nextPsaOverride — we've already processed the click.
-        // (handlePsaOverride sees an empty field and no-ops.)
-        s.setNextPsaOverride(null);
-        this.showRepository.save(s);
+        this.mongoTemplate.updateFirst(query, inject, Show.class);
         return true;
     }
 

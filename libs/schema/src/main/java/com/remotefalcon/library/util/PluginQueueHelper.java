@@ -5,10 +5,9 @@ import com.remotefalcon.library.models.Request;
 import com.remotefalcon.library.models.Sequence;
 
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Objects;
 import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * Shared helpers for classifying queue items across PSA-v2 code paths.
@@ -71,7 +70,14 @@ public final class PluginQueueHelper {
     private static Set<String> nonSongNames(List<PsaSequence> psaSequences,
                                             String requestLeaderSequence,
                                             String voteLeaderSequence) {
-        Set<String> result = new HashSet<>();
+        // Case-INSENSITIVE membership: FPP reports sequence names verbatim
+        // (e.g. "psa1") while operators store PSA/leader names as free text
+        // (e.g. "PSA1"). Every other name comparison in the plugin/viewer
+        // services uses equalsIgnoreCase; this set must match. A
+        // CASE_INSENSITIVE_ORDER TreeSet keeps the original-case strings but
+        // makes contains() case-insensitive, so isSongLike/countViewerRequests
+        // classify a case-skewed PSA correctly.
+        Set<String> result = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
         if (psaSequences != null) {
             for (PsaSequence psa : psaSequences) {
                 if (psa == null) continue;
@@ -180,7 +186,10 @@ public final class PluginQueueHelper {
         }
         for (PsaSequence psa : psaSequences) {
             if (psa == null) continue;
-            if (Objects.equals(psa.getName(), name)) {
+            // Case-insensitive: see nonSongNames. `name` is guaranteed
+            // non-null by the public overloads; a null psa.getName() yields
+            // false (String.equalsIgnoreCase handles a null argument).
+            if (name.equalsIgnoreCase(psa.getName())) {
                 return true;
             }
         }

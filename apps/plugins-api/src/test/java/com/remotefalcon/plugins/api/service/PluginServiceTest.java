@@ -855,18 +855,19 @@ class PluginServiceTest {
 
     pluginService.updateWhatsPlaying(UpdateWhatsPlayingRequest.builder().playlist("Song").build());
 
-    // Override fires first (PSA_C), then burst in order (PSA_A, PSA_B, PSA_C).
-    // PSA_C appears twice — once from override, once from burst. PRD §7 says
-    // override "participates in the burst's lastPlayed update but isn't
-    // double-played." Our implementation fires both injections; the
-    // playingNow-isPSA guard would prevent FPP from actually playing the
-    // dup back-to-back. Verify the order in the request queue.
+    // Override fires first (PSA_C at the front), then the burst plays the
+    // REMAINING enabled PSAs in order (PSA_A, PSA_B). PSA_C is excluded from
+    // the burst so it isn't injected twice — PRD §7: the override
+    // "participates in the burst's lastPlayed update but isn't double-played"
+    // (review item 5).
     List<String> requestNames = baseShow.getRequests().stream()
         .map(r -> r.getSequence().getName())
         .toList();
-    assertEquals(4, requestNames.size());
+    assertEquals(3, requestNames.size());
     assertEquals("PSA_C", requestNames.get(0)); // override first
-    assertEquals(List.of("PSA_A", "PSA_B", "PSA_C"), requestNames.subList(1, 4));
+    assertEquals(List.of("PSA_A", "PSA_B"), requestNames.subList(1, 3));
+    // PSA_C appears exactly once — no double-injection.
+    assertEquals(1, requestNames.stream().filter("PSA_C"::equals).count());
     assertNull(baseShow.getNextPsaOverride());
   }
 
@@ -1074,6 +1075,37 @@ class PluginServiceTest {
             && v.getVotes() == 2001
     );
     assertTrue(winnerRequeued, "Winner should be re-queued with votes=2001");
+  }
+
+  @Test
+  void highestVotedPlaylist_voteLeader_secondCycle_playsWinner_notLeaderAgain() {
+    // Review item 1: the winner re-queued at 2001 by the prior leader cycle
+    // must NOT re-fire the leader — otherwise the leader plays every cycle and
+    // the winning song is starved forever. On the second call the re-queued
+    // winner (votes=2001) is the max vote; it must be returned and played, and
+    // must NOT be re-promoted (which would loop).
+    baseShow.getPreferences().setHideSequenceCount(0);
+    baseShow.getPreferences().setResetVotes(true);
+    baseShow.setStats(Stat.builder().votingWin(new ArrayList<>()).build());
+
+    Sequence winner = Sequence.builder().name("WIN").index(5).build();
+    Sequence leader = Sequence.builder().name("Leader-Vote").index(77).build();
+    baseShow.setSequences(new ArrayList<>(List.of(winner, leader)));
+    baseShow.setVoteLeaderSequence("Leader-Vote");
+    // State AFTER cycle 1: the winner sits in votes at the promoted 2001 tier.
+    baseShow.setVotes(new ArrayList<>(List.of(
+        Vote.builder().sequence(winner).votes(2001).lastVoteTime(LocalDateTime.now()).ownerVoted(false).build()
+    )));
+
+    HighestVotedPlaylistResponse resp = pluginService.highestVotedPlaylist();
+
+    // Cycle 2 returns the WINNER, not the leader.
+    assertEquals("WIN", resp.getWinningPlaylist());
+    // And it is not re-promoted to 2001 again (no loop).
+    boolean reRequeued = baseShow.getVotes().stream().anyMatch(v ->
+        v.getSequence() != null && "WIN".equals(v.getSequence().getName())
+            && v.getVotes() != null && v.getVotes() == 2001);
+    assertFalse(reRequeued, "Winner must not be re-promoted (would loop the leader forever)");
   }
 
   @Test

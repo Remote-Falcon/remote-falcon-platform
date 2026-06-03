@@ -168,6 +168,14 @@ public class GraphQLMutationService {
         // to mirror the PSA marker pattern. Same null/empty/missing-target
         // handling as PSAs: silently fall through if leader can't play.
         Optional<Sequence> leaderSequence = this.resolveRequestLeaderSequence(show.get());
+        // Don't inject the leader when the viewer requested the leader
+        // sequence itself — it would queue the same sequence twice
+        // back-to-back. Mirrors the vote-leader guard in plugins-api
+        // processWinningVote (PSA-v2 review item 9).
+        if (leaderSequence.isPresent()
+            && StringUtils.equalsIgnoreCase(leaderSequence.get().getName(), requestedSequence.get().getName())) {
+          leaderSequence = Optional.empty();
+        }
 
         // Build request and stat
         long nextPosition = this.showRepository.nextRequestPosition(existingShow);
@@ -457,7 +465,14 @@ public class GraphQLMutationService {
 
   private Boolean isRequestedSequenceWithinRequestLimit(Show show, Sequence requestedSequence) {
     if (show.getPreferences().getJukeboxRequestLimit() != 0) {
+      // Count only viewer song requests in the "last N" dedup window.
+      // Operator-injected rows (PSAs, leaders, overrides) must not consume
+      // window slots, or a real recent request falls out of the window and
+      // becomes re-requestable (PSA-v2 review item 10). isSongLike excludes
+      // PSA/leader names — the same predicate isQueueFull uses.
       List<String> requestNamesLastToFirst = show.getRequests().stream()
+          .filter(request -> request.getSequence() != null
+              && PluginQueueHelper.isSongLike(show, request.getSequence().getName()))
           .sorted(Comparator.comparing(Request::getPosition)
               .reversed())
           .limit(show.getPreferences().getJukeboxRequestLimit())
@@ -508,9 +523,18 @@ public class GraphQLMutationService {
   private void handlePsaForJukeboxInline(String showSubdomain, Show show, int requestsMadeToday) {
     // Inline PSA handling that doesn't require re-fetching show
     if (requestsMadeToday % show.getPreferences().getPsaFrequency() == 0) {
+      // Honor the Q1 enabled toggle (review item 7): a PSA soft-disabled via
+      // the Special Roles tab must not be injected in unmanaged jukebox mode,
+      // matching the managed path's enabled filter. nullsFirst on lastPlayed
+      // (review item 14) treats a never-played PSA as highest priority instead
+      // of NPEing, and the null-safe order/name tie-break mirrors
+      // handlePsaRoundRobin so all PSA pickers order identically.
       Optional<PsaSequence> nextPsaSequence = show.getPsaSequences().stream()
-          .min(Comparator.comparing(PsaSequence::getLastPlayed)
-              .thenComparing(PsaSequence::getOrder));
+          .filter(psa -> psa != null && !Boolean.FALSE.equals(psa.getEnabled()))
+          .min(Comparator
+              .comparing(PsaSequence::getLastPlayed, Comparator.nullsFirst(Comparator.naturalOrder()))
+              .thenComparing(psa -> psa.getOrder() != null ? psa.getOrder() : Integer.MAX_VALUE)
+              .thenComparing(psa -> psa.getName() != null ? psa.getName() : ""));
       if (nextPsaSequence.isPresent()) {
         Optional<Sequence> sequenceToAdd = show.getSequences().stream()
             .filter(sequence -> StringUtils.equalsIgnoreCase(sequence.getName(), nextPsaSequence.get().getName()))

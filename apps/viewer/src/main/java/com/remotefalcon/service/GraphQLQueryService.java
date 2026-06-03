@@ -56,8 +56,11 @@ public class GraphQLQueryService {
     for (Request r : all) {
       if (r == null || r.getSequence() == null) continue;
       String marker = r.getViewerRequested();
-      // Filter known operator-injected markers (leader from PR-3, override from PR-5 mutation).
-      if ("LEADER".equals(marker) || "OVERRIDE".equals(marker)) continue;
+      // Filter known operator-injected markers: leader (PR-3), Q7 override
+      // (PR-5 mutation), and unmanaged-jukebox cadence PSAs which carry the
+      // "PSA" marker set by handlePsaForJukeboxInline. The "PSA" branch was
+      // missing, so unmanaged PSAs leaked into the viewer queue (review item 4).
+      if ("LEADER".equals(marker) || "OVERRIDE".equals(marker) || "PSA".equals(marker)) continue;
       // Cadence PSA: no marker AND name matches a PSA. ownerRequested=true
       // (explicit owner-played item) stays visible regardless.
       if ((marker == null || marker.isEmpty())
@@ -126,6 +129,12 @@ public class GraphQLQueryService {
     // already cleared/initialized it).
     String fromSchedule = show.getPlayingNextFromSchedule();
     if (StringUtils.isEmpty(fromSchedule) || !PluginQueueHelper.isSongLike(show, fromSchedule)) {
+      // No song-like "next" to surface. Clear any stale value (e.g. a PSA
+      // displayName persisted from a prior tick) instead of leaking it to the
+      // viewer as "up next" — the early return previously left it untouched
+      // (PSA-v2 review item 11).
+      show.setPlayingNext("");
+      show.setPlayingNextSequence(null);
       return;
     }
     Optional<Sequence> playingNextScheduledSequence = show.getSequences().stream()

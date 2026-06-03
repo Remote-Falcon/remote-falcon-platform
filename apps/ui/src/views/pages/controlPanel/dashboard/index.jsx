@@ -150,6 +150,19 @@ const Dashboard = () => {
     showRef.current = show;
   }, [show]);
   useInterval(() => {
+    // Only poll the (heavy) full GET_SHOW while the operator is actively
+    // looking at a live show. A hidden tab needs no updates, and an idle
+    // (non-live) dashboard's queue can't change — viewers can't request or
+    // vote until viewer control is on. This keeps the heaviest query off
+    // backgrounded and standby dashboards, which is what drove the
+    // control-panel replica bump (PSA-v2 review item 13). Now Playing / Up
+    // next still refresh via the separate useDashboardLiveStats poll.
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+      return;
+    }
+    if (!showRef.current?.preferences?.viewerControlEnabled) {
+      return;
+    }
     refetchShowQuery({
       context: { headers: { Route: 'Control-Panel' } },
       onCompleted: (data) => {
