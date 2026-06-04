@@ -11,8 +11,10 @@ import io.restassured.http.ContentType;
 import jakarta.inject.Inject;
 import org.junit.jupiter.api.*;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.*;
@@ -307,6 +309,55 @@ class GetShowIntegrationTest {
 
   @Test
   @Order(8)
+  @DisplayName("E2E: getShow tolerates pages with java.util.UUID pageId (BSON Binary subtype 3)")
+  void testGetShow_PageWithUuidPageId() {
+    // Regression for prod outage where every show whose pages had been
+    // backfilled by control-panel's normalizeAndBackfill (introduced with
+    // RF Page Builder Phase 1) failed getShow with "System error". Root
+    // cause: Spring Data Mongo writes java.util.UUID as BSON Binary
+    // subtype 3 (JAVA_LEGACY layout), but mongo-java-driver 5 defaults
+    // uuidRepresentation=UNSPECIFIED which refuses to decode subtype 3.
+    // application.properties now sets uuid-representation=JAVA_LEGACY;
+    // this test fails loudly if that line is ever dropped, because a
+    // UUID round-trip can't complete under UNSPECIFIED.
+    Show show = showRepository.findByShowSubdomain(TEST_SUBDOMAIN).orElseThrow();
+
+    ViewerPage page = new ViewerPage();
+    page.setName("Page With UUID");
+    page.setHtml("<h1>hello</h1>");
+    page.setActive(true);
+    page.setPageId(UUID.randomUUID());
+    page.setUpdatedAt(Instant.now());
+
+    show.setPages(List.of(page));
+    showRepository.update(show);
+
+    String query = """
+        query {
+          getShow(showSubdomain: "%s") {
+            pages {
+              name
+              active
+            }
+          }
+        }
+        """.formatted(TEST_SUBDOMAIN);
+
+    given()
+        .contentType(ContentType.JSON)
+        .body(buildGraphQLRequest(query))
+        .when()
+        .post("/graphql")
+        .then()
+        .statusCode(200)
+        .body("errors", nullValue())
+        .body("data.getShow.pages", hasSize(1))
+        .body("data.getShow.pages[0].name", equalTo("Page With UUID"))
+        .body("data.getShow.pages[0].active", equalTo(true));
+  }
+
+  @Test
+  @Order(9)
   @DisplayName("E2E: Return null for non-existent show")
   void testGetShow_NotFound() {
     String query = """
