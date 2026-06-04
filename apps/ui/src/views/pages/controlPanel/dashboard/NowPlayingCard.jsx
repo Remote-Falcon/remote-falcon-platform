@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import * as React from 'react';
 
 import { useMutation } from '@apollo/client';
-import { Box, Chip, IconButton, Link as MuiLink, Stack, Tooltip, Typography } from '@mui/material';
+import { Box, Button, Chip, IconButton, Link as MuiLink, Stack, Tooltip, Typography } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import { IconMusic, IconPlayerPlay, IconX } from '@tabler/icons-react';
 import _ from 'lodash';
@@ -10,10 +10,11 @@ import _ from 'lodash';
 import MainCard from '../../../../ui-component/cards/MainCard';
 import useDashboardLiveStats from '../../../../hooks/useDashboardLiveStats';
 import { setNextPsaOverrideService } from '../../../../services/controlPanel/mutations.service';
+import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
 import { useDispatch, useSelector } from '../../../../store';
 import { setShow } from '../../../../store/slices/show';
 import { ViewerControlMode } from '../../../../utils/enum';
-import { DELETE_ALL_REQUESTS, DELETE_SINGLE_REQUEST, SET_NEXT_PSA_OVERRIDE } from '../../../../utils/graphql/controlPanel/mutations';
+import { DELETE_ALL_REQUESTS, DELETE_SINGLE_REQUEST, RESET_ALL_VOTES, SET_NEXT_PSA_OVERRIDE } from '../../../../utils/graphql/controlPanel/mutations';
 import { showAlert } from '../../globalPageHelpers';
 
 // Mockup `.now-playing` + full queue list. Renders the currently playing
@@ -26,7 +27,7 @@ import { showAlert } from '../../globalPageHelpers';
 const NowPlayingCard = () => {
   const dispatch = useDispatch();
   const { show } = useSelector((state) => state.show);
-  const { data: liveStats } = useDashboardLiveStats();
+  const { data: liveStats, refetch: refetchLiveStats } = useDashboardLiveStats();
   const stats = {
     playingNow: liveStats?.playingNow || '--',
     playingNext: liveStats?.playingNext || '--'
@@ -34,6 +35,7 @@ const NowPlayingCard = () => {
   const [deleteSingleRequestMutation] = useMutation(DELETE_SINGLE_REQUEST);
   const [deleteAllRequestsMutation] = useMutation(DELETE_ALL_REQUESTS);
   const [setNextPsaOverrideMutation] = useMutation(SET_NEXT_PSA_OVERRIDE);
+  const [resetAllVotesMutation] = useMutation(RESET_ALL_VOTES);
 
   const isJukebox = show?.preferences?.viewerControlMode === ViewerControlMode.JUKEBOX;
 
@@ -102,6 +104,23 @@ const NowPlayingCard = () => {
       onCompleted: () => {
         dispatch(setShow({ ...show, requests: [] }));
         showAlert(dispatch, { message: 'Queue cleared' });
+      },
+      onError: () => showAlert(dispatch, { alert: 'error' })
+    });
+  };
+
+  // Voting-mode equivalent of jukebox's "Clear all" — wipes the votes array
+  // (and resets sequence visibility counts) via resetAllVotes. Relocated from
+  // the dashboard PageHead into the card header so the control sits next to
+  // the votes it clears, matching the jukebox queue's inline clear affordance.
+  const resetAllVotes = () => {
+    trackPosthogEvent('dashboard_quick_action', { action: 'reset_votes' });
+    resetAllVotesMutation({
+      context: { headers: { Route: 'Control-Panel' } },
+      onCompleted: () => {
+        dispatch(setShow({ ...show, votes: [] }));
+        showAlert(dispatch, { message: 'All Votes Reset' });
+        refetchLiveStats();
       },
       onError: () => showAlert(dispatch, { alert: 'error' })
     });
@@ -230,21 +249,36 @@ const NowPlayingCard = () => {
           >
             {isJukebox ? `Queue${upNext.length > 0 ? ` (${upNext.length})` : ''}` : 'Top votes'}
           </Typography>
-          {isJukebox && upNext.length > 0 && (
-            <MuiLink
-              component="button"
-              onClick={deleteAllRequests}
-              sx={{
-                fontSize: 11,
-                color: 'text.secondary',
-                textTransform: 'uppercase',
-                letterSpacing: '0.06em',
-                '&:hover': { color: 'error.main' }
-              }}
-            >
-              Clear all
-            </MuiLink>
-          )}
+          {isJukebox
+            ? upNext.length > 0 && (
+                <MuiLink
+                  component="button"
+                  onClick={deleteAllRequests}
+                  sx={{
+                    fontSize: 11,
+                    color: 'text.secondary',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.06em',
+                    '&:hover': { color: 'error.main' }
+                  }}
+                >
+                  Clear all
+                </MuiLink>
+              )
+            : (show?.votes || []).length > 0 && (
+                // Keep the red error button (operator wanted it preserved),
+                // just sized down to sit inline in the card header.
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color="error"
+                  onClick={resetAllVotes}
+                  sx={{ py: 0.25, px: 1.25, minWidth: 0, fontSize: 11, lineHeight: 1.6 }}
+                  data-testid="now-playing-reset-votes"
+                >
+                  Reset votes
+                </Button>
+              )}
         </Stack>
         {upNext.length === 0 && !showPendingOverride ? (
           <Typography variant="body2" sx={{ color: 'text.secondary', py: 1 }}>

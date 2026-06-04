@@ -7,7 +7,6 @@ import {
   ButtonGroup,
   ClickAwayListener,
   FormControlLabel,
-  Grid,
   Grow,
   IconButton,
   MenuItem,
@@ -37,7 +36,6 @@ import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
 import { ViewerControlMode } from '../../../../utils/enum';
 import {
   DELETE_NOW_PLAYING,
-  RESET_ALL_VOTES,
   UPDATE_PREFERENCES
 } from '../../../../utils/graphql/controlPanel/mutations';
 import { GET_SHOW, NOTIFICATIONS } from '../../../../utils/graphql/controlPanel/queries';
@@ -126,7 +124,6 @@ const Dashboard = () => {
   const { show } = useSelector((state) => state.show);
   const publicUrl = useShowPublicUrl();
 
-  const [resetAllVotesMutation] = useMutation(RESET_ALL_VOTES);
   const [deleteNowPlayingMutation] = useMutation(DELETE_NOW_PLAYING);
   const [updatePreferencesMutation] = useMutation(UPDATE_PREFERENCES);
 
@@ -231,18 +228,6 @@ const Dashboard = () => {
     });
   };
 
-  const resetAllVotes = () => {
-    trackPosthogEvent('dashboard_quick_action', { action: 'reset_votes' });
-    resetAllVotesMutation({
-      context: { headers: { Route: 'Control-Panel' } },
-      onCompleted: () => {
-        showAlert(dispatch, { message: 'All Votes Reset' });
-        refetchLiveStats();
-      },
-      onError: () => showAlert(dispatch, { alert: 'error' })
-    }).then();
-  };
-
   const deleteNowPlaying = () => {
     trackPosthogEvent('dashboard_quick_action', { action: 'clear_now_playing' });
     deleteNowPlayingMutation({
@@ -287,13 +272,6 @@ const Dashboard = () => {
               />
             </Tooltip>
             <ViewPublicPageButton publicUrl={publicUrl} />
-            {/* Reset Votes only makes sense in voting mode. Clear Now Playing/Up Next
-                moved into the NowPlayingCard header where it belongs. */}
-            {!isJukebox && (
-              <Button variant="outlined" color="error" onClick={resetAllVotes}>
-                Reset votes
-              </Button>
-            )}
           </Stack>
         }
       />
@@ -301,34 +279,64 @@ const Dashboard = () => {
       {/* Section headers live inside each column so "Right now" and
           "Now playing" align horizontally — the NowPlayingCard's
           internal header was dropped in favor of this. */}
-      <Grid container spacing={gridSpacing}>
-        <Grid item xs={12} lg={8}>
-          <SectionHeader label="Right now" />
-          <Stack spacing={2}>
-            <LiveStatsRow />
+      {/* Two columns via CSS grid (not MUI <Grid>) so `align-items: stretch`
+          reliably makes both columns equal height. The right column keeps its
+          natural height (alignSelf:start → it defines the row), and the left
+          column stretches to match — its stat-tile row then has real extra
+          space to flex into, so the tiles grow and the FPP plugin card lands
+          at the column bottom, level with the Now Playing card bottom. MUI
+          Grid wasn't equalizing the heights, which left the fill with nothing
+          to absorb. */}
+      <Box
+        sx={{
+          display: 'grid',
+          gap: gridSpacing,
+          gridTemplateColumns: { xs: '1fr', lg: '2fr 1fr' },
+          alignItems: 'stretch'
+        }}
+      >
+        <Box sx={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+          {/* Same fixed-height row as the "Now playing" header so both columns'
+              cards start at the same Y. */}
+          <Stack direction="row" alignItems="center" sx={{ minHeight: 32, mt: 2.5, mb: 1 }}>
+            <SectionHeader label="Right now" sx={{ m: 0 }} />
+          </Stack>
+          <Stack spacing={2} sx={{ flex: 1, minHeight: 0 }}>
+            <Box sx={{ flex: 1, minHeight: 0 }}>
+              <LiveStatsRow />
+            </Box>
             <HealthRow />
           </Stack>
-        </Grid>
-        <Grid item xs={12} lg={4}>
-          <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ minHeight: 32 }}>
-            <SectionHeader label="Now playing" sx={{ mb: 0 }} />
+        </Box>
+        {/* Flex column so the Now Playing card fills the stretched cell down to
+            the row bottom. Whichever column is naturally taller (left = stats +
+            FPP, or right = a long votes list) defines the row height; the other
+            stretches to match. The flex:1 wrapper (not the card directly) takes
+            the height so the header isn't pushed out by the card's height:100%. */}
+        <Box sx={{ minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+          <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ minHeight: 32, mt: 2.5, mb: 1 }}>
+            <SectionHeader label="Now playing" sx={{ m: 0 }} />
             <Tooltip title="Clear Now Playing / Up Next">
               <IconButton
                 size="small"
                 onClick={deleteNowPlaying}
-                sx={{ color: 'text.secondary', mt: 2.5, mb: 1, '&:hover': { color: 'error.main' } }}
+                sx={{ color: 'text.secondary', '&:hover': { color: 'error.main' } }}
               >
                 <IconEraser size={16} stroke={1.75} />
               </IconButton>
             </Tooltip>
           </Stack>
-          <NowPlayingCard />
-        </Grid>
-      </Grid>
+          <Box sx={{ flex: 1, minHeight: 0 }}>
+            <NowPlayingCard />
+          </Box>
+        </Box>
+      </Box>
 
       {/* Pre-show readiness lives below the live operational data —
-          it's reference/setup help, not above-the-fold time-sensitive. */}
-      <SectionHeader label="Pre-show readiness" />
+          it's reference/setup help, not above-the-fold time-sensitive.
+          Extra top margin separates it from the columns above so the title
+          doesn't crowd the Now Playing / FPP card bottoms. */}
+      <SectionHeader label="Pre-show readiness" sx={{ mt: 5 }} />
       <PreShowChecklist />
 
       {/* Date-range stat browser used to live here (DashboardCharts). It was
