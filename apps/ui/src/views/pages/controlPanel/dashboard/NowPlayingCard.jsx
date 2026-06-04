@@ -132,7 +132,14 @@ const NowPlayingCard = () => {
         sub: r?.ownerRequested ? 'Owner' : null,
         canDelete: true
       }))
-    : _.orderBy(show?.votes || [], ['votes'], ['desc'])
+    : // Exclude system-injected votes (PSA/leader/override priority sentinels,
+      // votes >= 2000) — they aren't viewer actions and shouldn't appear in the
+      // "Top votes" list. Mirrors the backend Active Votes filter.
+      _.orderBy(
+        (show?.votes || []).filter((v) => !v?.systemInjected && (v?.votes || 0) < 2000),
+        ['votes'],
+        ['desc']
+      )
         .slice(0, 10)
         .map((v) => ({
           name: v?.sequence?.name,

@@ -721,6 +721,7 @@ public class PluginService {
     show.getVotes().add(Vote.builder()
         .sequence(requestedSequence)
         .ownerVoted(false)
+        .systemInjected(true)
         .lastVoteTime(LocalDateTime.now())
         .votes(2000)
         .build());
@@ -742,6 +743,7 @@ public class PluginService {
     show.getVotes().add(Vote.builder()
         .sequence(requestedSequence)
         .ownerVoted(false)
+        .systemInjected(true)
         .lastVoteTime(LocalDateTime.now())
         .votes(2000)
         .build());
@@ -841,6 +843,7 @@ public class PluginService {
             .votes(voteCount)
             .lastVoteTime(LocalDateTime.now())
             .ownerVoted(false)
+            .systemInjected(true)
             .sequence(sequencesInGroup.getFirst())
             .build();
         voteCount--;
@@ -853,6 +856,7 @@ public class PluginService {
               .votes(voteCount)
               .lastVoteTime(LocalDateTime.now())
               .ownerVoted(false)
+              .systemInjected(true)
               .sequence(groupedSequence)
               .build());
           voteCount--;
@@ -935,6 +939,7 @@ public class PluginService {
                 sequenceToAdd.ifPresent(sequence -> show.getVotes().add(Vote.builder()
                     .sequence(sequence)
                     .ownerVoted(false)
+                    .systemInjected(true)
                     .lastVoteTime(LocalDateTime.now())
                     .votes(2000)
                     .build()));
@@ -968,6 +973,7 @@ public class PluginService {
           show.getVotes().add(Vote.builder()
               .sequence(actualSequence.get())
               .ownerVoted(false)
+              .systemInjected(true)
               .lastVoteTime(LocalDateTime.now())
               .votes(LEADER_PROMOTED_WINNER_VOTES)
               .build());

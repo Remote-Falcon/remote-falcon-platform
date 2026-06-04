@@ -359,6 +359,12 @@ const ExternalViewerPage = () => {
         if (show?.preferences?.viewerControlMode === ViewerControlMode.VOTING) {
           let sequenceVotes = 0;
           _.forEach(show?.votes, (vote) => {
+            // Skip system-injected priority votes (PSA/leader/override, votes >= 2000).
+            // They aren't viewer votes and would otherwise show a bogus tally
+            // (e.g. an operator-overridden song reading "2000 votes").
+            if (vote?.systemInjected || (vote?.votes || 0) >= 2000) {
+              return;
+            }
             if (vote?.sequence?.name === sequence?.name || vote?.sequenceGroup?.name === sequence?.group) {
               sequenceVotes = vote?.votes;
             }

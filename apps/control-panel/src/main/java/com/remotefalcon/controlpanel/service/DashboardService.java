@@ -650,7 +650,13 @@ public class DashboardService {
             // and accepts a new request, which is confusing.
             .currentRequests(PluginQueueHelper.countViewerRequests(show.get()))
             .totalRequests(this.buildTotalRequestsLiveStat(startDateAtZone, endDateAtZone, timezone, show.get(), false))
-            .currentVotes(show.get().getVotes() != null ? show.get().getVotes().stream().mapToInt(Vote::getVotes).sum() : 0)
+            // Count only viewer-cast votes. PSA cadence/override, leader-promoted
+            // winners, and grouped-winner ordering are injected into show.votes
+            // with a priority sentinel so they win playback selection — they are
+            // not audience actions and must not inflate the "Active Votes" tile.
+            .currentVotes(show.get().getVotes() != null
+                    ? show.get().getVotes().stream().filter(v -> !Vote.isSystemInjected(v)).mapToInt(Vote::getVotes).sum()
+                    : 0)
             .totalVotes(this.buildTotalVotesLiveStat(startDateAtZone, endDateAtZone, timezone, show.get(), false))
             .playingNow(getPlayingNow(existingShow))
             .playingNext(getPlayingNext(existingShow))

@@ -551,6 +551,7 @@ public class GraphQLMutationService {
                 .sequence(seq)
                 .ownerVoted(false)
                 .ownerOverride(true)
+                .systemInjected(true)
                 .lastVoteTime(LocalDateTime.now())
                 .votes(2000)
                 .build());
