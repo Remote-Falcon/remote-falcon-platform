@@ -501,6 +501,26 @@ public class PluginService {
       return;
     }
 
+    // Dedup guard (PSA-v2) — in voting mode a cadence PSA is injected as a
+    // priority vote (2000) that highestVotedPlaylist consumes one-at-a-time;
+    // with resetVotes off, a PSA win doesn't clear the rest. The managed path
+    // previously appended a fresh PSA vote every qualifying tick with no
+    // check, so at psaFrequency=1 injection outran consumption: PSA votes
+    // stacked up and played back-to-back, ignoring the frequency. Mirror the
+    // unmanaged path's isPsaInVotes guard — if a configured PSA is already
+    // pending in votes, skip this tick's injection (keeps <=1 pending for
+    // round-robin; one set for burst, which won't re-burst until consumed).
+    // Jukebox is unaffected (it consumes PSAs from the request queue by
+    // position), and the Q7 override above is intentionally NOT gated.
+    if (show.getPreferences().getViewerControlMode() == ViewerControlMode.VOTING
+        && show.getVotes() != null
+        && show.getVotes().stream().anyMatch(vote -> vote != null
+            && vote.getSequence() != null
+            && vote.getSequence().getName() != null
+            && psaNamesLowerCase.contains(vote.getSequence().getName().toLowerCase()))) {
+      return;
+    }
+
     // Step 2 — Q4 burst. When playAllPsas is true, fire all enabled +
     // FPP-existent PSAs in `order` ascending, sharing one timestamp. Exclude
     // the override PSA when it already fired this tick — otherwise the
