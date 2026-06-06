@@ -12,6 +12,7 @@ import { setNextPsaOverrideService } from '../../../../services/controlPanel/mut
 import { useDispatch, useSelector } from '../../../../store';
 import { setShow } from '../../../../store/slices/show';
 import MainCard from '../../../../ui-component/cards/MainCard';
+import { visibleEnabledPsas } from './psaQuickPlay.helpers';
 import { SET_NEXT_PSA_OVERRIDE } from '../../../../utils/graphql/controlPanel/mutations';
 import { GET_SHOW } from '../../../../utils/graphql/controlPanel/queries';
 import { showAlert } from '../../globalPageHelpers';
@@ -43,17 +44,8 @@ const PsaQuickPlayCard = () => {
     !!liveStats?.lastHeartbeatMs && Date.now() - liveStats.lastHeartbeatMs < HEARTBEAT_FRESH_MS;
   const hasEverConnected = !!liveStats?.lastHeartbeatMs;
 
-  // Only enabled PSAs are playable — the override no-ops on a disabled one
-  // (handlePsaOverride clears it without playing). `enabled` is a boxed
-  // Boolean: null/undefined means enabled, only explicit false disables.
-  const psas = useMemo(
-    () =>
-      (show?.psaSequences || [])
-        .filter((p) => p && p.name && p.enabled !== false)
-        .slice()
-        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0)),
-    [show?.psaSequences]
-  );
+  // Only enabled PSAs are playable, sorted by order — see visibleEnabledPsas.
+  const psas = useMemo(() => visibleEnabledPsas(show?.psaSequences), [show?.psaSequences]);
 
   // Poll for the override clearing while one is pending. FPP consumes it at the
   // next sequence boundary and PluginService persists nextPsaOverride=null;
