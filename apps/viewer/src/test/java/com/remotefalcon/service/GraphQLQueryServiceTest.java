@@ -41,22 +41,16 @@ class GraphQLQueryServiceTest {
     return show;
   }
 
-  // Real Sequence, not a stubbed mock: mockSequence is frequently called inside
-  // when(req.getSequence()).thenReturn(mockSequence(...)), and stubbing inside
-  // that outer when() starts a nested when() — Mockito throws
-  // UnfinishedStubbingException. A builder is behaviorally identical here (these
-  // sequences are read as data, never verified); unset fields default to null,
-  // same as an unstubbed mock.
   private Sequence mockSequence(String name, String displayName, int order, boolean active, int visibilityCount,
       String group) {
-    return Sequence.builder()
-        .name(name)
-        .displayName(displayName)
-        .order(order)
-        .active(active)
-        .visibilityCount(visibilityCount)
-        .group(group)
-        .build();
+    Sequence seq = mock(Sequence.class);
+    when(seq.getName()).thenReturn(name);
+    when(seq.getDisplayName()).thenReturn(displayName);
+    when(seq.getOrder()).thenReturn(order);
+    when(seq.getActive()).thenReturn(active);
+    when(seq.getVisibilityCount()).thenReturn(visibilityCount);
+    when(seq.getGroup()).thenReturn(group);
+    return seq;
   }
 
   @Nested
@@ -358,14 +352,17 @@ class GraphQLQueryServiceTest {
       Sequence song = mockSequence("Song1", "Song One", 1, true, 0, null);
       show.getSequences().add(song);
 
+      // Build sequence mocks BEFORE the outer when() — calling a stubbing
+      // helper inside when(...).thenReturn(...) is a nested when()
+      // (UnfinishedStubbingException).
+      Sequence psa1Seq = mockSequence("PSA1", "PSA One", 0, true, 0, null);
       Request psa1Req = mock(Request.class);
       when(psa1Req.getPosition()).thenReturn(1);
-      when(psa1Req.getSequence()).thenReturn(
-          mockSequence("PSA1", "PSA One", 0, true, 0, null));
+      when(psa1Req.getSequence()).thenReturn(psa1Seq);
+      Sequence psa2Seq = mockSequence("PSA2", "PSA Two", 0, true, 0, null);
       Request psa2Req = mock(Request.class);
       when(psa2Req.getPosition()).thenReturn(2);
-      when(psa2Req.getSequence()).thenReturn(
-          mockSequence("PSA2", "PSA Two", 0, true, 0, null));
+      when(psa2Req.getSequence()).thenReturn(psa2Seq);
       Request songReq = mock(Request.class);
       when(songReq.getPosition()).thenReturn(3);
       when(songReq.getSequence()).thenReturn(song);
@@ -394,10 +391,10 @@ class GraphQLQueryServiceTest {
       Sequence song = mockSequence("Song1", "Song One", 1, true, 0, null);
       show.getSequences().add(song);
 
+      Sequence leaderSeq = mockSequence("ReqLeader", "Request Leader", 0, true, 0, null);
       Request leaderReq = mock(Request.class);
       when(leaderReq.getPosition()).thenReturn(1);
-      when(leaderReq.getSequence()).thenReturn(
-          mockSequence("ReqLeader", "Request Leader", 0, true, 0, null));
+      when(leaderReq.getSequence()).thenReturn(leaderSeq);
       Request songReq = mock(Request.class);
       when(songReq.getPosition()).thenReturn(2);
       when(songReq.getSequence()).thenReturn(song);
