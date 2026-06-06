@@ -288,16 +288,19 @@ class GraphQLQueryServiceTest {
   @DisplayName("updatePlayingNext (PSA-v2 Q2 skip predicate)")
   class PsaV2PlayingNextTests {
 
+    // Return a real Preference, not a mock: these helpers are evaluated INSIDE
+    // when(show.getPreferences()).thenReturn(jukeboxPrefs()), so stubbing inside
+    // a mock here starts a nested when() while the outer stubbing is still
+    // ongoing — Mockito throws UnfinishedStubbingException (and, since these
+    // classes don't use MockitoExtension, the dirty state leaks into the next
+    // test class). A plain builder is behaviorally identical here; only
+    // viewerControlMode is read by updatePlayingNext's skip predicate.
     private Preference jukeboxPrefs() {
-      Preference p = mock(Preference.class);
-      when(p.getViewerControlMode()).thenReturn(ViewerControlMode.JUKEBOX);
-      return p;
+      return Preference.builder().viewerControlMode(ViewerControlMode.JUKEBOX).build();
     }
 
     private Preference votingPrefs() {
-      Preference p = mock(Preference.class);
-      when(p.getViewerControlMode()).thenReturn(ViewerControlMode.VOTING);
-      return p;
+      return Preference.builder().viewerControlMode(ViewerControlMode.VOTING).build();
     }
 
     @Test
