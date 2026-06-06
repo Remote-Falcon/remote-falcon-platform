@@ -15,8 +15,10 @@ import {
   Popper,
   Stack,
   Switch,
-  Tooltip
+  Tooltip,
+  useMediaQuery
 } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 import { IconCheck, IconChevronDown, IconCopy, IconEraser, IconExternalLink } from '@tabler/icons-react';
 import _ from 'lodash';
 import PropTypes from 'prop-types';
@@ -41,10 +43,10 @@ import {
 import { GET_SHOW, NOTIFICATIONS } from '../../../../utils/graphql/controlPanel/queries';
 import { showAlert } from '../../globalPageHelpers';
 
-import HealthRow from './HealthRow';
 import LiveStatsRow from './LiveStatsRow';
 import NowPlayingCard from './NowPlayingCard';
 import PreShowChecklist from './PreShowChecklist';
+import PsaQuickPlayCard from './PsaQuickPlayCard';
 
 // View public page split button. Primary action opens the URL in a new
 // tab; the chevron opens a one-item menu to copy the URL. Avatar profile
@@ -123,6 +125,12 @@ const Dashboard = () => {
   const dispatch = useDispatch();
   const { show } = useSelector((state) => state.show);
   const publicUrl = useShowPublicUrl();
+
+  // Below lg the dashboard is a single column. There we promote the PSA
+  // quick-play card to the very top (it's the primary in-show action on a
+  // phone); on desktop it sits in the right column under the Now Playing card.
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('lg'));
 
   const [deleteNowPlayingMutation] = useMutation(DELETE_NOW_PLAYING);
   const [updatePreferencesMutation] = useMutation(UPDATE_PREFERENCES);
@@ -240,6 +248,18 @@ const Dashboard = () => {
     }).then();
   };
 
+  // The "Right now" stats band (4 tiles + compact FPP plugin card). Rendered
+  // above the hero on desktop, but BELOW it on mobile so a phone operator sees
+  // PSAs → Now Playing first, with the numbers a scroll away.
+  const rightNowBand = (
+    <>
+      <Stack direction="row" alignItems="center" sx={{ minHeight: 32, mt: 1.5, mb: 1 }}>
+        <SectionHeader label="Right now" sx={{ m: 0 }} />
+      </Stack>
+      <LiveStatsRow />
+    </>
+  );
+
   return (
     <Box>
       <PageHead
@@ -250,7 +270,6 @@ const Dashboard = () => {
           </Box>
         }
         title="Tonight's show"
-        description={isLive ? 'Live · viewer control is enabled.' : 'Standby · viewer control is paused.'}
         actions={
           <Stack direction="row" spacing={1.5} alignItems="center">
             <Tooltip title={isLive ? 'Disable Viewer Control' : 'Enable Viewer Control'}>
@@ -276,43 +295,32 @@ const Dashboard = () => {
         }
       />
 
-      {/* Section headers live inside each column so "Right now" and
-          "Now playing" align horizontally — the NowPlayingCard's
-          internal header was dropped in favor of this. */}
-      {/* Two columns via CSS grid (not MUI <Grid>) so `align-items: stretch`
-          reliably makes both columns equal height. The right column keeps its
-          natural height (alignSelf:start → it defines the row), and the left
-          column stretches to match — its stat-tile row then has real extra
-          space to flex into, so the tiles grow and the FPP plugin card lands
-          at the column bottom, level with the Now Playing card bottom. MUI
-          Grid wasn't equalizing the heights, which left the fill with nothing
-          to absorb. */}
+      {/* On mobile (single-column) promote the PSA quick-play card above
+          everything — it's the primary action an operator taps from their phone
+          mid-show. On desktop it lives in the right rail (rendered there below). */}
+      {isMobile && (
+        <Box sx={{ mt: 2.5 }}>
+          <PsaQuickPlayCard />
+        </Box>
+      )}
+
+      {/* Stats band — above the hero on desktop; on mobile it's rendered below
+          the hero instead (see after the grid). */}
+      {!isMobile && rightNowBand}
+
+      {/* Hero + PSAs. Now Playing is the tall left column — its votes/queue list
+          flexes to fill the height (no fixed cap). The PSA quick-play card sits
+          in the right column, stretched to the same height so the two cards line
+          up evenly. */}
       <Box
         sx={{
           display: 'grid',
           gap: gridSpacing,
           gridTemplateColumns: { xs: '1fr', lg: '2fr 1fr' },
-          alignItems: 'stretch'
+          alignItems: 'stretch',
+          mt: 1
         }}
       >
-        <Box sx={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-          {/* Same fixed-height row as the "Now playing" header so both columns'
-              cards start at the same Y. */}
-          <Stack direction="row" alignItems="center" sx={{ minHeight: 32, mt: 2.5, mb: 1 }}>
-            <SectionHeader label="Right now" sx={{ m: 0 }} />
-          </Stack>
-          <Stack spacing={2} sx={{ flex: 1, minHeight: 0 }}>
-            <Box sx={{ flex: 1, minHeight: 0 }}>
-              <LiveStatsRow />
-            </Box>
-            <HealthRow />
-          </Stack>
-        </Box>
-        {/* Flex column so the Now Playing card fills the stretched cell down to
-            the row bottom. Whichever column is naturally taller (left = stats +
-            FPP, or right = a long votes list) defines the row height; the other
-            stretches to match. The flex:1 wrapper (not the card directly) takes
-            the height so the header isn't pushed out by the card's height:100%. */}
         <Box sx={{ minWidth: 0, display: 'flex', flexDirection: 'column' }}>
           <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ minHeight: 32, mt: 2.5, mb: 1 }}>
             <SectionHeader label="Now playing" sx={{ m: 0 }} />
@@ -330,7 +338,23 @@ const Dashboard = () => {
             <NowPlayingCard />
           </Box>
         </Box>
+
+        {/* Desktop: PSA quick-play in the right column, stretched even with Now
+            Playing (flex:1). On mobile it's rendered at the very top instead. The
+            aria-hidden spacer matches the "Now playing" header so the tops align. */}
+        {!isMobile && (
+          <Box sx={{ minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+            <Box aria-hidden sx={{ minHeight: 32, mt: 2.5, mb: 1 }} />
+            <Box sx={{ flex: 1, minHeight: 0 }}>
+              <PsaQuickPlayCard />
+            </Box>
+          </Box>
+        )}
       </Box>
+
+      {/* On mobile the stats band renders here — below Now Playing — so the
+          phone view reads PSAs → Now Playing → numbers. */}
+      {isMobile && rightNowBand}
 
       {/* Pre-show readiness lives below the live operational data —
           it's reference/setup help, not above-the-fold time-sensitive.

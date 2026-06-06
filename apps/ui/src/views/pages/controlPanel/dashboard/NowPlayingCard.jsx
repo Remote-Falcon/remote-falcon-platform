@@ -2,19 +2,18 @@ import { useMemo } from 'react';
 import * as React from 'react';
 
 import { useMutation } from '@apollo/client';
-import { Box, Button, Chip, IconButton, Link as MuiLink, Stack, Tooltip, Typography } from '@mui/material';
+import { Box, Button, Chip, IconButton, Stack, Tooltip, Typography } from '@mui/material';
 import { alpha } from '@mui/material/styles';
-import { IconMusic, IconPlayerPlay, IconX } from '@tabler/icons-react';
+import { IconMusic, IconX } from '@tabler/icons-react';
 import _ from 'lodash';
 
 import MainCard from '../../../../ui-component/cards/MainCard';
 import useDashboardLiveStats from '../../../../hooks/useDashboardLiveStats';
-import { setNextPsaOverrideService } from '../../../../services/controlPanel/mutations.service';
 import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
 import { useDispatch, useSelector } from '../../../../store';
 import { setShow } from '../../../../store/slices/show';
 import { ViewerControlMode } from '../../../../utils/enum';
-import { DELETE_ALL_REQUESTS, DELETE_SINGLE_REQUEST, RESET_ALL_VOTES, SET_NEXT_PSA_OVERRIDE } from '../../../../utils/graphql/controlPanel/mutations';
+import { DELETE_ALL_REQUESTS, DELETE_SINGLE_REQUEST, RESET_ALL_VOTES } from '../../../../utils/graphql/controlPanel/mutations';
 import { showAlert } from '../../globalPageHelpers';
 
 // Mockup `.now-playing` + full queue list. Renders the currently playing
@@ -34,7 +33,6 @@ const NowPlayingCard = () => {
   };
   const [deleteSingleRequestMutation] = useMutation(DELETE_SINGLE_REQUEST);
   const [deleteAllRequestsMutation] = useMutation(DELETE_ALL_REQUESTS);
-  const [setNextPsaOverrideMutation] = useMutation(SET_NEXT_PSA_OVERRIDE);
   const [resetAllVotesMutation] = useMutation(RESET_ALL_VOTES);
 
   const isJukebox = show?.preferences?.viewerControlMode === ViewerControlMode.JUKEBOX;
@@ -70,18 +68,6 @@ const NowPlayingCard = () => {
   const isPlayingPsa = playingKind === 'psa';
   const isPlayingLeader = playingKind === 'leader';
   const playingNextKind = classifyName(stats.playingNext);
-
-  // Q7 override that's been set but hasn't fired yet (FPP only consumes
-  // it on the next updateWhatsPlaying call — between sequences). Surface
-  // it as a visually distinct pseudo-row above the real queue so the
-  // operator can see their click took effect. Hides itself the moment
-  // the override fires (nextPsaOverride clears, PSA lands in requests
-  // as a real queue row with its PSA chip).
-  const pendingOverride = show?.nextPsaOverride || '';
-  const pendingOverrideAlreadyQueued = !!pendingOverride && (show?.requests || []).some(
-    (r) => r?.sequence?.name && r.sequence.name.toLowerCase() === pendingOverride.toLowerCase()
-  );
-  const showPendingOverride = !!pendingOverride && !pendingOverrideAlreadyQueued && isJukebox;
 
   const deleteSingleRequest = (sequenceName, position) => {
     deleteSingleRequestMutation({
@@ -123,20 +109,6 @@ const NowPlayingCard = () => {
         refetchLiveStats();
       },
       onError: () => showAlert(dispatch, { alert: 'error' })
-    });
-  };
-
-  // Clear the pending Q7 override from the dashboard so the operator
-  // doesn't have to bounce to Sequences → Special Roles just to undo
-  // their click. Mirrors SpecialRoles.handleClearOverride: optimistic
-  // Redux update, mutation rolls back on failure.
-  const clearPendingOverride = () => {
-    dispatch(setShow({ ...show, nextPsaOverride: null }));
-    setNextPsaOverrideService(null, setNextPsaOverrideMutation, (response) => {
-      if (!response?.success) {
-        dispatch(setShow({ ...show, nextPsaOverride: show?.nextPsaOverride || null }));
-      }
-      showAlert(dispatch, response?.toast);
     });
   };
 
@@ -249,108 +221,48 @@ const NowPlayingCard = () => {
           >
             {isJukebox ? `Queue${upNext.length > 0 ? ` (${upNext.length})` : ''}` : 'Top votes'}
           </Typography>
-          {isJukebox
-            ? upNext.length > 0 && (
-                <MuiLink
-                  component="button"
-                  onClick={deleteAllRequests}
-                  sx={{
-                    fontSize: 11,
-                    color: 'text.secondary',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.06em',
-                    '&:hover': { color: 'error.main' }
-                  }}
-                >
-                  Clear all
-                </MuiLink>
-              )
-            : (show?.votes || []).length > 0 && (
-                // Keep the red error button (operator wanted it preserved),
-                // just sized down to sit inline in the card header.
-                <Button
-                  size="small"
-                  variant="outlined"
-                  color="error"
-                  onClick={resetAllVotes}
-                  sx={{ py: 0.25, px: 1.25, minWidth: 0, fontSize: 11, lineHeight: 1.6 }}
-                  data-testid="now-playing-reset-votes"
-                >
-                  Reset votes
-                </Button>
-              )}
+          {/* Clear all (jukebox) / Reset votes (voting): same red button, shown
+              only when there's something displayed to clear. Gating on `upNext`
+              (the mode-aware displayed list) keeps it consistent across modes —
+              voting's raw show.votes can still hold system/PSA entries with no
+              viewer votes, which previously left the button visible. */}
+          {upNext.length > 0 &&
+            (isJukebox ? (
+              <Button
+                size="small"
+                variant="outlined"
+                color="error"
+                onClick={deleteAllRequests}
+                sx={{ py: 0.25, px: 1.25, minWidth: 0, fontSize: 11, lineHeight: 1.6 }}
+                data-testid="now-playing-clear-all"
+              >
+                Clear all
+              </Button>
+            ) : (
+              <Button
+                size="small"
+                variant="outlined"
+                color="error"
+                onClick={resetAllVotes}
+                sx={{ py: 0.25, px: 1.25, minWidth: 0, fontSize: 11, lineHeight: 1.6 }}
+                data-testid="now-playing-reset-votes"
+              >
+                Reset votes
+              </Button>
+            ))}
         </Stack>
-        {upNext.length === 0 && !showPendingOverride ? (
+        {upNext.length === 0 ? (
           <Typography variant="body2" sx={{ color: 'text.secondary', py: 1 }}>
             {isJukebox ? 'No requests in the queue.' : 'No votes yet tonight.'}
           </Typography>
         ) : (
-          <Box sx={{ maxHeight: 260, overflowY: 'auto', pr: 0.5 }}>
+          // Start shallow, grow with the number of songs/votes: the list is its
+          // natural height (no min) up to a max (~14 rows) then scrolls. A quiet
+          // show stays compact so Pre-show readiness sits higher / above the
+          // fold; the card grows as votes/requests come in. The PSA card
+          // stretches to match this column's height.
+          <Box sx={{ maxHeight: { xs: 420, lg: 600 }, overflowY: 'auto', pr: 0.5 }}>
             <Stack spacing={0.5}>
-              {showPendingOverride && (
-                <Stack
-                  direction="row"
-                  alignItems="center"
-                  spacing={1.5}
-                  sx={{
-                    py: 0.75,
-                    px: 1,
-                    borderRadius: 1,
-                    border: (t) => `1px dashed ${t.palette.warning.main}`,
-                    bgcolor: (t) => alpha(t.palette.warning.main, t.palette.mode === 'dark' ? 0.08 : 0.06),
-                    '&:hover .pending-clear': { opacity: 1 }
-                  }}
-                  data-testid="now-playing-pending-override"
-                >
-                  <Box
-                    sx={{
-                      width: 24,
-                      height: 24,
-                      borderRadius: '50%',
-                      display: 'grid',
-                      placeItems: 'center',
-                      bgcolor: 'warning.main',
-                      color: 'warning.contrastText',
-                      flexShrink: 0
-                    }}
-                  >
-                    <IconPlayerPlay size={12} stroke={2.5} />
-                  </Box>
-                  <Typography variant="body2" sx={{ flex: 1, fontWeight: 500 }} noWrap>
-                    {pendingOverride}
-                  </Typography>
-                  <Chip
-                    label="PSA"
-                    size="small"
-                    color="warning"
-                    sx={{ height: 18, fontSize: 9, fontWeight: 700, letterSpacing: '0.04em', flexShrink: 0 }}
-                  />
-                  <Chip
-                    label="Pending"
-                    size="small"
-                    variant="outlined"
-                    color="warning"
-                    sx={{ height: 18, fontSize: 9, fontWeight: 600, letterSpacing: '0.04em', flexShrink: 0 }}
-                  />
-                  <Tooltip title="Cancel pending override">
-                    <IconButton
-                      size="small"
-                      className="pending-clear"
-                      onClick={clearPendingOverride}
-                      sx={{
-                        opacity: 0,
-                        color: 'text.secondary',
-                        transition: 'opacity 120ms ease',
-                        '&:hover': { color: 'error.main' }
-                      }}
-                      aria-label="Cancel pending PSA override"
-                      data-testid="now-playing-pending-override-clear"
-                    >
-                      <IconX size={14} stroke={1.75} />
-                    </IconButton>
-                  </Tooltip>
-                </Stack>
-              )}
               {upNext.map((item, i) => {
                 const rowKind = classifyName(item.name);
                 return (

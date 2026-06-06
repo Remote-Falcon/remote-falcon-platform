@@ -6,6 +6,7 @@ import {
   IconUsers
 } from '@tabler/icons-react';
 
+import HealthRow from './HealthRow';
 import LiveIndicator from '../../../../ui-component/LiveIndicator';
 import StatTile from '../../../../ui-component/StatTile';
 import { useSelector } from '../../../../store';
@@ -29,28 +30,22 @@ const LiveStatsRow = () => {
 
   // CSS grid with `gap` instead of MUI <Grid container spacing>: MUI's grid
   // applies a negative left margin that the column's overflow was clipping,
-  // leaving the items' compensating left padding as a net ~16px indent. That
-  // pushed this row right of the FPP plugin card and Pre-show readiness below
-  // it. A gap grid has no negative margins, so the first tile is flush-left
-  // with the column (and the cards below it).
+  // leaving the items' compensating left padding as a net ~16px indent. A gap
+  // grid has no negative margins, so the tiles sit flush with the page edge.
+  // Tiles in a row are equal height via the grid's default row stretch +
+  // StatTile's height:100%.
+  // 4 stat tiles + the compact FPP plugin card share one row so the "Right now"
+  // band reads as a single unit. 5-across on lg; wraps below.
   const tileGridSx = {
     display: 'grid',
     gap: 2,
-    gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' },
-    // Fill the column's height when the parent constrains it: the dashboard
-    // stretches the "Right now" column to match the taller Now Playing card,
-    // and `height:100% + gridAutoRows:1fr` lets the tile row grow to absorb
-    // that, so the FPP plugin card below lands at the column bottom (aligned
-    // with the Now Playing card bottom). Harmless when height is
-    // unconstrained — the row falls back to content height.
-    height: '100%',
-    gridAutoRows: '1fr'
+    gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(3, 1fr)', lg: 'repeat(5, 1fr)' }
   };
 
   if (loading) {
     return (
       <Box sx={tileGridSx}>
-        {[0, 1, 2, 3].map((i) => (
+        {[0, 1, 2, 3, 4].map((i) => (
           <Skeleton key={i} variant="rectangular" height={120} sx={{ borderRadius: 1 }} />
         ))}
       </Box>
@@ -98,6 +93,7 @@ const LiveStatsRow = () => {
         sub={`${(show?.sequences || []).length} total`}
         icon={<IconPlaylist size={28} stroke={1.5} />}
       />
+      <HealthRow />
     </Box>
   );
 };
