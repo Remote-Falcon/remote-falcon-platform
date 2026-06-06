@@ -581,6 +581,16 @@ class GraphQLMutationServiceTest {
       Boolean result = service.addSequenceToQueue("sub", "user-seq", 0f, 0f, "");
       assertTrue(result);
 
+      // DIAGNOSTIC (temporary): confirm the state the PSA guard reads + how far
+      // handlePsaForJukeboxInline got.
+      assertTrue(show.getPreferences().getPsaEnabled(), "DIAG psaEnabled");
+      assertFalse(show.getPreferences().getManagePsa(), "DIAG managePsa");
+      assertEquals(1, (int) show.getPreferences().getPsaFrequency(), "DIAG freq");
+      assertEquals(1, show.getPsaSequences().size(), "DIAG psaSequences size");
+      assertEquals(2, show.getSequences().size(), "DIAG sequences size");
+      assertEquals(0, show.getStats().getJukebox().size(), "DIAG jukebox size");
+      verify(showRepository).updatePsaSequences(eq("sub"), any()); // reached line 544?
+
       // Verify user request was added
       verify(showRepository).appendRequestAndJukeboxStat(eq("sub"), argThat(req ->
           req.getPosition() == 6 && "1.2.3.4".equals(req.getViewerRequested())
