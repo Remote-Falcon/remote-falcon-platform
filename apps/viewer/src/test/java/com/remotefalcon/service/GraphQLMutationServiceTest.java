@@ -528,18 +528,36 @@ class GraphQLMutationServiceTest {
     @Test
     @DisplayName("Append sequence when requests exist; PSA handled (frequency 1) and appended after user request")
     void appendSequenceAndHandlePsa() {
-      Show show = mockShowWithPrefsAndCollections();
+      // Self-contained plain mock (not the shared RETURNS_DEEP_STUBS helper):
+      // a deep-stub Show makes show.getPreferences() ambiguous, so re-stubbing a
+      // single prefs getter (psaEnabled false->true) doesn't override and the
+      // unmanaged-PSA guard kept reading the stale false. A plain mock returns
+      // the explicit Preference consistently.
+      Show show = mock(Show.class);
+      when(show.getShowSubdomain()).thenReturn("sub");
+      when(show.getActiveViewers()).thenReturn(new ArrayList<>());
+      when(show.getRequestLeaderSequence()).thenReturn(null);
+      when(show.getVoteLeaderSequence()).thenReturn(null);
+      Stat stats = mock(Stat.class);
+      when(stats.getJukebox()).thenReturn(new ArrayList<>());
+      when(show.getStats()).thenReturn(stats);
+      when(show.getSequences()).thenReturn(new ArrayList<>());
+      when(show.getPsaSequences()).thenReturn(new ArrayList<>());
+      when(show.getRequests()).thenReturn(new ArrayList<>());
+
+      Preference prefs = mock(Preference.class);
+      when(prefs.getJukeboxDepth()).thenReturn(0);
+      when(prefs.getCheckIfRequested()).thenReturn(false);
+      when(prefs.getLocationCheckMethod()).thenReturn(LocationCheckMethod.NONE);
+      when(prefs.getPsaEnabled()).thenReturn(true); // unmanaged PSA path
+      when(prefs.getManagePsa()).thenReturn(false);
+      when(prefs.getPsaFrequency()).thenReturn(1); // frequency 1 -> triggers
+      when(show.getPreferences()).thenReturn(prefs);
+
       // Existing latest position 5
       Request existing = mock(Request.class);
       when(existing.getPosition()).thenReturn(5);
       show.getRequests().add(existing);
-
-      // Unmanaged PSA path: psaEnabled=true, managePsa=false, frequency 1 so
-      // the PSA triggers. The helper now returns an explicit Preference mock,
-      // so these single-getter re-stubs actually apply.
-      when(show.getPreferences().getPsaEnabled()).thenReturn(true);
-      when(show.getPreferences().getManagePsa()).thenReturn(false);
-      when(show.getPreferences().getPsaFrequency()).thenReturn(1);
 
       // PSA sequences list with one entry
       PsaSequence psa = mock(PsaSequence.class);
