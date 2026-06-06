@@ -529,16 +529,19 @@ class GraphQLMutationServiceTest {
       when(existing.getPosition()).thenReturn(5);
       show.getRequests().add(existing);
 
-      // GEO ok
-      when(show.getPreferences().getLocationCheckMethod()).thenReturn(LocationCheckMethod.GEO);
-      when(show.getPreferences().getShowLatitude()).thenReturn(0.0f);
-      when(show.getPreferences().getShowLongitude()).thenReturn(0.0f);
-      when(show.getPreferences().getAllowedRadius()).thenReturn(10000.0f);
-
-      // PSA enabled and managed by app; frequency 1 ensures trigger
-      when(show.getPreferences().getPsaEnabled()).thenReturn(true);
-      when(show.getPreferences().getManagePsa()).thenReturn(false);
-      when(show.getPreferences().getPsaFrequency()).thenReturn(1);
+      // Use an explicit Preference mock rather than re-stubbing the
+      // RETURNS_DEEP_STUBS chain. mockShowWithPrefsAndCollections stubs
+      // getPsaEnabled()=false; re-stubbing it to true on the deep stub didn't
+      // override, so the unmanaged-PSA guard read the stale false and
+      // handlePsaForJukeboxInline never ran (no PSA request appended).
+      Preference prefs = mock(Preference.class);
+      when(prefs.getJukeboxDepth()).thenReturn(0);
+      when(prefs.getCheckIfRequested()).thenReturn(false);
+      when(prefs.getLocationCheckMethod()).thenReturn(LocationCheckMethod.NONE);
+      when(prefs.getPsaEnabled()).thenReturn(true); // unmanaged PSA path
+      when(prefs.getManagePsa()).thenReturn(false);
+      when(prefs.getPsaFrequency()).thenReturn(1); // frequency 1 ensures trigger
+      when(show.getPreferences()).thenReturn(prefs);
 
       // PSA sequences list with one entry
       PsaSequence psa = mock(PsaSequence.class);
