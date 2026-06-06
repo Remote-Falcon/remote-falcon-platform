@@ -78,15 +78,20 @@ class GraphQLMutationServiceTest {
     List<ActiveViewer> activeViewers = new ArrayList<>();
     when(show.getActiveViewers()).thenReturn(activeViewers);
 
-    // Preferences chain
-    when(show.getPreferences().getCheckIfVoted()).thenReturn(false);
-    when(show.getPreferences().getCheckIfRequested()).thenReturn(false);
-    when(show.getPreferences().getJukeboxDepth()).thenReturn(0);
-    when(show.getPreferences().getShowLatitude()).thenReturn(0.0f);
-    when(show.getPreferences().getShowLongitude()).thenReturn(0.0f);
-    when(show.getPreferences().getLocationCheckMethod()).thenReturn(LocationCheckMethod.NONE);
-    when(show.getPreferences().getPsaEnabled()).thenReturn(false);
-    when(show.getPreferences().getManagePsa()).thenReturn(false);
+    // Preferences — an explicit mock rather than the RETURNS_DEEP_STUBS chain.
+    // Re-stubbing a single getter on a deep-stub chain (e.g. getPsaEnabled()
+    // false -> true in a test) silently fails to override; returning a real
+    // Preference mock here makes per-test re-stubs work.
+    Preference prefs = mock(Preference.class);
+    when(prefs.getCheckIfVoted()).thenReturn(false);
+    when(prefs.getCheckIfRequested()).thenReturn(false);
+    when(prefs.getJukeboxDepth()).thenReturn(0);
+    when(prefs.getShowLatitude()).thenReturn(0.0f);
+    when(prefs.getShowLongitude()).thenReturn(0.0f);
+    when(prefs.getLocationCheckMethod()).thenReturn(LocationCheckMethod.NONE);
+    when(prefs.getPsaEnabled()).thenReturn(false);
+    when(prefs.getManagePsa()).thenReturn(false);
+    when(show.getPreferences()).thenReturn(prefs);
 
     when(show.getSequences()).thenReturn(new ArrayList<>());
     when(show.getSequenceGroups()).thenReturn(new ArrayList<>());
@@ -529,19 +534,12 @@ class GraphQLMutationServiceTest {
       when(existing.getPosition()).thenReturn(5);
       show.getRequests().add(existing);
 
-      // Use an explicit Preference mock rather than re-stubbing the
-      // RETURNS_DEEP_STUBS chain. mockShowWithPrefsAndCollections stubs
-      // getPsaEnabled()=false; re-stubbing it to true on the deep stub didn't
-      // override, so the unmanaged-PSA guard read the stale false and
-      // handlePsaForJukeboxInline never ran (no PSA request appended).
-      Preference prefs = mock(Preference.class);
-      when(prefs.getJukeboxDepth()).thenReturn(0);
-      when(prefs.getCheckIfRequested()).thenReturn(false);
-      when(prefs.getLocationCheckMethod()).thenReturn(LocationCheckMethod.NONE);
-      when(prefs.getPsaEnabled()).thenReturn(true); // unmanaged PSA path
-      when(prefs.getManagePsa()).thenReturn(false);
-      when(prefs.getPsaFrequency()).thenReturn(1); // frequency 1 ensures trigger
-      when(show.getPreferences()).thenReturn(prefs);
+      // Unmanaged PSA path: psaEnabled=true, managePsa=false, frequency 1 so
+      // the PSA triggers. The helper now returns an explicit Preference mock,
+      // so these single-getter re-stubs actually apply.
+      when(show.getPreferences().getPsaEnabled()).thenReturn(true);
+      when(show.getPreferences().getManagePsa()).thenReturn(false);
+      when(show.getPreferences().getPsaFrequency()).thenReturn(1);
 
       // PSA sequences list with one entry
       PsaSequence psa = mock(PsaSequence.class);
