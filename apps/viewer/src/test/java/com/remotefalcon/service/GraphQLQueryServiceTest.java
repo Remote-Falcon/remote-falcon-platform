@@ -41,16 +41,22 @@ class GraphQLQueryServiceTest {
     return show;
   }
 
+  // Real Sequence, not a stubbed mock: mockSequence is frequently called inside
+  // when(req.getSequence()).thenReturn(mockSequence(...)), and stubbing inside
+  // that outer when() starts a nested when() — Mockito throws
+  // UnfinishedStubbingException. A builder is behaviorally identical here (these
+  // sequences are read as data, never verified); unset fields default to null,
+  // same as an unstubbed mock.
   private Sequence mockSequence(String name, String displayName, int order, boolean active, int visibilityCount,
       String group) {
-    Sequence seq = mock(Sequence.class);
-    when(seq.getName()).thenReturn(name);
-    when(seq.getDisplayName()).thenReturn(displayName);
-    when(seq.getOrder()).thenReturn(order);
-    when(seq.getActive()).thenReturn(active);
-    when(seq.getVisibilityCount()).thenReturn(visibilityCount);
-    when(seq.getGroup()).thenReturn(group);
-    return seq;
+    return Sequence.builder()
+        .name(name)
+        .displayName(displayName)
+        .order(order)
+        .active(active)
+        .visibilityCount(visibilityCount)
+        .group(group)
+        .build();
   }
 
   @Nested
