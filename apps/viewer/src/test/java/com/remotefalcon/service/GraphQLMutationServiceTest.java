@@ -581,14 +581,17 @@ class GraphQLMutationServiceTest {
       Boolean result = service.addSequenceToQueue("sub", "user-seq", 0f, 0f, "");
       assertTrue(result);
 
-      // DIAGNOSTIC (temporary): confirm the state the PSA guard reads + how far
-      // handlePsaForJukeboxInline got.
-      assertTrue(show.getPreferences().getPsaEnabled(), "DIAG psaEnabled");
-      assertFalse(show.getPreferences().getManagePsa(), "DIAG managePsa");
-      assertEquals(1, (int) show.getPreferences().getPsaFrequency(), "DIAG freq");
-      assertEquals(1, show.getPsaSequences().size(), "DIAG psaSequences size");
-      assertEquals(2, show.getSequences().size(), "DIAG sequences size");
-      assertEquals(0, show.getStats().getJukebox().size(), "DIAG jukebox size");
+      // DIAGNOSTIC (temporary): replicate handlePsaForJukeboxInline's internal
+      // checks to find which one diverges at runtime.
+      int rmt = (int) show.getStats().getJukebox().stream().filter(s -> s.getDateTime() != null).count() + 1;
+      assertEquals(1, rmt, "DIAG requestsMadeToday");
+      assertEquals(0, rmt % show.getPreferences().getPsaFrequency(), "DIAG modulo");
+      long filteredPsa = show.getPsaSequences().stream()
+          .filter(p -> p != null && !Boolean.FALSE.equals(p.getEnabled())).count();
+      assertEquals(1L, filteredPsa, "DIAG filtered psa count");
+      long matchedSeq = show.getSequences().stream()
+          .filter(s -> "psa-seq".equalsIgnoreCase(s.getName())).count();
+      assertEquals(1L, matchedSeq, "DIAG matched psa sequence");
       verify(showRepository).updatePsaSequences(eq("sub"), any()); // reached line 544?
 
       // Verify user request was added
