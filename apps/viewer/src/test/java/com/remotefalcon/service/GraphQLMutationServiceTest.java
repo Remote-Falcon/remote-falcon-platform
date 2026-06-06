@@ -78,20 +78,15 @@ class GraphQLMutationServiceTest {
     List<ActiveViewer> activeViewers = new ArrayList<>();
     when(show.getActiveViewers()).thenReturn(activeViewers);
 
-    // Preferences — an explicit mock rather than the RETURNS_DEEP_STUBS chain.
-    // Re-stubbing a single getter on a deep-stub chain (e.g. getPsaEnabled()
-    // false -> true in a test) silently fails to override; returning a real
-    // Preference mock here makes per-test re-stubs work.
-    Preference prefs = mock(Preference.class);
-    when(prefs.getCheckIfVoted()).thenReturn(false);
-    when(prefs.getCheckIfRequested()).thenReturn(false);
-    when(prefs.getJukeboxDepth()).thenReturn(0);
-    when(prefs.getShowLatitude()).thenReturn(0.0f);
-    when(prefs.getShowLongitude()).thenReturn(0.0f);
-    when(prefs.getLocationCheckMethod()).thenReturn(LocationCheckMethod.NONE);
-    when(prefs.getPsaEnabled()).thenReturn(false);
-    when(prefs.getManagePsa()).thenReturn(false);
-    when(show.getPreferences()).thenReturn(prefs);
+    // Preferences chain
+    when(show.getPreferences().getCheckIfVoted()).thenReturn(false);
+    when(show.getPreferences().getCheckIfRequested()).thenReturn(false);
+    when(show.getPreferences().getJukeboxDepth()).thenReturn(0);
+    when(show.getPreferences().getShowLatitude()).thenReturn(0.0f);
+    when(show.getPreferences().getShowLongitude()).thenReturn(0.0f);
+    when(show.getPreferences().getLocationCheckMethod()).thenReturn(LocationCheckMethod.NONE);
+    when(show.getPreferences().getPsaEnabled()).thenReturn(false);
+    when(show.getPreferences().getManagePsa()).thenReturn(false);
 
     when(show.getSequences()).thenReturn(new ArrayList<>());
     when(show.getSequenceGroups()).thenReturn(new ArrayList<>());
@@ -528,42 +523,32 @@ class GraphQLMutationServiceTest {
     @Test
     @DisplayName("Append sequence when requests exist; PSA handled (frequency 1) and appended after user request")
     void appendSequenceAndHandlePsa() {
-      // Self-contained plain mock (not the shared RETURNS_DEEP_STUBS helper):
-      // a deep-stub Show makes show.getPreferences() ambiguous, so re-stubbing a
-      // single prefs getter (psaEnabled false->true) doesn't override and the
-      // unmanaged-PSA guard kept reading the stale false. A plain mock returns
-      // the explicit Preference consistently.
-      Show show = mock(Show.class);
-      when(show.getShowSubdomain()).thenReturn("sub");
-      when(show.getActiveViewers()).thenReturn(new ArrayList<>());
-      when(show.getRequestLeaderSequence()).thenReturn(null);
-      when(show.getVoteLeaderSequence()).thenReturn(null);
-      Stat stats = mock(Stat.class);
-      when(stats.getJukebox()).thenReturn(new ArrayList<>());
-      when(show.getStats()).thenReturn(stats);
-      when(show.getSequences()).thenReturn(new ArrayList<>());
-      when(show.getPsaSequences()).thenReturn(new ArrayList<>());
-      when(show.getRequests()).thenReturn(new ArrayList<>());
-
-      Preference prefs = mock(Preference.class);
-      when(prefs.getJukeboxDepth()).thenReturn(0);
-      when(prefs.getCheckIfRequested()).thenReturn(false);
-      when(prefs.getLocationCheckMethod()).thenReturn(LocationCheckMethod.NONE);
-      when(prefs.getPsaEnabled()).thenReturn(true); // unmanaged PSA path
-      when(prefs.getManagePsa()).thenReturn(false);
-      when(prefs.getPsaFrequency()).thenReturn(1); // frequency 1 -> triggers
-      when(show.getPreferences()).thenReturn(prefs);
-
+      Show show = mockShowWithPrefsAndCollections();
       // Existing latest position 5
       Request existing = mock(Request.class);
       when(existing.getPosition()).thenReturn(5);
       show.getRequests().add(existing);
 
-      // PSA sequences list with one entry
+      // GEO ok
+      when(show.getPreferences().getLocationCheckMethod()).thenReturn(LocationCheckMethod.GEO);
+      when(show.getPreferences().getShowLatitude()).thenReturn(0.0f);
+      when(show.getPreferences().getShowLongitude()).thenReturn(0.0f);
+      when(show.getPreferences().getAllowedRadius()).thenReturn(10000.0f);
+
+      // PSA enabled and managed by app; frequency 1 ensures trigger
+      when(show.getPreferences().getPsaEnabled()).thenReturn(true);
+      when(show.getPreferences().getManagePsa()).thenReturn(false);
+      when(show.getPreferences().getPsaFrequency()).thenReturn(1);
+
+      // PSA sequences list with one entry. getEnabled() MUST be stubbed: Mockito
+      // returns Boolean.FALSE (not null) for an unstubbed Boolean getter, and the
+      // handler filters out PSAs where Boolean.FALSE.equals(getEnabled()), so an
+      // unstubbed mock would be treated as disabled and never injected.
       PsaSequence psa = mock(PsaSequence.class);
       when(psa.getName()).thenReturn("psa-seq");
       when(psa.getLastPlayed()).thenReturn(LocalDateTime.now().minusDays(1));
       when(psa.getOrder()).thenReturn(1);
+      when(psa.getEnabled()).thenReturn(true);
       show.getPsaSequences().add(psa);
 
       // Show sequences contain user requested and PSA target
@@ -580,19 +565,6 @@ class GraphQLMutationServiceTest {
 
       Boolean result = service.addSequenceToQueue("sub", "user-seq", 0f, 0f, "");
       assertTrue(result);
-
-      // DIAGNOSTIC (temporary): replicate handlePsaForJukeboxInline's internal
-      // checks to find which one diverges at runtime.
-      int rmt = (int) show.getStats().getJukebox().stream().filter(s -> s.getDateTime() != null).count() + 1;
-      assertEquals(1, rmt, "DIAG requestsMadeToday");
-      assertEquals(0, rmt % show.getPreferences().getPsaFrequency(), "DIAG modulo");
-      long filteredPsa = show.getPsaSequences().stream()
-          .filter(p -> p != null && !Boolean.FALSE.equals(p.getEnabled())).count();
-      assertEquals(1L, filteredPsa, "DIAG filtered psa count");
-      long matchedSeq = show.getSequences().stream()
-          .filter(s -> "psa-seq".equalsIgnoreCase(s.getName())).count();
-      assertEquals(1L, matchedSeq, "DIAG matched psa sequence");
-      verify(showRepository).updatePsaSequences(eq("sub"), any()); // reached line 544?
 
       // Verify user request was added
       verify(showRepository).appendRequestAndJukeboxStat(eq("sub"), argThat(req ->
