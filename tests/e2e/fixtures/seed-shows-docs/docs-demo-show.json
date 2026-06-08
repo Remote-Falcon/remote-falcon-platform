@@ -4,10 +4,24 @@
   "pluginVersion": "3.4.1",
   "fppVersion": "7.5",
 
+  "requestLeaderSequence": "Next Up Bumper",
+  "voteLeaderSequence": "Crowd Winner Bumper",
+  "nextPsaOverride": "Tune Your Radio",
+
+  "psaSequences": [
+    { "name": "High Beams PSA", "order": 0, "lastPlayed": "2026-05-23T19:30:00", "enabled": true },
+    { "name": "Tune Your Radio", "order": 1, "lastPlayed": "2026-05-23T19:45:00", "enabled": true },
+    { "name": "Donations Welcome", "order": 2, "lastPlayed": "2026-05-23T17:30:00", "enabled": false }
+  ],
+
   "preferences": {
     "viewerControlEnabled": true,
     "viewerControlMode": "JUKEBOX",
     "jukeboxRequestLimit": 3,
+    "psaEnabled": true,
+    "managePsa": true,
+    "psaFrequency": 3,
+    "playAllPsas": false,
     "showOnMap": true,
     "showLatitude": 33.95246,
     "showLongitude": -117.58479
@@ -135,8 +149,8 @@
       "artist": "Michael Jackson"
     },
     {
-      "name": "psa-tip-jar",
-      "displayName": "Tip Jar Reminder",
+      "name": "Donations Welcome",
+      "displayName": "Donations Welcome",
       "duration": 30,
       "visible": false,
       "index": 8,
@@ -163,6 +177,66 @@
       "group": "Pop",
       "category": "Pop",
       "artist": "Bobby Helms"
+    },
+    {
+      "name": "High Beams PSA",
+      "displayName": "High Beams Reminder",
+      "duration": 28,
+      "visible": false,
+      "index": 10,
+      "order": 10,
+      "imageUrl": "",
+      "active": true,
+      "visibilityCount": 0,
+      "type": "PSA",
+      "group": "",
+      "category": "",
+      "artist": ""
+    },
+    {
+      "name": "Tune Your Radio",
+      "displayName": "Tune Your Radio",
+      "duration": 22,
+      "visible": false,
+      "index": 11,
+      "order": 11,
+      "imageUrl": "",
+      "active": true,
+      "visibilityCount": 0,
+      "type": "PSA",
+      "group": "",
+      "category": "",
+      "artist": ""
+    },
+    {
+      "name": "Next Up Bumper",
+      "displayName": "Next Up Bumper",
+      "duration": 12,
+      "visible": false,
+      "index": 12,
+      "order": 12,
+      "imageUrl": "",
+      "active": true,
+      "visibilityCount": 0,
+      "type": "SEQUENCE",
+      "group": "",
+      "category": "",
+      "artist": ""
+    },
+    {
+      "name": "Crowd Winner Bumper",
+      "displayName": "Crowd Winner Bumper",
+      "duration": 12,
+      "visible": false,
+      "index": 13,
+      "order": 13,
+      "imageUrl": "",
+      "active": true,
+      "visibilityCount": 0,
+      "type": "SEQUENCE",
+      "group": "",
+      "category": "",
+      "artist": ""
     }
   ],
 
@@ -175,11 +249,29 @@
   "requests": [
     {
       "sequence": {
+        "name": "Next Up Bumper",
+        "displayName": "Next Up Bumper"
+      },
+      "position": 1,
+      "viewerRequested": "LEADER",
+      "ownerRequested": false
+    },
+    {
+      "sequence": {
         "name": "wizards-in-winter",
         "displayName": "Wizards in Winter"
       },
-      "position": 1,
+      "position": 2,
       "viewerRequested": "viewer-a31b",
+      "ownerRequested": false
+    },
+    {
+      "sequence": {
+        "name": "High Beams PSA",
+        "displayName": "High Beams Reminder"
+      },
+      "position": 3,
+      "viewerRequested": "PSA",
       "ownerRequested": false
     },
     {
@@ -187,7 +279,7 @@
         "name": "carol-of-the-bells",
         "displayName": "Carol of the Bells"
       },
-      "position": 2,
+      "position": 4,
       "viewerRequested": "viewer-7f02",
       "ownerRequested": false
     },
@@ -196,7 +288,7 @@
         "name": "linus-and-lucy",
         "displayName": "Linus and Lucy"
       },
-      "position": 3,
+      "position": 5,
       "viewerRequested": "viewer-c918",
       "ownerRequested": false
     },
@@ -205,7 +297,7 @@
         "name": "all-i-want-for-christmas",
         "displayName": "All I Want for Christmas Is You"
       },
-      "position": 4,
+      "position": 6,
       "viewerRequested": "viewer-d445",
       "ownerRequested": false
     },
@@ -214,7 +306,7 @@
         "name": "feliz-navidad",
         "displayName": "Feliz Navidad"
       },
-      "position": 5,
+      "position": 7,
       "viewerRequested": "viewer-ee10",
       "ownerRequested": true
     }

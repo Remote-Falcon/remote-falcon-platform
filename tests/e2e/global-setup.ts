@@ -67,6 +67,7 @@ interface DocsEnrichment {
   preferences?: Record<string, unknown>;
   sequences?: Array<Record<string, unknown>>;
   sequenceGroups?: Array<Record<string, unknown>>;
+  psaSequences?: Array<Record<string, unknown>>;
   requests?: Array<Record<string, unknown>>;
   votes?: Array<Record<string, unknown>>;
   activeViewers?: Array<Record<string, unknown>>;
@@ -136,6 +137,33 @@ const rewriteTimestamps = (raw: DocsEnrichment): Record<string, unknown> => {
   if (Array.isArray(raw.votes)) {
     const lastVote = new Date(Date.now() - 5 * 60 * 1000);
     enrichment.votes = raw.votes.map(v => ({ ...v, lastVoteTime: lastVote }));
+  }
+
+  // psaSequences[*].lastPlayed → spaced within the last couple of hours so the
+  // Special Roles "Last Played" column reads as a live show ("an hour ago",
+  // "18 minutes ago"). A null lastPlayed is preserved so a never-played PSA
+  // still renders "Never".
+  //
+  // PsaSequence.lastPlayed is a zone-less LocalDateTime on the Java side: a JS
+  // Date written here is stored as BSON UTC, read back as the UTC wall-clock,
+  // then re-parsed by the browser as *local* time — which shifts the rendered
+  // "X ago" forward by the host's UTC offset (e.g. +4h in EDT) and makes a
+  // recent time look like it's in the future. Pre-compensate by that offset so
+  // the column lands in the recent past on screen. (Tiles like the heartbeat
+  // travel as epoch millis and don't need this.)
+  if (Array.isArray(raw.psaSequences)) {
+    const tzOffsetMs = new Date().getTimezoneOffset() * 60 * 1000;
+    const agoMinutes = [18, 52, 144]; // distinct "18 minutes / an hour / 2 hours ago"
+    enrichment.psaSequences = raw.psaSequences.map((p, i) =>
+      p.lastPlayed == null
+        ? p
+        : {
+            ...p,
+            lastPlayed: new Date(
+              Date.now() - (agoMinutes[i] ?? (i + 1) * 23) * 60 * 1000 - tzOffsetMs,
+            ),
+          },
+    );
   }
 
   return enrichment;

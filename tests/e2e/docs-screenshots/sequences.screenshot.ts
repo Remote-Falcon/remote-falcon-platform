@@ -39,4 +39,20 @@ test.describe('docs-screenshots: sequences', () => {
       state: 'default',
     });
   });
+
+  test('sequences-special-roles', async ({ page }, testInfo) => {
+    await page.goto('/control-panel/sequences/special-roles');
+    await page
+      .locator('[data-testid="special-roles-tab"]')
+      .waitFor({ state: 'visible' });
+    // Wait for the PSA table to hydrate from the show query so the rows
+    // (and the Leaders pickers below) are populated before we capture.
+    await page
+      .locator('[data-testid="psa-table"]')
+      .waitFor({ state: 'visible' });
+    await takeScreenshot(page, testInfo, 'fullPage', 'sequences-special-roles', {
+      alt: 'Special Roles tab showing the PSAs list and Leader sequence pickers',
+      state: 'default',
+    });
+  });
 });

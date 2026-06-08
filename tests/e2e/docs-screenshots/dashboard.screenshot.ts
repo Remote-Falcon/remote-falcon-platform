@@ -46,7 +46,15 @@ test.describe('docs-screenshots: dashboard', () => {
   test('dashboard-now-playing', async ({ page }, testInfo) => {
     const card = page.locator('[data-testid="dashboard-now-playing"]');
     await takeScreenshot(page, testInfo, card, 'dashboard-now-playing', {
-      alt: 'Now Playing card on the Dashboard',
+      alt: 'Now Playing card on the Dashboard with PSA and Leader queue chips',
+      state: 'default',
+    });
+  });
+
+  test('dashboard-psa-quick-play', async ({ page }, testInfo) => {
+    const card = page.locator('[data-testid="dashboard-psa-quick-play"]');
+    await takeScreenshot(page, testInfo, card, 'dashboard-psa-quick-play', {
+      alt: 'PSA quick-play card on the Dashboard',
       state: 'default',
     });
   });
