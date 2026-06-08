@@ -62,6 +62,7 @@ export const GET_SHOW_FOR_VIEWER = gql`
         locationCode
         hideSequenceCount
         makeItSnow
+        analyticsBetaOptIn
         managePsa
         sequencesPlayed
         pageTitle

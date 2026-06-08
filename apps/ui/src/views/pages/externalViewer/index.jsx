@@ -154,7 +154,7 @@ const ExternalViewerPage = () => {
         sequenceName,
         viewerLatitude || 0.0,
         viewerLongitude || 0.0,
-        getViewerId(),
+        show?.preferences?.analyticsBetaOptIn ? getViewerId() : null,
         (response) => {
           showViewerMessage(response);
         }
@@ -164,6 +164,7 @@ const ExternalViewerPage = () => {
       show?.preferences?.enableGeolocation,
       show?.preferences?.locationCheckMethod,
       show?.preferences?.locationCode,
+      show?.preferences?.analyticsBetaOptIn,
       addSequenceToQueueMutation,
       viewerLatitude,
       viewerLongitude,
@@ -211,7 +212,7 @@ const ExternalViewerPage = () => {
         sequenceName,
         viewerLatitude || 0.0,
         viewerLongitude || 0.0,
-        getViewerId(),
+        show?.preferences?.analyticsBetaOptIn ? getViewerId() : null,
         (response) => {
           showViewerMessage(response);
         }
@@ -221,6 +222,7 @@ const ExternalViewerPage = () => {
       show?.preferences?.enableGeolocation,
       show?.preferences?.locationCheckMethod,
       show?.preferences?.locationCode,
+      show?.preferences?.analyticsBetaOptIn,
       voteForSequenceMutation,
       viewerLatitude,
       viewerLongitude,
@@ -287,7 +289,14 @@ const ExternalViewerPage = () => {
     async (showData) => {
       try {
         const scripts = await fetchViewerScripts();
-        const scriptsToLoad = _.filter(scripts, (script) => script !== 'makeItSnow' || showData?.preferences?.makeItSnow);
+        // makeItSnow is gated by its own preference; viewerId (anonymous viewer
+        // id + the privacy-notice pill) only loads for shows whose owner opted
+        // into the analytics beta. Everything else loads for every show.
+        const scriptsToLoad = _.filter(scripts, (script) => {
+          if (script === 'makeItSnow') return !!showData?.preferences?.makeItSnow;
+          if (script === 'viewerId') return !!showData?.preferences?.analyticsBetaOptIn;
+          return true;
+        });
         await Promise.all(
           _.map(scriptsToLoad, (script) =>
             loadViewerScript(script).catch((error) => {
@@ -798,6 +807,24 @@ const ExternalViewerPage = () => {
           }
           trackPosthogEvent('viewer_page_view', { show_name: showData?.showName });
 
+          // Page-view ping. Attach the anonymous viewerId only when the show
+          // owner opted into the analytics beta — otherwise we neither create
+          // nor send an id (and the privacy pill / viewerId.js stays unloaded).
+          // Fired here (not on mount) because the opt-in flag isn't known until
+          // getShow resolves.
+          insertViewerPageStatsMutation({
+            context: {
+              headers: {
+                Route: 'Viewer'
+              }
+            },
+            variables: {
+              showSubdomain: getSubdomain(),
+              date: moment().format('YYYY-MM-DDTHH:mm:ss'),
+              viewerId: showData?.preferences?.analyticsBetaOptIn ? getViewerId() : null
+            }
+          }).then();
+
           setTimeout(() => {
             loadViewerEnhancements(showData);
           }, 500);
@@ -809,29 +836,12 @@ const ExternalViewerPage = () => {
         showAlert(dispatch, { alert: 'error' });
       }
     }).then();
-  }, [dispatch, getShowQuery, getActiveViewerPage, orderSequencesForVoting, setViewerLocation]);
+  }, [dispatch, getShowQuery, getActiveViewerPage, orderSequencesForVoting, setViewerLocation, insertViewerPageStatsMutation]);
 
   useEffect(() => {
-    const init = async () => {
-      setLoading(true);
-
-      getShowForInit();
-      insertViewerPageStatsMutation({
-        context: {
-          headers: {
-            Route: 'Viewer'
-          }
-        },
-        variables: {
-          showSubdomain: getSubdomain(),
-          date: moment().format('YYYY-MM-DDTHH:mm:ss'),
-          viewerId: getViewerId()
-        }
-      }).then();
-    };
-
-    init().then();
-  }, [getShowForInit, insertViewerPageStatsMutation]);
+    setLoading(true);
+    getShowForInit();
+  }, [getShowForInit]);
 
   // Update favicon to the show's custom icon (or fall back to the default brand icon).
   // We imperatively update the existing `#rf-favicon` <link> tag rather than letting
