@@ -4,5 +4,6 @@
   "halloweenCountdown",
   "thanksgivingCountdown",
   "customCountdown",
-  "dynamicMenu"
+  "dynamicMenu",
+  "viewerId"
 ]

@@ -18,6 +18,7 @@ import { getSubdomain } from '../../../utils/route-guard/helpers/helpers';
 import { trackPosthogEvent } from '../../../utils/analytics/posthog';
 
 import { addSequenceToQueueService, voteForSequenceService } from '../../../services/viewer/mutations.service';
+import { getViewerId } from '../../../utils/viewerId';
 import { LocationCheckMethod, ViewerControlMode } from '../../../utils/enum';
 import { ADD_SEQUENCE_TO_QUEUE, INSERT_VIEWER_PAGE_STATS, VOTE_FOR_SEQUENCE } from '../../../utils/graphql/viewer/mutations';
 import { GET_ACTIVE_VIEWER_PAGE, GET_SHOW_FOR_VIEWER } from '../../../utils/graphql/viewer/queries';
@@ -153,6 +154,7 @@ const ExternalViewerPage = () => {
         sequenceName,
         viewerLatitude || 0.0,
         viewerLongitude || 0.0,
+        getViewerId(),
         (response) => {
           showViewerMessage(response);
         }
@@ -209,6 +211,7 @@ const ExternalViewerPage = () => {
         sequenceName,
         viewerLatitude || 0.0,
         viewerLongitude || 0.0,
+        getViewerId(),
         (response) => {
           showViewerMessage(response);
         }
@@ -821,7 +824,8 @@ const ExternalViewerPage = () => {
         },
         variables: {
           showSubdomain: getSubdomain(),
-          date: moment().format('YYYY-MM-DDTHH:mm:ss')
+          date: moment().format('YYYY-MM-DDTHH:mm:ss'),
+          viewerId: getViewerId()
         }
       }).then();
     };
