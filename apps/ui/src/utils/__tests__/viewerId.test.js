@@ -14,6 +14,8 @@ describe('getViewerId', () => {
   });
 
   afterEach(() => {
+    // Restore any stubbed localStorage first, then clear the real one.
+    vi.unstubAllGlobals();
     window.localStorage.clear();
   });
 
@@ -35,8 +37,16 @@ describe('getViewerId', () => {
   });
 
   it('returns null when localStorage throws (e.g. blocked/incognito)', () => {
-    vi.spyOn(window.localStorage, 'getItem').mockImplementation(() => {
-      throw new Error('blocked');
+    // Replace the whole localStorage reference (not a spy on a method of it):
+    // some jsdom/Node combinations return a fresh object per `window.localStorage`
+    // access, so a method spy wouldn't intercept the util's own access.
+    vi.stubGlobal('localStorage', {
+      getItem: () => {
+        throw new Error('blocked');
+      },
+      setItem: () => {
+        throw new Error('blocked');
+      }
     });
     expect(getViewerId()).toBeNull();
   });
