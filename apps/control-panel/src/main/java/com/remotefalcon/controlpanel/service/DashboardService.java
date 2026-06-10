@@ -555,6 +555,7 @@ public class DashboardService {
 
     // Group events by (LocalDate, hour) pair, deduping IPs within each pair.
     Map<String, List<Stat.Page>> grouped = existingShow.getStats().getPage().stream()
+            .filter(stat -> stat.getDateTime() != null)
             .map(stat -> Map.entry(stat, convertStatDateTime(stat.getDateTime(), userZone)))
             .filter(stat -> stat.getValue().isAfter(startDateAtZone))
             .filter(stat -> stat.getValue().isBefore(endDateAtZone))
@@ -738,6 +739,7 @@ public class DashboardService {
     ZoneId userZone = ZoneId.of(timezone);
     Map<LocalDate, List<Stat.Page>> pageStatsGroupedByDate = inRange
             .stream()
+            .filter(stat -> stat.getDateTime() != null)
             .map(stat -> Map.entry(stat, convertStatDateTime(stat.getDateTime(), userZone)))
             .filter(stat -> stat.getValue().isAfter(startDateAtZone))
             .filter(stat -> stat.getValue().isBefore(endDateAtZone))
@@ -766,6 +768,7 @@ public class DashboardService {
     ZoneId userZone = ZoneId.of(timezone);
     Map<LocalDate, List<Stat.Jukebox>> jukeboxStatsGroupedByDate = inRange
             .stream()
+            .filter(stat -> stat.getDateTime() != null)
             .map(stat -> Map.entry(stat, convertStatDateTime(stat.getDateTime(), userZone)))
             .filter(stat -> stat.getValue().isAfter(startDateAtZone))
             .filter(stat -> stat.getValue().isBefore(endDateAtZone))
@@ -805,6 +808,7 @@ public class DashboardService {
     ZoneId userZone = ZoneId.of(timezone);
     Map<String, List<Stat.Jukebox>> jukeboxStatsGroupedBySequence = inRange
             .stream()
+            .filter(stat -> stat.getDateTime() != null)
             .map(stat -> Map.entry(stat, convertStatDateTime(stat.getDateTime(), userZone)))
             .filter(stat -> stat.getValue().isAfter(startDateAtZone))
             .filter(stat -> stat.getValue().isBefore(endDateAtZone))
@@ -830,6 +834,7 @@ public class DashboardService {
     ZoneId userZone = ZoneId.of(timezone);
     Map<LocalDate, List<Stat.Voting>> votingStatsGroupedByDate = inRange
             .stream()
+            .filter(stat -> stat.getDateTime() != null)
             .map(stat -> Map.entry(stat, convertStatDateTime(stat.getDateTime(), userZone)))
             .filter(stat -> stat.getValue().isAfter(startDateAtZone))
             .filter(stat -> stat.getValue().isBefore(endDateAtZone))
@@ -869,6 +874,7 @@ public class DashboardService {
     ZoneId userZone = ZoneId.of(timezone);
     Map<String, List<Stat.Voting>> voteStatsGroupedBySequence = inRange
             .stream()
+            .filter(stat -> stat.getDateTime() != null)
             .map(stat -> Map.entry(stat, convertStatDateTime(stat.getDateTime(), userZone)))
             .filter(stat -> stat.getValue().isAfter(startDateAtZone))
             .filter(stat -> stat.getValue().isBefore(endDateAtZone))
@@ -894,6 +900,7 @@ public class DashboardService {
     ZoneId userZone = ZoneId.of(timezone);
     Map<LocalDate, List<Stat.VotingWin>> votingWinStatsGroupedByDate = inRange
             .stream()
+            .filter(stat -> stat.getDateTime() != null)
             .map(stat -> Map.entry(stat, convertStatDateTime(stat.getDateTime(), userZone)))
             .sorted(Comparator.comparing(entry -> entry.getValue().toLocalDateTime()))
             .filter(stat -> stat.getValue().isAfter(startDateAtZone))
@@ -934,6 +941,7 @@ public class DashboardService {
     ZoneId userZone = ZoneId.of(timezone);
     Map<String, List<Stat.VotingWin>> voteWinStatsGroupedBySequence = inRange
             .stream()
+            .filter(stat -> stat.getDateTime() != null)
             .map(stat -> Map.entry(stat, convertStatDateTime(stat.getDateTime(), userZone)))
             .filter(stat -> stat.getValue().isAfter(startDateAtZone))
             .filter(stat -> stat.getValue().isBefore(endDateAtZone))
@@ -959,6 +967,7 @@ public class DashboardService {
     ZoneId userZone = ZoneId.of(timezone);
     Map<LocalDate, List<Stat.Jukebox>> jukeboxStatsGroupedByDate = show.getStats().getJukebox()
             .stream()
+            .filter(stat -> stat.getDateTime() != null)
             .map(stat -> Map.entry(stat, convertStatDateTime(stat.getDateTime(), userZone)))
             .filter(stat -> stat.getValue().isAfter(startDateAtZone))
             .filter(stat -> stat.getValue().isBefore(endDateAtZone))
@@ -987,6 +996,7 @@ public class DashboardService {
     ZoneId userZone = ZoneId.of(timezone);
     Map<LocalDate, List<Stat.Voting>> voteStatsGroupedByDate = show.getStats().getVoting()
             .stream()
+            .filter(stat -> stat.getDateTime() != null)
             .map(stat -> Map.entry(stat, convertStatDateTime(stat.getDateTime(), userZone)))
             .filter(stat -> stat.getValue().isAfter(startDateAtZone))
             .filter(stat -> stat.getValue().isBefore(endDateAtZone))

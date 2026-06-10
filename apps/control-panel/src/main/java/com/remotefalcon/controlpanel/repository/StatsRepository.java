@@ -26,10 +26,25 @@ import java.util.List;
  * Java. To keep that the single source of truth, callers pass a window WIDENED
  * by a day on each side (see {@code DashboardService}) — these methods return a
  * <i>superset</i> of the precise in-range set, and the unchanged Java filter in
- * the {@code build*Stats} helpers trims it to the exact rows. That makes the
- * result byte-identical to the old full-document path regardless of how
- * {@code LocalDateTime} encodes to a BSON date. {@code lower}/{@code upper} are
- * {@link Date} so they bind as BSON dates for the comparison.
+ * the {@code build*Stats} helpers trims it to the exact rows. For all
+ * WELL-FORMED data the result is identical to the old full-document path. The
+ * superset holds for any fixed JVM-zone offset under 24h; prod runs UTC, where
+ * the stored {@code LocalDateTime} and the {@link Date} bounds share one instant
+ * frame.
+ *
+ * <p><b>Two deliberate differences from the old path, on malformed/legacy data
+ * only — both turn a 500 into a graceful 200:</b> (1) a stat element with a
+ * null/absent {@code dateTime} is dropped by {@code $match} (the old build*
+ * helpers had no null guard and NPE'd on it — they now guard too); (2) a
+ * {@code stats != null} document with an absent sub-array yields empty buckets
+ * rather than an NPE. See ShowRepositoryProjectionTest / StatsRepositoryTest /
+ * DashboardServiceTest for the pinned behavior.
+ *
+ * <p>{@code lower}/{@code upper} are {@link Date} so they bind as BSON dates —
+ * the {@code ?1}/{@code ?2} placeholders must stay UNQUOTED in the pipeline or
+ * they would stringify and match nothing. Every pipeline opens with
+ * {@code $match showToken}, index-backed by idx_showToken (created at startup
+ * by MongoIndexInitializer).
  */
 public interface StatsRepository extends MongoRepository<Show, String> {
 

@@ -127,6 +127,42 @@ class StatsRepositoryTest {
     }
 
     @Test
+    void pageStatsInRange_dropsElementsWithNullDateTime() {
+        // A malformed/legacy element with a null dateTime must be excluded by the
+        // $match (it is neither >= lower nor <= upper). The old build* helpers
+        // NPE'd on such an element; the aggregation simply drops it.
+        mongoTemplate.insert(ShowFactory.builder()
+                .showToken("t1")
+                .stats(Stat.builder()
+                        .page(List.of(
+                                page("good", LocalDateTime.of(2025, 10, 15, 12, 0)),
+                                Stat.Page.builder().ip("null-dt").viewerId("v").dateTime(null).build()))
+                        .build())
+                .build());
+
+        assertThat(statsRepository.pageStatsInRange("t1", LOWER, UPPER))
+                .extracting(Stat.Page::getIp).containsExactly("good");
+    }
+
+    @Test
+    void pageStatsInRange_windowBoundsAreInclusive() {
+        // $gte/$lte: an element exactly at lower or upper is kept; just outside is dropped.
+        mongoTemplate.insert(ShowFactory.builder()
+                .showToken("t1")
+                .stats(Stat.builder()
+                        .page(List.of(
+                                page("at-lower", LocalDateTime.of(2025, 10, 14, 0, 0)),
+                                page("at-upper", LocalDateTime.of(2025, 10, 17, 0, 0)),
+                                page("below-lower", LocalDateTime.of(2025, 10, 13, 23, 59))))
+                        .build())
+                .build());
+
+        assertThat(statsRepository.pageStatsInRange("t1", LOWER, UPPER))
+                .extracting(Stat.Page::getIp)
+                .containsExactlyInAnyOrder("at-lower", "at-upper");
+    }
+
+    @Test
     void inRange_returnsEmpty_whenStatsArrayNullOrAbsent() {
         mongoTemplate.insert(ShowFactory.builder().showToken("t1").stats(null).build());
 

@@ -156,6 +156,41 @@ class DashboardServiceTest {
         assertThat(resp.getVotingWinBySequence().getSequences()).isEmpty();
     }
 
+    @Test
+    void dashboardStats_statsPresentButSubArraysEmpty_returnsGapFilledEmptyBuckets() {
+        // Legacy/partial doc: the stats document exists but a sub-array is absent,
+        // so StatsRepository returns empty lists. The OLD full-document path NPE'd
+        // here; the NEW path returns 200 with gap-filled zero-total day buckets
+        // (by-date) and empty sequence lists (by-sequence).
+        stubAuth(SHOW_TOKEN);
+        when(statsRepository.hasStatsByShowToken(SHOW_TOKEN)).thenReturn(true);
+        // The four *InRange methods are left unstubbed -> Mockito returns empty lists.
+
+        DashboardStatsResponse resp = service.dashboardStats(ms(2025, 10, 14), ms(2025, 10, 17), TZ);
+
+        assertThat(resp.getPage()).isNotEmpty();
+        assertThat(resp.getPage()).allSatisfy(s -> assertThat(s.getTotal()).isZero());
+        assertThat(resp.getJukeboxBySequence().getSequences()).isEmpty();
+        assertThat(resp.getVotingBySequence().getSequences()).isEmpty();
+        assertThat(resp.getVotingWinBySequence().getSequences()).isEmpty();
+    }
+
+    @Test
+    void dashboardStats_toleratesNullDateTimeElements_droppingThem() {
+        // A null-dateTime element must not NPE the resolver; the build* helpers'
+        // null guard drops it (mirroring the Mongo $match) and keeps well-formed rows.
+        stubAuth(SHOW_TOKEN);
+        when(statsRepository.hasStatsByShowToken(SHOW_TOKEN)).thenReturn(true);
+        when(statsRepository.pageStatsInRange(eq(SHOW_TOKEN), any(), any())).thenReturn(List.of(
+                Stat.Page.builder().ip("good").dateTime(at(2025, 10, 15, 19, 0)).build(),
+                Stat.Page.builder().ip("null-dt").build()));
+
+        DashboardStatsResponse resp = service.dashboardStats(ms(2025, 10, 14), ms(2025, 10, 17), TZ);
+
+        int totalPage = resp.getPage().stream().mapToInt(s -> s.getTotal()).sum();
+        assertThat(totalPage).as("null-dateTime element dropped, well-formed element kept").isEqualTo(1);
+    }
+
     // ---- requestConversion ----
 
     @Test
