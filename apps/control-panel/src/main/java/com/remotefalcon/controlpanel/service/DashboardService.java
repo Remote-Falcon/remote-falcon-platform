@@ -57,7 +57,7 @@ public class DashboardService {
 
   public DashboardStatsResponse dashboardStats(Long startDate, Long endDate, String timezone) {
     TokenDTO tokenDTO = this.jwtUtil.getJwtPayload();
-    Optional<Show> show = this.showRepository.findByShowToken(tokenDTO.getShowToken());
+    Optional<Show> show = this.showRepository.findByShowTokenForStats(tokenDTO.getShowToken());
     if(show.isEmpty()) {
       throw new RuntimeException(StatusResponse.SHOW_NOT_FOUND.name());
     }
@@ -90,7 +90,7 @@ public class DashboardService {
   public com.remotefalcon.controlpanel.response.dashboard.RequestConversionResponse requestConversion(
           Long startDate, Long endDate, String timezone) {
     TokenDTO tokenDTO = this.jwtUtil.getJwtPayload();
-    Optional<Show> show = this.showRepository.findByShowToken(tokenDTO.getShowToken());
+    Optional<Show> show = this.showRepository.findByShowTokenForStats(tokenDTO.getShowToken());
     if (show.isEmpty()) {
       throw new RuntimeException(StatusResponse.SHOW_NOT_FOUND.name());
     }
@@ -154,7 +154,7 @@ public class DashboardService {
   // steady — good — through the PSA).
   public com.remotefalcon.controlpanel.response.dashboard.PsaEffectivenessResponse psaEffectiveness(String timezone) {
     TokenDTO tokenDTO = this.jwtUtil.getJwtPayload();
-    Optional<Show> show = this.showRepository.findByShowToken(tokenDTO.getShowToken());
+    Optional<Show> show = this.showRepository.findByShowTokenForStats(tokenDTO.getShowToken());
     if (show.isEmpty()) {
       throw new RuntimeException(StatusResponse.SHOW_NOT_FOUND.name());
     }
@@ -238,7 +238,7 @@ public class DashboardService {
   // `viewerId || ipHash` on the client side.
   public ViewerSessionsResponse viewerSessions(Long startDate, Long endDate, String timezone) {
     TokenDTO tokenDTO = this.jwtUtil.getJwtPayload();
-    Optional<Show> show = this.showRepository.findByShowToken(tokenDTO.getShowToken());
+    Optional<Show> show = this.showRepository.findByShowTokenForViewerSessions(tokenDTO.getShowToken());
     if (show.isEmpty()) {
       throw new RuntimeException(StatusResponse.SHOW_NOT_FOUND.name());
     }
@@ -522,7 +522,7 @@ public class DashboardService {
   // omitted to keep the payload small. Client pivots / fills gaps.
   public DashboardHourlyStatsResponse dashboardStatsByHour(Long startDate, Long endDate, String timezone) {
     TokenDTO tokenDTO = this.jwtUtil.getJwtPayload();
-    Optional<Show> show = this.showRepository.findByShowToken(tokenDTO.getShowToken());
+    Optional<Show> show = this.showRepository.findByShowTokenForStats(tokenDTO.getShowToken());
     if(show.isEmpty()) {
       throw new RuntimeException(StatusResponse.SHOW_NOT_FOUND.name());
     }
@@ -569,7 +569,7 @@ public class DashboardService {
 
   public DashboardLiveStatsResponse dashboardLiveStats(Long startDate, Long endDate, String timezone) {
     TokenDTO tokenDTO = this.jwtUtil.getJwtPayload();
-    Optional<Show> show = this.showRepository.findByShowToken(tokenDTO.getShowToken());
+    Optional<Show> show = this.showRepository.findByShowTokenForLiveStats(tokenDTO.getShowToken());
     if(show.isEmpty()) {
       throw new RuntimeException(StatusResponse.SHOW_NOT_FOUND.name());
     }

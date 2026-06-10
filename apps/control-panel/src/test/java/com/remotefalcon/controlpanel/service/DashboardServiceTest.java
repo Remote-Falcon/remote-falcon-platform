@@ -101,7 +101,7 @@ class DashboardServiceTest {
                 .build();
         Show show = Show.builder().showToken(SHOW_TOKEN).stats(stats).build();
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(showRepository.findByShowTokenForStats(SHOW_TOKEN)).thenReturn(Optional.of(show));
 
         DashboardStatsResponse resp = service.dashboardStats(ms(2025, 10, 14), ms(2025, 10, 17), TZ);
 
@@ -123,7 +123,7 @@ class DashboardServiceTest {
     @Test
     void dashboardStats_throwsShowNotFound_whenMissing() {
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.empty());
+        when(showRepository.findByShowTokenForStats(SHOW_TOKEN)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.dashboardStats(ms(2025, 1, 1), ms(2025, 12, 31), TZ))
                 .isInstanceOf(RuntimeException.class)
@@ -134,7 +134,7 @@ class DashboardServiceTest {
     void dashboardStats_handlesNullStats_returnsEmptyBuckets() {
         Show show = Show.builder().showToken(SHOW_TOKEN).stats(null).build();
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(showRepository.findByShowTokenForStats(SHOW_TOKEN)).thenReturn(Optional.of(show));
 
         DashboardStatsResponse resp = service.dashboardStats(ms(2025, 1, 1), ms(2025, 1, 7), TZ);
 
@@ -163,7 +163,7 @@ class DashboardServiceTest {
                 .build();
         Show show = Show.builder().showToken(SHOW_TOKEN).stats(stats).build();
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(showRepository.findByShowTokenForStats(SHOW_TOKEN)).thenReturn(Optional.of(show));
 
         RequestConversionResponse resp = service.requestConversion(ms(2025, 10, 14), ms(2025, 10, 17), TZ);
 
@@ -180,7 +180,7 @@ class DashboardServiceTest {
     void requestConversion_nullStats_returnsZerosAndNullRate() {
         Show show = Show.builder().showToken(SHOW_TOKEN).stats(null).build();
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(showRepository.findByShowTokenForStats(SHOW_TOKEN)).thenReturn(Optional.of(show));
 
         RequestConversionResponse r = service.requestConversion(ms(2025, 1, 1), ms(2025, 1, 7), TZ);
 
@@ -194,7 +194,7 @@ class DashboardServiceTest {
     @Test
     void requestConversion_throws_whenShowMissing() {
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.empty());
+        when(showRepository.findByShowTokenForStats(SHOW_TOKEN)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.requestConversion(0L, 1L, TZ))
                 .isInstanceOf(RuntimeException.class)
@@ -210,7 +210,7 @@ class DashboardServiceTest {
                 .build();
         Show show = Show.builder().showToken(SHOW_TOKEN).stats(stats).build();
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(showRepository.findByShowTokenForStats(SHOW_TOKEN)).thenReturn(Optional.of(show));
 
         RequestConversionResponse r = service.requestConversion(ms(2025, 10, 14), ms(2025, 10, 17), TZ);
 
@@ -223,7 +223,7 @@ class DashboardServiceTest {
     void psaEffectiveness_returnsEmptyList_whenShowHasNoPsaSequences() {
         Show show = Show.builder().showToken(SHOW_TOKEN).psaSequences(null).build();
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(showRepository.findByShowTokenForStats(SHOW_TOKEN)).thenReturn(Optional.of(show));
 
         PsaEffectivenessResponse r = service.psaEffectiveness(TZ);
         assertThat(r.getPsaPlays()).isEmpty();
@@ -239,7 +239,7 @@ class DashboardServiceTest {
                         .build())
                 .build();
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(showRepository.findByShowTokenForStats(SHOW_TOKEN)).thenReturn(Optional.of(show));
 
         PsaEffectivenessResponse r = service.psaEffectiveness(TZ);
         assertThat(r.getPsaPlays()).hasSize(1);
@@ -272,7 +272,7 @@ class DashboardServiceTest {
                 .stats(stats)
                 .build();
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(showRepository.findByShowTokenForStats(SHOW_TOKEN)).thenReturn(Optional.of(show));
 
         PsaEffectivenessResponse r = service.psaEffectiveness(TZ);
         PsaEffectivenessResponse.PsaPlay play = r.getPsaPlays().get(0);
@@ -295,7 +295,7 @@ class DashboardServiceTest {
                         .build())
                 .build();
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(showRepository.findByShowTokenForStats(SHOW_TOKEN)).thenReturn(Optional.of(show));
 
         PsaEffectivenessResponse r = service.psaEffectiveness(TZ);
         assertThat(r.getPsaPlays()).extracting("name").containsExactly("newest", "older", "never");
@@ -304,7 +304,7 @@ class DashboardServiceTest {
     @Test
     void psaEffectiveness_throws_whenShowMissing() {
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.empty());
+        when(showRepository.findByShowTokenForStats(SHOW_TOKEN)).thenReturn(Optional.empty());
         assertThatThrownBy(() -> service.psaEffectiveness(TZ))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessage(StatusResponse.SHOW_NOT_FOUND.name());
@@ -316,7 +316,7 @@ class DashboardServiceTest {
     void viewerSessions_returnsEmptySession_whenShowHasNoSessions() {
         Show show = Show.builder().showToken(SHOW_TOKEN).viewerSessions(null).build();
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(showRepository.findByShowTokenForViewerSessions(SHOW_TOKEN)).thenReturn(Optional.of(show));
 
         ViewerSessionsResponse r = service.viewerSessions(ms(2025, 10, 1), ms(2025, 10, 31), TZ);
         assertThat(r.getSessions()).isEmpty();
@@ -339,7 +339,7 @@ class DashboardServiceTest {
         Show show = Show.builder().showToken(SHOW_TOKEN).showSubdomain("sub")
                 .viewerSessions(new ArrayList<>(List.of(inRange, outOfRange))).build();
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(showRepository.findByShowTokenForViewerSessions(SHOW_TOKEN)).thenReturn(Optional.of(show));
 
         ViewerSessionsResponse r = service.viewerSessions(ms(2025, 10, 14), ms(2025, 10, 16), TZ);
 
@@ -356,7 +356,7 @@ class DashboardServiceTest {
     @Test
     void viewerSessions_throws_whenShowMissing() {
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.empty());
+        when(showRepository.findByShowTokenForViewerSessions(SHOW_TOKEN)).thenReturn(Optional.empty());
         assertThatThrownBy(() -> service.viewerSessions(0L, 1L, TZ))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessage(StatusResponse.SHOW_NOT_FOUND.name());
@@ -375,7 +375,7 @@ class DashboardServiceTest {
                 .build();
         Show show = Show.builder().showToken(SHOW_TOKEN).stats(stats).build();
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(showRepository.findByShowTokenForStats(SHOW_TOKEN)).thenReturn(Optional.of(show));
 
         DashboardHourlyStatsResponse r = service.dashboardStatsByHour(ms(2025, 10, 14), ms(2025, 10, 16), TZ);
 
@@ -393,7 +393,7 @@ class DashboardServiceTest {
     void dashboardStatsByHour_nullStats_returnsEmptyBuckets() {
         Show show = Show.builder().showToken(SHOW_TOKEN).stats(null).build();
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(showRepository.findByShowTokenForStats(SHOW_TOKEN)).thenReturn(Optional.of(show));
 
         DashboardHourlyStatsResponse r = service.dashboardStatsByHour(ms(2025, 1, 1), ms(2025, 1, 7), TZ);
         assertThat(r.getBuckets()).isEmpty();
@@ -402,7 +402,7 @@ class DashboardServiceTest {
     @Test
     void dashboardStatsByHour_throws_whenShowMissing() {
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.empty());
+        when(showRepository.findByShowTokenForStats(SHOW_TOKEN)).thenReturn(Optional.empty());
         assertThatThrownBy(() -> service.dashboardStatsByHour(0L, 1L, TZ))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessage(StatusResponse.SHOW_NOT_FOUND.name());
@@ -451,7 +451,7 @@ class DashboardServiceTest {
                         VersionChange.builder().at(jvmNow.minusDays(3)).pluginVersion("0.9").fppVersion("7.0").build())))
                 .build();
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(showRepository.findByShowTokenForLiveStats(SHOW_TOKEN)).thenReturn(Optional.of(show));
 
         DashboardLiveStatsResponse r = service.dashboardLiveStats(0L, 0L, TZ);
 
@@ -474,7 +474,7 @@ class DashboardServiceTest {
     @Test
     void dashboardLiveStats_throws_whenShowMissing() {
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.empty());
+        when(showRepository.findByShowTokenForLiveStats(SHOW_TOKEN)).thenReturn(Optional.empty());
         assertThatThrownBy(() -> service.dashboardLiveStats(0L, 0L, TZ))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessage(StatusResponse.SHOW_NOT_FOUND.name());
@@ -493,7 +493,7 @@ class DashboardServiceTest {
                 .stats(Stat.builder().jukebox(new ArrayList<>()).voting(new ArrayList<>()).build())
                 .build();
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(showRepository.findByShowTokenForLiveStats(SHOW_TOKEN)).thenReturn(Optional.of(show));
 
         DashboardLiveStatsResponse r = service.dashboardLiveStats(0L, 0L, TZ);
         assertThat(r.getPlayingNext()).isEqualTo("Sched Display");
@@ -520,7 +520,7 @@ class DashboardServiceTest {
                 .stats(Stat.builder().jukebox(new ArrayList<>()).voting(new ArrayList<>()).build())
                 .build();
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(showRepository.findByShowTokenForLiveStats(SHOW_TOKEN)).thenReturn(Optional.of(show));
 
         DashboardLiveStatsResponse r = service.dashboardLiveStats(0L, 0L, TZ);
         // PSA1 is excluded; 2 viewer requests counted.
@@ -543,7 +543,7 @@ class DashboardServiceTest {
                 .stats(Stat.builder().jukebox(new ArrayList<>()).voting(new ArrayList<>()).build())
                 .build();
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(showRepository.findByShowTokenForLiveStats(SHOW_TOKEN)).thenReturn(Optional.of(show));
 
         DashboardLiveStatsResponse r = service.dashboardLiveStats(0L, 0L, TZ);
         assertThat(r.getCurrentRequests()).isEqualTo(1);
@@ -569,7 +569,7 @@ class DashboardServiceTest {
                 .stats(Stat.builder().jukebox(new ArrayList<>()).voting(new ArrayList<>()).build())
                 .build();
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(showRepository.findByShowTokenForLiveStats(SHOW_TOKEN)).thenReturn(Optional.of(show));
 
         DashboardLiveStatsResponse r = service.dashboardLiveStats(0L, 0L, TZ);
         assertThat(r.getPlayingNext()).isEqualTo("PSA1 Display");
@@ -592,7 +592,7 @@ class DashboardServiceTest {
                 .stats(Stat.builder().jukebox(new ArrayList<>()).voting(new ArrayList<>()).build())
                 .build();
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(showRepository.findByShowTokenForLiveStats(SHOW_TOKEN)).thenReturn(Optional.of(show));
 
         DashboardLiveStatsResponse r = service.dashboardLiveStats(0L, 0L, TZ);
         assertThat(r.getPlayingNext()).isEqualTo("PSA1 Display");
@@ -613,7 +613,7 @@ class DashboardServiceTest {
                 .stats(Stat.builder().jukebox(new ArrayList<>()).voting(new ArrayList<>()).build())
                 .build();
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(showRepository.findByShowTokenForLiveStats(SHOW_TOKEN)).thenReturn(Optional.of(show));
 
         DashboardLiveStatsResponse r = service.dashboardLiveStats(0L, 0L, TZ);
         assertThat(r.getPlayingNext()).isEqualTo("Vote Leader");
@@ -630,7 +630,7 @@ class DashboardServiceTest {
                         .build())
                 .build();
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(showRepository.findByShowTokenForStats(SHOW_TOKEN)).thenReturn(Optional.of(show));
 
         org.springframework.http.ResponseEntity<org.springframework.core.io.ByteArrayResource> stub =
                 org.springframework.http.ResponseEntity.ok().build();

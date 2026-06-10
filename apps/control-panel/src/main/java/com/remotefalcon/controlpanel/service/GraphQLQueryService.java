@@ -12,6 +12,10 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -35,6 +39,7 @@ public class GraphQLQueryService {
     private final ShowRepository showRepository;
     private final NotificationRepository notificationRepository;
     private final ViewerPageService viewerPageService;
+    private final MongoTemplate mongoTemplate;
 
     public Show signIn() {
         var request = this.authUtil.getCurrentRequest();
@@ -43,7 +48,7 @@ public class GraphQLQueryService {
             String ipAddress = this.clientUtil.getClientIp(request);
             String email = basicAuthCredentials[0];
             String password = basicAuthCredentials[1];
-            Optional<Show> optionalShow = this.showRepository.findByEmailCollation(email);
+            Optional<Show> optionalShow = this.showRepository.findByEmailCollationForAuth(email);
             if (optionalShow.isEmpty()) {
                 throw new RuntimeException(StatusResponse.SHOW_NOT_FOUND.name());
             }
@@ -54,11 +59,28 @@ public class GraphQLQueryService {
                 if (!show.getEmailVerified()) {
                     throw new RuntimeException(StatusResponse.EMAIL_NOT_VERIFIED.name());
                 }
-                show.setLastLoginDate(LocalDateTime.now());
-                show.setExpireDate(LocalDateTime.now().plusYears(2));
+                LocalDateTime now = LocalDateTime.now();
+                LocalDateTime expireDate = now.plusYears(2);
+                // Atomic field update instead of save(show). signIn now loads a
+                // PROJECTED Show (findByEmailCollationForAuth excludes stats +
+                // viewerSessions), so a full-document save() would WIPE those
+                // arrays. updateFirst also avoids the lost-update race where a
+                // login clobbers concurrent viewer/plugin writes to the same
+                // doc during a live show.
+                this.mongoTemplate.updateFirst(
+                        Query.query(Criteria.where("showToken").is(show.getShowToken())),
+                        new Update()
+                                .set("lastLoginDate", now)
+                                .set("expireDate", expireDate)
+                                .set("lastLoginIp", ipAddress),
+                        Show.class);
+                // Mirror the persisted values onto the response object and
+                // normalize it for the client (checkFields defaults preferences
+                // + empty collections). Not persisted beyond the update above.
+                show.setLastLoginDate(now);
+                show.setExpireDate(expireDate);
                 show.setLastLoginIp(ipAddress);
                 this.checkFields(show);
-                this.showRepository.save(show);
                 show.setServiceToken(this.authUtil.signJwt(show));
                 return show;
             }
