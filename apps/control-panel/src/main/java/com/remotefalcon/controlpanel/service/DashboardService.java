@@ -107,42 +107,40 @@ public class DashboardService {
   public com.remotefalcon.controlpanel.response.dashboard.RequestConversionResponse requestConversion(
           Long startDate, Long endDate, String timezone) {
     TokenDTO tokenDTO = this.jwtUtil.getJwtPayload();
-    Optional<Show> show = this.showRepository.findByShowTokenForStats(tokenDTO.getShowToken());
-    if (show.isEmpty()) {
+    String showToken = tokenDTO.getShowToken();
+    // No statsPresent distinction needed: this method only COUNTS in-range
+    // entries, so a missing/empty stats sub-array and an empty in-range slice
+    // both yield 0 — identical to the old null-stats branch.
+    if (!this.statsRepository.existsByShowToken(showToken)) {
       throw new RuntimeException(StatusResponse.SHOW_NOT_FOUND.name());
     }
 
     ZoneId userZone = ZoneId.of(timezone);
     ZonedDateTime startDateAtZone = ZonedDateTime.ofInstant(Instant.ofEpochMilli(startDate), userZone);
     ZonedDateTime endDateAtZone = ZonedDateTime.ofInstant(Instant.ofEpochMilli(endDate), userZone).plusDays(2);
+    Date lower = statsWindowLower(startDateAtZone);
+    Date upper = statsWindowUpper(endDateAtZone);
 
-    Show s = show.get();
-    int accepted = 0;
-    if (s.getStats() != null && s.getStats().getJukebox() != null) {
-      accepted = (int) s.getStats().getJukebox().stream()
-              .filter(j -> j.getDateTime() != null)
-              .filter(j -> {
-                ZonedDateTime t = j.getDateTime().atZone(userZone);
-                return t.isAfter(startDateAtZone) && t.isBefore(endDateAtZone);
-              })
-              .count();
-    }
+    int accepted = (int) this.statsRepository.jukeboxStatsInRange(showToken, lower, upper).stream()
+            .filter(j -> j.getDateTime() != null)
+            .filter(j -> {
+              ZonedDateTime t = j.getDateTime().atZone(userZone);
+              return t.isAfter(startDateAtZone) && t.isBefore(endDateAtZone);
+            })
+            .count();
 
     java.util.Map<String, Long> byReason = new java.util.HashMap<>();
-    int rejected = 0;
-    if (s.getStats() != null && s.getStats().getRejectedRequests() != null) {
-      var inRange = s.getStats().getRejectedRequests().stream()
-              .filter(r -> r.getDateTime() != null)
-              .filter(r -> {
-                ZonedDateTime t = r.getDateTime().atZone(userZone);
-                return t.isAfter(startDateAtZone) && t.isBefore(endDateAtZone);
-              })
-              .collect(Collectors.toList());
-      rejected = inRange.size();
-      for (var r : inRange) {
-        String reason = r.getReason() != null ? r.getReason() : "UNKNOWN";
-        byReason.merge(reason, 1L, Long::sum);
-      }
+    var inRange = this.statsRepository.rejectedRequestsInRange(showToken, lower, upper).stream()
+            .filter(r -> r.getDateTime() != null)
+            .filter(r -> {
+              ZonedDateTime t = r.getDateTime().atZone(userZone);
+              return t.isAfter(startDateAtZone) && t.isBefore(endDateAtZone);
+            })
+            .collect(Collectors.toList());
+    int rejected = inRange.size();
+    for (var r : inRange) {
+      String reason = r.getReason() != null ? r.getReason() : "UNKNOWN";
+      byReason.merge(reason, 1L, Long::sum);
     }
 
     int attempted = accepted + rejected;
@@ -539,14 +537,12 @@ public class DashboardService {
   // omitted to keep the payload small. Client pivots / fills gaps.
   public DashboardHourlyStatsResponse dashboardStatsByHour(Long startDate, Long endDate, String timezone) {
     TokenDTO tokenDTO = this.jwtUtil.getJwtPayload();
-    Optional<Show> show = this.showRepository.findByShowTokenForStats(tokenDTO.getShowToken());
-    if(show.isEmpty()) {
+    String showToken = tokenDTO.getShowToken();
+    // No statsPresent distinction needed: this method only groups present
+    // events (no gap-fill), so a missing/empty stats.page and an empty in-range
+    // slice both yield zero buckets — identical to the old null-page branch.
+    if (!this.statsRepository.existsByShowToken(showToken)) {
       throw new RuntimeException(StatusResponse.SHOW_NOT_FOUND.name());
-    }
-
-    Show existingShow = show.get();
-    if(existingShow.getStats() == null || existingShow.getStats().getPage() == null) {
-      return DashboardHourlyStatsResponse.builder().buckets(new ArrayList<>()).build();
     }
 
     ZoneId userZone = ZoneId.of(timezone);
@@ -554,7 +550,9 @@ public class DashboardService {
     ZonedDateTime endDateAtZone = ZonedDateTime.ofInstant(Instant.ofEpochMilli(endDate), userZone).plusDays(2);
 
     // Group events by (LocalDate, hour) pair, deduping IPs within each pair.
-    Map<String, List<Stat.Page>> grouped = existingShow.getStats().getPage().stream()
+    Map<String, List<Stat.Page>> grouped = this.statsRepository
+            .pageStatsInRange(showToken, statsWindowLower(startDateAtZone), statsWindowUpper(endDateAtZone))
+            .stream()
             .filter(stat -> stat.getDateTime() != null)
             .map(stat -> Map.entry(stat, convertStatDateTime(stat.getDateTime(), userZone)))
             .filter(stat -> stat.getValue().isAfter(startDateAtZone))

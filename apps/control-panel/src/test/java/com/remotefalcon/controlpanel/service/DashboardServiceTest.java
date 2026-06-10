@@ -205,9 +205,10 @@ class DashboardServiceTest {
                         Stat.RejectedRequest.builder().reason("BLOCKED").dateTime(at(2025, 10, 15, 18, 6)).build(),
                         Stat.RejectedRequest.builder().reason("LIMIT").dateTime(at(2025, 10, 15, 19, 0)).build())))
                 .build();
-        Show show = Show.builder().showToken(SHOW_TOKEN).stats(stats).build();
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowTokenForStats(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(statsRepository.existsByShowToken(SHOW_TOKEN)).thenReturn(true);
+        when(statsRepository.jukeboxStatsInRange(eq(SHOW_TOKEN), any(), any())).thenReturn(stats.getJukebox());
+        when(statsRepository.rejectedRequestsInRange(eq(SHOW_TOKEN), any(), any())).thenReturn(stats.getRejectedRequests());
 
         RequestConversionResponse resp = service.requestConversion(ms(2025, 10, 14), ms(2025, 10, 17), TZ);
 
@@ -222,9 +223,9 @@ class DashboardServiceTest {
 
     @Test
     void requestConversion_nullStats_returnsZerosAndNullRate() {
-        Show show = Show.builder().showToken(SHOW_TOKEN).stats(null).build();
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowTokenForStats(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(statsRepository.existsByShowToken(SHOW_TOKEN)).thenReturn(true);
+        // jukebox/rejected *InRange unstubbed -> empty lists -> zeros, null rate.
 
         RequestConversionResponse r = service.requestConversion(ms(2025, 1, 1), ms(2025, 1, 7), TZ);
 
@@ -238,7 +239,7 @@ class DashboardServiceTest {
     @Test
     void requestConversion_throws_whenShowMissing() {
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowTokenForStats(SHOW_TOKEN)).thenReturn(Optional.empty());
+        when(statsRepository.existsByShowToken(SHOW_TOKEN)).thenReturn(false);
 
         assertThatThrownBy(() -> service.requestConversion(0L, 1L, TZ))
                 .isInstanceOf(RuntimeException.class)
@@ -252,9 +253,9 @@ class DashboardServiceTest {
                 .rejectedRequests(new ArrayList<>(List.of(
                         Stat.RejectedRequest.builder().reason(null).dateTime(at(2025, 10, 15, 18, 0)).build())))
                 .build();
-        Show show = Show.builder().showToken(SHOW_TOKEN).stats(stats).build();
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowTokenForStats(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(statsRepository.existsByShowToken(SHOW_TOKEN)).thenReturn(true);
+        when(statsRepository.rejectedRequestsInRange(eq(SHOW_TOKEN), any(), any())).thenReturn(stats.getRejectedRequests());
 
         RequestConversionResponse r = service.requestConversion(ms(2025, 10, 14), ms(2025, 10, 17), TZ);
 
@@ -417,9 +418,9 @@ class DashboardServiceTest {
                         Stat.Page.builder().ip("b").dateTime(at(2025, 10, 15, 19, 5)).build(),
                         Stat.Page.builder().ip("c").dateTime(at(2025, 10, 15, 20, 0)).build())))
                 .build();
-        Show show = Show.builder().showToken(SHOW_TOKEN).stats(stats).build();
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowTokenForStats(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(statsRepository.existsByShowToken(SHOW_TOKEN)).thenReturn(true);
+        when(statsRepository.pageStatsInRange(eq(SHOW_TOKEN), any(), any())).thenReturn(stats.getPage());
 
         DashboardHourlyStatsResponse r = service.dashboardStatsByHour(ms(2025, 10, 14), ms(2025, 10, 16), TZ);
 
@@ -435,9 +436,9 @@ class DashboardServiceTest {
 
     @Test
     void dashboardStatsByHour_nullStats_returnsEmptyBuckets() {
-        Show show = Show.builder().showToken(SHOW_TOKEN).stats(null).build();
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowTokenForStats(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(statsRepository.existsByShowToken(SHOW_TOKEN)).thenReturn(true);
+        // pageStatsInRange unstubbed -> empty list -> no buckets.
 
         DashboardHourlyStatsResponse r = service.dashboardStatsByHour(ms(2025, 1, 1), ms(2025, 1, 7), TZ);
         assertThat(r.getBuckets()).isEmpty();
@@ -446,7 +447,7 @@ class DashboardServiceTest {
     @Test
     void dashboardStatsByHour_throws_whenShowMissing() {
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowTokenForStats(SHOW_TOKEN)).thenReturn(Optional.empty());
+        when(statsRepository.existsByShowToken(SHOW_TOKEN)).thenReturn(false);
         assertThatThrownBy(() -> service.dashboardStatsByHour(0L, 1L, TZ))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessage(StatusResponse.SHOW_NOT_FOUND.name());

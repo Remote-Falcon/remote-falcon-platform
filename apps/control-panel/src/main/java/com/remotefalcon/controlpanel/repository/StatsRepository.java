@@ -93,4 +93,13 @@ public interface StatsRepository extends MongoRepository<Show, String> {
             "{ '$replaceRoot': { 'newRoot': '$items' } }"
     })
     List<Stat.VotingWin> votingWinStatsInRange(String showToken, Date lower, Date upper);
+
+    @Aggregation(pipeline = {
+            "{ '$match': { 'showToken': ?0 } }",
+            "{ '$project': { 'items': '$stats.rejectedRequests' } }",
+            "{ '$unwind': '$items' }",
+            "{ '$match': { 'items.dateTime': { '$gte': ?1, '$lte': ?2 } } }",
+            "{ '$replaceRoot': { 'newRoot': '$items' } }"
+    })
+    List<Stat.RejectedRequest> rejectedRequestsInRange(String showToken, Date lower, Date upper);
 }

@@ -163,6 +163,21 @@ class StatsRepositoryTest {
     }
 
     @Test
+    void rejectedRequestsInRange_filtersToWindow_andMapsReason() {
+        mongoTemplate.insert(ShowFactory.builder()
+                .showToken("t1")
+                .stats(Stat.builder()
+                        .rejectedRequests(List.of(
+                                rejected("NAUGHTY", LocalDateTime.of(2025, 10, 15, 20, 0)),
+                                rejected("QUEUE_FULL", LocalDateTime.of(2025, 12, 1, 20, 0))))
+                        .build())
+                .build());
+
+        assertThat(statsRepository.rejectedRequestsInRange("t1", LOWER, UPPER))
+                .extracting(Stat.RejectedRequest::getReason).containsExactly("NAUGHTY");
+    }
+
+    @Test
     void inRange_returnsEmpty_whenStatsArrayNullOrAbsent() {
         mongoTemplate.insert(ShowFactory.builder().showToken("t1").stats(null).build());
 
@@ -203,5 +218,9 @@ class StatsRepositoryTest {
 
     private static Stat.VotingWin votingWin(String name, LocalDateTime dt) {
         return Stat.VotingWin.builder().name(name).total(1).dateTime(dt).build();
+    }
+
+    private static Stat.RejectedRequest rejected(String reason, LocalDateTime dt) {
+        return Stat.RejectedRequest.builder().reason(reason).viewerId("v").dateTime(dt).build();
     }
 }
