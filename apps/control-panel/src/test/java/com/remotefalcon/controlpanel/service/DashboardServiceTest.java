@@ -2,6 +2,7 @@ package com.remotefalcon.controlpanel.service;
 
 import com.remotefalcon.controlpanel.dto.TokenDTO;
 import com.remotefalcon.controlpanel.repository.ShowRepository;
+import com.remotefalcon.controlpanel.repository.StatsRepository;
 import com.remotefalcon.controlpanel.request.DownloadStatsToExcelRequest;
 import com.remotefalcon.controlpanel.response.dashboard.DashboardHourlyStatsResponse;
 import com.remotefalcon.controlpanel.response.dashboard.DashboardLiveStatsResponse;
@@ -42,6 +43,8 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 /**
@@ -61,6 +64,7 @@ class DashboardServiceTest {
     @Mock private AuthUtil jwtUtil;
     @Mock private ExcelUtil excelUtil;
     @Mock private ShowRepository showRepository;
+    @Mock private StatsRepository statsRepository;
     @Mock private ClientUtil clientUtil;
 
     @InjectMocks private DashboardService service;
@@ -99,9 +103,12 @@ class DashboardServiceTest {
                 .votingWin(new ArrayList<>(List.of(
                         Stat.VotingWin.builder().name("Carol").total(1).dateTime(at(2025, 10, 15, 23, 59)).build())))
                 .build();
-        Show show = Show.builder().showToken(SHOW_TOKEN).stats(stats).build();
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowTokenForStats(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(statsRepository.hasStatsByShowToken(SHOW_TOKEN)).thenReturn(true);
+        when(statsRepository.pageStatsInRange(eq(SHOW_TOKEN), any(), any())).thenReturn(stats.getPage());
+        when(statsRepository.jukeboxStatsInRange(eq(SHOW_TOKEN), any(), any())).thenReturn(stats.getJukebox());
+        when(statsRepository.votingStatsInRange(eq(SHOW_TOKEN), any(), any())).thenReturn(stats.getVoting());
+        when(statsRepository.votingWinStatsInRange(eq(SHOW_TOKEN), any(), any())).thenReturn(stats.getVotingWin());
 
         DashboardStatsResponse resp = service.dashboardStats(ms(2025, 10, 14), ms(2025, 10, 17), TZ);
 
@@ -123,7 +130,8 @@ class DashboardServiceTest {
     @Test
     void dashboardStats_throwsShowNotFound_whenMissing() {
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowTokenForStats(SHOW_TOKEN)).thenReturn(Optional.empty());
+        when(statsRepository.hasStatsByShowToken(SHOW_TOKEN)).thenReturn(false);
+        when(statsRepository.existsByShowToken(SHOW_TOKEN)).thenReturn(false);
 
         assertThatThrownBy(() -> service.dashboardStats(ms(2025, 1, 1), ms(2025, 12, 31), TZ))
                 .isInstanceOf(RuntimeException.class)
@@ -132,9 +140,10 @@ class DashboardServiceTest {
 
     @Test
     void dashboardStats_handlesNullStats_returnsEmptyBuckets() {
-        Show show = Show.builder().showToken(SHOW_TOKEN).stats(null).build();
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowTokenForStats(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        // Show exists but has no stats document -> empty buckets, not SHOW_NOT_FOUND.
+        when(statsRepository.hasStatsByShowToken(SHOW_TOKEN)).thenReturn(false);
+        when(statsRepository.existsByShowToken(SHOW_TOKEN)).thenReturn(true);
 
         DashboardStatsResponse resp = service.dashboardStats(ms(2025, 1, 1), ms(2025, 1, 7), TZ);
 
@@ -623,14 +632,8 @@ class DashboardServiceTest {
 
     @Test
     void downloadStatsToExcel_delegatesAggregatedStats_toExcelUtil() {
-        Show show = Show.builder().showToken(SHOW_TOKEN)
-                .stats(Stat.builder()
-                        .page(new ArrayList<>()).jukebox(new ArrayList<>())
-                        .voting(new ArrayList<>()).votingWin(new ArrayList<>())
-                        .build())
-                .build();
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowTokenForStats(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(statsRepository.hasStatsByShowToken(SHOW_TOKEN)).thenReturn(true);
 
         org.springframework.http.ResponseEntity<org.springframework.core.io.ByteArrayResource> stub =
                 org.springframework.http.ResponseEntity.ok().build();
