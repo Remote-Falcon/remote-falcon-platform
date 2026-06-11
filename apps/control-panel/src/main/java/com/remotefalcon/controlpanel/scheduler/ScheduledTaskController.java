@@ -16,13 +16,16 @@ public class ScheduledTaskController {
     }
 
     /**
-     * Nightly 18-month stats retention sweep at 03:00 UTC.
-     * Iterates every show via a streaming cursor and trims stats older than 18
-     * months. Replaces the dashboard-mount trigger removed in UI PR #67
-     * (PERF-FIX-PLAN Phase 1).
+     * Nightly 03:00 UTC maintenance: (1) the 18-month stats retention sweep
+     * (streaming cursor, trims stats older than 18 months — replaces the
+     * dashboard-mount trigger removed in UI PR #67 / PERF-FIX-PLAN Phase 1), then
+     * (2) a document-size alarm that warns on any show approaching Mongo's 16 MB
+     * BSON cap (the catch-all safety net for the doc-bloat outage class). The
+     * alarm runs after the prune so it measures post-retention sizes.
      */
     @Scheduled(cron = "0 0 3 * * ?")
     public void purgeStaleStats() {
         scheduledTaskService.purgeStaleStatsForAllShows();
+        scheduledTaskService.alarmOnOversizedShows();
     }
 }
