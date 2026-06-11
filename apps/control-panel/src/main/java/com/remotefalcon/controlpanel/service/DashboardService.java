@@ -169,11 +169,11 @@ public class DashboardService {
   // steady — good — through the PSA).
   public com.remotefalcon.controlpanel.response.dashboard.PsaEffectivenessResponse psaEffectiveness(String timezone) {
     TokenDTO tokenDTO = this.jwtUtil.getJwtPayload();
-    Optional<Show> show = this.showRepository.findByShowTokenForStats(tokenDTO.getShowToken());
-    if (show.isEmpty()) {
-      throw new RuntimeException(StatusResponse.SHOW_NOT_FOUND.name());
-    }
-    Show s = show.get();
+    String showToken = tokenDTO.getShowToken();
+    // Load only psaSequences (small, top-level) via projection; the stats arrays
+    // are fetched per-PSA below, so the multi-MB Show document is never loaded.
+    Show s = this.showRepository.findByShowTokenForPsaConfig(showToken)
+            .orElseThrow(() -> new RuntimeException(StatusResponse.SHOW_NOT_FOUND.name()));
 
     if (s.getPsaSequences() == null || s.getPsaSequences().isEmpty()) {
       return com.remotefalcon.controlpanel.response.dashboard.PsaEffectivenessResponse.builder()
@@ -202,24 +202,24 @@ public class DashboardService {
       java.time.LocalDateTime windowStart = lp.minusMinutes(WINDOW_MIN);
       java.time.LocalDateTime windowEnd = lp.plusMinutes(WINDOW_MIN);
 
-      int viewers = 0;
-      if (s.getStats() != null && s.getStats().getPage() != null) {
-        viewers = (int) s.getStats().getPage().stream()
-                .filter(p -> p.getDateTime() != null && p.getIp() != null)
-                .filter(p -> !p.getDateTime().isBefore(windowStart) && p.getDateTime().isBefore(windowEnd))
-                .map(com.remotefalcon.library.models.Stat.Page::getIp)
-                .distinct()
-                .count();
-      }
+      // Fetch only this PSA's window slice (widened ±1 day for encoding
+      // robustness; the raw-LocalDateTime filters below trim to exact ±5 min).
+      Date lower = Date.from(windowStart.minusDays(1).toInstant(ZoneOffset.UTC));
+      Date upper = Date.from(windowEnd.plusDays(1).toInstant(ZoneOffset.UTC));
+
+      int viewers = (int) this.statsRepository.pageStatsInRange(showToken, lower, upper).stream()
+              .filter(p -> p.getDateTime() != null && p.getIp() != null)
+              .filter(p -> !p.getDateTime().isBefore(windowStart) && p.getDateTime().isBefore(windowEnd))
+              .map(com.remotefalcon.library.models.Stat.Page::getIp)
+              .distinct()
+              .count();
 
       int reqsBefore = 0;
       int reqsAfter = 0;
-      if (s.getStats() != null && s.getStats().getJukebox() != null) {
-        for (var j : s.getStats().getJukebox()) {
-          if (j.getDateTime() == null) continue;
-          if (!j.getDateTime().isBefore(windowStart) && j.getDateTime().isBefore(lp)) reqsBefore++;
-          else if (!j.getDateTime().isBefore(lp) && j.getDateTime().isBefore(windowEnd)) reqsAfter++;
-        }
+      for (var j : this.statsRepository.jukeboxStatsInRange(showToken, lower, upper)) {
+        if (j.getDateTime() == null) continue;
+        if (!j.getDateTime().isBefore(windowStart) && j.getDateTime().isBefore(lp)) reqsBefore++;
+        else if (!j.getDateTime().isBefore(lp) && j.getDateTime().isBefore(windowEnd)) reqsAfter++;
       }
 
       plays.add(com.remotefalcon.controlpanel.response.dashboard.PsaEffectivenessResponse.PsaPlay.builder()

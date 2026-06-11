@@ -134,6 +134,15 @@ public interface ShowRepository extends MongoRepository<Show, String> {
                      "'pages': 0, 'showNotifications': 0 }")
     Optional<Show> findByShowTokenForLiveStats(String showToken);
 
+    // PSA-effectiveness config: psaSequences is a small top-level field (NOT a
+    // stats array). Load only it (+ identity) so psaEffectiveness can read each
+    // PSA's lastPlayed without pulling the multi-MB stats.* arrays — those are
+    // fetched per-PSA as ±5-min window slices via StatsRepository.
+    @Query(value = "{ 'showToken': ?0 }",
+            fields = "{ 'showToken': 1, 'showSubdomain': 1, 'showName': 1, 'showRole': 1, " +
+                     "'psaSequences': 1 }")
+    Optional<Show> findByShowTokenForPsaConfig(String showToken);
+
     // signIn projection — same case-insensitive collation lookup as
     // findByEmailCollation, but EXCLUDES the heavy arrays the UI's SIGN_IN
     // query does NOT select: stats (the season's 5–10 MB bulk), viewerSessions,

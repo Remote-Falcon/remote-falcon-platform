@@ -268,7 +268,7 @@ class DashboardServiceTest {
     void psaEffectiveness_returnsEmptyList_whenShowHasNoPsaSequences() {
         Show show = Show.builder().showToken(SHOW_TOKEN).psaSequences(null).build();
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowTokenForStats(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(showRepository.findByShowTokenForPsaConfig(SHOW_TOKEN)).thenReturn(Optional.of(show));
 
         PsaEffectivenessResponse r = service.psaEffectiveness(TZ);
         assertThat(r.getPsaPlays()).isEmpty();
@@ -284,7 +284,7 @@ class DashboardServiceTest {
                         .build())
                 .build();
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowTokenForStats(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(showRepository.findByShowTokenForPsaConfig(SHOW_TOKEN)).thenReturn(Optional.of(show));
 
         PsaEffectivenessResponse r = service.psaEffectiveness(TZ);
         assertThat(r.getPsaPlays()).hasSize(1);
@@ -317,7 +317,9 @@ class DashboardServiceTest {
                 .stats(stats)
                 .build();
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowTokenForStats(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(showRepository.findByShowTokenForPsaConfig(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(statsRepository.pageStatsInRange(eq(SHOW_TOKEN), any(), any())).thenReturn(stats.getPage());
+        when(statsRepository.jukeboxStatsInRange(eq(SHOW_TOKEN), any(), any())).thenReturn(stats.getJukebox());
 
         PsaEffectivenessResponse r = service.psaEffectiveness(TZ);
         PsaEffectivenessResponse.PsaPlay play = r.getPsaPlays().get(0);
@@ -340,7 +342,7 @@ class DashboardServiceTest {
                         .build())
                 .build();
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowTokenForStats(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(showRepository.findByShowTokenForPsaConfig(SHOW_TOKEN)).thenReturn(Optional.of(show));
 
         PsaEffectivenessResponse r = service.psaEffectiveness(TZ);
         assertThat(r.getPsaPlays()).extracting("name").containsExactly("newest", "older", "never");
@@ -349,7 +351,7 @@ class DashboardServiceTest {
     @Test
     void psaEffectiveness_throws_whenShowMissing() {
         stubAuth(SHOW_TOKEN);
-        when(showRepository.findByShowTokenForStats(SHOW_TOKEN)).thenReturn(Optional.empty());
+        when(showRepository.findByShowTokenForPsaConfig(SHOW_TOKEN)).thenReturn(Optional.empty());
         assertThatThrownBy(() -> service.psaEffectiveness(TZ))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessage(StatusResponse.SHOW_NOT_FOUND.name());
