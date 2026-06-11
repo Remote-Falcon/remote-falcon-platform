@@ -334,29 +334,37 @@ Hits every service's health endpoint; non-200 fails the script. The CI `test-e2e
 
 ## CI workflow
 
-Three test jobs run in parallel on every PR and every push to `main`:
+The three test jobs and the image `build` run in parallel; on a push to `main`
+they all gate `deploy`, and a trailing `post-deploy-watch` job runs the
+error-rate safety check off the deploy critical path:
 
 ```
 detect ─┬─→ test-unit (matrix: per service)  ─┐
-        ├─→ test-contract                     ├─→ deploy
-        └─→ test-e2e                          ─┘
+        ├─→ test-contract                     │
+        ├─→ test-e2e                          ├─→ deploy (matrix, apply-only) ─→ post-deploy-watch
+        └─→ build (matrix: per service)       ─┘
 ```
 
+`build` runs alongside the test gates rather than inside `deploy`, so the
+~5–9 min image builds overlap the ~5 min e2e gate instead of stacking after it.
 Source: [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml). The reusable per-service test workflow lives at [`.github/workflows/_test-service.yml`](../.github/workflows/_test-service.yml).
 
 ### Triggers
 
 | Event | What runs |
 |---|---|
-| `pull_request` to `main` | All 3 test jobs. `deploy` does not run. |
-| `push` to `main` | All 3 test jobs gate `deploy`. |
-| `workflow_dispatch` (manual) | `test-unit` + `test-contract` only. `test-e2e` skipped (5–10 min stack bring-up not worth it for ad-hoc deploys). |
+| `pull_request` to `main` | The 3 test jobs only. `build`, `deploy`, and `post-deploy-watch` do not run (PRs never build images or touch the cluster). A new push to the PR cancels the previous in-progress run. |
+| `push` to `main` | The 3 test jobs **and** `build` run in parallel; all gate `deploy`; `post-deploy-watch` trails. |
+| `workflow_dispatch` (manual) | `test-unit` + `test-contract` + `build`. `test-e2e` skipped (5–10 min stack bring-up not worth it for ad-hoc deploys). |
 
 ### Job behavior
 
 - **`test-unit`** runs as a matrix per service. A broken test in one service blocks only that service's deploy lane, not the whole matrix.
 - **`test-contract`** runs the schema round-trip and external plugin contract tests. A failure here blocks *all* deploys — wire-format or schema breaks are global.
 - **`test-e2e`** brings up the full stack via `./ops/dev-up.sh up`, runs `./ops/dev-up.sh health`, then runs Playwright smoke. Failure blocks all deploys.
+- **`build`** runs as a matrix per service (push/dispatch only — PRs don't build). It builds + pushes each image to GHCR tagged by SHA, layer-cached against a per-service `ghcr.io/…:buildcache` tag (base images and the `libs/schema|auth|test-fixtures` stages stay cached; the GraalVM/Quarkus native-compile step still reruns on source change). Gates `deploy`.
+- **`deploy`** no longer builds — it resolves config, applies the manifest, waits for rollout, verifies image + ready-replicas, and auto-rolls-back on verify failure.
+- **`post-deploy-watch`** trails `deploy` off the critical path: one consolidated job sleeps 5 min, then checks each deployed service's error count vs. its 24h baseline (normalized to the watch window) and rolls back any service exceeding 3×. This was previously a 10-min `sleep` inline in *every* deploy matrix leg; moving it out lets the rollout report done ~10 min sooner. Tunables in [`ops/release-validation/`](../ops/release-validation/).
 
 ### Emergency override — `skip_tests`
 
@@ -400,7 +408,7 @@ Sprint 1 deliberately ships the *foundation* + one real test in each tier. Every
 - Cross-service control-panel ↔ viewer schema integration test
 - Regression e2e tier: grow `tests/e2e/regression/` to ~20 specs (sequence editor, votes/requests config, account email change, page editor)
 - `nightly-regression.yml` workflow — cron + manual dispatch, files an issue on failure
-- Post-deploy smoke + auto-rollback (split `deploy` into "build/push" + "apply/rollout"; smoke hits health + 1 critical path; failure triggers `kubectl rollout undo`)
+- Post-deploy smoke + auto-rollback — **shipped** (chore/ci-speedup): `deploy` split into a parallel `build` job + apply-only `deploy`, with a trailing `post-deploy-watch` that error-rate-checks each service and triggers `kubectl rollout undo` on a >3× baseline breach. (A literal health/critical-path smoke probe is still TODO; today's gate is the error-rate watch.)
 - Firefox + WebKit added to Playwright project matrix
 
 ### Out of Phase C entirely

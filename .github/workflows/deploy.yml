@@ -1,13 +1,35 @@
 name: Deploy
 
-# One workflow for all 8 services. detect job decides which services changed
-# (or which the user picked via workflow_dispatch); deploy job runs in a matrix
-# with per-service config resolved by a shell case statement and per-pattern
-# build steps gated by `if:`.
+# One workflow for all 8 services. detect decides which services changed (or
+# which the user picked via workflow_dispatch). The build job then runs the
+# docker builds in a matrix IN PARALLEL with the test gates, and the deploy
+# job just rolls out the already-pushed images. A trailing post-deploy-watch
+# job runs the error-rate safety check off the deploy critical path.
+#
+# Job graph:
+#   detect ──┬─► test-unit (matrix) ─┐
+#            ├─► test-contract        ├─► deploy (matrix, apply-only) ─► post-deploy-watch
+#            ├─► test-e2e             │
+#            └─► build (matrix) ──────┘
+#
+# Why this shape (see also docs/SERVICES.md):
+#   - build runs alongside the tests instead of inside deploy, so the ~5-9min
+#     image builds overlap the ~5min e2e gate instead of stacking after it.
+#     Images are pushed to GHCR tagged by SHA; building an image for a commit
+#     that later fails its tests is harmless (deploy is still gated on green).
+#   - build uses GHCR registry layer cache (:buildcache) so base images and the
+#     libs/schema|auth|test-fixtures stages don't recompile every run. The
+#     GraalVM/Quarkus native-compile step itself still reruns on source change.
+#   - deploy no longer builds — it resolves config, applies the manifest, waits
+#     for rollout, and verifies image+replicas. Fast.
+#   - the 10min post-deploy error-rate sleep used to sit inline in every deploy
+#     matrix leg (8 idle runners, on the deploy critical path). It now lives in
+#     one consolidated post-deploy-watch job that runs after deploy reports
+#     done, so the rollout shows complete ~10min sooner. Auto-rollback preserved.
 #
 # Supersedes the 8 per-repo build-and-release.yml files that subtree-merged
 # into apps/<svc>/.github/workflows/ — those are inert (GitHub only reads
-# .github/workflows/ from repo root) and have been deleted in this commit.
+# .github/workflows/ from repo root) and have been deleted.
 
 on:
   push:
@@ -61,6 +83,14 @@ on:
         type: boolean
         required: false
         default: false
+
+# Serialize runs per branch. A new commit on a PR cancels the previous
+# in-progress run for that branch (no point finishing tests on a stale SHA).
+# main and workflow_dispatch runs NEVER cancel — we must never interrupt a
+# live build, rollout, or post-deploy watch mid-flight.
+concurrency:
+  group: deploy-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -229,10 +259,161 @@ jobs:
         run: ./ops/dev-up.sh down --core
 
   # ---------------------------------------------------------------
-  # deploy — build, push, and roll out each changed service
+  # build — build + push each changed service's image, IN PARALLEL
+  # with the test gates. Pushes to GHCR tagged by SHA; layer-cached
+  # against a per-service :buildcache tag. Not gated by skip_tests —
+  # we always need the images to deploy.
+  #
+  # Runs only on push/workflow_dispatch (the deploy path), NOT on PRs:
+  # PRs don't deploy, so building there would just add native-compile
+  # minutes without benefit. This keeps PR runs as light as before
+  # (test gates only) while the build overlaps the e2e gate on pushes.
+  # ---------------------------------------------------------------
+  build:
+    needs: detect
+    if: ${{
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+      && needs.detect.outputs.services != '[]'
+      && needs.detect.outputs.services != ''
+      }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.detect.outputs.services) }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Resolve build context, dockerfile, image tag, and the registry cache
+      # refs (owner must be lowercased for GHCR).
+      - name: Resolve per-service build config
+        id: cfg
+        env:
+          SERVICE: ${{ matrix.service }}
+          OWNER: ${{ github.repository_owner }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          owner_lc=$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')
+          image="${REGISTRY}/${owner_lc}/remote-falcon-${SERVICE}:${SHA}"
+          cache_ref="${REGISTRY}/${owner_lc}/remote-falcon-${SERVICE}:buildcache"
+
+          # Schema-consuming services use monorepo root context so libs/ is
+          # COPYable; the rest are self-contained.
+          case "$SERVICE" in
+            control-panel|external-api|viewer|plugins-api|account-archive)
+              context="."
+              dockerfile="apps/$SERVICE/Dockerfile"
+              ;;
+            ui|gateway|mongo-backup)
+              context="apps/$SERVICE"
+              dockerfile="Dockerfile"
+              ;;
+            *)
+              echo "Unknown service: $SERVICE" >&2
+              exit 1
+              ;;
+          esac
+
+          cache_from="type=registry,ref=${cache_ref}"
+          cache_to="type=registry,ref=${cache_ref},mode=max"
+
+          {
+            echo "image=$image"
+            echo "context=$context"
+            echo "dockerfile=$dockerfile"
+            echo "cache_from=$cache_from"
+            echo "cache_to=$cache_to"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute UI build version
+        id: date
+        if: matrix.service == 'ui'
+        run: echo "version=$(date -u +'%Y.%m.%d')" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push (ui)
+        if: matrix.service == 'ui'
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ steps.cfg.outputs.context }}
+          file: ${{ steps.cfg.outputs.context }}/${{ steps.cfg.outputs.dockerfile }}
+          push: true
+          tags: ${{ steps.cfg.outputs.image }}
+          cache-from: ${{ steps.cfg.outputs.cache_from }}
+          cache-to: ${{ steps.cfg.outputs.cache_to }}
+          # POSTHOG_CLI_API_KEY is the same Personal API Key already used by
+          # the daily digest CronJob + the post-deploy error-rate check.
+          # Scopes needed: error_tracking:write (plus the existing
+          # query:read, insight:*, dashboard:*).
+          build-args: |
+            HOST_ENV=prod
+            VERSION=${{ steps.date.outputs.version }}
+            CONTROL_PANEL_API=https://remotefalcon.com/remote-falcon-control-panel
+            VIEWER_API=https://remotefalcon.com/remote-falcon-viewer
+            GOOGLE_MAPS_KEY=${{ secrets.GOOGLE_MAPS_KEY }}
+            PUBLIC_POSTHOG_KEY=${{ secrets.PUBLIC_POSTHOG_KEY }}
+            POSTHOG_CLI_API_KEY=${{ secrets.POSTHOG_API_KEY }}
+            HOSTNAME_PARTS=2
+            SWAP_CP=false
+            VIEWER_PAGE_SUBDOMAIN=
+            SOCIAL_META=<meta property='og:type' content='website'/><meta property='og:url' content='https://remotefalcon.com/'/><meta property='og:title' content='Remote Falcon'/><meta property='og:description' content='Create a custom website where viewers can request or vote for sequences to watch on your light show.'/><meta property='og:image' content='https://remotefalcon.com/jukebox.png'/>
+
+      - name: Build and push (gateway)
+        if: matrix.service == 'gateway'
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ steps.cfg.outputs.context }}
+          file: ${{ steps.cfg.outputs.context }}/${{ steps.cfg.outputs.dockerfile }}
+          push: true
+          tags: ${{ steps.cfg.outputs.image }}
+          cache-from: ${{ steps.cfg.outputs.cache_from }}
+          cache-to: ${{ steps.cfg.outputs.cache_to }}
+          build-args: |
+            OTEL_OPTS=
+
+      - name: Build and push (Quarkus services with Mongo build-arg)
+        if: contains(fromJSON('["viewer","plugins-api","mongo-backup","account-archive"]'), matrix.service)
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ steps.cfg.outputs.context }}
+          file: ${{ steps.cfg.outputs.context }}/${{ steps.cfg.outputs.dockerfile }}
+          push: true
+          tags: ${{ steps.cfg.outputs.image }}
+          cache-from: ${{ steps.cfg.outputs.cache_from }}
+          cache-to: ${{ steps.cfg.outputs.cache_to }}
+          # OTEL_URI used to be baked in here from a build-time secret.
+          # That secret holds a stale value (a now-dead IP) and the
+          # runtime override via k8s env (PR #36) plus the application.properties
+          # default ($OTEL_URI:http://otel-collector:4317) cover every
+          # deploy mode. Build-arg dropped; org secret can be deleted.
+          build-args: |
+            MONGO_URI=${{ secrets.MONGO_URI }}
+
+      - name: Build and push (Spring native services without build-args)
+        if: contains(fromJSON('["control-panel","external-api"]'), matrix.service)
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ steps.cfg.outputs.context }}
+          file: ${{ steps.cfg.outputs.context }}/${{ steps.cfg.outputs.dockerfile }}
+          push: true
+          tags: ${{ steps.cfg.outputs.image }}
+          cache-from: ${{ steps.cfg.outputs.cache_from }}
+          cache-to: ${{ steps.cfg.outputs.cache_to }}
+
+  # ---------------------------------------------------------------
+  # deploy — roll out each changed service's already-pushed image
   # ---------------------------------------------------------------
   deploy:
-    needs: [detect, test-unit, test-contract, test-e2e]
+    needs: [detect, test-unit, test-contract, test-e2e, build]
     # Deploy only on push to main (which fires after PR merge) or explicit
     # workflow_dispatch — NEVER on pull_request. PRs must run the test gates
     # but must not modify the cluster.
@@ -252,8 +433,10 @@ jobs:
       - uses: actions/checkout@v5
 
       # -----------------------------------------------------------
-      # Resolve per-service config (build context, dockerfile path,
-      # image tag, replica counts, resource limits).
+      # Resolve per-service config (image tag must match what the
+      # build job pushed; replica counts + resource limits feed
+      # replace-tokens). The image is derived deterministically from
+      # the SHA, identical to the build job's computation.
       # -----------------------------------------------------------
       - name: Resolve per-service config
         id: cfg
@@ -265,23 +448,6 @@ jobs:
           set -euo pipefail
           owner_lc=$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')
           image="${REGISTRY}/${owner_lc}/remote-falcon-${SERVICE}:${SHA}"
-
-          # Build context + dockerfile (schema-consuming services use monorepo
-          # root context so libs/schema/ is COPYable; the rest are self-contained).
-          case "$SERVICE" in
-            control-panel|external-api|viewer|plugins-api|account-archive)
-              context="."
-              dockerfile="apps/$SERVICE/Dockerfile"
-              ;;
-            ui|gateway|mongo-backup)
-              context="apps/$SERVICE"
-              dockerfile="Dockerfile"
-              ;;
-            *)
-              echo "Unknown service: $SERVICE" >&2
-              exit 1
-              ;;
-          esac
 
           # Per-service replicas + resources. Values mirror what each repo's
           # original build-and-release.yml shipped (also documented in SERVICES.md).
@@ -309,8 +475,6 @@ jobs:
 
           {
             echo "image=$image"
-            echo "context=$context"
-            echo "dockerfile=$dockerfile"
             echo "manifest=apps/$SERVICE/k8s/manifest.yml"
             echo "deployment=remote-falcon-$SERVICE"
             echo "replicas=$replicas"
@@ -321,82 +485,6 @@ jobs:
             echo "lim_mem=$lim_mem"
             echo "lim_cpu=$lim_cpu"
           } >> "$GITHUB_OUTPUT"
-
-      # -----------------------------------------------------------
-      # Build + push (per-pattern variants gated by service name)
-      # -----------------------------------------------------------
-      - name: Log in to GHCR
-        uses: docker/login-action@v4
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Compute UI build version
-        id: date
-        if: matrix.service == 'ui'
-        run: echo "version=$(date -u +'%Y.%m.%d')" >> "$GITHUB_OUTPUT"
-
-      - name: Build and push (ui)
-        if: matrix.service == 'ui'
-        uses: docker/build-push-action@v6
-        with:
-          context: ${{ steps.cfg.outputs.context }}
-          file: ${{ steps.cfg.outputs.context }}/${{ steps.cfg.outputs.dockerfile }}
-          push: true
-          tags: ${{ steps.cfg.outputs.image }}
-          # POSTHOG_CLI_API_KEY is the same Personal API Key already used by
-          # the daily digest CronJob + the post-deploy error-rate check.
-          # Scopes needed: error_tracking:write (plus the existing
-          # query:read, insight:*, dashboard:*).
-          build-args: |
-            HOST_ENV=prod
-            VERSION=${{ steps.date.outputs.version }}
-            CONTROL_PANEL_API=https://remotefalcon.com/remote-falcon-control-panel
-            VIEWER_API=https://remotefalcon.com/remote-falcon-viewer
-            GOOGLE_MAPS_KEY=${{ secrets.GOOGLE_MAPS_KEY }}
-            PUBLIC_POSTHOG_KEY=${{ secrets.PUBLIC_POSTHOG_KEY }}
-            POSTHOG_CLI_API_KEY=${{ secrets.POSTHOG_API_KEY }}
-            HOSTNAME_PARTS=2
-            SWAP_CP=false
-            VIEWER_PAGE_SUBDOMAIN=
-            SOCIAL_META=<meta property='og:type' content='website'/><meta property='og:url' content='https://remotefalcon.com/'/><meta property='og:title' content='Remote Falcon'/><meta property='og:description' content='Create a custom website where viewers can request or vote for sequences to watch on your light show.'/><meta property='og:image' content='https://remotefalcon.com/jukebox.png'/>
-
-      - name: Build and push (gateway)
-        if: matrix.service == 'gateway'
-        uses: docker/build-push-action@v6
-        with:
-          context: ${{ steps.cfg.outputs.context }}
-          file: ${{ steps.cfg.outputs.context }}/${{ steps.cfg.outputs.dockerfile }}
-          push: true
-          tags: ${{ steps.cfg.outputs.image }}
-          build-args: |
-            OTEL_OPTS=
-
-      - name: Build and push (Quarkus services with Mongo build-arg)
-        if: contains(fromJSON('["viewer","plugins-api","mongo-backup","account-archive"]'), matrix.service)
-        uses: docker/build-push-action@v6
-        with:
-          context: ${{ steps.cfg.outputs.context }}
-          file: ${{ steps.cfg.outputs.context }}/${{ steps.cfg.outputs.dockerfile }}
-          push: true
-          tags: ${{ steps.cfg.outputs.image }}
-          # OTEL_URI used to be baked in here from a build-time secret.
-          # That secret holds a stale value (a now-dead IP) and the
-          # runtime override via k8s env (PR #36) plus the application.properties
-          # default ($OTEL_URI:http://otel-collector:4317) cover every
-          # deploy mode. Build-arg dropped; org secret can be deleted.
-          build-args: |
-            MONGO_URI=${{ secrets.MONGO_URI }}
-
-      - name: Build and push (Spring native services without build-args)
-        if: contains(fromJSON('["control-panel","external-api"]'), matrix.service)
-        uses: docker/build-push-action@v6
-        with:
-          context: ${{ steps.cfg.outputs.context }}
-          file: ${{ steps.cfg.outputs.context }}/${{ steps.cfg.outputs.dockerfile }}
-          push: true
-          tags: ${{ steps.cfg.outputs.image }}
 
       # -----------------------------------------------------------
       # Token-replace manifest, apply, monitor rollout
@@ -464,50 +552,20 @@ jobs:
           fi
           echo "::notice::Post-deploy verify passed for $SERVICE: image=$live_image ready=$ready/$spec"
 
-      # -----------------------------------------------------------
-      # Post-deploy error-rate check (Obs-4.4). Sleeps 10min after the
-      # deployment is verified healthy, then queries PostHog Logs for
-      # the service's error count vs. the 24h baseline (normalized to
-      # the watch window). If post-deploy > 3 x baseline, exits 1 and
-      # the next step rolls back. Source + tunables:
-      # ops/release-validation/check.py + README.md.
-      #
-      # The 10min sleep keeps the runner alive — bounded cost (~$0.08/svc
-      # on Linux runners) buys us automatic regression detection that
-      # the existing image-mismatch verify step misses entirely (a
-      # successful rollout with a bad code change passes verify but
-      # spikes errors).
-      - name: Post-deploy error-rate check
-        id: error_check
-        if: ${{ inputs.dry_run != true && steps.verify.conclusion == 'success' }}
-        env:
-          POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
-          DISCORD_ALERTS_WEBHOOK: ${{ secrets.DISCORD_ALERTS_WEBHOOK }}
-          SERVICE: ${{ matrix.service }}
-        run: |
-          set -euo pipefail
-          echo "::notice::Waiting 10m for post-deploy traffic before evaluating error rate..."
-          sleep 600
-          python3 ops/release-validation/check.py --service "$SERVICE" --watch-minutes 10 --multiplier 3.0
-
-      - name: Auto-rollback on failure
-        if: ${{ failure() && (steps.verify.conclusion == 'failure' || steps.error_check.conclusion == 'failure') && inputs.dry_run != true }}
+      # Rollback for the immediate verify failure (image mismatch / partial
+      # scale-up). The error-rate regression check + its rollback live in the
+      # trailing post-deploy-watch job, off this critical path.
+      - name: Auto-rollback on verify failure
+        if: ${{ failure() && steps.verify.conclusion == 'failure' && inputs.dry_run != true }}
         env:
           DEPLOYMENT: ${{ steps.cfg.outputs.deployment }}
           NS: ${{ env.NAMESPACE }}
           SERVICE: ${{ matrix.service }}
-          VERIFY_CONCLUSION: ${{ steps.verify.conclusion }}
-          ERROR_CHECK_CONCLUSION: ${{ steps.error_check.conclusion }}
         run: |
           set -euo pipefail
-          if [ "$VERIFY_CONCLUSION" = "failure" ]; then
-            reason="post-deploy verify failed (image mismatch or partial scale-up)"
-          else
-            reason="post-deploy error-rate breach (see ops/release-validation/)"
-          fi
-          kubectl rollout undo deployment/$DEPLOYMENT -n $NS
-          kubectl rollout status deployment/$DEPLOYMENT -n $NS --timeout=3m
-          echo "::error::$SERVICE: $reason; rolled back"
+          kubectl rollout undo deployment/"$DEPLOYMENT" -n "$NS"
+          kubectl rollout status deployment/"$DEPLOYMENT" -n "$NS" --timeout=3m
+          echo "::error::$SERVICE: post-deploy verify failed (image mismatch or partial scale-up); rolled back"
 
       - name: Dry-run summary
         if: ${{ inputs.dry_run == true }}
@@ -516,3 +574,64 @@ jobs:
           IMAGE: ${{ steps.cfg.outputs.image }}
         run: |
           echo "::notice::Dry run for $SERVICE — image built and pushed to $IMAGE; cluster apply skipped."
+
+  # ---------------------------------------------------------------
+  # post-deploy-watch — error-rate regression check (Obs-4.4), moved
+  # off the deploy critical path. One consolidated job (not per-service)
+  # sleeps once, then checks each deployed service's error count vs. its
+  # 24h baseline (normalized to the watch window). If a service exceeds
+  # 3x baseline, that service is rolled back and the job fails.
+  #
+  # Why split out of deploy: the sleep used to run inline in every deploy
+  # matrix leg, holding 8 runners idle and keeping the rollout from
+  # reporting done for ~10min. Now deploy reports done after rollout+verify
+  # and this trailing safety net runs once. Window cut 10m -> 5m for speed;
+  # bump --watch-minutes / the sleep back up if a low-traffic service yields
+  # noisy false negatives. Source + tunables: ops/release-validation/.
+  # ---------------------------------------------------------------
+  post-deploy-watch:
+    needs: [detect, deploy]
+    if: ${{
+      inputs.dry_run != true
+      && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+      && needs.detect.outputs.services != '[]'
+      && needs.detect.outputs.services != ''
+      }}
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Save kubeconfig
+        run: doctl kubernetes cluster kubeconfig save --expiry-seconds 1200 ${{ env.CLUSTER_ID }}
+
+      - name: Watch error rate and roll back regressions
+        env:
+          POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
+          DISCORD_ALERTS_WEBHOOK: ${{ secrets.DISCORD_ALERTS_WEBHOOK }}
+          NS: ${{ env.NAMESPACE }}
+          SERVICES: ${{ needs.detect.outputs.services }}
+        run: |
+          set -uo pipefail
+          echo "::notice::Waiting 5m for post-deploy traffic before evaluating error rates..."
+          sleep 300
+
+          fail=0
+          for svc in $(echo "$SERVICES" | jq -r '.[]'); do
+            dep="remote-falcon-$svc"
+            echo "::notice::Checking error rate for $svc..."
+            if python3 ops/release-validation/check.py --service "$svc" --watch-minutes 5 --multiplier 3.0; then
+              echo "::notice::$svc: error rate within bounds"
+            else
+              echo "::error::$svc: post-deploy error-rate breach; rolling back $dep"
+              kubectl rollout undo deployment/"$dep" -n "$NS" || true
+              kubectl rollout status deployment/"$dep" -n "$NS" --timeout=3m || true
+              fail=1
+            fi
+          done
+          exit $fail
