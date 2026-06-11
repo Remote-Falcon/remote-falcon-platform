@@ -417,8 +417,19 @@ jobs:
     # Deploy only on push to main (which fires after PR merge) or explicit
     # workflow_dispatch — NEVER on pull_request. PRs must run the test gates
     # but must not modify the cluster.
-    if: ${{
-      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    #
+    # `!cancelled() && !failure()` (a status function) is required so the job
+    # still runs when a *needed* job was SKIPPED rather than run — otherwise
+    # GitHub auto-skips this job. That happens on two valid paths:
+    #   - workflow_dispatch: test-e2e is skipped (its trigger excludes dispatch)
+    #   - skip_tests=true:   test-unit/contract/e2e are all skipped
+    # We still require detect+build to have actually succeeded (images must
+    # exist), and `!failure()` ensures any test that DID run and failed blocks
+    # the deploy.
+    if: ${{ !cancelled() && !failure()
+      && needs.detect.result == 'success'
+      && needs.build.result == 'success'
+      && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
       && needs.detect.outputs.services != '[]'
       && needs.detect.outputs.services != ''
       }}
