@@ -43,6 +43,12 @@ import org.springframework.stereotype.Component;
  *       external-api authenticates every request through this field.</li>
  *   <li>{@code idx_passwordResetLink} — sparse on {@code passwordResetLink}; reset
  *       flow lookup.</li>
+ *   <li>{@code idx_showOnMap} — partial on {@code preferences.showLatitude/Longitude}
+ *       for map-opted shows; backs the public Show-map query that previously
+ *       COLLSCANned the collection on every map load.</li>
+ *   <li>{@code idx_wrappedShareToken} — sparse on {@code preferences.wrappedShareToken};
+ *       backs the public, unauthenticated Wrapped-summary lookup (also closes a
+ *       COLLSCAN DoS-amplification vector on forged tokens).</li>
  * </ul>
  */
 @Component
@@ -129,6 +135,32 @@ public class MongoIndexInitializer {
         new Index()
             .on("passwordResetLink", Sort.Direction.ASC)
             .named("idx_passwordResetLink")
+            .sparse()
+    );
+
+    // Partial: backs the public Show-map query (ShowRepository.getShowsOnMap),
+    // which filters { 'preferences.showOnMap': true, lat/lng in range }. Without
+    // this it COLLSCANs the whole collection on every public map load. The partial
+    // filter keeps only map-opted shows in the index (a small subset).
+    ensure("idx_showOnMap",
+        new Index()
+            .on("preferences.showLatitude", Sort.Direction.ASC)
+            .on("preferences.showLongitude", Sort.Direction.ASC)
+            .named("idx_showOnMap")
+            .partial(PartialIndexFilter.of(
+                Criteria.where("preferences.showOnMap").is(true)
+            ))
+    );
+
+    // Sparse: backs the public, unauthenticated Wrapped-summary lookup
+    // (ShowRepository.findByWrappedShareTokenForWrapped on
+    // 'preferences.wrappedShareToken'). Sparse because only shows that have shared
+    // a Wrapped have the token. Without it, a forged/unknown token still COLLSCANs
+    // the whole collection — both a latency and a DoS-amplification concern.
+    ensure("idx_wrappedShareToken",
+        new Index()
+            .on("preferences.wrappedShareToken", Sort.Direction.ASC)
+            .named("idx_wrappedShareToken")
             .sparse()
     );
 
