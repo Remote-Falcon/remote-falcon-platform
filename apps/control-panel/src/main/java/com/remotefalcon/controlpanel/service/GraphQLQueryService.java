@@ -152,38 +152,64 @@ public class GraphQLQueryService {
     public Show getShow() {
         Optional<Show> show = this.showRepository.findByShowToken(authUtil.getTokenDTO().getShowToken());
         if(show.isPresent()) {
-            show.get().setLastLoginDate(LocalDateTime.now());
-            checkPsaSequences(show.get());
+            Show s = show.get();
+            LocalDateTime now = LocalDateTime.now();
+            s.setLastLoginDate(now);
+            boolean psaBackfilled = checkPsaSequences(s);
             // Lazy-backfill pageId + updatedAt on legacy viewer pages.
-            // Always called, return value ignored: the unconditional save
-            // below persists any backfill changes "for free" alongside the
-            // lastLoginDate update.
-            this.viewerPageService.normalizeAndBackfill(show.get());
-            this.showRepository.save(show.get());
+            boolean pagesBackfilled = this.viewerPageService.normalizeAndBackfill(s);
 
-            List<Sequence> sequences = show.get().getSequences();
+            // Atomic field update instead of save(s). getShow still loads the full
+            // Show for the response, but a full-document save() here clobbered
+            // concurrent viewer/plugin writes (votes/requests/stats/viewerSessions/
+            // activeViewers) that landed during a live-show dashboard open/refresh —
+            // the most common operator action while a show is running. Persist ONLY
+            // the fields getShow owns: lastLoginDate always, and the two lazy
+            // backfills only when they actually changed something (steady state
+            // writes just lastLoginDate and touches none of the hot arrays).
+            Update update = new Update().set("lastLoginDate", now);
+            if (psaBackfilled) {
+                update.set("psaSequences", s.getPsaSequences());
+            }
+            if (pagesBackfilled) {
+                update.set("pages", s.getPages());
+            }
+            this.mongoTemplate.updateFirst(
+                    Query.query(Criteria.where("showToken").is(s.getShowToken())), update, Show.class);
+
+            List<Sequence> sequences = s.getSequences();
             sequences.sort(Comparator.comparing(Sequence::getActive)
                             .reversed()
                     .thenComparing(Sequence::getOrder));
-            show.get().setSequences(sequences);
+            s.setSequences(sequences);
 
-            List<Request> jukeboxRequests = show.get().getRequests();
+            List<Request> jukeboxRequests = s.getRequests();
             if(CollectionUtils.isNotEmpty(jukeboxRequests)) {
                 jukeboxRequests.sort(Comparator.comparing(Request::getPosition));
             }
-            show.get().setRequests(jukeboxRequests);
+            s.setRequests(jukeboxRequests);
 
-            return show.get();
+            return s;
         }
         throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());
     }
 
-    private void checkPsaSequences(Show show) {
+    // Backfills a lastPlayed on any PSA that has none. Returns true if it changed
+    // anything, so getShow only persists psaSequences when there's a real change
+    // (avoids a needless full-array write that could clobber a concurrent viewer
+    // PSA-cadence update).
+    private boolean checkPsaSequences(Show show) {
+      if (show.getPsaSequences() == null) {
+        return false;
+      }
+      boolean changed = false;
       for(PsaSequence psaSequence : show.getPsaSequences()) {
         if(psaSequence.getLastPlayed() == null) {
           psaSequence.setLastPlayed(LocalDateTime.now());
+          changed = true;
         }
       }
+      return changed;
     }
 
     public List<ShowsOnAMap> showsOnAMap() {

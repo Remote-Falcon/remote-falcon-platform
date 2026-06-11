@@ -324,7 +324,10 @@ class GraphQLQueryServiceTest {
         // PSA backfill only on the null entry
         assertThat(psaNeedsBackfill.getLastPlayed()).isNotNull();
         assertThat(psaKeepIt.getLastPlayed()).isEqualTo(existing);
-        verify(showRepository).save(show);
+        // getShow now persists via an atomic field update, NOT a full-document
+        // save() that clobbered concurrent viewer/plugin writes during a live show.
+        verify(mongoTemplate, times(1)).updateFirst(any(), any(), eq(Show.class));
+        verify(showRepository, never()).save(any(Show.class));
     }
 
     @Test
