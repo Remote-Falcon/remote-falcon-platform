@@ -108,9 +108,9 @@ class PluginServiceTest {
 
   @Test
   void syncPlaylists_overLimit_throwsBadRequest() {
-    // Create request with more than sequence.limit (default 200) - use 201
+    // Create a request with more than sequence.limit (currently 500) - use 501.
     List<SyncPlaylistDetails> many = new ArrayList<>();
-    for (int i = 0; i < 201; i++) {
+    for (int i = 0; i < 501; i++) {
       many.add(SyncPlaylistDetails.builder().playlistName("P" + i).playlistIndex(i).playlistDuration(10).build());
     }
     SyncPlaylistRequest req = SyncPlaylistRequest.builder().playlists(many).build();
