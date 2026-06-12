@@ -12,6 +12,10 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -35,6 +39,7 @@ public class GraphQLQueryService {
     private final ShowRepository showRepository;
     private final NotificationRepository notificationRepository;
     private final ViewerPageService viewerPageService;
+    private final MongoTemplate mongoTemplate;
 
     public Show signIn() {
         var request = this.authUtil.getCurrentRequest();
@@ -43,7 +48,7 @@ public class GraphQLQueryService {
             String ipAddress = this.clientUtil.getClientIp(request);
             String email = basicAuthCredentials[0];
             String password = basicAuthCredentials[1];
-            Optional<Show> optionalShow = this.showRepository.findByEmailCollation(email);
+            Optional<Show> optionalShow = this.showRepository.findByEmailCollationForAuth(email);
             if (optionalShow.isEmpty()) {
                 throw new RuntimeException(StatusResponse.SHOW_NOT_FOUND.name());
             }
@@ -54,11 +59,28 @@ public class GraphQLQueryService {
                 if (!show.getEmailVerified()) {
                     throw new RuntimeException(StatusResponse.EMAIL_NOT_VERIFIED.name());
                 }
-                show.setLastLoginDate(LocalDateTime.now());
-                show.setExpireDate(LocalDateTime.now().plusYears(2));
+                LocalDateTime now = LocalDateTime.now();
+                LocalDateTime expireDate = now.plusYears(2);
+                // Atomic field update instead of save(show). signIn now loads a
+                // PROJECTED Show (findByEmailCollationForAuth excludes stats +
+                // viewerSessions), so a full-document save() would WIPE those
+                // arrays. updateFirst also avoids the lost-update race where a
+                // login clobbers concurrent viewer/plugin writes to the same
+                // doc during a live show.
+                this.mongoTemplate.updateFirst(
+                        Query.query(Criteria.where("showToken").is(show.getShowToken())),
+                        new Update()
+                                .set("lastLoginDate", now)
+                                .set("expireDate", expireDate)
+                                .set("lastLoginIp", ipAddress),
+                        Show.class);
+                // Mirror the persisted values onto the response object and
+                // normalize it for the client (checkFields defaults preferences
+                // + empty collections). Not persisted beyond the update above.
+                show.setLastLoginDate(now);
+                show.setExpireDate(expireDate);
                 show.setLastLoginIp(ipAddress);
                 this.checkFields(show);
-                this.showRepository.save(show);
                 show.setServiceToken(this.authUtil.signJwt(show));
                 return show;
             }
@@ -130,38 +152,64 @@ public class GraphQLQueryService {
     public Show getShow() {
         Optional<Show> show = this.showRepository.findByShowToken(authUtil.getTokenDTO().getShowToken());
         if(show.isPresent()) {
-            show.get().setLastLoginDate(LocalDateTime.now());
-            checkPsaSequences(show.get());
+            Show s = show.get();
+            LocalDateTime now = LocalDateTime.now();
+            s.setLastLoginDate(now);
+            boolean psaBackfilled = checkPsaSequences(s);
             // Lazy-backfill pageId + updatedAt on legacy viewer pages.
-            // Always called, return value ignored: the unconditional save
-            // below persists any backfill changes "for free" alongside the
-            // lastLoginDate update.
-            this.viewerPageService.normalizeAndBackfill(show.get());
-            this.showRepository.save(show.get());
+            boolean pagesBackfilled = this.viewerPageService.normalizeAndBackfill(s);
 
-            List<Sequence> sequences = show.get().getSequences();
+            // Atomic field update instead of save(s). getShow still loads the full
+            // Show for the response, but a full-document save() here clobbered
+            // concurrent viewer/plugin writes (votes/requests/stats/viewerSessions/
+            // activeViewers) that landed during a live-show dashboard open/refresh —
+            // the most common operator action while a show is running. Persist ONLY
+            // the fields getShow owns: lastLoginDate always, and the two lazy
+            // backfills only when they actually changed something (steady state
+            // writes just lastLoginDate and touches none of the hot arrays).
+            Update update = new Update().set("lastLoginDate", now);
+            if (psaBackfilled) {
+                update.set("psaSequences", s.getPsaSequences());
+            }
+            if (pagesBackfilled) {
+                update.set("pages", s.getPages());
+            }
+            this.mongoTemplate.updateFirst(
+                    Query.query(Criteria.where("showToken").is(s.getShowToken())), update, Show.class);
+
+            List<Sequence> sequences = s.getSequences();
             sequences.sort(Comparator.comparing(Sequence::getActive)
                             .reversed()
                     .thenComparing(Sequence::getOrder));
-            show.get().setSequences(sequences);
+            s.setSequences(sequences);
 
-            List<Request> jukeboxRequests = show.get().getRequests();
+            List<Request> jukeboxRequests = s.getRequests();
             if(CollectionUtils.isNotEmpty(jukeboxRequests)) {
                 jukeboxRequests.sort(Comparator.comparing(Request::getPosition));
             }
-            show.get().setRequests(jukeboxRequests);
+            s.setRequests(jukeboxRequests);
 
-            return show.get();
+            return s;
         }
         throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());
     }
 
-    private void checkPsaSequences(Show show) {
+    // Backfills a lastPlayed on any PSA that has none. Returns true if it changed
+    // anything, so getShow only persists psaSequences when there's a real change
+    // (avoids a needless full-array write that could clobber a concurrent viewer
+    // PSA-cadence update).
+    private boolean checkPsaSequences(Show show) {
+      if (show.getPsaSequences() == null) {
+        return false;
+      }
+      boolean changed = false;
       for(PsaSequence psaSequence : show.getPsaSequences()) {
         if(psaSequence.getLastPlayed() == null) {
           psaSequence.setLastPlayed(LocalDateTime.now());
+          changed = true;
         }
       }
+      return changed;
     }
 
     public List<ShowsOnAMap> showsOnAMap() {

@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 
 import com.remotefalcon.controlpanel.dto.TokenDTO;
 import com.remotefalcon.controlpanel.repository.ShowRepository;
+import com.remotefalcon.controlpanel.repository.StatsRepository;
 import com.remotefalcon.controlpanel.request.DownloadStatsToExcelRequest;
 import com.remotefalcon.controlpanel.response.dashboard.DashboardHourlyStatsResponse;
 import com.remotefalcon.controlpanel.response.dashboard.DashboardLiveStatsResponse;
@@ -43,6 +44,7 @@ public class DashboardService {
   private final AuthUtil jwtUtil;
   private final ExcelUtil excelUtil;
   private final ShowRepository showRepository;
+  private final StatsRepository statsRepository;
   private final ClientUtil clientUtil;
 
   // Sliding-window rate limit for the public, unauth wrappedSummary
@@ -57,21 +59,36 @@ public class DashboardService {
 
   public DashboardStatsResponse dashboardStats(Long startDate, Long endDate, String timezone) {
     TokenDTO tokenDTO = this.jwtUtil.getJwtPayload();
-    Optional<Show> show = this.showRepository.findByShowToken(tokenDTO.getShowToken());
-    if(show.isEmpty()) {
+    String showToken = tokenDTO.getShowToken();
+
+    // statsPresent reproduces the legacy "stats == null -> empty response"
+    // branch; if it's false we still must distinguish a real show (empty
+    // buckets) from a missing one (SHOW_NOT_FOUND). Both checks are cheap
+    // index probes — the multi-MB Show document is never loaded here.
+    boolean statsPresent = this.statsRepository.hasStatsByShowToken(showToken);
+    if (!statsPresent && !this.statsRepository.existsByShowToken(showToken)) {
       throw new RuntimeException(StatusResponse.SHOW_NOT_FOUND.name());
     }
 
     ZonedDateTime startDateAtZone = ZonedDateTime.ofInstant(Instant.ofEpochMilli(startDate), ZoneId.of(timezone));
     ZonedDateTime endDateAtZone = ZonedDateTime.ofInstant(Instant.ofEpochMilli(endDate), ZoneId.of(timezone)).plusDays(2);
 
-    List<DashboardStatsResponse.Stat> pageStats = this.buildPageStats(startDateAtZone, endDateAtZone, timezone, show.get());
-    List<DashboardStatsResponse.Stat> jukeboxStatsByDate = this.buildJukeboxStatsByDate(startDateAtZone, endDateAtZone, timezone, show.get());
-    DashboardStatsResponse.Stat jukeboxStatsBySequence = this.buildJukeboxStatsBySequence(startDateAtZone, endDateAtZone, timezone, show.get());
-    List<DashboardStatsResponse.Stat> voteStatsByDate = this.buildVoteStatsByDate(startDateAtZone, endDateAtZone, timezone, show.get());
-    DashboardStatsResponse.Stat voteStatsBySequence = this.buildVoteStatsBySequence(startDateAtZone, endDateAtZone, timezone, show.get());
-    List<DashboardStatsResponse.Stat> voteWinStatsByDate = this.buildVoteWinStatsByDate(startDateAtZone, endDateAtZone, timezone, show.get());
-    DashboardStatsResponse.Stat voteWinStatsBySequence = this.buildVoteWinStatsBySequence(startDateAtZone, endDateAtZone, timezone, show.get());
+    // Pull only the in-range stat slices from Mongo (window widened ±1 day; the
+    // helpers' unchanged Java filter trims to exact — see StatsRepository).
+    Date lower = statsWindowLower(startDateAtZone);
+    Date upper = statsWindowUpper(endDateAtZone);
+    List<Stat.Page> pageInRange = this.statsRepository.pageStatsInRange(showToken, lower, upper);
+    List<Stat.Jukebox> jukeboxInRange = this.statsRepository.jukeboxStatsInRange(showToken, lower, upper);
+    List<Stat.Voting> votingInRange = this.statsRepository.votingStatsInRange(showToken, lower, upper);
+    List<Stat.VotingWin> votingWinInRange = this.statsRepository.votingWinStatsInRange(showToken, lower, upper);
+
+    List<DashboardStatsResponse.Stat> pageStats = this.buildPageStats(startDateAtZone, endDateAtZone, timezone, pageInRange, statsPresent);
+    List<DashboardStatsResponse.Stat> jukeboxStatsByDate = this.buildJukeboxStatsByDate(startDateAtZone, endDateAtZone, timezone, jukeboxInRange, statsPresent);
+    DashboardStatsResponse.Stat jukeboxStatsBySequence = this.buildJukeboxStatsBySequence(startDateAtZone, endDateAtZone, timezone, jukeboxInRange, statsPresent);
+    List<DashboardStatsResponse.Stat> voteStatsByDate = this.buildVoteStatsByDate(startDateAtZone, endDateAtZone, timezone, votingInRange, statsPresent);
+    DashboardStatsResponse.Stat voteStatsBySequence = this.buildVoteStatsBySequence(startDateAtZone, endDateAtZone, timezone, votingInRange, statsPresent);
+    List<DashboardStatsResponse.Stat> voteWinStatsByDate = this.buildVoteWinStatsByDate(startDateAtZone, endDateAtZone, timezone, votingWinInRange, statsPresent);
+    DashboardStatsResponse.Stat voteWinStatsBySequence = this.buildVoteWinStatsBySequence(startDateAtZone, endDateAtZone, timezone, votingWinInRange, statsPresent);
 
     return DashboardStatsResponse.builder()
             .page(pageStats)
@@ -90,42 +107,40 @@ public class DashboardService {
   public com.remotefalcon.controlpanel.response.dashboard.RequestConversionResponse requestConversion(
           Long startDate, Long endDate, String timezone) {
     TokenDTO tokenDTO = this.jwtUtil.getJwtPayload();
-    Optional<Show> show = this.showRepository.findByShowToken(tokenDTO.getShowToken());
-    if (show.isEmpty()) {
+    String showToken = tokenDTO.getShowToken();
+    // No statsPresent distinction needed: this method only COUNTS in-range
+    // entries, so a missing/empty stats sub-array and an empty in-range slice
+    // both yield 0 — identical to the old null-stats branch.
+    if (!this.statsRepository.existsByShowToken(showToken)) {
       throw new RuntimeException(StatusResponse.SHOW_NOT_FOUND.name());
     }
 
     ZoneId userZone = ZoneId.of(timezone);
     ZonedDateTime startDateAtZone = ZonedDateTime.ofInstant(Instant.ofEpochMilli(startDate), userZone);
     ZonedDateTime endDateAtZone = ZonedDateTime.ofInstant(Instant.ofEpochMilli(endDate), userZone).plusDays(2);
+    Date lower = statsWindowLower(startDateAtZone);
+    Date upper = statsWindowUpper(endDateAtZone);
 
-    Show s = show.get();
-    int accepted = 0;
-    if (s.getStats() != null && s.getStats().getJukebox() != null) {
-      accepted = (int) s.getStats().getJukebox().stream()
-              .filter(j -> j.getDateTime() != null)
-              .filter(j -> {
-                ZonedDateTime t = j.getDateTime().atZone(userZone);
-                return t.isAfter(startDateAtZone) && t.isBefore(endDateAtZone);
-              })
-              .count();
-    }
+    int accepted = (int) this.statsRepository.jukeboxStatsInRange(showToken, lower, upper).stream()
+            .filter(j -> j.getDateTime() != null)
+            .filter(j -> {
+              ZonedDateTime t = j.getDateTime().atZone(userZone);
+              return t.isAfter(startDateAtZone) && t.isBefore(endDateAtZone);
+            })
+            .count();
 
     java.util.Map<String, Long> byReason = new java.util.HashMap<>();
-    int rejected = 0;
-    if (s.getStats() != null && s.getStats().getRejectedRequests() != null) {
-      var inRange = s.getStats().getRejectedRequests().stream()
-              .filter(r -> r.getDateTime() != null)
-              .filter(r -> {
-                ZonedDateTime t = r.getDateTime().atZone(userZone);
-                return t.isAfter(startDateAtZone) && t.isBefore(endDateAtZone);
-              })
-              .collect(Collectors.toList());
-      rejected = inRange.size();
-      for (var r : inRange) {
-        String reason = r.getReason() != null ? r.getReason() : "UNKNOWN";
-        byReason.merge(reason, 1L, Long::sum);
-      }
+    var inRange = this.statsRepository.rejectedRequestsInRange(showToken, lower, upper).stream()
+            .filter(r -> r.getDateTime() != null)
+            .filter(r -> {
+              ZonedDateTime t = r.getDateTime().atZone(userZone);
+              return t.isAfter(startDateAtZone) && t.isBefore(endDateAtZone);
+            })
+            .collect(Collectors.toList());
+    int rejected = inRange.size();
+    for (var r : inRange) {
+      String reason = r.getReason() != null ? r.getReason() : "UNKNOWN";
+      byReason.merge(reason, 1L, Long::sum);
     }
 
     int attempted = accepted + rejected;
@@ -154,11 +169,11 @@ public class DashboardService {
   // steady — good — through the PSA).
   public com.remotefalcon.controlpanel.response.dashboard.PsaEffectivenessResponse psaEffectiveness(String timezone) {
     TokenDTO tokenDTO = this.jwtUtil.getJwtPayload();
-    Optional<Show> show = this.showRepository.findByShowToken(tokenDTO.getShowToken());
-    if (show.isEmpty()) {
-      throw new RuntimeException(StatusResponse.SHOW_NOT_FOUND.name());
-    }
-    Show s = show.get();
+    String showToken = tokenDTO.getShowToken();
+    // Load only psaSequences (small, top-level) via projection; the stats arrays
+    // are fetched per-PSA below, so the multi-MB Show document is never loaded.
+    Show s = this.showRepository.findByShowTokenForPsaConfig(showToken)
+            .orElseThrow(() -> new RuntimeException(StatusResponse.SHOW_NOT_FOUND.name()));
 
     if (s.getPsaSequences() == null || s.getPsaSequences().isEmpty()) {
       return com.remotefalcon.controlpanel.response.dashboard.PsaEffectivenessResponse.builder()
@@ -187,24 +202,24 @@ public class DashboardService {
       java.time.LocalDateTime windowStart = lp.minusMinutes(WINDOW_MIN);
       java.time.LocalDateTime windowEnd = lp.plusMinutes(WINDOW_MIN);
 
-      int viewers = 0;
-      if (s.getStats() != null && s.getStats().getPage() != null) {
-        viewers = (int) s.getStats().getPage().stream()
-                .filter(p -> p.getDateTime() != null && p.getIp() != null)
-                .filter(p -> !p.getDateTime().isBefore(windowStart) && p.getDateTime().isBefore(windowEnd))
-                .map(com.remotefalcon.library.models.Stat.Page::getIp)
-                .distinct()
-                .count();
-      }
+      // Fetch only this PSA's window slice (widened ±1 day for encoding
+      // robustness; the raw-LocalDateTime filters below trim to exact ±5 min).
+      Date lower = Date.from(windowStart.minusDays(1).toInstant(ZoneOffset.UTC));
+      Date upper = Date.from(windowEnd.plusDays(1).toInstant(ZoneOffset.UTC));
+
+      int viewers = (int) this.statsRepository.pageStatsInRange(showToken, lower, upper).stream()
+              .filter(p -> p.getDateTime() != null && p.getIp() != null)
+              .filter(p -> !p.getDateTime().isBefore(windowStart) && p.getDateTime().isBefore(windowEnd))
+              .map(com.remotefalcon.library.models.Stat.Page::getIp)
+              .distinct()
+              .count();
 
       int reqsBefore = 0;
       int reqsAfter = 0;
-      if (s.getStats() != null && s.getStats().getJukebox() != null) {
-        for (var j : s.getStats().getJukebox()) {
-          if (j.getDateTime() == null) continue;
-          if (!j.getDateTime().isBefore(windowStart) && j.getDateTime().isBefore(lp)) reqsBefore++;
-          else if (!j.getDateTime().isBefore(lp) && j.getDateTime().isBefore(windowEnd)) reqsAfter++;
-        }
+      for (var j : this.statsRepository.jukeboxStatsInRange(showToken, lower, upper)) {
+        if (j.getDateTime() == null) continue;
+        if (!j.getDateTime().isBefore(windowStart) && j.getDateTime().isBefore(lp)) reqsBefore++;
+        else if (!j.getDateTime().isBefore(lp) && j.getDateTime().isBefore(windowEnd)) reqsAfter++;
       }
 
       plays.add(com.remotefalcon.controlpanel.response.dashboard.PsaEffectivenessResponse.PsaPlay.builder()
@@ -238,7 +253,7 @@ public class DashboardService {
   // `viewerId || ipHash` on the client side.
   public ViewerSessionsResponse viewerSessions(Long startDate, Long endDate, String timezone) {
     TokenDTO tokenDTO = this.jwtUtil.getJwtPayload();
-    Optional<Show> show = this.showRepository.findByShowToken(tokenDTO.getShowToken());
+    Optional<Show> show = this.showRepository.findByShowTokenForViewerSessions(tokenDTO.getShowToken());
     if (show.isEmpty()) {
       throw new RuntimeException(StatusResponse.SHOW_NOT_FOUND.name());
     }
@@ -522,14 +537,12 @@ public class DashboardService {
   // omitted to keep the payload small. Client pivots / fills gaps.
   public DashboardHourlyStatsResponse dashboardStatsByHour(Long startDate, Long endDate, String timezone) {
     TokenDTO tokenDTO = this.jwtUtil.getJwtPayload();
-    Optional<Show> show = this.showRepository.findByShowToken(tokenDTO.getShowToken());
-    if(show.isEmpty()) {
+    String showToken = tokenDTO.getShowToken();
+    // No statsPresent distinction needed: this method only groups present
+    // events (no gap-fill), so a missing/empty stats.page and an empty in-range
+    // slice both yield zero buckets — identical to the old null-page branch.
+    if (!this.statsRepository.existsByShowToken(showToken)) {
       throw new RuntimeException(StatusResponse.SHOW_NOT_FOUND.name());
-    }
-
-    Show existingShow = show.get();
-    if(existingShow.getStats() == null || existingShow.getStats().getPage() == null) {
-      return DashboardHourlyStatsResponse.builder().buckets(new ArrayList<>()).build();
     }
 
     ZoneId userZone = ZoneId.of(timezone);
@@ -537,7 +550,10 @@ public class DashboardService {
     ZonedDateTime endDateAtZone = ZonedDateTime.ofInstant(Instant.ofEpochMilli(endDate), userZone).plusDays(2);
 
     // Group events by (LocalDate, hour) pair, deduping IPs within each pair.
-    Map<String, List<Stat.Page>> grouped = existingShow.getStats().getPage().stream()
+    Map<String, List<Stat.Page>> grouped = this.statsRepository
+            .pageStatsInRange(showToken, statsWindowLower(startDateAtZone), statsWindowUpper(endDateAtZone))
+            .stream()
+            .filter(stat -> stat.getDateTime() != null)
             .map(stat -> Map.entry(stat, convertStatDateTime(stat.getDateTime(), userZone)))
             .filter(stat -> stat.getValue().isAfter(startDateAtZone))
             .filter(stat -> stat.getValue().isBefore(endDateAtZone))
@@ -569,7 +585,7 @@ public class DashboardService {
 
   public DashboardLiveStatsResponse dashboardLiveStats(Long startDate, Long endDate, String timezone) {
     TokenDTO tokenDTO = this.jwtUtil.getJwtPayload();
-    Optional<Show> show = this.showRepository.findByShowToken(tokenDTO.getShowToken());
+    Optional<Show> show = this.showRepository.findByShowTokenForLiveStats(tokenDTO.getShowToken());
     if(show.isEmpty()) {
       throw new RuntimeException(StatusResponse.SHOW_NOT_FOUND.name());
     }
@@ -713,14 +729,15 @@ public class DashboardService {
     return ResponseEntity.status(204).build();
   }
 
-  private List<DashboardStatsResponse.Stat> buildPageStats(ZonedDateTime startDateAtZone, ZonedDateTime endDateAtZone, String timezone, Show show) {
+  private List<DashboardStatsResponse.Stat> buildPageStats(ZonedDateTime startDateAtZone, ZonedDateTime endDateAtZone, String timezone, List<Stat.Page> inRange, boolean statsPresent) {
     List<DashboardStatsResponse.Stat> pageStats = new ArrayList<>();
-    if(show.getStats() == null) {
+    if(!statsPresent) {
       return pageStats;
     }
     ZoneId userZone = ZoneId.of(timezone);
-    Map<LocalDate, List<Stat.Page>> pageStatsGroupedByDate = show.getStats().getPage()
+    Map<LocalDate, List<Stat.Page>> pageStatsGroupedByDate = inRange
             .stream()
+            .filter(stat -> stat.getDateTime() != null)
             .map(stat -> Map.entry(stat, convertStatDateTime(stat.getDateTime(), userZone)))
             .filter(stat -> stat.getValue().isAfter(startDateAtZone))
             .filter(stat -> stat.getValue().isBefore(endDateAtZone))
@@ -741,14 +758,15 @@ public class DashboardService {
     return pageStats;
   }
 
-  private List<DashboardStatsResponse.Stat> buildJukeboxStatsByDate(ZonedDateTime startDateAtZone, ZonedDateTime endDateAtZone, String timezone, Show show) {
+  private List<DashboardStatsResponse.Stat> buildJukeboxStatsByDate(ZonedDateTime startDateAtZone, ZonedDateTime endDateAtZone, String timezone, List<Stat.Jukebox> inRange, boolean statsPresent) {
     List<DashboardStatsResponse.Stat> jukeboxStats = new ArrayList<>();
-    if(show.getStats() == null) {
+    if(!statsPresent) {
       return jukeboxStats;
     }
     ZoneId userZone = ZoneId.of(timezone);
-    Map<LocalDate, List<Stat.Jukebox>> jukeboxStatsGroupedByDate = show.getStats().getJukebox()
+    Map<LocalDate, List<Stat.Jukebox>> jukeboxStatsGroupedByDate = inRange
             .stream()
+            .filter(stat -> stat.getDateTime() != null)
             .map(stat -> Map.entry(stat, convertStatDateTime(stat.getDateTime(), userZone)))
             .filter(stat -> stat.getValue().isAfter(startDateAtZone))
             .filter(stat -> stat.getValue().isBefore(endDateAtZone))
@@ -778,16 +796,17 @@ public class DashboardService {
     return jukeboxStats;
   }
 
-  private DashboardStatsResponse.Stat buildJukeboxStatsBySequence(ZonedDateTime startDateAtZone, ZonedDateTime endDateAtZone, String timezone, Show show) {
+  private DashboardStatsResponse.Stat buildJukeboxStatsBySequence(ZonedDateTime startDateAtZone, ZonedDateTime endDateAtZone, String timezone, List<Stat.Jukebox> inRange, boolean statsPresent) {
     List<DashboardStatsResponse.SequenceStat> sequences = new ArrayList<>();
-    if(show.getStats() == null) {
+    if(!statsPresent) {
       return DashboardStatsResponse.Stat.builder()
               .sequences(sequences)
               .build();
     }
     ZoneId userZone = ZoneId.of(timezone);
-    Map<String, List<Stat.Jukebox>> jukeboxStatsGroupedBySequence = show.getStats().getJukebox()
+    Map<String, List<Stat.Jukebox>> jukeboxStatsGroupedBySequence = inRange
             .stream()
+            .filter(stat -> stat.getDateTime() != null)
             .map(stat -> Map.entry(stat, convertStatDateTime(stat.getDateTime(), userZone)))
             .filter(stat -> stat.getValue().isAfter(startDateAtZone))
             .filter(stat -> stat.getValue().isBefore(endDateAtZone))
@@ -805,14 +824,15 @@ public class DashboardService {
             .build();
   }
 
-  private List<DashboardStatsResponse.Stat> buildVoteStatsByDate(ZonedDateTime startDateAtZone, ZonedDateTime endDateAtZone, String timezone, Show show) {
+  private List<DashboardStatsResponse.Stat> buildVoteStatsByDate(ZonedDateTime startDateAtZone, ZonedDateTime endDateAtZone, String timezone, List<Stat.Voting> inRange, boolean statsPresent) {
     List<DashboardStatsResponse.Stat> votingStats = new ArrayList<>();
-    if(show.getStats() == null) {
+    if(!statsPresent) {
       return votingStats;
     }
     ZoneId userZone = ZoneId.of(timezone);
-    Map<LocalDate, List<Stat.Voting>> votingStatsGroupedByDate = show.getStats().getVoting()
+    Map<LocalDate, List<Stat.Voting>> votingStatsGroupedByDate = inRange
             .stream()
+            .filter(stat -> stat.getDateTime() != null)
             .map(stat -> Map.entry(stat, convertStatDateTime(stat.getDateTime(), userZone)))
             .filter(stat -> stat.getValue().isAfter(startDateAtZone))
             .filter(stat -> stat.getValue().isBefore(endDateAtZone))
@@ -842,16 +862,17 @@ public class DashboardService {
     return votingStats;
   }
 
-  private DashboardStatsResponse.Stat buildVoteStatsBySequence(ZonedDateTime startDateAtZone, ZonedDateTime endDateAtZone, String timezone, Show show) {
+  private DashboardStatsResponse.Stat buildVoteStatsBySequence(ZonedDateTime startDateAtZone, ZonedDateTime endDateAtZone, String timezone, List<Stat.Voting> inRange, boolean statsPresent) {
     List<DashboardStatsResponse.SequenceStat> sequences = new ArrayList<>();
-    if(show.getStats() == null) {
+    if(!statsPresent) {
       return DashboardStatsResponse.Stat.builder()
               .sequences(sequences)
               .build();
     }
     ZoneId userZone = ZoneId.of(timezone);
-    Map<String, List<Stat.Voting>> voteStatsGroupedBySequence = show.getStats().getVoting()
+    Map<String, List<Stat.Voting>> voteStatsGroupedBySequence = inRange
             .stream()
+            .filter(stat -> stat.getDateTime() != null)
             .map(stat -> Map.entry(stat, convertStatDateTime(stat.getDateTime(), userZone)))
             .filter(stat -> stat.getValue().isAfter(startDateAtZone))
             .filter(stat -> stat.getValue().isBefore(endDateAtZone))
@@ -869,14 +890,15 @@ public class DashboardService {
             .build();
   }
 
-  private List<DashboardStatsResponse.Stat> buildVoteWinStatsByDate(ZonedDateTime startDateAtZone, ZonedDateTime endDateAtZone, String timezone, Show show) {
+  private List<DashboardStatsResponse.Stat> buildVoteWinStatsByDate(ZonedDateTime startDateAtZone, ZonedDateTime endDateAtZone, String timezone, List<Stat.VotingWin> inRange, boolean statsPresent) {
     List<DashboardStatsResponse.Stat> votingWinStats = new ArrayList<>();
-    if(show.getStats() == null) {
+    if(!statsPresent) {
       return votingWinStats;
     }
     ZoneId userZone = ZoneId.of(timezone);
-    Map<LocalDate, List<Stat.VotingWin>> votingWinStatsGroupedByDate = show.getStats().getVotingWin()
+    Map<LocalDate, List<Stat.VotingWin>> votingWinStatsGroupedByDate = inRange
             .stream()
+            .filter(stat -> stat.getDateTime() != null)
             .map(stat -> Map.entry(stat, convertStatDateTime(stat.getDateTime(), userZone)))
             .sorted(Comparator.comparing(entry -> entry.getValue().toLocalDateTime()))
             .filter(stat -> stat.getValue().isAfter(startDateAtZone))
@@ -907,16 +929,17 @@ public class DashboardService {
     return votingWinStats;
   }
 
-  private DashboardStatsResponse.Stat buildVoteWinStatsBySequence(ZonedDateTime startDateAtZone, ZonedDateTime endDateAtZone, String timezone, Show show) {
+  private DashboardStatsResponse.Stat buildVoteWinStatsBySequence(ZonedDateTime startDateAtZone, ZonedDateTime endDateAtZone, String timezone, List<Stat.VotingWin> inRange, boolean statsPresent) {
     List<DashboardStatsResponse.SequenceStat> sequences = new ArrayList<>();
-    if(show.getStats() == null) {
+    if(!statsPresent) {
       return DashboardStatsResponse.Stat.builder()
               .sequences(sequences)
               .build();
     }
     ZoneId userZone = ZoneId.of(timezone);
-    Map<String, List<Stat.VotingWin>> voteWinStatsGroupedBySequence = show.getStats().getVotingWin()
+    Map<String, List<Stat.VotingWin>> voteWinStatsGroupedBySequence = inRange
             .stream()
+            .filter(stat -> stat.getDateTime() != null)
             .map(stat -> Map.entry(stat, convertStatDateTime(stat.getDateTime(), userZone)))
             .filter(stat -> stat.getValue().isAfter(startDateAtZone))
             .filter(stat -> stat.getValue().isBefore(endDateAtZone))
@@ -942,6 +965,7 @@ public class DashboardService {
     ZoneId userZone = ZoneId.of(timezone);
     Map<LocalDate, List<Stat.Jukebox>> jukeboxStatsGroupedByDate = show.getStats().getJukebox()
             .stream()
+            .filter(stat -> stat.getDateTime() != null)
             .map(stat -> Map.entry(stat, convertStatDateTime(stat.getDateTime(), userZone)))
             .filter(stat -> stat.getValue().isAfter(startDateAtZone))
             .filter(stat -> stat.getValue().isBefore(endDateAtZone))
@@ -970,6 +994,7 @@ public class DashboardService {
     ZoneId userZone = ZoneId.of(timezone);
     Map<LocalDate, List<Stat.Voting>> voteStatsGroupedByDate = show.getStats().getVoting()
             .stream()
+            .filter(stat -> stat.getDateTime() != null)
             .map(stat -> Map.entry(stat, convertStatDateTime(stat.getDateTime(), userZone)))
             .filter(stat -> stat.getValue().isAfter(startDateAtZone))
             .filter(stat -> stat.getValue().isBefore(endDateAtZone))
@@ -998,6 +1023,20 @@ public class DashboardService {
         statMap.put(date, (V) new ArrayList<>());
       }
     });
+  }
+
+  // Mongo-side stat window bounds. The precise wall-clock range filter still
+  // lives in the build*Stats helpers (convertStatDateTime + isAfter/isBefore);
+  // these widen that range by a day on each side so StatsRepository returns a
+  // guaranteed SUPERSET regardless of LocalDateTime<->BSON-date encoding, and
+  // the helpers trim to exact. Stored Stat.dateTime is naive wall-clock, so the
+  // zoned bounds' local time is reinterpreted as a UTC instant to match it.
+  private static Date statsWindowLower(ZonedDateTime startDateAtZone) {
+    return Date.from(startDateAtZone.toLocalDateTime().minusDays(1).toInstant(ZoneOffset.UTC));
+  }
+
+  private static Date statsWindowUpper(ZonedDateTime endDateAtZone) {
+    return Date.from(endDateAtZone.toLocalDateTime().plusDays(1).toInstant(ZoneOffset.UTC));
   }
 
   private ZonedDateTime convertStatDateTime(LocalDateTime statDateTime, ZoneId userZone) {

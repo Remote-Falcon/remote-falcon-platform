@@ -89,5 +89,70 @@ public interface ShowRepository extends MongoRepository<Show, String> {
             "{ '$replaceRoot': { 'newRoot': '$sequences' } }"
     })
     List<Sequence> getSequencesByShowToken(String showToken);
-    
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Pattern A — read-only projection variants. The dashboard read paths used
+    // to load the ENTIRE Show (5–10 MB on a populated season) just to read one
+    // sub-array; these load only what each path needs. See Query-Perf-Audit
+    // and mirror the viewer service's findByShowSubdomainForViewer pattern.
+    //
+    // SAFETY RULE: each returns a PARTIALLY-POPULATED Show — excluded fields
+    // are null. Spring Data save() is a full-document REPLACE, so a Show loaded
+    // through any of these MUST NEVER be passed to save(): that would wipe the
+    // excluded arrays. Read-only callers only. Writers use atomic
+    // MongoTemplate Updates.set(...) instead. ShowRepositoryProjectionTest
+    // pins this contract.
+    // ─────────────────────────────────────────────────────────────────────
+
+    // Stats analytics: dashboardStats, requestConversion, psaEffectiveness,
+    // dashboardStatsByHour. Keeps the whole stats object (these read
+    // stats.page/jukebox/voting/votingWin/rejectedRequests — Pattern B will
+    // later replace that with a date-ranged aggregation) plus psaSequences
+    // (read by psaEffectiveness). EXCLUDES pages, requests, votes, sequences,
+    // viewerSessions, activeViewers, showNotifications.
+    @Query(value = "{ 'showToken': ?0 }",
+            fields = "{ 'showToken': 1, 'showSubdomain': 1, 'showName': 1, 'showRole': 1, " +
+                     "'preferences': 1, 'stats': 1, 'psaSequences': 1 }")
+    Optional<Show> findByShowTokenForStats(String showToken);
+
+    // Audience tab: viewerSessions(). Needs ONLY the viewerSessions array —
+    // EXCLUDES the multi-MB stats.* arrays entirely (its biggest single win).
+    @Query(value = "{ 'showToken': ?0 }",
+            fields = "{ 'showToken': 1, 'showSubdomain': 1, 'showName': 1, 'showRole': 1, " +
+                     "'preferences': 1, 'viewerSessions': 1 }")
+    Optional<Show> findByShowTokenForViewerSessions(String showToken);
+
+    // Live operator poll: dashboardLiveStats(), ~every 5s. Reads stats.jukebox +
+    // stats.voting (today's totals), the live operational arrays (activeViewers,
+    // viewerSessions, votes, sequences, requests) and heartbeat/version history.
+    // EXCLUDES the arrays it never touches: stats.page (the LARGEST stat array —
+    // one entry per page view), stats.votingWin, stats.rejectedRequests, the
+    // viewer-page HTML (pages), and showNotifications. Exclusion — not inclusion
+    // — so a missed live field can't silently break the highest-frequency poll.
+    @Query(value = "{ 'showToken': ?0 }",
+            fields = "{ 'stats.page': 0, 'stats.votingWin': 0, 'stats.rejectedRequests': 0, " +
+                     "'pages': 0, 'showNotifications': 0 }")
+    Optional<Show> findByShowTokenForLiveStats(String showToken);
+
+    // PSA-effectiveness config: psaSequences is a small top-level field (NOT a
+    // stats array). Load only it (+ identity) so psaEffectiveness can read each
+    // PSA's lastPlayed without pulling the multi-MB stats.* arrays — those are
+    // fetched per-PSA as ±5-min window slices via StatsRepository.
+    @Query(value = "{ 'showToken': ?0 }",
+            fields = "{ 'showToken': 1, 'showSubdomain': 1, 'showName': 1, 'showRole': 1, " +
+                     "'psaSequences': 1 }")
+    Optional<Show> findByShowTokenForPsaConfig(String showToken);
+
+    // signIn projection — same case-insensitive collation lookup as
+    // findByEmailCollation, but EXCLUDES the heavy arrays the UI's SIGN_IN
+    // query does NOT select: stats (the season's 5–10 MB bulk), viewerSessions,
+    // showNotifications, heartbeatGaps, versionChanges. The SIGN_IN-selected
+    // arrays (pages, requests, votes, activeViewers, sequences) are KEPT so the
+    // login response is byte-identical for the client. Read-only — signIn's
+    // bookkeeping is an atomic updateFirst, never a save() of this projection.
+    @Query(value = "{ 'email': ?0 }",
+            collation = "{ 'locale': 'en', 'strength': 2 }",
+            fields = "{ 'stats': 0, 'viewerSessions': 0, 'showNotifications': 0, " +
+                     "'heartbeatGaps': 0, 'versionChanges': 0 }")
+    Optional<Show> findByEmailCollationForAuth(String email);
 }

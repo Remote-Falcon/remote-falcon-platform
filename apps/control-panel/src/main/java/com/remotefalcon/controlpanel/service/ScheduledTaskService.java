@@ -12,6 +12,7 @@ import com.remotefalcon.library.documents.Show;
 import com.remotefalcon.library.enums.NotificationType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.bson.Document;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.stereotype.Service;
@@ -80,5 +81,40 @@ public class ScheduledTaskService {
         }
         log.info("Stats retention sweep complete: {} shows processed, {} errored, {} ms",
                 swept, errored, System.currentTimeMillis() - startMillis);
+    }
+
+    // ~75% of Mongo's hard 16 MB BSON document cap. A Show that crosses 16 MB
+    // becomes unreadable AND unwritable (DocumentTooLargeError) — a total outage
+    // for that show with no automatic recovery — so we warn well before the cliff.
+    static final long DOC_SIZE_WARN_BYTES = 12L * 1024 * 1024;
+
+    /**
+     * Catch-all safety net for the 16 MB document-size cliff. Computes each show's
+     * BSON size server-side ({@code $bsonSize}) and logs a WARN for any show over
+     * {@link #DOC_SIZE_WARN_BYTES}, regardless of which field is the culprit
+     * (stats, viewer-page HTML, votes, etc.). The observability layer alerts on this
+     * log line. Runs nightly right after the retention sweep so the size reflects
+     * the post-prune reality. Read-only and cheap — no document is materialized in
+     * the JVM; only {showToken, showSubdomain, bytes} for the few oversized shows.
+     */
+    public void alarmOnOversizedShows() {
+        var pipeline = List.of(
+                new Document("$project", new Document("showToken", 1)
+                        .append("showSubdomain", 1)
+                        .append("bytes", new Document("$bsonSize", "$$ROOT"))),
+                new Document("$match", new Document("bytes", new Document("$gt", DOC_SIZE_WARN_BYTES))),
+                new Document("$sort", new Document("bytes", -1)));
+        int oversized = 0;
+        for (Document d : mongoTemplate.getCollection("show").aggregate(pipeline)) {
+            long bytes = d.get("bytes") instanceof Number n ? n.longValue() : 0L;
+            log.warn("DOC_SIZE_ALARM show '{}' ({}) is {} MB ({}% of the 16 MB MongoDB document cap) — "
+                            + "approaching the hard limit; a doc over 16 MB becomes unreadable/unwritable.",
+                    d.getString("showSubdomain"), d.getString("showToken"),
+                    String.format("%.1f", bytes / 1048576.0),
+                    String.format("%.0f", bytes / (16.0 * 1048576) * 100));
+            oversized++;
+        }
+        log.info("Document-size alarm sweep complete: {} show(s) over {} MB",
+                oversized, DOC_SIZE_WARN_BYTES / (1024 * 1024));
     }
 }
