@@ -94,7 +94,7 @@ services:
       - "8083:8080"
     environment:
       MONGO_URI: mongodb://${MONGO_USERNAME:-root}:${MONGO_PASSWORD:-root}@mongo:27017/remote-falcon?authSource=admin
-      SEQUENCE_LIMIT: ${SEQUENCE_LIMIT:-200}
+      SEQUENCE_LIMIT: ${SEQUENCE_LIMIT:-500}
       # Self-hosters don't run an OTel Collector; explicitly disable the
       # SDK so the app doesn't emit continuous WARN-level export failures.
       # Platform deployment (k8s) leaves this unset and OTel is enabled
