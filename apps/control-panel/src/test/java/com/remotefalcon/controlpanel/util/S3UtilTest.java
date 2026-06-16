@@ -7,6 +7,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -27,6 +28,8 @@ import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -49,9 +52,22 @@ class S3UtilTest {
 
     @BeforeEach
     void setUp() {
-        s3Util = new S3Util(s3Client);
-        ReflectionTestUtils.setField(s3Util, "bucketName", BUCKET);
-        ReflectionTestUtils.setField(s3Util, "cdnEndpoint", CDN);
+        s3Util = s3UtilWith(s3Client);
+    }
+
+    /**
+     * Builds an S3Util whose S3Client is resolved via ObjectProvider — pass
+     * {@code null} to simulate an instance where image hosting isn't configured
+     * (the S3Client bean is absent because s3.endpoint is blank).
+     */
+    @SuppressWarnings("unchecked")
+    private S3Util s3UtilWith(S3Client client) {
+        ObjectProvider<S3Client> provider = mock(ObjectProvider.class);
+        lenient().when(provider.getIfAvailable()).thenReturn(client);
+        S3Util util = new S3Util(provider);
+        ReflectionTestUtils.setField(util, "bucketName", BUCKET);
+        ReflectionTestUtils.setField(util, "cdnEndpoint", CDN);
+        return util;
     }
 
     private static MockMultipartFile pngFile(String name, int sizeBytes) {
@@ -179,5 +195,30 @@ class S3UtilTest {
         List<S3Image> images = s3Util.getImages(SUBDOMAIN);
 
         assertThat(images).isEmpty();
+    }
+
+    // ---- image hosting not configured (no S3Client bean) ----
+
+    @Test
+    void uploadFile_returns400_whenS3NotConfigured() {
+        S3Util unconfigured = s3UtilWith(null);
+        ResponseEntity<String> r = unconfigured.uploadFile(pngFile("hero.png", 10), SUBDOMAIN);
+        assertThat(r.getStatusCodeValue()).isEqualTo(400);
+        assertThat(r.getBody()).isEqualTo("Image hosting is not configured for this instance.");
+    }
+
+    @Test
+    void getImages_returnsEmpty_whenS3NotConfigured() {
+        assertThat(s3UtilWith(null).getImages(SUBDOMAIN)).isEmpty();
+    }
+
+    @Test
+    void downloadFile_returnsFalse_whenS3NotConfigured() {
+        assertThat(s3UtilWith(null).downloadFile("hero.png", SUBDOMAIN)).isFalse();
+    }
+
+    @Test
+    void deleteFile_noOps_whenS3NotConfigured() {
+        s3UtilWith(null).deleteFile("hero.png", SUBDOMAIN); // must not throw
     }
 }

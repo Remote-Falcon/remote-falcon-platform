@@ -11,7 +11,7 @@ import java.time.Duration;
 @Configuration
 public class WebClientConfiguration {
 
-  @Value("${github.pat}")
+  @Value("${github.pat:}")
   String gitHubPat;
 
   @Bean

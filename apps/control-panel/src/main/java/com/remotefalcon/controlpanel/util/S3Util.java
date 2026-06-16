@@ -3,6 +3,7 @@ package com.remotefalcon.controlpanel.util;
 import com.remotefalcon.controlpanel.model.S3Image;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
@@ -31,15 +32,23 @@ import java.util.Objects;
 @RequiredArgsConstructor
 @Slf4j
 public class S3Util {
-  private final S3Client amazonS3Client;
+  // Image hosting (S3) is optional — the S3Client bean only exists when S3 is
+  // configured (see S3ClientConfig). Resolve it lazily so this component, and
+  // the app, start cleanly on instances without S3; methods no-op or return a
+  // clear message when it's absent.
+  private final ObjectProvider<S3Client> amazonS3ClientProvider;
 
-  @Value("${images.s3.bucket}")
+  @Value("${images.s3.bucket:}")
   private String bucketName;
 
-  @Value("${images.cdn.endpoint}")
+  @Value("${images.cdn.endpoint:}")
   private String cdnEndpoint;
 
   public ResponseEntity<String> uploadFile(MultipartFile file, String showSubdomain) {
+    S3Client amazonS3Client = amazonS3ClientProvider.getIfAvailable();
+    if (amazonS3Client == null) {
+      return ResponseEntity.badRequest().body("Image hosting is not configured for this instance.");
+    }
     String path = String.format("%s/%s", showSubdomain,
         Objects.requireNonNull(file.getOriginalFilename()).toLowerCase());
 
@@ -66,6 +75,10 @@ public class S3Util {
   }
 
   public Boolean downloadFile(String filename, String showSubdomain) {
+    S3Client amazonS3Client = amazonS3ClientProvider.getIfAvailable();
+    if (amazonS3Client == null) {
+      return false;
+    }
     String path = String.format("%s/%s", showSubdomain, filename);
     Path downloadsPath = Paths.get(System.getProperty("user.home"), "Downloads", filename);
 
@@ -82,6 +95,10 @@ public class S3Util {
   }
 
   public void deleteFile(String filename, String showSubdomain) {
+    S3Client amazonS3Client = amazonS3ClientProvider.getIfAvailable();
+    if (amazonS3Client == null) {
+      return;
+    }
     String path = String.format("%s/%s", showSubdomain, filename);
     amazonS3Client.deleteObject(DeleteObjectRequest.builder()
         .bucket(bucketName)
@@ -91,6 +108,10 @@ public class S3Util {
 
   public List<S3Image> getImages(String showSubdomain) {
     List<S3Image> s3Images = new ArrayList<>();
+    S3Client amazonS3Client = amazonS3ClientProvider.getIfAvailable();
+    if (amazonS3Client == null) {
+      return s3Images;
+    }
     ListObjectsV2Response listResponse = amazonS3Client.listObjectsV2(ListObjectsV2Request.builder()
         .bucket(bucketName)
         .prefix(showSubdomain)

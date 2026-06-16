@@ -14,7 +14,7 @@ import org.springframework.stereotype.Component;
 @Slf4j
 public class EmailUtil {
 
-  @Value("${sendgrid.key}")
+  @Value("${sendgrid.key:}")
   String sendgridKey;
 
   @Value("${web.url}")
