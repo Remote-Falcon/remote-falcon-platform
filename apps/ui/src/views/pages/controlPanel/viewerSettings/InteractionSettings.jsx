@@ -91,15 +91,24 @@ const InteractionSettings = () => {
   const checkViewerPresent = values.locationCheckMethod !== LocationCheckMethod.NONE;
 
   const refreshLocation = useCallback(() => {
-    if ('geolocation' in navigator) {
-      navigator.geolocation.getCurrentPosition((position) => {
+    if (!('geolocation' in navigator)) {
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
         setCurrentLatitude(position.coords.latitude.toFixed(5));
         setCurrentLongitude(position.coords.longitude.toFixed(5));
-      });
-    } else {
-      showAlert(dispatch, { alert: 'warning', message: 'Location is not enabled' });
-    }
-  }, [dispatch]);
+      },
+      () => {
+        // Detection failed (permission denied / unavailable / timeout). Leave
+        // the fields as-is so the inline "could not be detected" hint shows and
+        // the owner can type their coordinates into the fields below.
+      },
+      // enableHighAccuracy requests a GPS-grade fix instead of the coarse
+      // wifi/IP estimate that can land a mile off.
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  }, []);
 
   useEffect(() => {
     refreshLocation();
@@ -433,7 +442,7 @@ const InteractionSettings = () => {
                           <Grid item xs={11} md={5} lg={5}>
                             <TextField
                               fullWidth
-                              label="Detected Latitude"
+                              label="Latitude"
                               type="text"
                               value={currentLatitude}
                               onChange={(e) => setCurrentLatitude(e?.target?.value)}
@@ -442,7 +451,7 @@ const InteractionSettings = () => {
                           <Grid item xs={11} md={5} lg={5}>
                             <TextField
                               fullWidth
-                              label="Detected Longitude"
+                              label="Longitude"
                               type="text"
                               value={currentLongitude}
                               onChange={(e) => setCurrentLongitude(e?.target?.value)}
