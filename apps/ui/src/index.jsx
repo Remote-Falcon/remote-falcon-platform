@@ -11,8 +11,8 @@ import { Provider } from 'react-redux';
 import { BrowserRouter } from 'react-router-dom';
 
 import App from './App';
-import { BASE_PATH } from './config';
 import { ConfigProvider } from './contexts/ConfigContext';
+import { getRouterBasename } from './utils/route-guard/helpers/helpers';
 import reportWebVitals from './reportWebVitals';
 import * as serviceWorker from './serviceWorker';
 import { store } from './store';
@@ -175,7 +175,7 @@ root.render(
   <ErrorBoundary FallbackComponent={RootErrorFallback} onError={handleRootError}>
     <Provider store={store}>
       <ConfigProvider>
-        <BrowserRouter basename={BASE_PATH}>
+        <BrowserRouter basename={getRouterBasename()}>
           <ApolloProvider client={client}>
             <PostHogProvider client={posthog}>
               <App />

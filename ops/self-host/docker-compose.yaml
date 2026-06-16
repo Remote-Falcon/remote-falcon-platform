@@ -120,6 +120,13 @@ services:
         HOSTNAME_PARTS: ${HOSTNAME_PARTS:-2}
         SWAP_CP: ${SWAP_CP:-false}
         VIEWER_PAGE_SUBDOMAIN: ${VIEWER_PAGE_SUBDOMAIN:-}
+        # Path-routed self-host (issue #151). Set both to run the control panel
+        # and viewers on two fixed hosts instead of per-show subdomains, e.g.
+        #   CONTROL_HOST=control.example.com  VIEWER_HOST=lightshow.example.com
+        # Then point both hostnames at this UI service in your reverse proxy.
+        # Leave blank for the default subdomain-based routing.
+        CONTROL_HOST: ${CONTROL_HOST:-}
+        VIEWER_HOST: ${VIEWER_HOST:-}
     restart: unless-stopped
     ports:
       - "3000:3000"

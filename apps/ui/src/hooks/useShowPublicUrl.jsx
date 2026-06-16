@@ -13,6 +13,11 @@ const useShowPublicUrl = () => {
 
   return useMemo(() => {
     if (!show?.showSubdomain) return null;
+    // Path-routed self-host (issue #151): viewers live at VITE_VIEWER_HOST/<show>.
+    if (import.meta.env.VITE_CONTROL_HOST && import.meta.env.VITE_VIEWER_HOST) {
+      const scheme = import.meta.env.VITE_HOST_ENV === Environments.LOCAL ? 'http' : 'https';
+      return `${scheme}://${import.meta.env.VITE_VIEWER_HOST}/${show.showSubdomain}`;
+    }
     const swapCP = import.meta.env.VITE_SWAP_CP === 'true';
     if (import.meta.env.VITE_HOST_ENV === Environments.LOCAL) {
       return swapCP ? 'http://localhost:5173' : `http://${show.showSubdomain}.localhost:5173`;

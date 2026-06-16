@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
-import { getSubdomain, isSubdomainCP, isExternalViewer } from '../helpers';
+import { getSubdomain, isSubdomainCP, isExternalViewer, getRouterBasename } from '../helpers';
 
 // These helpers govern the entire routing topology: whether the current
 // load is the control panel, a viewer page, or an external viewer. A
@@ -14,6 +14,13 @@ const setHostname = (host) => {
   Object.defineProperty(window, 'location', {
     configurable: true,
     value: { ...window.location, hostname: host }
+  });
+};
+
+const setLocation = (host, pathname = '/') => {
+  Object.defineProperty(window, 'location', {
+    configurable: true,
+    value: { ...window.location, hostname: host, pathname }
   });
 };
 
@@ -95,6 +102,54 @@ describe('route-guard helpers', () => {
       import.meta.env.VITE_HOSTNAME_PARTS = '1';
       setHostname('controlpanel.localhost');
       expect(isExternalViewer()).toBeFalsy();
+    });
+  });
+
+  describe('path-routed mode (issue #151 — VITE_CONTROL_HOST + VITE_VIEWER_HOST)', () => {
+    beforeEach(() => {
+      import.meta.env.VITE_CONTROL_HOST = 'control.example.com';
+      import.meta.env.VITE_VIEWER_HOST = 'lightshow.example.com';
+    });
+
+    it('getSubdomain returns the first path segment on the viewer host', () => {
+      setLocation('lightshow.example.com', '/holtz');
+      expect(getSubdomain()).toBe('holtz');
+    });
+
+    it('getSubdomain keeps the show after the internal /remote-falcon redirect', () => {
+      setLocation('lightshow.example.com', '/holtz/remote-falcon');
+      expect(getSubdomain()).toBe('holtz');
+    });
+
+    it('getSubdomain returns empty on the control host', () => {
+      setLocation('control.example.com', '/dashboard');
+      expect(getSubdomain()).toBe('');
+    });
+
+    it('isSubdomainCP is true on the control host and false on the viewer host', () => {
+      setLocation('control.example.com', '/');
+      expect(isSubdomainCP()).toBe(true);
+      setLocation('lightshow.example.com', '/holtz');
+      expect(isSubdomainCP()).toBe(false);
+    });
+
+    it('isExternalViewer is true on the viewer host with a show, false on the control host', () => {
+      setLocation('lightshow.example.com', '/holtz');
+      expect(isExternalViewer()).toBe(true);
+      setLocation('control.example.com', '/dashboard');
+      expect(isExternalViewer()).toBe(false);
+    });
+
+    it('isExternalViewer is false on the viewer host with no show in the path', () => {
+      setLocation('lightshow.example.com', '/');
+      expect(isExternalViewer()).toBe(false);
+    });
+
+    it('getRouterBasename is /<show> on the viewer host and empty on the control host', () => {
+      setLocation('lightshow.example.com', '/holtz');
+      expect(getRouterBasename()).toBe('/holtz');
+      setLocation('control.example.com', '/dashboard');
+      expect(getRouterBasename()).toBe('');
     });
   });
 });
