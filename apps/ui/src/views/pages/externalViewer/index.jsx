@@ -23,7 +23,7 @@ import { LocationCheckMethod, ViewerControlMode } from '../../../utils/enum';
 import { ADD_SEQUENCE_TO_QUEUE, INSERT_VIEWER_PAGE_STATS, VOTE_FOR_SEQUENCE } from '../../../utils/graphql/viewer/mutations';
 import { GET_ACTIVE_VIEWER_PAGE, GET_SHOW_FOR_VIEWER } from '../../../utils/graphql/viewer/queries';
 import { showAlert } from '../globalPageHelpers';
-import { defaultProcessingInstructions, processingInstructions, viewerPageMessageElements } from './helpers/helpers';
+import { defaultProcessingInstructions, nextNowPlayingState, processingInstructions, viewerPageMessageElements } from './helpers/helpers';
 
 const ExternalViewerPage = () => {
   const dispatch = useDispatch();
@@ -888,17 +888,13 @@ const ExternalViewerPage = () => {
     await convertViewerPageToReact();
   }, 500);
 
-  useInterval(async () => {
-    if (nowPlaying !== show?.playingNow) {
-      const playingNowSequence = _.find(show?.sequences, (sequence) => sequence?.displayName === show?.playingNow);
-      setNowPlaying(show?.playingNow);
-      setNowPlayingTimer(playingNowSequence?.duration - 2);
+  useInterval(() => {
+    const next = nextNowPlayingState({ nowPlaying, nowPlayingTimer }, show);
+    if (next.nowPlaying !== nowPlaying) {
+      setNowPlaying(next.nowPlaying);
     }
-    if (show?.playingNow === '' || show?.playingNow === ' ') {
-      setNowPlaying('');
-      setNowPlayingTimer(0);
-    } else if (nowPlayingTimer && nowPlayingTimer > 0) {
-      setNowPlayingTimer(nowPlayingTimer - 1);
+    if (next.nowPlayingTimer !== nowPlayingTimer) {
+      setNowPlayingTimer(next.nowPlayingTimer);
     }
   }, 1000);
 

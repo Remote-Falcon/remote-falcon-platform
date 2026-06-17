@@ -276,3 +276,50 @@ export const viewerPageMessageElements = {
     none: 'id="invalidLocationCode" style="display: none"'
   }
 };
+
+// Number of seconds we trim off the reported duration when (re)seeding the
+// {NOW_PLAYING_TIMER}. Roughly accounts for plugin->API->poll latency so the
+// viewer's countdown doesn't lag the show's actual audio.
+const NOW_PLAYING_TIMER_LEAD_SECONDS = 2;
+
+/**
+ * Pure reducer for the viewer's {NOW_PLAYING_TIMER} countdown, evaluated once
+ * per 1Hz tick. Given the previous {nowPlaying, nowPlayingTimer} and the latest
+ * `show` snapshot, it returns the next pair.
+ *
+ * The branches are MUTUALLY EXCLUSIVE — a tick either clears, reseeds, or
+ * decrements, never both. The previous interval body ran the reseed and the
+ * decrement as two independent `if` blocks, so a song-change tick fired both
+ * and React's last-write-wins dropped the reseed whenever the prior timer was
+ * still > 0. That stranded the countdown on the previous song after an early
+ * interruption (issue #155): fine on normal playback (songs end near 0), broken
+ * on interrupt (timer still counting). Keeping this exclusive is the fix.
+ */
+export const nextNowPlayingState = (prev, show) => {
+  const playingNow = show?.playingNow;
+
+  // Nothing playing -> clear.
+  if (!playingNow || playingNow === ' ') {
+    return { nowPlaying: '', nowPlayingTimer: 0 };
+  }
+
+  // Song changed -> reseed from the now-playing sequence's duration (once).
+  // Prefer the backend-resolved playingNowSequence; fall back to matching the
+  // sequences list by displayName (playingNow is the displayName by this point).
+  if (prev.nowPlaying !== playingNow) {
+    const sequence =
+      show?.playingNowSequence ?? (show?.sequences || []).find((seq) => seq?.displayName === playingNow);
+    const duration = Number(sequence?.duration);
+    const seed =
+      Number.isFinite(duration) && duration > NOW_PLAYING_TIMER_LEAD_SECONDS
+        ? duration - NOW_PLAYING_TIMER_LEAD_SECONDS
+        : 0;
+    return { nowPlaying: playingNow, nowPlayingTimer: seed };
+  }
+
+  // Same song -> tick down, floored at 0.
+  return {
+    nowPlaying: prev.nowPlaying,
+    nowPlayingTimer: prev.nowPlayingTimer > 0 ? prev.nowPlayingTimer - 1 : 0
+  };
+};
