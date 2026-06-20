@@ -8,6 +8,7 @@ import com.remotefalcon.library.quarkus.entity.Show;
 import com.remotefalcon.library.util.PluginQueueHelper;
 import com.remotefalcon.metrics.ViewerMetrics;
 import com.remotefalcon.repository.ShowRepository;
+import com.remotefalcon.repository.VoteEventRepository;
 import com.remotefalcon.util.ClientUtil;
 import com.remotefalcon.util.LocationUtil;
 import io.vertx.ext.web.RoutingContext;
@@ -30,6 +31,9 @@ import java.util.Optional;
 public class GraphQLMutationService {
   @Inject
   ShowRepository showRepository;
+
+  @Inject
+  VoteEventRepository voteEventRepository;
 
   @Inject
   RoutingContext context;
@@ -334,6 +338,7 @@ public class GraphQLMutationService {
           .findFirst();
       if (requestedSequence.isPresent()) {
         this.saveSequenceVote(existingShow, requestedSequence.get(), clientIp, viewerId, false);
+        this.recordVoteEvent(existingShow, requestedSequence.get().getName(), clientIp, viewerId, latitude, longitude);
         try {
           this.showRepository.upsertViewerSession(showSubdomain, clientIp, viewerId, LocalDateTime.now());
         } catch (Exception e) {
@@ -347,6 +352,7 @@ public class GraphQLMutationService {
             .findFirst();
         if (votedSequenceGroup.isPresent()) {
           this.saveSequenceGroupVote(existingShow, votedSequenceGroup.get(), clientIp, viewerId);
+          this.recordVoteEvent(existingShow, votedSequenceGroup.get().getName(), clientIp, viewerId, latitude, longitude);
           try {
             this.showRepository.upsertViewerSession(showSubdomain, clientIp, viewerId, LocalDateTime.now());
           } catch (Exception e) {
@@ -359,6 +365,20 @@ public class GraphQLMutationService {
     }
     log.errorf("voteForSequence unexpected: show or sequence not found for subdomain=%s, name=%s", showSubdomain, name);
     throw new CustomGraphQLExceptionResolver(StatusResponse.UNEXPECTED_ERROR.name());
+  }
+
+  // PRD-009 #165 — append a per-vote audit record (ADR-1 separate collection
+  // keyed on the immutable Show id; ADR-5 coarse geo + per-doc TTL). Fire-and-
+  // forget: a failure here must never block a vote that already succeeded,
+  // mirroring upsertViewerSession. The rule-chain PR (ADR-4) will relocate this
+  // call into the post-allow persistence step of the pipeline.
+  private void recordVoteEvent(Show show, String sequenceName, String clientIp, String viewerId,
+                               Float latitude, Float longitude) {
+    try {
+      this.voteEventRepository.record(show.id, clientIp, viewerId, sequenceName, latitude, longitude);
+    } catch (Exception e) {
+      log.warnf("recordVoteEvent failed for showSubdomain=%s: %s", show.getShowSubdomain(), e.getMessage());
+    }
   }
 
   private boolean isIpBlocked(String ipAddress, Show show) {
