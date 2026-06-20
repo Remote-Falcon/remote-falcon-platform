@@ -636,13 +636,26 @@ jobs:
           for svc in $(echo "$SERVICES" | jq -r '.[]'); do
             dep="remote-falcon-$svc"
             echo "::notice::Checking error rate for $svc..."
-            if python3 ops/release-validation/check.py --service "$svc" --watch-minutes 5 --multiplier 3.0; then
-              echo "::notice::$svc: error rate within bounds"
-            else
-              echo "::error::$svc: post-deploy error-rate breach; rolling back $dep"
-              kubectl rollout undo deployment/"$dep" -n "$NS" || true
-              kubectl rollout status deployment/"$dep" -n "$NS" --timeout=3m || true
-              fail=1
-            fi
+            # Branch on the exit code — do NOT treat every non-zero as a breach.
+            # check.py contract: 0 = within bounds / baseline too low; 1 = breach;
+            # 2 (or anything else) = inconclusive (couldn't measure). Only a
+            # confirmed breach (1) may roll back; an inconclusive check must not
+            # revert a healthy service on a monitoring blip (issue-tracker #161).
+            rc=0
+            python3 ops/release-validation/check.py --service "$svc" --watch-minutes 5 --multiplier 3.0 || rc=$?
+            case "$rc" in
+              0)
+                echo "::notice::$svc: error rate within bounds"
+                ;;
+              1)
+                echo "::error::$svc: post-deploy error-rate breach; rolling back $dep"
+                kubectl rollout undo deployment/"$dep" -n "$NS" || true
+                kubectl rollout status deployment/"$dep" -n "$NS" --timeout=3m || true
+                fail=1
+                ;;
+              *)
+                echo "::warning::$svc: error-rate check inconclusive (exit $rc); skipping rollback"
+                ;;
+            esac
           done
           exit $fail

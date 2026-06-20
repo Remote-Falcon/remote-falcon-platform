@@ -30,11 +30,19 @@ import argparse
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
 
 DEFAULT_HOST = "https://us.posthog.com"
 DEFAULT_PROJECT_ID = 425428
+
+# Transient failures (timeouts, connection resets, 5xx) are retried before we
+# give up. A query failure must NEVER be confused with a measured error-rate
+# breach — see logs_count()/main() — so a slow PostHog response can't trigger a
+# spurious rollback of a healthy service (issue-tracker #161).
+MAX_RETRIES = 3
+PER_TRY_TIMEOUT = 15  # seconds; shorter than the old single 30s so retries fit
 
 
 def _request(method: str, url: str, token: str, body: dict | None = None) -> dict:
@@ -49,15 +57,31 @@ def _request(method: str, url: str, token: str, body: dict | None = None) -> dic
             "User-Agent": "rf-release-validation/1.0",
         },
     )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as r:
-            raw = r.read()
-            return json.loads(raw) if raw else {}
-    except urllib.error.HTTPError as e:
-        detail = e.read().decode("utf-8", errors="replace")
-        print(f"ERROR: {method} {url} -> {e.code} {e.reason}", file=sys.stderr)
-        print(f"Response body:\n{detail}", file=sys.stderr)
-        raise
+    last_err: Exception | None = None
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=PER_TRY_TIMEOUT) as r:
+                raw = r.read()
+                return json.loads(raw) if raw else {}
+        except urllib.error.HTTPError as e:
+            # 4xx is a config/auth problem — not transient, don't retry.
+            if e.code < 500:
+                detail = e.read().decode("utf-8", errors="replace")
+                print(f"ERROR: {method} {url} -> {e.code} {e.reason}", file=sys.stderr)
+                print(f"Response body:\n{detail}", file=sys.stderr)
+                raise
+            last_err = e
+            print(f"WARN: {method} {url} -> {e.code} {e.reason} "
+                  f"(attempt {attempt}/{MAX_RETRIES})", file=sys.stderr)
+        except (urllib.error.URLError, OSError) as e:
+            # Connection error / read timeout (TimeoutError is an OSError).
+            last_err = e
+            print(f"WARN: {method} {url} transient error: {e} "
+                  f"(attempt {attempt}/{MAX_RETRIES})", file=sys.stderr)
+        if attempt < MAX_RETRIES:
+            time.sleep(2 * attempt)  # linear backoff: 2s, 4s
+    assert last_err is not None
+    raise last_err
 
 
 def logs_count(host: str, project_id: int, token: str, service: str, date_from: str) -> int:
@@ -132,7 +156,23 @@ def main() -> int:
     try:
         post_count = logs_count(host, project_id, token, service, f"-{watch_m}m")
         baseline_24h = logs_count(host, project_id, token, service, "-24h")
-    except urllib.error.HTTPError:
+    except (urllib.error.URLError, OSError) as e:
+        # Could not measure the error rate (PostHog unreachable, timeout after
+        # retries, 5xx, auth/HTTP error). This is INCONCLUSIVE, not a breach —
+        # return 2 so the workflow skips the rollback. Previously a timeout here
+        # propagated as an unhandled exception (exit 1), which deploy.yml read as
+        # a breach and rolled back a healthy service (issue-tracker #161).
+        # NB: urllib.error.HTTPError is a URLError subclass, so this covers it.
+        print(f"::warning::{service}: could not query PostHog ({e}); "
+              f"error-rate check inconclusive, skipping rollback decision", file=sys.stderr)
+        if webhook:
+            post_discord(
+                webhook,
+                f"[deploy-check] {service} — check inconclusive (PostHog unreachable)",
+                f"Could not measure post-deploy error rate: `{e}`\n"
+                f"No rollback decision made.",
+                3447003,  # blue / info
+            )
         return 2
 
     baseline_window = (baseline_24h / (24 * 60)) * watch_m
