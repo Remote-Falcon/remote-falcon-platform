@@ -21,6 +21,11 @@ ARG PUBLIC_POSTHOG_KEY
 ARG HOSTNAME_PARTS
 ARG SWAP_CP
 ARG VIEWER_PAGE_SUBDOMAIN
+# Subdomain-mode control-panel label (issue #151). Blank => 'controlpanel'
+# (SaaS default). Self-hosters serving the control panel on a different label
+# (e.g. control.example.com) set this to that label; every other first label is
+# then a show name, served at <show>.example.com with no path and no wildcard.
+ARG CONTROL_PANEL_SUBDOMAIN
 # Path-routed self-host (issue #151). Both set => control panel at
 # VITE_CONTROL_HOST, viewers at VITE_VIEWER_HOST/<show>. Blank => subdomain mode.
 ARG CONTROL_HOST
@@ -44,6 +49,7 @@ ENV VITE_PUBLIC_POSTHOG_KEY=$PUBLIC_POSTHOG_KEY
 ENV VITE_HOSTNAME_PARTS=$HOSTNAME_PARTS
 ENV VITE_SWAP_CP=$SWAP_CP
 ENV VITE_VIEWER_PAGE_SUBDOMAIN=$VIEWER_PAGE_SUBDOMAIN
+ENV VITE_CONTROL_PANEL_SUBDOMAIN=$CONTROL_PANEL_SUBDOMAIN
 ENV VITE_CONTROL_HOST=$CONTROL_HOST
 ENV VITE_VIEWER_HOST=$VIEWER_HOST
 ENV VITE_GITHUB_JS_PATH=$GITHUB_JS_PATH

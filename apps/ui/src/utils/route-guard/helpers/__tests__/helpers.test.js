@@ -105,6 +105,37 @@ describe('route-guard helpers', () => {
     });
   });
 
+  describe('configurable control-panel subdomain (issue #151 — VITE_CONTROL_PANEL_SUBDOMAIN)', () => {
+    beforeEach(() => {
+      import.meta.env.VITE_CONTROL_PANEL_SUBDOMAIN = 'control';
+    });
+
+    it('treats the configured label as the control panel', () => {
+      setHostname('control.example.com');
+      expect(isSubdomainCP()).toBe(true);
+    });
+
+    it('no longer treats the default controlpanel label as the control panel', () => {
+      setHostname('controlpanel.example.com');
+      expect(isSubdomainCP()).toBe(false);
+    });
+
+    it('treats every other first label as a show name', () => {
+      setHostname('lightshow.example.com');
+      expect(getSubdomain()).toBe('lightshow');
+      expect(isSubdomainCP()).toBe(false);
+      expect(isExternalViewer()).toBe(true);
+    });
+
+    it('falls back to controlpanel when the var is blank', () => {
+      import.meta.env.VITE_CONTROL_PANEL_SUBDOMAIN = '';
+      setHostname('controlpanel.example.com');
+      expect(isSubdomainCP()).toBe(true);
+      setHostname('control.example.com');
+      expect(isSubdomainCP()).toBe(false);
+    });
+  });
+
   describe('path-routed mode (issue #151 — VITE_CONTROL_HOST + VITE_VIEWER_HOST)', () => {
     beforeEach(() => {
       import.meta.env.VITE_CONTROL_HOST = 'control.example.com';

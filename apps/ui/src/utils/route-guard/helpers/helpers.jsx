@@ -1,4 +1,12 @@
-const controlPanelSubdomain = 'controlpanel';
+// The hostname label that designates the control panel in subdomain mode.
+// SaaS and every existing self-host use the default 'controlpanel'
+// (controlpanel.remotefalcon.com). Self-hosters who want the control panel on a
+// different label (issue #151 — e.g. control.example.com) set
+// VITE_CONTROL_PANEL_SUBDOMAIN=control; any OTHER first label is then treated as
+// a show name, so each show is served directly at <show>.example.com — no path
+// segment and no wildcard DNS. Ignored in path-routed mode (the branches below
+// that check VITE_CONTROL_HOST/VITE_VIEWER_HOST return before reaching it).
+const controlPanelSubdomain = () => import.meta.env.VITE_CONTROL_PANEL_SUBDOMAIN || 'controlpanel';
 
 // Option B (issue #151): path-routed self-host. When both VITE_CONTROL_HOST and
 // VITE_VIEWER_HOST are set, the control panel and viewer pages live on two fixed
@@ -35,7 +43,7 @@ export const isSubdomainCP = () => {
   const hostname = window.location.hostname;
   const hostnameSplit = hostname.split('.');
   const subdomain = hostnameSplit.length > import.meta.env.VITE_HOSTNAME_PARTS ? hostnameSplit[0] : '';
-  return subdomain === controlPanelSubdomain;
+  return subdomain === controlPanelSubdomain();
 }
 
 export const isExternalViewer = () => {

@@ -120,6 +120,17 @@ services:
         HOSTNAME_PARTS: ${HOSTNAME_PARTS:-2}
         SWAP_CP: ${SWAP_CP:-false}
         VIEWER_PAGE_SUBDOMAIN: ${VIEWER_PAGE_SUBDOMAIN:-}
+        # Subdomain-mode control-panel label (issue #151). Default 'controlpanel'
+        # means the control panel lives at controlpanel.<domain>. Set this to run
+        # it on a different label, e.g.
+        #   CONTROL_PANEL_SUBDOMAIN=control
+        # Then control.<domain> is the control panel and EVERY other first label
+        # is a show name, served directly at <show>.<domain> (e.g.
+        # lightshow.example.com) — no path segment, no wildcard DNS, one A record
+        # per host. Leave HOSTNAME_PARTS at the count of labels in your base
+        # domain (2 for example.com). This is independent of the path-routed mode
+        # below; set one or the other, not both.
+        CONTROL_PANEL_SUBDOMAIN: ${CONTROL_PANEL_SUBDOMAIN:-}
         # Path-routed self-host (issue #151). Set both to run the control panel
         # and viewers on two fixed hosts instead of per-show subdomains, e.g.
         #   CONTROL_HOST=control.example.com  VIEWER_HOST=lightshow.example.com
