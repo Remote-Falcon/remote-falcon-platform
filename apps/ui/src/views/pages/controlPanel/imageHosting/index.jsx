@@ -42,6 +42,7 @@ const ImageHosting = () => {
 
   const [showLinearProgress, setShowLinearProgress] = useState(false);
   const [images, setImages] = useState([]);
+  const [loadError, setLoadError] = useState(false);
 
   const baseStyle = {
     flex: 1,
@@ -73,16 +74,24 @@ const ImageHosting = () => {
 
   const getImages = useCallback(async () => {
     setShowLinearProgress(true);
+    setLoadError(false);
     await getImagesService()
       .then((response) => {
         if (response.status === 200) {
           setImages(response.data);
         } else {
+          setLoadError(true);
           showAlert(dispatch, { alert: 'error', message: 'Failed to get images' });
         }
       })
-      .finally(() => setShowLinearProgress(false))
-      .catch(() => setShowLinearProgress(false));
+      // Surface load failures instead of swallowing them — a failed fetch
+      // here is otherwise indistinguishable from "you have no images", which
+      // hid a full backend outage from users and support alike.
+      .catch(() => {
+        setLoadError(true);
+        showAlert(dispatch, { alert: 'error', message: 'Failed to load images. Please try again.' });
+      })
+      .finally(() => setShowLinearProgress(false));
   }, [dispatch]);
 
   const deleteImage = async (imageName) => {
@@ -188,14 +197,22 @@ const ImageHosting = () => {
                   <p>Drag image here or click to select (1MB limit)</p>
                 </div>
               </Stack>
-              {!showLinearProgress && images.length === 0 ? (
+              {!showLinearProgress && loadError ? (
+                <EmptyState
+                  icon={<IconPhotoUp size={32} stroke={1.5} />}
+                  title="Couldn't load your images"
+                  description="Something went wrong fetching your hosted images. This is usually temporary — try again."
+                  cta={{ label: 'Retry', onClick: getImages }}
+                />
+              ) : null}
+              {!showLinearProgress && !loadError && images.length === 0 ? (
                 <EmptyState
                   icon={<IconPhotoUp size={32} stroke={1.5} />}
                   title="No images uploaded yet"
                   description="Drop an image into the area above (or click to browse) to host it on Remote Falcon. Up to 1MB per image."
                 />
               ) : null}
-              <TableContainer sx={{ display: images.length === 0 ? 'none' : 'block' }}>
+              <TableContainer sx={{ display: images.length === 0 || loadError ? 'none' : 'block' }}>
                 <Table size="small" aria-label="collapsible table">
                   <TableHead sx={{ '& th,& td': { whiteSpace: 'nowrap' } }}>
                     <TableRow>
