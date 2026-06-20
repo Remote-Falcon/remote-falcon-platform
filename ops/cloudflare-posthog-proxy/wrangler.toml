@@ -1,0 +1,10 @@
+name = "remote-falcon-posthog-proxy"
+main = "src/index.js"
+compatibility_date = "2026-06-20"
+
+# Only /rf-relay/* on the prod zone hits this Worker; every other path on
+# remotefalcon.com still goes to the k8s origin. If you pick a different path,
+# change BOTH this pattern and PREFIX in src/index.js.
+routes = [
+  { pattern = "remotefalcon.com/rf-relay/*", zone_name = "remotefalcon.com" }
+]

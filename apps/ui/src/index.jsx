@@ -47,14 +47,17 @@ if (missingEnv.length > 0) {
   throw new Error(message);
 }
 
-// Direct PostHog hosts. The previous same-origin /ingest reverse proxy
-// (commit 14404bf) was removed because the cluster admin disabled the
-// nginx.ingress configuration-snippet annotation used to implement it.
-// Tradeoff: the ~25-30% of users on ad blockers / DNS filters that block
-// us.i.posthog.com will silently drop events. A snippet-free proxy is
-// tracked in issue #130 for follow-up.
+// Same-origin PostHog ingest via a Cloudflare Worker on
+// remotefalcon.com/rf-relay (issue #130). Routing through our own origin
+// instead of us.i.posthog.com dodges the ad-blockers / DNS filters that block
+// *.posthog.com and were silently dropping ~25-30% of events. The Worker
+// proxies /rf-relay/static/* to us-assets and everything else to
+// us-proxy-direct (which preserves the real client IP for geo). ui_host stays
+// the PostHog host — it only affects links like get_session_replay_url().
+// Requires the Worker to be live (see docs/OBSERVABILITY-PLAN.md); reverting
+// api_host to https://us.i.posthog.com is the rollback.
 const posthogOptions = {
-  api_host: 'https://us.i.posthog.com',
+  api_host: 'https://remotefalcon.com/rf-relay',
   ui_host: 'https://us.posthog.com',
   person_profiles: 'identified_only',
   // Capture unhandled errors + promise rejections as $exception events.
