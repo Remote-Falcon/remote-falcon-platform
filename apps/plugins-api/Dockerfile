@@ -5,8 +5,10 @@
 # libs/schema (the shared MongoDB entity model) can be installed into a
 # Maven repo cache before the Quarkus/Gradle build resolves it.
 
-# Stage 0: build libs/schema using a Maven-equipped base image.
-FROM maven:3-eclipse-temurin-17 AS schema-build
+# Stage 0: build libs/schema using a Maven-equipped base image (JDK 21 — the
+# Oracle GraalVM service image below has no Maven; lombok 1.18.34 in
+# libs/schema/pom.xml lets the schema compile on 21 — #119).
+FROM maven:3-eclipse-temurin-21 AS schema-build
 WORKDIR /lib
 COPY libs/schema/pom.xml .
 COPY libs/schema/src ./src

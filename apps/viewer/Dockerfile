@@ -6,10 +6,11 @@
 # Maven repo cache before the Quarkus/Gradle build resolves it.
 
 # Stage 0: build libs/schema using a Maven-equipped base image.
-# The schema is a Maven project; the GraalVM image used for the service
-# build doesn't ship Maven by default, so we isolate the install here and
-# carry forward only the resulting .m2 cache.
-FROM maven:3-eclipse-temurin-17 AS schema-build
+# The schema is a Maven project; the Oracle GraalVM image used for the service
+# build doesn't ship Maven, so we isolate the install here and carry forward
+# only the resulting .m2 cache. JDK 21 (the lombok 1.18.34 override in
+# libs/schema/pom.xml lets it compile on 21 — #119).
+FROM maven:3-eclipse-temurin-21 AS schema-build
 WORKDIR /lib
 COPY libs/schema/pom.xml .
 COPY libs/schema/src ./src

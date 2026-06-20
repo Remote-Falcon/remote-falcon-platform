@@ -2,51 +2,38 @@
 # Dockerfile path: apps/external-api/Dockerfile
 #
 # This Dockerfile expects the build context to be the monorepo root so that
-# libs/schema (the shared MongoDB entity model) can be installed into a
-# Maven repo cache before the GraalVM native build resolves it.
+# libs/schema (the shared MongoDB entity model), libs/test-fixtures and
+# libs/auth can be installed into a Maven repo cache before the GraalVM
+# native build resolves them.
 
-# Stage 0: build libs/schema on JDK 17 (matches its <java.version>17</java.version>).
-# Why a separate stage: the schema lib inherits Lombok via spring-boot-starter-parent
-# 3.1.0, which doesn't support JDK 21's compiler internals (JCImport.qualid changed).
-# Building on JDK 17 avoids the issue without bumping Lombok org-wide.
-FROM maven:3-eclipse-temurin-17 AS schema-build
-WORKDIR /lib
-COPY libs/schema/pom.xml .
-COPY libs/schema/src ./src
-RUN mvn install -DskipTests -B
-
-# Stage 0b: build libs/auth on the same JDK 17. Added 2026-05-24 for PR-B
-# of the RFPB integration — external-api consumes LaunchTokenVerifier
-# from this module on POST /v1/sessions/exchange.
-FROM maven:3-eclipse-temurin-17 AS auth-build
-WORKDIR /lib
-COPY libs/auth/pom.xml .
-COPY libs/auth/src ./src
-RUN mvn install -DskipTests -B
-
-# Stage 0c: build libs/test-fixtures on the same JDK 17. external-api's pom.xml
-# declares it as a test-scope dep. Even with -Dmaven.test.skip=true, Maven still
-# resolves the full dep tree at build time and fails if test-fixtures isn't
-# reachable in mavenLocal. Without this stage the native build fails with:
-#   "Could not find artifact com.remotefalcon:remote-falcon-test-fixtures:
-#    jar:1.0.0-LOCAL in central"
-# Previously masked by GHA's Docker layer cache; surfaced when the cache
-# rotated. Mirrors the same stage in apps/control-panel/Dockerfile.
-FROM maven:3-eclipse-temurin-17 AS test-fixtures-build
-WORKDIR /lib
-COPY --from=schema-build /root/.m2/repository /root/.m2/repository
-COPY libs/test-fixtures/pom.xml .
-COPY libs/test-fixtures/src ./src
-RUN mvn install -DskipTests -B
-
-# Stage 1: GraalVM 21 native build for the service, inheriting the schema +
-# auth + test-fixtures jars from mavenLocal.
+# Single build stage: GraalVM 21. Maven is installed here, the three shared
+# libs are built into mavenLocal, then the service native image is built.
+#
+# History (#119): the shared libs used to be built in separate
+# maven:3-eclipse-temurin-17 stages because spring-boot-starter-parent 3.1.0
+# pulled a Lombok that couldn't compile under JDK 21 (JCImport.qualid). The
+# lombok 1.18.34 override in libs/schema/pom.xml resolves that, so the libs now
+# compile on JDK 21 and build in-place here, on the same JDK 21 that already
+# has Maven for the service build.
 FROM ghcr.io/graalvm/native-image-community:21 AS build
 WORKDIR /usr/src/app
 RUN microdnf install -y maven && microdnf clean all
-COPY --from=schema-build /root/.m2/repository /root/.m2/repository
-COPY --from=auth-build /root/.m2/repository /root/.m2/repository
-COPY --from=test-fixtures-build /root/.m2/repository /root/.m2/repository
+
+# Build the shared libs into mavenLocal (JDK 21). Order matters: test-fixtures
+# depends on schema. external-api declares test-fixtures as a test-scope dep,
+# so Maven resolves the full tree even with -DskipTests and all three must be
+# present in mavenLocal (otherwise the native build fails resolving
+# remote-falcon-test-fixtures:jar:1.0.0-LOCAL).
+COPY libs/schema/pom.xml libs/schema/pom.xml
+COPY libs/schema/src libs/schema/src
+RUN mvn -f libs/schema/pom.xml install -DskipTests -B
+COPY libs/test-fixtures/pom.xml libs/test-fixtures/pom.xml
+COPY libs/test-fixtures/src libs/test-fixtures/src
+RUN mvn -f libs/test-fixtures/pom.xml install -DskipTests -B
+COPY libs/auth/pom.xml libs/auth/pom.xml
+COPY libs/auth/src libs/auth/src
+RUN mvn -f libs/auth/pom.xml install -DskipTests -B
+
 COPY apps/external-api/pom.xml .
 COPY apps/external-api/src ./src
 RUN mvn -Pnative -DskipTests package

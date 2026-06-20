@@ -202,7 +202,7 @@ These repos do not deploy to the production cluster on their own, but they ship 
 | | |
 |---|---|
 | **Purpose** | Shared MongoDB document/entity models, enums, and notification types — the canonical schema for `Show`, `Wattson`, `Notification`, etc. |
-| **Stack** | Maven, Java 17, Spring Data MongoDB **and** Quarkus Panache (dual-stack: parallel `documents/*.java` and `quarkus/entity/*.java` packages cover the same types) |
+| **Stack** | Maven, Java 17 bytecode target (builds on JDK 21 — `lombok 1.18.34` override unblocks the JDK-21 compiler; #119 removed the separate temurin-17 build stages), Spring Data MongoDB **and** Quarkus Panache (dual-stack: parallel `documents/*.java` and `quarkus/entity/*.java` packages cover the same types) |
 | **Distribution** | JitPack — `com.github.Remote-Falcon:remote-falcon-library:<git-sha>` |
 | **Currently pinned at** | `a5703a28fe` (2025-09-19, "Add Wattson entity for MongoDB integration") — current `master` HEAD; all 5 Java services are on this same SHA |
 | **Consumed by** | `control-panel` (pom), `external-api` (pom), `viewer` (gradle), `plugins-api` (gradle), `account-archive` (gradle) — **5 of the 8 services** |
