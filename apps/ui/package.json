@@ -40,6 +40,7 @@
     "moment-timezone": "^0.5.46",
     "posthog-js": "^1.374.2",
     "prop-types": "^15.8.1",
+    "qr-code-styling": "^1.9.2",
     "react": "^18.3.1",
     "react-apexcharts": "^1.4.0",
     "react-dom": "^18.3.1",

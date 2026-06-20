@@ -14,6 +14,7 @@ import {
   IconMap,
   IconPalette,
   IconPlaylist,
+  IconQrcode,
   IconUserCog
 } from '@tabler/icons-react';
 import { FormattedMessage } from 'react-intl';
@@ -67,6 +68,14 @@ const showGroup = {
       type: 'item',
       url: '/control-panel/viewer-page-templates',
       icon: IconPalette,
+      breadcrumbs: false
+    },
+    {
+      id: 'qr-code',
+      title: 'QR Code',
+      type: 'item',
+      url: '/control-panel/qr-code',
+      icon: IconQrcode,
       breadcrumbs: false
     }
   ]

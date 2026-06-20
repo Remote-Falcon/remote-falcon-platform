@@ -48,6 +48,8 @@ const SendNotification = Loadable(lazy(() => import('../views/pages/controlPanel
 
 const ImageHosting = Loadable(lazy(() => import('../views/pages/controlPanel/imageHosting')));
 
+const QrCode = Loadable(lazy(() => import('../views/pages/controlPanel/qrCode')));
+
 const MainRoutes = {
   path: '/',
   element: (
@@ -96,6 +98,10 @@ const MainRoutes = {
     {
       path: '/control-panel/image-hosting',
       element: <ImageHosting />
+    },
+    {
+      path: '/control-panel/qr-code',
+      element: <QrCode />
     },
     {
       path: '/control-panel/viewer-page',
