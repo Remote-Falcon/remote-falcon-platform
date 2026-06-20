@@ -249,8 +249,70 @@ Implementation runs as a single ~2-week stretch, ideally sequenced before the 8�
 
 ---
 
+## Same-origin PostHog ingest (#130)
+
+**Decision (2026-06-20): Option A — same-origin proxy via a Cloudflare Worker.**
+
+### Background
+The original same-origin proxy was an nginx-ingress `configuration-snippet`
+annotation. That annotation is a cluster-wide security risk; the cluster admin
+disabled `allow-snippet-annotations` and it was removed. Since then `posthog-js`
+posts directly to `us.i.posthog.com`, so **~25-30% of events are dropped** by
+ad-blockers / DNS filters that block `*.posthog.com` (uBlock, Pi-hole, etc.) —
+`apps/ui/src/index.jsx` documents this loss. We're already fronted by
+Cloudflare, so the clean recovery is a **Cloudflare Worker** reverse proxy
+(works on any CF plan; the DNS+Page-Rules method needs Enterprise).
+
+### Cloudflare side (outside this repo — apply in the Cloudflare dashboard)
+Deploy a Worker (start from PostHog's official
+[Cloudflare Worker](https://posthog.com/docs/advanced/proxy/cloudflare#option-1-cloudflare-workers))
+on a route `remotefalcon.com/<path>/*`, routing:
+
+| Incoming | Upstream | Why |
+|---|---|---|
+| `/<path>/static/*` | `https://us-assets.i.posthog.com/static/*` | SDK assets (`array.js`, the replay recorder) live on the **assets** host |
+| `/<path>/*` (everything else) | `https://us-proxy-direct.i.posthog.com/*` | events, `/flags`, `/decide`, `/s` (replay). The `-proxy-direct` host makes PostHog use the **forwarded client IP** for geo — plain `us.i.posthog.com` records Cloudflare's edge IP and breaks PostHog geo/web-analytics, which matters since RF leans on location data |
+
+- The Worker must set CORS headers (`Access-Control-Allow-Origin` for the
+  request origin) — missing CORS is the #1 setup failure.
+- **Pick a non-obvious `<path>`.** Do NOT reuse `/ingest` (PostHog's default —
+  increasingly on blocklists) or `/analytics`/`/tracking`/`/posthog`. Use
+  something app-specific and unguessable, or the exercise only partially
+  recovers events.
+
+### Repo side (one-line UI change — gated on the Worker being live)
+In `apps/ui/src/index.jsx` `posthogOptions`:
+```js
+api_host: 'https://remotefalcon.com/<path>',   // was https://us.i.posthog.com
+ui_host:  'https://us.posthog.com',            // unchanged — needed for replay/session URLs
+```
+`api_host` is **baked into the bundle at build time**, so this needs a UI
+rebuild + deploy to take effect.
+
+### ⚠️ Sequencing — do not get this wrong
+1. Deploy the Worker and **verify** it proxies: `curl https://remotefalcon.com/<path>/static/array.js` → 200 JS; POST a test event → 200; confirm PostHog ingests it.
+2. **Only then** merge the `api_host` UI change and rebuild.
+
+If the UI ships pointing at `/<path>` before the Worker exists, every event
+POSTs to a 404 → **100% loss** (worse than today's 25-30%). Rollback is the
+inverse: revert `api_host` to `https://us.i.posthog.com` + rebuild.
+
+### Verify after cutover
+- DevTools Network: PostHog requests go to `remotefalcon.com/<path>/…` and return 200 (not blocked).
+- Feature flags resolve and session replay records (`/flags`,`/decide`,`/s` route correctly).
+- PostHog web-analytics country/region breakdown stays accurate (confirms the `us-proxy-direct` client-IP passthrough).
+- Event volume steps up ~25-30% vs the pre-cutover baseline (the recovered ad-blocked traffic).
+
+### Cost note
+Every proxied event, replay chunk, and flag poll counts toward Cloudflare
+Workers' request quota (free tier 100k req/day). Session replay (1–5 MB/session)
+is the big driver — watch usage on high-traffic show nights.
+
+---
+
 ## Change log
 
 | Date | Change | By |
 |---|---|---|
 | 2026-04-27 | Initial plan drafted | Matt + Claude session |
+| 2026-06-20 | #130 decided: same-origin PostHog ingest via a Cloudflare Worker (Option A). Runbook + sequencing above; UI `api_host` change is gated on the Worker going live. | Matt + Claude session |
