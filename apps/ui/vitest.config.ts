@@ -8,6 +8,11 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
     include: ['src/**/*.{test,spec}.{ts,tsx,js,jsx}'],
+    // The full suite runs ~65s on a loaded CI runner (import alone ~50s),
+    // which leaves vitest's 5s per-test default with almost no headroom —
+    // a single user-interaction test tipped past it and gated a deploy.
+    // 15s gives genuine margin without masking real hangs.
+    testTimeout: 15000,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html', 'lcov'],

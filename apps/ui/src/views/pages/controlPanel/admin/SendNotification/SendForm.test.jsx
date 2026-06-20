@@ -68,13 +68,16 @@ describe('SendForm validation', () => {
     const user = userEvent.setup({ delay: null });
     renderForm();
 
-    // 81 chars — MUI's inputProps maxLength is 80, so we need to bypass
-    // it. Type 80 valid chars first, then assert: the cap stops the
-    // user from going past 80, so the gate enforces validity by
-    // construction. Verify the 80-char ceiling holds the button enabled
-    // and the field shows the counter at 80/80.
-    const longSubject = 'a'.repeat(80);
-    await typeInField(user, /^subject$/i, longSubject);
+    // MUI's inputProps maxLength is 80. Fill the subject to the ceiling,
+    // then assert: the cap stops the user from going past 80, so the gate
+    // enforces validity by construction. Verify the 80-char ceiling holds
+    // the button enabled and the field shows the counter at 80/80.
+    // Paste rather than type the long string — typing 80 chars one
+    // keystroke at a time pushes this test past the 5s timeout on a
+    // loaded CI runner (same reason the 1000-char case below pastes).
+    const subjectField = screen.getByLabelText(/^subject$/i);
+    await user.click(subjectField);
+    await user.paste('a'.repeat(80));
     await typeInField(user, /^preview$/i, 'A preview');
     await typeInField(user, /^message$/i, 'A message');
 
