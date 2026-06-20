@@ -19,12 +19,16 @@ export default defineConfig({
         'src/main.jsx',
         'src/**/*.d.ts',
       ],
-      // Sprint 3 floor: lines ratcheted to 30% based on actual coverage
-      // (current: ~31% lines, ~75% branches, ~60% funcs, ~31% statements).
-      // Functions/branches/statements kept at 0% — they'll ratchet in a
-      // follow-up once we're confident the lines gate is sticky in CI.
+      // Ratchet floor. vitest 4 made v8 AST-aware remapping
+      // (ast-v8-to-istanbul) the default; it counts coverage more
+      // conservatively than vitest 3's raw v8 mapping, so the SAME tests now
+      // report ~23.8% lines (was ~31% under vitest 3 — see the bump in #150).
+      // Floor re-based 30 -> 22 to match the new measurement; this is a
+      // counting change, not a coverage regression. #152 ratchets it back up
+      // as real tests are added. Functions/branches/statements stay at 0
+      // pending that work.
       thresholds: {
-        lines: 30,
+        lines: 22,
         functions: 0,
         branches: 0,
         statements: 0,

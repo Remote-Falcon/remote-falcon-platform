@@ -31,7 +31,10 @@ const renderForm = (props = {}) =>
 const getSendButton = () => screen.getByRole('button', { name: /send notification/i });
 
 // Type-by-typing simulates real user behaviour and triggers MUI's
-// internal onChange wiring more reliably than fireEvent.change.
+// internal onChange wiring more reliably than fireEvent.change. Callers
+// build `user` with userEvent.setup({ delay: null }) so the long-string
+// cases (80/1000-char limits) type instantly — without the inter-keystroke
+// delay they'd exceed the 5s test timeout under vitest 4 / jsdom 29.
 const typeInField = async (user, label, value) => {
   const field = screen.getByLabelText(label);
   // Clear in case of any default text, then type.
@@ -51,7 +54,7 @@ describe('SendForm validation', () => {
   });
 
   it('enables the Send button when subject, preview, and message are all filled', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderForm();
 
     await typeInField(user, /^subject$/i, 'A subject');
@@ -62,7 +65,7 @@ describe('SendForm validation', () => {
   });
 
   it('disables the Send button when subject exceeds the 80-char limit', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderForm();
 
     // 81 chars — MUI's inputProps maxLength is 80, so we need to bypass
@@ -86,7 +89,7 @@ describe('SendForm validation', () => {
   });
 
   it('disables the Send button when message exceeds the 1000-char limit', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderForm();
 
     await typeInField(user, /^subject$/i, 'Subject');
@@ -105,7 +108,7 @@ describe('SendForm validation', () => {
   });
 
   it('disables the Send button when link is not a valid URL', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderForm();
 
     await typeInField(user, /^subject$/i, 'Subject');
@@ -122,7 +125,7 @@ describe('SendForm validation', () => {
   });
 
   it('enables the Send button when link is a valid URL', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderForm();
 
     await typeInField(user, /^subject$/i, 'Subject');
