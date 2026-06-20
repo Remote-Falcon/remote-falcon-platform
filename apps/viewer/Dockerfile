@@ -24,9 +24,6 @@ COPY apps/viewer/. .
 RUN sed -i 's/\r$//' ./gradlew
 RUN chmod +x ./gradlew
 
-ARG MONGO_URI
-ENV MONGO_URI=${MONGO_URI}
-
 RUN ./gradlew clean build -x test -Dquarkus.native.enabled=true \
   -Dquarkus.package.jar.enabled=false \
   -Dquarkus.native.container-build=false \
@@ -38,9 +35,6 @@ FROM registry.access.redhat.com/ubi9/ubi-minimal:9.2
 WORKDIR /app
 RUN chown 1001 /app && chmod "g+rwX" /app && chown 1001:root /app
 COPY --from=build --chown=1001:root /app/build/*-runner /app/application
-
-ARG MONGO_URI
-ENV MONGO_URI=${MONGO_URI}
 
 ENV DD_SERVICE=remote-falcon-viewer
 ENV DD_ENV=prod

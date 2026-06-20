@@ -380,8 +380,8 @@ jobs:
           build-args: |
             OTEL_OPTS=
 
-      - name: Build and push (Quarkus services with Mongo build-arg)
-        if: contains(fromJSON('["viewer","plugins-api","mongo-backup","account-archive"]'), matrix.service)
+      - name: Build and push (native services)
+        if: contains(fromJSON('["control-panel","external-api","viewer","plugins-api","mongo-backup","account-archive"]'), matrix.service)
         uses: docker/build-push-action@v6
         with:
           context: ${{ steps.cfg.outputs.context }}
@@ -390,24 +390,13 @@ jobs:
           tags: ${{ steps.cfg.outputs.image }}
           cache-from: ${{ steps.cfg.outputs.cache_from }}
           cache-to: ${{ steps.cfg.outputs.cache_to }}
-          # OTEL_URI used to be baked in here from a build-time secret.
-          # That secret holds a stale value (a now-dead IP) and the
-          # runtime override via k8s env (PR #36) plus the application.properties
-          # default ($OTEL_URI:http://otel-collector:4317) cover every
-          # deploy mode. Build-arg dropped; org secret can be deleted.
-          build-args: |
-            MONGO_URI=${{ secrets.MONGO_URI }}
-
-      - name: Build and push (Spring native services without build-args)
-        if: contains(fromJSON('["control-panel","external-api"]'), matrix.service)
-        uses: docker/build-push-action@v6
-        with:
-          context: ${{ steps.cfg.outputs.context }}
-          file: ${{ steps.cfg.outputs.context }}/${{ steps.cfg.outputs.dockerfile }}
-          push: true
-          tags: ${{ steps.cfg.outputs.image }}
-          cache-from: ${{ steps.cfg.outputs.cache_from }}
-          cache-to: ${{ steps.cfg.outputs.cache_to }}
+          # No build-args. MONGO_URI (and earlier OTEL_URI) were baked in here
+          # from build-time secrets, but every native service reads them from
+          # the k8s secretKeyRef / env at runtime, which overrides any baked
+          # value — and baking a credentialed URI into an image layer is a leak
+          # risk. Build-args dropped (#116); this collapses the former separate
+          # Quarkus/Spring build steps into one. The GitHub Actions MONGO_URI +
+          # OTEL_URI org secrets are now unused here and can be deleted.
 
   # ---------------------------------------------------------------
   # deploy — roll out each changed service's already-pushed image
