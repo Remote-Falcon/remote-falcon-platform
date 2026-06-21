@@ -59,6 +59,7 @@ after flipping show mode.)
 | 12 | `image-hosting` | `apps/ui/src/views/pages/controlPanel/imageHosting/index.jsx` | outer `<Box>` | `image-hosting-root` |
 | 13 | `shows-map` | `apps/ui/src/views/pages/controlPanel/showsMap/index.jsx` | outer `<Box>` | `shows-map-root` |
 | 14 | `viewer-page` | `apps/ui/src/views/pages/controlPanel/viewerPage/index.jsx` | outer `<Box>` | `viewer-page-root` |
+| 15 | `qr-code` | `apps/ui/src/views/pages/controlPanel/qrCode/index.jsx` | outer `<Box>` | `qr-code-root` |
 
 ### Notes per row
 
@@ -110,6 +111,15 @@ shells.
 For Shows Map (#13) to render with a pin instead of the opt-in CTA, the
 docs-screenshots seed sets `preferences.showOnMap: true` plus a realistic
 `showLatitude` / `showLongitude` (see Appendix A.3).
+
+## QR Code — new shot added 2026-06-20
+
+Shot 15 (`qr-code`) covers the QR Code generator page added in #93. It's a
+full-page capture anchored on the outer `<Box>`'s `qr-code-root` testid. The
+page is entirely client-side; the spec additionally waits for the rendered
+`<canvas>` inside `qr-code-root` before capturing so the shot never catches
+the pre-hydration "show URL unavailable" empty state. No extra seed state is
+required beyond an authenticated show with a resolvable public URL.
 
 ## Cross-reference
 
