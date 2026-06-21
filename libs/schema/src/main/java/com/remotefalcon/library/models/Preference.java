@@ -30,6 +30,7 @@ public class Preference {
     private Boolean psaEnabled;
     private Integer psaFrequency;
     private Integer jukeboxRequestLimit;
+    private Integer dailyVoteLimit;
     private Integer locationCode;
     private Integer hideSequenceCount;
     private Boolean makeItSnow;
