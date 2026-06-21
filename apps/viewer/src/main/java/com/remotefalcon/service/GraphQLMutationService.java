@@ -1,7 +1,6 @@
 package com.remotefalcon.service;
 
 import com.remotefalcon.exception.CustomGraphQLExceptionResolver;
-import com.remotefalcon.library.enums.LocationCheckMethod;
 import com.remotefalcon.library.enums.StatusResponse;
 import com.remotefalcon.library.models.*;
 import com.remotefalcon.library.quarkus.entity.Show;
@@ -9,14 +8,21 @@ import com.remotefalcon.library.util.PluginQueueHelper;
 import com.remotefalcon.metrics.ViewerMetrics;
 import com.remotefalcon.repository.ShowRepository;
 import com.remotefalcon.repository.VoteEventRepository;
+import com.remotefalcon.rules.AlreadyRequestedRule;
+import com.remotefalcon.rules.AlreadyVotedRule;
+import com.remotefalcon.rules.BlockedIpRule;
+import com.remotefalcon.rules.Decision;
+import com.remotefalcon.rules.EvaluationContext;
+import com.remotefalcon.rules.GeofenceRule;
+import com.remotefalcon.rules.QueueFullRule;
+import com.remotefalcon.rules.Rule;
+import com.remotefalcon.rules.RuleChain;
 import com.remotefalcon.util.ClientUtil;
-import com.remotefalcon.util.LocationUtil;
 import io.vertx.ext.web.RoutingContext;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import lombok.extern.jbosslog.JBossLog;
 import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.lang3.BooleanUtils;
 import org.apache.commons.lang3.StringUtils;
 
 import java.time.LocalDate;
@@ -40,6 +46,14 @@ public class GraphQLMutationService {
 
   @Inject
   ViewerMetrics viewerMetrics;
+
+  // PRD-009 ADR-4 — ordered enforcement chains. Vote and request share the
+  // blocked-IP and geofence rules; the per-voter / queue rules differ. First
+  // DENY short-circuits (see RuleChain).
+  private static final List<Rule> VOTE_RULES = List.of(
+      new BlockedIpRule(), new AlreadyVotedRule(), new GeofenceRule());
+  private static final List<Rule> REQUEST_RULES = List.of(
+      new BlockedIpRule(), new AlreadyRequestedRule(), new QueueFullRule(), new GeofenceRule());
 
   public Boolean insertViewerPageStats(String showSubdomain, LocalDateTime date, String viewerId) {
     String clientIp = ClientUtil.getClientIP(context);
@@ -142,21 +156,11 @@ public class GraphQLMutationService {
         log.errorf("Client IP not found or empty in addSequenceToQueue: showSubdomain=%s, name=%s", showSubdomain, name);
         throw new CustomGraphQLExceptionResolver(StatusResponse.UNEXPECTED_ERROR.name());
       }
-      if (this.isIpBlocked(clientIp, show.get())) {
-        this.logRejectedRequest(showSubdomain, name, viewerId, StatusResponse.NAUGHTY.name());
-        throw new CustomGraphQLExceptionResolver(StatusResponse.NAUGHTY.name());
-      }
-      if (this.hasViewerRequested(show.get(), clientIp)) {
-        this.logRejectedRequest(showSubdomain, name, viewerId, StatusResponse.ALREADY_REQUESTED.name());
-        throw new CustomGraphQLExceptionResolver(StatusResponse.ALREADY_REQUESTED.name());
-      }
-      if (this.isQueueFull(existingShow)) {
-        this.logRejectedRequest(showSubdomain, name, viewerId, StatusResponse.QUEUE_FULL.name());
-        throw new CustomGraphQLExceptionResolver(StatusResponse.QUEUE_FULL.name());
-      }
-      if (!this.isViewerPresent(existingShow, latitude, longitude)) {
-        this.logRejectedRequest(showSubdomain, name, viewerId, StatusResponse.INVALID_LOCATION.name());
-        throw new CustomGraphQLExceptionResolver(StatusResponse.INVALID_LOCATION.name());
+      Decision decision = RuleChain.firstDenial(REQUEST_RULES,
+          new EvaluationContext(existingShow, clientIp, viewerId, latitude, longitude));
+      if (decision.denied()) {
+        this.logRejectedRequest(showSubdomain, name, viewerId, decision.reason());
+        throw new CustomGraphQLExceptionResolver(decision.reason());
       }
       Optional<Sequence> requestedSequence = show.get().getSequences().stream()
           .filter(seq -> StringUtils.equalsIgnoreCase(seq.getName(), name))
@@ -324,14 +328,10 @@ public class GraphQLMutationService {
         log.errorf("Client IP not found or empty in voteForSequence: showSubdomain=%s, name=%s", showSubdomain, name);
         throw new CustomGraphQLExceptionResolver(StatusResponse.UNEXPECTED_ERROR.name());
       }
-      if (this.isIpBlocked(clientIp, existingShow)) {
-        throw new CustomGraphQLExceptionResolver(StatusResponse.NAUGHTY.name());
-      }
-      if (this.hasViewerVoted(existingShow, clientIp)) {
-        throw new CustomGraphQLExceptionResolver(StatusResponse.ALREADY_VOTED.name());
-      }
-      if (!this.isViewerPresent(existingShow, latitude, longitude)) {
-        throw new CustomGraphQLExceptionResolver(StatusResponse.INVALID_LOCATION.name());
+      Decision decision = RuleChain.firstDenial(VOTE_RULES,
+          new EvaluationContext(existingShow, clientIp, viewerId, latitude, longitude));
+      if (decision.denied()) {
+        throw new CustomGraphQLExceptionResolver(decision.reason());
       }
       Optional<Sequence> requestedSequence = existingShow.getSequences().stream()
           .filter(seq -> StringUtils.equalsIgnoreCase(seq.getName(), name))
@@ -379,63 +379,6 @@ public class GraphQLMutationService {
     } catch (Exception e) {
       log.warnf("recordVoteEvent failed for showSubdomain=%s: %s", show.getShowSubdomain(), e.getMessage());
     }
-  }
-
-  private boolean isIpBlocked(String ipAddress, Show show) {
-    if (CollectionUtils.isNotEmpty(show.getPreferences().getBlockedViewerIps())) {
-      return show.getPreferences().getBlockedViewerIps().contains(ipAddress);
-    }
-    return false;
-  }
-
-  private Boolean hasViewerRequested(Show show, String ipAddress) {
-    if (BooleanUtils.isTrue(show.getPreferences().getCheckIfRequested())) {
-      return show.getRequests().stream()
-          .anyMatch(request -> StringUtils.equalsIgnoreCase(ipAddress, request.getViewerRequested()));
-    }
-    return false;
-  }
-
-  private Boolean hasViewerVoted(Show show, String ipAddress) {
-    if (BooleanUtils.isTrue(show.getPreferences().getCheckIfVoted())) {
-      return show.getVotes().stream().anyMatch(vote -> vote.getViewersVoted().contains(ipAddress));
-    }
-    return false;
-  }
-
-  private Boolean isQueueFull(Show show) {
-    // PSA-v2 Q3 (#49) — count only viewer-initiated requests against
-    // jukeboxDepth. PSAs and leader sequences (operator-policy injects)
-    // bypass the cap entirely: they're not viewer demand and shouldn't
-    // compete with viewers for the slots the setting is meant to govern.
-    // Previous behavior counted everything in the requests array, which
-    // silently halved viewer capacity at steady state when PSAs were
-    // interleaved (e.g., jukeboxDepth=5 + psaFrequency=3 produced ~2
-    // PSAs + ~3 viewer slots).
-    if (show.getPreferences().getJukeboxDepth() == null
-        || show.getPreferences().getJukeboxDepth() == 0) {
-      return false;
-    }
-    return PluginQueueHelper.countViewerRequests(show) >= show.getPreferences().getJukeboxDepth();
-  }
-
-  private Boolean isViewerPresent(Show show, Float latitude, Float longitude) {
-    if (show.getPreferences().getLocationCheckMethod() == LocationCheckMethod.GEO) {
-      if (latitude == null || longitude == null) {
-        return false;
-      }
-      if (show.getPreferences().getAllowedRadius() == null) {
-        log.errorf("GPS check enabled but allowedRadius is null for show: %s", show.getShowSubdomain());
-        return false;
-      }
-      Double distance = LocationUtil.asTheCrowFlies(
-          show.getPreferences().getShowLatitude(),
-          show.getPreferences().getShowLongitude(),
-          latitude,
-          longitude);
-      return distance <= show.getPreferences().getAllowedRadius();
-    }
-    return true;
   }
 
   // V15 — log a refused addSequenceToQueue attempt for the conversion funnel.
