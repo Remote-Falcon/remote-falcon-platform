@@ -55,6 +55,8 @@ export const SIGN_IN = gql`
         showOnMap
         selfHostedRedirectUrl
         blockedViewerIps
+        dailyVoteLimit
+        votingExemptIps
         notificationPreferences {
           enableFppHeartbeat
           fppHeartbeatIfControlEnabled
@@ -185,6 +187,8 @@ export const GET_SHOW = gql`
         showOnMap
         selfHostedRedirectUrl
         blockedViewerIps
+        dailyVoteLimit
+        votingExemptIps
         notificationPreferences {
           enableFppHeartbeat
           fppHeartbeatIfControlEnabled
