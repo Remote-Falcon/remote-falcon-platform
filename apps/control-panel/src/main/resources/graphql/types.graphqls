@@ -67,6 +67,7 @@ type Preference {
     psaEnabled: Boolean
     psaFrequency: Int
     jukeboxRequestLimit: Int
+    dailyVoteLimit: Int
     locationCode: Int
     hideSequenceCount: Int
     makeItSnow: Boolean

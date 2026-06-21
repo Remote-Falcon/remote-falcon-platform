@@ -11,6 +11,7 @@ import com.remotefalcon.repository.VoteEventRepository;
 import com.remotefalcon.rules.AlreadyRequestedRule;
 import com.remotefalcon.rules.AlreadyVotedRule;
 import com.remotefalcon.rules.BlockedIpRule;
+import com.remotefalcon.rules.DailyVoteLimitRule;
 import com.remotefalcon.rules.Decision;
 import com.remotefalcon.rules.EvaluationContext;
 import com.remotefalcon.rules.GeofenceRule;
@@ -51,7 +52,7 @@ public class GraphQLMutationService {
   // blocked-IP and geofence rules; the per-voter / queue rules differ. First
   // DENY short-circuits (see RuleChain).
   private static final List<Rule> VOTE_RULES = List.of(
-      new BlockedIpRule(), new AlreadyVotedRule(), new GeofenceRule());
+      new BlockedIpRule(), new AlreadyVotedRule(), new DailyVoteLimitRule(), new GeofenceRule());
   private static final List<Rule> REQUEST_RULES = List.of(
       new BlockedIpRule(), new AlreadyRequestedRule(), new QueueFullRule(), new GeofenceRule());
 
@@ -157,7 +158,7 @@ public class GraphQLMutationService {
         throw new CustomGraphQLExceptionResolver(StatusResponse.UNEXPECTED_ERROR.name());
       }
       Decision decision = RuleChain.firstDenial(REQUEST_RULES,
-          new EvaluationContext(existingShow, clientIp, viewerId, latitude, longitude));
+          new EvaluationContext(existingShow, clientIp, viewerId, latitude, longitude, null));
       if (decision.denied()) {
         this.logRejectedRequest(showSubdomain, name, viewerId, decision.reason());
         throw new CustomGraphQLExceptionResolver(decision.reason());
@@ -328,8 +329,14 @@ public class GraphQLMutationService {
         log.errorf("Client IP not found or empty in voteForSequence: showSubdomain=%s, name=%s", showSubdomain, name);
         throw new CustomGraphQLExceptionResolver(StatusResponse.UNEXPECTED_ERROR.name());
       }
+      // #162 — only pay for the daily-cap count read when a limit is configured,
+      // keeping the rule pure (the count is supplied via the context).
+      Integer dailyVoteLimit = existingShow.getPreferences().getDailyVoteLimit();
+      Long votesToday = (dailyVoteLimit != null && dailyVoteLimit > 0)
+          ? this.voteEventRepository.countVotesToday(existingShow.id, viewerId, clientIp)
+          : null;
       Decision decision = RuleChain.firstDenial(VOTE_RULES,
-          new EvaluationContext(existingShow, clientIp, viewerId, latitude, longitude));
+          new EvaluationContext(existingShow, clientIp, viewerId, latitude, longitude, votesToday));
       if (decision.denied()) {
         throw new CustomGraphQLExceptionResolver(decision.reason());
       }

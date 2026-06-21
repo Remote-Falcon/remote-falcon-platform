@@ -31,11 +31,15 @@ class RulesTest {
   }
 
   private static EvaluationContext ctx(Show show, String ip) {
-    return new EvaluationContext(show, ip, null, null, null);
+    return new EvaluationContext(show, ip, null, null, null, null);
   }
 
   private static EvaluationContext ctx(Show show, String ip, Float lat, Float lon) {
-    return new EvaluationContext(show, ip, null, lat, lon);
+    return new EvaluationContext(show, ip, null, lat, lon, null);
+  }
+
+  private static EvaluationContext ctxVotes(Show show, String ip, Long votesToday) {
+    return new EvaluationContext(show, ip, null, null, null, votesToday);
   }
 
   // --- BlockedIpRule -------------------------------------------------------
@@ -130,6 +134,45 @@ class RulesTest {
     Preference p = new Preference();
     p.setJukeboxDepth(0);
     assertEquals(Decision.Outcome.SKIP, new QueueFullRule().evaluate(ctx(showWith(p), "1.2.3.4")).outcome());
+  }
+
+  // --- DailyVoteLimitRule --------------------------------------------------
+
+  @Test
+  void dailyVoteLimit_skipsWhenNoLimitConfigured() {
+    Preference p = new Preference();
+    p.setDailyVoteLimit(null);
+    assertEquals(Decision.Outcome.SKIP, new DailyVoteLimitRule().evaluate(ctxVotes(showWith(p), "1.2.3.4", 7L)).outcome());
+  }
+
+  @Test
+  void dailyVoteLimit_skipsWhenLimitZero() {
+    Preference p = new Preference();
+    p.setDailyVoteLimit(0);
+    assertEquals(Decision.Outcome.SKIP, new DailyVoteLimitRule().evaluate(ctxVotes(showWith(p), "1.2.3.4", 7L)).outcome());
+  }
+
+  @Test
+  void dailyVoteLimit_skipsWhenCountNotSupplied() {
+    Preference p = new Preference();
+    p.setDailyVoteLimit(5);
+    assertEquals(Decision.Outcome.SKIP, new DailyVoteLimitRule().evaluate(ctxVotes(showWith(p), "1.2.3.4", null)).outcome());
+  }
+
+  @Test
+  void dailyVoteLimit_allowsWhenUnderLimit() {
+    Preference p = new Preference();
+    p.setDailyVoteLimit(5);
+    assertFalse(new DailyVoteLimitRule().evaluate(ctxVotes(showWith(p), "1.2.3.4", 4L)).denied());
+  }
+
+  @Test
+  void dailyVoteLimit_deniesWhenAtOrOverLimit() {
+    Preference p = new Preference();
+    p.setDailyVoteLimit(5);
+    Decision d = new DailyVoteLimitRule().evaluate(ctxVotes(showWith(p), "1.2.3.4", 5L));
+    assertTrue(d.denied());
+    assertEquals(StatusResponse.DAILY_VOTE_LIMIT_REACHED.name(), d.reason());
   }
 
   // --- GeofenceRule --------------------------------------------------------

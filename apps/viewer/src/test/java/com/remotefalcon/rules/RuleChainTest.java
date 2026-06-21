@@ -8,7 +8,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class RuleChainTest {
 
-  private static final EvaluationContext ANY = new EvaluationContext(null, "ip", null, null, null);
+  private static final EvaluationContext ANY = new EvaluationContext(null, "ip", null, null, null, null);
 
   @Test
   void firstDenial_returnsTheFirstDenyingRule() {

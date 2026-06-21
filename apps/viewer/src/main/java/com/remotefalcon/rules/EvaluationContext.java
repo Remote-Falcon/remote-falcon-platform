@@ -4,9 +4,13 @@ import com.remotefalcon.library.quarkus.entity.Show;
 
 /**
  * Inputs shared by every vote/request enforcement rule, resolved once per
- * mutation and passed down the chain (PRD-009, ADR-4). {@code viewerId} is
- * carried for the upcoming identity-aware rules (ADR-2); the rules extracted in
- * this change use {@code show} + {@code ip} + geo.
+ * mutation and passed down the chain (PRD-009, ADR-4).
+ *
+ * <p>{@code votesToday} is the voter's vote count for the current UTC day,
+ * computed by the service from the voteEvent collection (#162) — and only when a
+ * daily limit is configured, so the I/O stays out of the rules and the rules
+ * remain pure. It is {@code null} when no daily-cap check is needed.
  */
-public record EvaluationContext(Show show, String ip, String viewerId, Float latitude, Float longitude) {
+public record EvaluationContext(Show show, String ip, String viewerId, Float latitude, Float longitude,
+                                Long votesToday) {
 }
