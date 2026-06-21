@@ -71,6 +71,7 @@ input PreferenceInput {
     showOnMap: Boolean
     selfHostedRedirectUrl: String
     blockedViewerIps: [String]
+    votingExemptIps: [String]
     notificationPreferences: NotificationPreferenceInput
     analyticsBetaOptIn: Boolean
     wrappedPublic: Boolean

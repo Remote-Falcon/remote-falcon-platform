@@ -98,6 +98,16 @@ class RulesTest {
     assertFalse(new AlreadyVotedRule().evaluate(ctx(show, "1.2.3.4")).denied());
   }
 
+  @Test
+  void alreadyVoted_skipsWhenIpIsVotingExempt() {
+    Preference p = new Preference();
+    p.setCheckIfVoted(true);
+    p.setVotingExemptIps(new HashSet<>(List.of("1.2.3.4")));
+    Show show = showWith(p);
+    show.getVotes().add(Vote.builder().viewersVoted(new ArrayList<>(List.of("1.2.3.4"))).build());
+    assertEquals(Decision.Outcome.SKIP, new AlreadyVotedRule().evaluate(ctx(show, "1.2.3.4")).outcome());
+  }
+
   // --- AlreadyRequestedRule ------------------------------------------------
 
   @Test
@@ -173,6 +183,15 @@ class RulesTest {
     Decision d = new DailyVoteLimitRule().evaluate(ctxVotes(showWith(p), "1.2.3.4", 5L));
     assertTrue(d.denied());
     assertEquals(StatusResponse.DAILY_VOTE_LIMIT_REACHED.name(), d.reason());
+  }
+
+  @Test
+  void dailyVoteLimit_skipsWhenIpIsVotingExempt() {
+    Preference p = new Preference();
+    p.setDailyVoteLimit(5);
+    p.setVotingExemptIps(new HashSet<>(List.of("1.2.3.4")));
+    assertEquals(Decision.Outcome.SKIP,
+        new DailyVoteLimitRule().evaluate(ctxVotes(showWith(p), "1.2.3.4", 10L)).outcome());
   }
 
   // --- GeofenceRule --------------------------------------------------------

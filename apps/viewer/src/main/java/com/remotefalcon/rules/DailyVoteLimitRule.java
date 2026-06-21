@@ -14,6 +14,9 @@ import com.remotefalcon.library.enums.StatusResponse;
 public final class DailyVoteLimitRule implements Rule {
   @Override
   public Decision evaluate(EvaluationContext ctx) {
+    if (ctx.votingExempt()) {
+      return Decision.skip();
+    }
     Integer limit = ctx.show().getPreferences().getDailyVoteLimit();
     if (limit == null || limit == 0 || ctx.votesToday() == null) {
       return Decision.skip();

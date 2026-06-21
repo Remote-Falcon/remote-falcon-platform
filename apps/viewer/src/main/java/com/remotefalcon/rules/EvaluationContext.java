@@ -13,4 +13,13 @@ import com.remotefalcon.library.quarkus.entity.Show;
  */
 public record EvaluationContext(Show show, String ip, String viewerId, Float latitude, Float longitude,
                                 Long votesToday) {
+
+  /**
+   * #156 — true when this IP is on the show's voting-exempt allowlist (e.g. a
+   * fixed lawn kiosk), so the per-voter rate limits don't apply to it.
+   */
+  public boolean votingExempt() {
+    var exemptIps = show.getPreferences().getVotingExemptIps();
+    return exemptIps != null && exemptIps.contains(ip);
+  }
 }
