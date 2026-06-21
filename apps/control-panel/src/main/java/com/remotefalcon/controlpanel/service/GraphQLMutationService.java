@@ -633,6 +633,19 @@ public class GraphQLMutationService {
         throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());
     }
 
+    // PRD-009 #128, ADR-3 — full-array replace, mirroring updateSequenceGroups.
+    // Cascade-on-delete/rename of Sequence.category references is deferred to a
+    // follow-up (it's coupled to the one-shot free-text -> entity migration).
+    public Boolean updateCategories(List<Category> categories) {
+        Optional<Show> show = this.showRepository.findByShowToken(authUtil.getTokenDTO().getShowToken());
+        if(show.isPresent()) {
+            show.get().setCategories(categories);
+            this.showRepository.save(show.get());
+            return true;
+        }
+        throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());
+    }
+
     public Boolean playSequenceFromControlPanel(Sequence sequence) {
         Optional<Show> show = this.showRepository.findByShowToken(authUtil.getTokenDTO().getShowToken());
         if(show.isPresent()) {

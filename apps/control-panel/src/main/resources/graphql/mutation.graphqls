@@ -36,6 +36,7 @@ type Mutation {
     setVoteLeaderSequence(name: String): Boolean
     updateSequences(sequences: [SequenceInput]!): Boolean
     updateSequenceGroups(sequenceGroups: [SequenceGroupInput]!): Boolean
+    updateCategories(categories: [CategoryInput]!): Boolean
     playSequenceFromControlPanel(sequence: SequenceInput!): Boolean
     deleteSingleRequest(position: Int!): Boolean
     deleteAllRequests: Boolean

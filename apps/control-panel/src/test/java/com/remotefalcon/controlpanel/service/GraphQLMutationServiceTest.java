@@ -12,6 +12,7 @@ import com.remotefalcon.library.documents.Show;
 import com.remotefalcon.library.enums.NotificationType;
 import com.remotefalcon.library.enums.StatusResponse;
 import com.remotefalcon.library.enums.ViewerControlMode;
+import com.remotefalcon.library.models.Category;
 import com.remotefalcon.library.models.Preference;
 import com.remotefalcon.library.models.PsaSequence;
 import com.remotefalcon.library.models.Request;
@@ -762,6 +763,17 @@ class GraphQLMutationServiceTest {
         List<SequenceGroup> groups = List.of(SequenceGroup.builder().name("g1").build());
         assertThat(service.updateSequenceGroups(groups)).isTrue();
         assertThat(show.getSequenceGroups()).isEqualTo(groups);
+    }
+
+    @Test
+    void updateCategories_setsListAndSaves() {
+        stubAuth();
+        Show show = Show.builder().showToken(SHOW_TOKEN).build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        List<Category> categories = List.of(Category.builder().name("Christmas").requestLimit(5).build());
+        assertThat(service.updateCategories(categories)).isTrue();
+        assertThat(show.getCategories()).isEqualTo(categories);
     }
 
     // ---- deleteAccount ----

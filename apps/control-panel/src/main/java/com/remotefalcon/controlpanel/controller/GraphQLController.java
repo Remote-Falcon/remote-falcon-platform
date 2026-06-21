@@ -167,6 +167,12 @@ public class GraphQLController {
 
     @MutationMapping
     @RequiresAccess
+    public Boolean updateCategories(@Argument List<Category> categories) {
+        return this.graphQLMutationService.updateCategories(categories);
+    }
+
+    @MutationMapping
+    @RequiresAccess
     public Boolean playSequenceFromControlPanel(@Argument Sequence sequence) {
         return this.graphQLMutationService.playSequenceFromControlPanel(sequence);
     }

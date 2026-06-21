@@ -17,6 +17,7 @@ type Show {
     preferences: Preference
     sequences: [Sequence]
     sequenceGroups: [SequenceGroup]
+    categories: [Category]
     psaSequences: [PsaSequence]
     pages: [Page]
     requests: [Request]
@@ -112,6 +113,14 @@ type Sequence {
 type SequenceGroup {
     name: String
     visibilityCount: Int
+}
+
+type Category {
+    name: String
+    requestLimit: Int
+    antiConsecutive: Boolean
+    color: String
+    displayOrder: Int
 }
 
 type Request {
