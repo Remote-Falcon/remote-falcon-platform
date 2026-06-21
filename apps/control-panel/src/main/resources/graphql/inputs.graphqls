@@ -17,6 +17,7 @@ input ShowInput {
     preferences: PreferenceInput
     sequences: [SequenceInput]
     sequenceGroups: [SequenceGroupInput]
+    categories: [CategoryInput]
     psaSequences: [PsaSequenceInput]
     pages: [PageInput]
     requests: [RequestInput]
@@ -105,6 +106,14 @@ input SequenceInput {
 input SequenceGroupInput {
     name: String
     visibilityCount: Int
+}
+
+input CategoryInput {
+    name: String
+    requestLimit: Int
+    antiConsecutive: Boolean
+    color: String
+    displayOrder: Int
 }
 
 input RequestInput {
