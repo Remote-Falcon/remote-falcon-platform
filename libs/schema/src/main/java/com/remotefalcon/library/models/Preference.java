@@ -45,6 +45,7 @@ public class Preference {
     private Boolean showOnMap;
     private String selfHostedRedirectUrl;
     private Set<String> blockedViewerIps;
+    private Set<String> votingExemptIps;
     private NotificationPreference notificationPreferences;
     // PRD Phase 1 — beta opt-in for the experimental analytics views
     // (Audience tab Concurrent/Dwell/Returning/Regulars + future P2 work).
