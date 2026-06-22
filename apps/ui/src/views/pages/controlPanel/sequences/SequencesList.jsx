@@ -49,6 +49,7 @@ import { useSearchParams } from 'react-router-dom';
 
 import {
   playSequenceFromControlPanelService,
+  saveCategoriesService,
   saveSequenceGroupsService,
   saveSequencesService
 } from '../../../../services/controlPanel/mutations.service';
@@ -61,6 +62,7 @@ import useCoalescedSave from '../../../../hooks/useCoalescedSave';
 import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
 import {
   PLAY_SEQUENCE_FROM_CONTROL_PANEL,
+  UPDATE_CATEGORIES,
   UPDATE_SEQUENCES,
   UPDATE_SEQUENCE_GROUPS
 } from '../../../../utils/graphql/controlPanel/mutations';
@@ -173,6 +175,7 @@ const SequencesList = () => {
 
   const [updateSequencesMutation] = useMutation(UPDATE_SEQUENCES);
   const [updateSequenceGroupsMutation] = useMutation(UPDATE_SEQUENCE_GROUPS);
+  const [updateCategoriesMutation] = useMutation(UPDATE_CATEGORIES);
   const [playSequenceFromControlPanelMutation] = useMutation(PLAY_SEQUENCE_FROM_CONTROL_PANEL);
 
   // View state. Group filter is URL-encoded so the Groups tab can deep-link
@@ -183,6 +186,17 @@ const SequencesList = () => {
     const sp = new URLSearchParams(searchParams);
     if (next) sp.set('group', next);
     else sp.delete('group');
+    setSearchParams(sp, { replace: true });
+  };
+
+  // Category filter mirrors the group filter — URL-encoded so the Categories
+  // tab can deep-link ("show me everything in category X") and the link is
+  // shareable / back-button-friendly.
+  const categoryFilter = searchParams.get('category') || null;
+  const setCategoryFilter = (next) => {
+    const sp = new URLSearchParams(searchParams);
+    if (next) sp.set('category', next);
+    else sp.delete('category');
     setSearchParams(sp, { replace: true });
   };
 
@@ -212,6 +226,10 @@ const SequencesList = () => {
   // is created + assigned to the selection in one step.
   const [newGroupName, setNewGroupName] = useState('');
   const [creatingGroup, setCreatingGroup] = useState(false);
+  // Same inline create-and-assign flow for categories (see Set-category menu).
+  const [categoryMenuAnchor, setCategoryMenuAnchor] = useState(null);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [creatingCategory, setCreatingCategory] = useState(false);
 
   // Horizontal-scroll hints — the table can be wider than the viewport with
   // long image URLs. Checkbox/drag/actions/status are sticky-pinned on the
@@ -221,24 +239,29 @@ const SequencesList = () => {
 
   const totalCount = show?.sequences?.length || 0;
   const sequenceGroups = show?.sequenceGroups || [];
+  const categories = show?.categories || [];
 
   const groupOptions = useMemo(
     () => sequenceGroups.map((g) => ({ value: g?.name, label: g?.name })),
     [sequenceGroups]
   );
 
-  // Categories aren't a first-class collection on the show — they're a
-  // free-text field per sequence. We derive the dropdown options from the
-  // distinct categories currently in use so typing matches existing
-  // entries (with freeSolo letting the user add a brand-new one inline).
+  // Categories are now a first-class collection on the show (the Categories
+  // tab manages them), but legacy sequences may still carry a free-text
+  // category that was never registered. Merge both so the dropdown matches
+  // every value currently in use (with freeSolo letting the user add a brand-
+  // new one inline, which commitCategory registers as a first-class entry).
   const categoryOptions = useMemo(() => {
-    const distinct = new Set(
-      (show?.sequences || [])
-        .map((s) => (s?.category || '').trim())
-        .filter(Boolean)
-    );
+    const distinct = new Set();
+    (show?.categories || []).forEach((c) => {
+      if (c?.name) distinct.add(c.name);
+    });
+    (show?.sequences || []).forEach((s) => {
+      const c = (s?.category || '').trim();
+      if (c) distinct.add(c);
+    });
     return [...distinct].sort((a, b) => a.localeCompare(b)).map((c) => ({ value: c, label: c }));
-  }, [show?.sequences]);
+  }, [show?.categories, show?.sequences]);
 
   const rowKey = (s) => `${s?.name}-${s?.index}`;
 
@@ -355,11 +378,43 @@ const SequencesList = () => {
     });
   };
 
+  // Per-row category commit. Mirrors commitGroup: typing a category that
+  // isn't yet a first-class entry registers it on show.categories (with
+  // default limits) so it appears on the Categories tab, then enqueues the
+  // sequence field patch. Existing-category case is a simple field commit.
+  const commitCategory = (sequence, raw) => {
+    const trimmed = (raw || '').trim();
+    if (!trimmed) {
+      commitField(sequence, 'category', null);
+      return;
+    }
+    const exists = categories.some((c) => c?.name === trimmed);
+    if (exists) {
+      commitField(sequence, 'category', trimmed);
+      return;
+    }
+    const updatedCategories = [...categories, { name: trimmed, requestLimit: 0, antiConsecutive: false }];
+    saveCategoriesService(updatedCategories, updateCategoriesMutation, (cResponse) => {
+      if (!cResponse?.success) {
+        showAlert(dispatch, cResponse?.toast);
+        return;
+      }
+      // Update Redux synchronously so the new category shows up in the
+      // dropdown options + chip filter + Categories tab immediately. The
+      // sequence-level patch goes through the coalesced save next tick.
+      dispatch(setShow({ ...show, categories: updatedCategories }));
+      commitField(sequence, 'category', trimmed);
+      showAlert(dispatch, { message: `Created category "${trimmed}"` });
+      trackPosthogEvent('sequence_category_created', { source: 'inline_row', category_name: trimmed });
+    });
+  };
+
   // Filtered + sorted view
   const filteredSequences = useMemo(() => {
     let list = show?.sequences || [];
     if (filter !== 'all') list = list.filter(FILTERS[filter].test);
     if (groupFilter) list = list.filter((s) => s.group === groupFilter);
+    if (categoryFilter) list = list.filter((s) => s.category === categoryFilter);
     if (search.trim()) {
       const needle = search.trim().toLowerCase();
       list = list.filter((s) =>
@@ -371,7 +426,7 @@ const SequencesList = () => {
     if (orderBy !== 'order') list = _.orderBy(list, [orderBy], [order]);
     else list = _.orderBy(list, ['order'], ['asc']);
     return list;
-  }, [show?.sequences, filter, groupFilter, search, orderBy, order]);
+  }, [show?.sequences, filter, groupFilter, categoryFilter, search, orderBy, order]);
 
   const pagedSequences = useMemo(
     () => filteredSequences.slice(page * rowsPerPage, (page + 1) * rowsPerPage),
@@ -379,7 +434,7 @@ const SequencesList = () => {
   );
 
   // Drag is meaningful only when nothing is masking the canonical order.
-  const dndEnabled = filter === 'all' && !groupFilter && !search && orderBy === 'order';
+  const dndEnabled = filter === 'all' && !groupFilter && !categoryFilter && !search && orderBy === 'order';
 
   // One-click escape hatch back to the dnd-enabled view — clears all four
   // pieces of view state at once so the user doesn't have to hunt for which
@@ -387,6 +442,7 @@ const SequencesList = () => {
   const resetFiltersAndSort = () => {
     setFilter('all');
     setGroupFilter(null);
+    setCategoryFilter(null);
     setSearch('');
     setOrderBy('order');
     setOrder('asc');
@@ -394,7 +450,7 @@ const SequencesList = () => {
 
   useEffect(() => {
     setPage(0);
-  }, [filter, groupFilter, search, rowsPerPage]);
+  }, [filter, groupFilter, categoryFilter, search, rowsPerPage]);
 
   useEffect(() => {
     const el = tableContainerRef.current;
@@ -582,6 +638,56 @@ const SequencesList = () => {
     });
   };
 
+  const bulkSetCategory = (categoryName) => {
+    const updated = _.cloneDeep(show?.sequences || []);
+    updated.forEach((s) => {
+      if (selected.has(rowKey(s))) s.category = categoryName || null;
+    });
+    persistSequences(updated, `${selected.size} ${selected.size === 1 ? 'sequence' : 'sequences'} updated`);
+    setSelected(new Set());
+  };
+
+  // Create a new category, then bulk-assign the current selection to it.
+  // Sequential writes (categories first, then sequences) so a partial failure
+  // doesn't leave sequences pointing at a non-existent category.
+  const createCategoryAndAssign = () => {
+    const name = newCategoryName.trim();
+    if (!name) return;
+    if (categories.some((c) => c?.name === name)) {
+      showAlert(dispatch, { alert: 'error', message: `A category named "${name}" already exists.` });
+      return;
+    }
+    setCreatingCategory(true);
+    const updatedCategories = [...categories, { name, requestLimit: 0, antiConsecutive: false }];
+    saveCategoriesService(updatedCategories, updateCategoriesMutation, (cResponse) => {
+      if (!cResponse?.success) {
+        showAlert(dispatch, cResponse?.toast);
+        setCreatingCategory(false);
+        return;
+      }
+      const updatedSequences = _.cloneDeep(show?.sequences || []);
+      updatedSequences.forEach((s) => {
+        if (selected.has(rowKey(s))) s.category = name;
+      });
+      // Both writes land in one dispatch — sequential setShow calls would
+      // otherwise clobber categories via stale-closure show state.
+      saveSequencesService(updatedSequences, updateSequencesMutation, (sResponse) => {
+        if (sResponse?.success) {
+          dispatch(setShow({ ...show, categories: updatedCategories, sequences: updatedSequences }));
+          showAlert(dispatch, {
+            message: `Created "${name}" and assigned ${selected.size} ${selected.size === 1 ? 'sequence' : 'sequences'}`
+          });
+        } else {
+          showAlert(dispatch, sResponse?.toast);
+        }
+        setSelected(new Set());
+        setNewCategoryName('');
+        setCreatingCategory(false);
+        setCategoryMenuAnchor(null);
+      });
+    });
+  };
+
   const bulkDelete = () => {
     const updated = (show?.sequences || []).filter((s) => !selected.has(rowKey(s)));
     persistSequences(updated, `${selected.size} ${selected.size === 1 ? 'sequence' : 'sequences'} deleted`);
@@ -686,6 +792,14 @@ const SequencesList = () => {
                 <Chip
                   label={`Group: ${groupFilter}`}
                   onDelete={() => setGroupFilter(null)}
+                  size="small"
+                  color="secondary"
+                />
+              )}
+              {categoryFilter && (
+                <Chip
+                  label={`Category: ${categoryFilter}`}
+                  onDelete={() => setCategoryFilter(null)}
                   size="small"
                   color="secondary"
                 />
@@ -837,6 +951,83 @@ const SequencesList = () => {
                     startIcon={<IconPlus size={14} stroke={1.75} />}
                     disabled={!newGroupName.trim() || creatingGroup}
                     onClick={createGroupAndAssign}
+                    sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}
+                  >
+                    Create
+                  </Button>
+                </Stack>
+              </Box>
+            </Menu>
+            <Tooltip title="Assign all selected to a category">
+              <Button size="small" onClick={(e) => setCategoryMenuAnchor(e.currentTarget)}>
+                Set category…
+              </Button>
+            </Tooltip>
+            <Menu
+              open={Boolean(categoryMenuAnchor)}
+              anchorEl={categoryMenuAnchor}
+              onClose={() => {
+                setCategoryMenuAnchor(null);
+                setNewCategoryName('');
+              }}
+              slotProps={{ paper: { sx: { minWidth: 240 } } }}
+            >
+              {categories.length === 0 && (
+                <Typography
+                  variant="caption"
+                  sx={{ display: 'block', px: 2, py: 1, color: 'text.disabled', fontStyle: 'italic' }}
+                >
+                  No categories yet — add one below.
+                </Typography>
+              )}
+              {categories.length > 0 && (
+                <MenuItem onClick={() => { bulkSetCategory(null); setCategoryMenuAnchor(null); }}>
+                  <em>None</em>
+                </MenuItem>
+              )}
+              {categories.map((c) => (
+                <MenuItem key={c?.name} onClick={() => { bulkSetCategory(c?.name); setCategoryMenuAnchor(null); }}>
+                  {c?.name}
+                </MenuItem>
+              ))}
+              {/* Inline "create new category" form — mirrors the Set-group
+                  menu so the bulk-assign flow is self-contained even with no
+                  categories defined yet. */}
+              <Box
+                sx={{
+                  borderTop: categories.length > 0 ? '1px solid' : 'none',
+                  borderColor: 'divider',
+                  px: 1.5,
+                  py: 1.25
+                }}
+                onKeyDown={(e) => e.stopPropagation()}
+              >
+                <Typography
+                  variant="caption"
+                  sx={{ display: 'block', mb: 0.75, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.06em' }}
+                >
+                  Create new category
+                </Typography>
+                <Stack direction="row" spacing={0.75}>
+                  <TextField
+                    size="small"
+                    placeholder="Category name"
+                    value={newCategoryName}
+                    onChange={(e) => setNewCategoryName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') createCategoryAndAssign();
+                    }}
+                    autoFocus={categories.length === 0}
+                    disabled={creatingCategory}
+                    fullWidth
+                  />
+                  <Button
+                    size="small"
+                    variant="contained"
+                    startIcon={<IconPlus size={14} stroke={1.75} />}
+                    disabled={!newCategoryName.trim() || creatingCategory}
+                    onClick={createCategoryAndAssign}
+                    sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}
                   >
                     Create
                   </Button>
@@ -882,6 +1073,7 @@ const SequencesList = () => {
               onClick: () => {
                 setFilter('all');
                 setGroupFilter(null);
+                setCategoryFilter(null);
                 setSearch('');
               }
             }}
@@ -1103,16 +1295,28 @@ const SequencesList = () => {
                                       />
                                     )}
                                   </TableCell>
-                                  <TableCell sx={{ minWidth: 120 }}>
-                                    <EditableCell
-                                      value={sequence.category}
-                                      variant="select"
-                                      options={categoryOptions}
-                                      freeSolo
-                                      emptyLabel="Add category…"
-                                      placeholder="Pick or type a new category"
-                                      onCommit={(v) => commitField(sequence, 'category', (v || '').trim() || null)}
-                                    />
+                                  <TableCell sx={{ minWidth: 140 }}>
+                                    {/* Category: read-only chip that filters on click; click-to-edit opens select */}
+                                    {sequence.category ? (
+                                      <Chip
+                                        label={sequence.category}
+                                        size="small"
+                                        variant="outlined"
+                                        onClick={() => setCategoryFilter(sequence.category)}
+                                        onDelete={() => commitField(sequence, 'category', null)}
+                                        sx={{ cursor: 'pointer' }}
+                                      />
+                                    ) : (
+                                      <EditableCell
+                                        value={sequence.category}
+                                        variant="select"
+                                        options={categoryOptions}
+                                        freeSolo
+                                        emptyLabel="Add category…"
+                                        placeholder="Pick or type a new category"
+                                        onCommit={(v) => commitCategory(sequence, v)}
+                                      />
+                                    )}
                                   </TableCell>
                                   <TableCell>
                                     <Switch

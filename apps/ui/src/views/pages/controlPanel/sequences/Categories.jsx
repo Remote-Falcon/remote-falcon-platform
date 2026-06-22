@@ -286,7 +286,7 @@ const Categories = () => {
           <RouterLink to="/control-panel/sequences/list" style={{ color: 'inherit' }}>
             Sequences
           </RouterLink>{' '}
-          tab.
+          tab — or use the Set category… bulk action there.
         </Typography>
       )}
 
