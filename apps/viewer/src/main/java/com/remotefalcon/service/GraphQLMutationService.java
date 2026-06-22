@@ -381,6 +381,11 @@ public class GraphQLMutationService {
   // call into the post-allow persistence step of the pipeline.
   private void recordVoteEvent(Show show, String sequenceName, String clientIp, String viewerId,
                                Float latitude, Float longitude) {
+    // #168 — operator-excluded IPs (testing/recording) don't write vote events,
+    // so they neither pollute the audit/analytics nor count toward the daily cap.
+    if (isStatsExcluded(show, clientIp)) {
+      return;
+    }
     try {
       this.voteEventRepository.record(show.id, clientIp, viewerId, sequenceName, latitude, longitude);
     } catch (Exception e) {
@@ -526,22 +531,21 @@ public class GraphQLMutationService {
     LocalDateTime voteTime = LocalDateTime.now();
     String voterIp = StringUtils.isEmpty(ipAddress) ? "" : ipAddress;
 
-    if (sequenceVotes.isPresent()) {
-      // Existing vote: increment count, append voter, update time, and add stat
-      Stat.Voting votingStat = isGrouped ? null : Stat.Voting.builder()
-          .dateTime(voteTime)
-          .name(votedSequence.getName())
-          .viewerId(viewerId)
-          .build();
+    // Suppress the voting stat for grouped votes (existing behavior) and for
+    // operator stats-excluded IPs (#168). The vote itself still registers; only
+    // the analytics stat is skipped.
+    boolean suppressStat = isGrouped || isStatsExcluded(show, voterIp);
+    Stat.Voting votingStat = suppressStat ? null : Stat.Voting.builder()
+        .dateTime(voteTime)
+        .name(votedSequence.getName())
+        .viewerId(viewerId)
+        .build();
 
-      if (isGrouped) {
-        // For grouped votes, don't add voting stat
-        this.showRepository.incrementVoteAndAppendVoter(show.getShowSubdomain(), votedSequence.getName(), voterIp, voteTime, null);
-      } else {
-        this.showRepository.incrementVoteAndAppendVoter(show.getShowSubdomain(), votedSequence.getName(), voterIp, voteTime, votingStat);
-      }
+    if (sequenceVotes.isPresent()) {
+      // Existing vote: increment count, append voter, update time, and (unless suppressed) add stat
+      this.showRepository.incrementVoteAndAppendVoter(show.getShowSubdomain(), votedSequence.getName(), voterIp, voteTime, votingStat);
     } else {
-      // New vote: add vote entry and stat
+      // New vote: add vote entry and (unless suppressed) stat
       Vote newVote = Vote.builder()
           .sequence(votedSequence)
           .ownerVoted(false)
@@ -550,14 +554,15 @@ public class GraphQLMutationService {
           .votes(isGrouped ? 1001 : 1)
           .build();
 
-      Stat.Voting votingStat = isGrouped ? null : Stat.Voting.builder()
-          .dateTime(voteTime)
-          .name(votedSequence.getName())
-          .viewerId(viewerId)
-          .build();
-
       this.showRepository.addNewVoteAndStat(show.getShowSubdomain(), newVote, votingStat);
     }
+  }
+
+  // #168 — operator-managed list of IPs (their own test/record devices) whose
+  // interactions are kept out of statistics. Null/empty list = nobody excluded.
+  private static boolean isStatsExcluded(Show show, String ip) {
+    var excludedIps = show.getPreferences().getStatsExcludedIps();
+    return excludedIps != null && excludedIps.contains(ip);
   }
 
   private void saveSequenceGroupVote(Show show, SequenceGroup votedSequenceGroup, String ipAddress, String viewerId) {
