@@ -145,6 +145,12 @@ export const UPDATE_SEQUENCE_GROUPS = gql`
   }
 `;
 
+export const UPDATE_CATEGORIES = gql`
+  mutation ($categories: [CategoryInput]!) @api(name: controlPanel) {
+    updateCategories(categories: $categories)
+  }
+`;
+
 export const UPDATE_SHOW = gql`
   mutation ($email: String!, $showName: String!) @api(name: controlPanel) {
     updateShow(email: $email, showName: $showName)

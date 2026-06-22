@@ -85,6 +85,13 @@ export const SIGN_IN = gql`
         name
         visibilityCount
       }
+      categories {
+        name
+        requestLimit
+        antiConsecutive
+        color
+        displayOrder
+      }
       psaSequences {
         name
         order
@@ -216,6 +223,13 @@ export const GET_SHOW = gql`
       sequenceGroups {
         name
         visibilityCount
+      }
+      categories {
+        name
+        requestLimit
+        antiConsecutive
+        color
+        displayOrder
       }
       psaSequences {
         name
@@ -507,6 +521,13 @@ export const GET_SHOW_BY_SHOW_NAME = gql`
       sequenceGroups {
         name
         visibilityCount
+      }
+      categories {
+        name
+        requestLimit
+        antiConsecutive
+        color
+        displayOrder
       }
       psaSequences {
         name
