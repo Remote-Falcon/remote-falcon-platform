@@ -57,6 +57,11 @@ export const SIGN_IN = gql`
         blockedViewerIps
         dailyVoteLimit
         votingExemptIps
+        statsExcludedIps
+        additionalGpsLocations {
+          latitude
+          longitude
+        }
         notificationPreferences {
           enableFppHeartbeat
           fppHeartbeatIfControlEnabled
@@ -189,6 +194,11 @@ export const GET_SHOW = gql`
         blockedViewerIps
         dailyVoteLimit
         votingExemptIps
+        statsExcludedIps
+        additionalGpsLocations {
+          latitude
+          longitude
+        }
         notificationPreferences {
           enableFppHeartbeat
           fppHeartbeatIfControlEnabled

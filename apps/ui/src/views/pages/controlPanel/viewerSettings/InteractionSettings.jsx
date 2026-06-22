@@ -66,7 +66,9 @@ const InteractionSettings = () => {
     allowedRadius: show?.preferences?.allowedRadius ?? 0,
     locationCode: show?.preferences?.locationCode ?? 0,
     hideSequenceCount: show?.preferences?.hideSequenceCount ?? 0,
-    blockedViewerIps: show?.preferences?.blockedViewerIps || []
+    blockedViewerIps: show?.preferences?.blockedViewerIps || [],
+    statsExcludedIps: show?.preferences?.statsExcludedIps || [],
+    additionalGpsLocations: show?.preferences?.additionalGpsLocations || []
   });
 
   useEffect(() => {
@@ -79,7 +81,9 @@ const InteractionSettings = () => {
       allowedRadius: show?.preferences?.allowedRadius ?? 0,
       locationCode: show?.preferences?.locationCode ?? 0,
       hideSequenceCount: show?.preferences?.hideSequenceCount ?? 0,
-      blockedViewerIps: show?.preferences?.blockedViewerIps || []
+      blockedViewerIps: show?.preferences?.blockedViewerIps || [],
+      statsExcludedIps: show?.preferences?.statsExcludedIps || [],
+      additionalGpsLocations: show?.preferences?.additionalGpsLocations || []
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [show?.preferences]);
@@ -169,6 +173,26 @@ const InteractionSettings = () => {
       showAlert(dispatch, response?.toast);
     });
   };
+
+  // #16 — additional allowed GPS locations (auto-saved with the rest of `values`).
+  const addGpsLocation = () =>
+    setValues((prev) => ({
+      ...prev,
+      additionalGpsLocations: [...(prev.additionalGpsLocations || []), { latitude: null, longitude: null }]
+    }));
+
+  const updateGpsLocation = (index, field, value) =>
+    setValues((prev) => {
+      const next = [...(prev.additionalGpsLocations || [])];
+      next[index] = { ...next[index], [field]: value === '' ? null : parseFloat(value) };
+      return { ...prev, additionalGpsLocations: next };
+    });
+
+  const removeGpsLocation = (index) =>
+    setValues((prev) => ({
+      ...prev,
+      additionalGpsLocations: (prev.additionalGpsLocations || []).filter((_, i) => i !== index)
+    }));
 
   const getSelectedLocationCheckMethod = () => {
     let selected = {};
@@ -505,6 +529,48 @@ const InteractionSettings = () => {
                       </Grid>
                     </Grid>
                   </CardActions>
+                  <Divider />
+                  <CardActions>
+                    <Grid container alignItems="center" justifyContent="space-between" spacing={2}>
+                      <Grid item xs={12} md={6} lg={4} ml={4}>
+                        <Stack direction="row" spacing={2} pb={1}>
+                          <Typography variant="h4">Additional Allowed Locations</Typography>
+                        </Stack>
+                        <Typography component="div" variant="caption">
+                          Permit voting/requests from more than one place (e.g. family watching on a shared camera at another house). A
+                          viewer within the Check Radius of your main location OR any of these may participate. Same radius applies to all.
+                        </Typography>
+                      </Grid>
+                      <Grid item xs={12} md={6} lg={4}>
+                        <Stack spacing={1}>
+                          {(values.additionalGpsLocations || []).map((loc, index) => (
+                            <Stack direction="row" spacing={1} key={index} alignItems="center">
+                              <TextField
+                                fullWidth
+                                type="number"
+                                label="Latitude"
+                                value={loc?.latitude ?? ''}
+                                onChange={(e) => updateGpsLocation(index, 'latitude', e.target.value)}
+                              />
+                              <TextField
+                                fullWidth
+                                type="number"
+                                label="Longitude"
+                                value={loc?.longitude ?? ''}
+                                onChange={(e) => updateGpsLocation(index, 'longitude', e.target.value)}
+                              />
+                              <Button size="small" color="error" onClick={() => removeGpsLocation(index)}>
+                                Remove
+                              </Button>
+                            </Stack>
+                          ))}
+                          <Button variant="outlined" size="small" onClick={addGpsLocation}>
+                            Add Location
+                          </Button>
+                        </Stack>
+                      </Grid>
+                    </Grid>
+                  </CardActions>
                 </>
               )}
               {values.locationCheckMethod === LocationCheckMethod.CODE && (
@@ -610,6 +676,32 @@ const InteractionSettings = () => {
                   value={values.blockedViewerIps}
                   renderInput={(params) => <TextField {...params} />}
                   onChange={(_e, v) => setValues((prev) => ({ ...prev, blockedViewerIps: v }))}
+                />
+              </Grid>
+            </Grid>
+          </CardActions>
+          <Divider />
+          <CardActions>
+            <Grid container alignItems="center" justifyContent="space-between" spacing={2}>
+              <Grid item xs={12} md={6} lg={4}>
+                <Stack direction="row" spacing={2} pb={1}>
+                  <Typography variant="h4">Exclude IPs From Statistics</Typography>
+                </Stack>
+                <Typography component="div" variant="caption">
+                  Requests, votes, and page views from these IP addresses are kept out of your statistics — handy for excluding your own
+                  test/recording devices. The interaction still works; it just is not counted. After entering an IP address, press enter.
+                </Typography>
+              </Grid>
+              <Grid item xs={12} md={6} lg={4}>
+                <Autocomplete
+                  freeSolo
+                  multiple
+                  disableCloseOnSelect
+                  filterSelectedOptions
+                  options={[]}
+                  value={values.statsExcludedIps}
+                  renderInput={(params) => <TextField {...params} />}
+                  onChange={(_e, v) => setValues((prev) => ({ ...prev, statsExcludedIps: v }))}
                 />
               </Grid>
             </Grid>
