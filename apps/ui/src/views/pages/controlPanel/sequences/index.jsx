@@ -26,6 +26,7 @@ import { downloadSequencesToExcelService, importSequencesFromExcelService } from
 export const sequencesRoutes = [
   { label: 'Sequences', to: '/control-panel/sequences/list' },
   { label: 'Sequence Groups', to: '/control-panel/sequences/groups' },
+  { label: 'Categories', to: '/control-panel/sequences/categories' },
   { label: 'Special Roles', to: '/control-panel/sequences/special-roles' }
 ];
 

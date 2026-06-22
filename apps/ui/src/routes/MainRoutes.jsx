@@ -20,6 +20,7 @@ const ViewerPage = Loadable(lazy(() => import('../views/pages/controlPanel/viewe
 const Sequences = Loadable(lazy(() => import('../views/pages/controlPanel/sequences')));
 const SequencesList = Loadable(lazy(() => import('../views/pages/controlPanel/sequences/SequencesList')));
 const SequenceGroups = Loadable(lazy(() => import('../views/pages/controlPanel/sequences/SequenceGroups')));
+const Categories = Loadable(lazy(() => import('../views/pages/controlPanel/sequences/Categories')));
 // PSA-v2 PR-5 — new Special Roles tab on the Sequences page.
 const SpecialRoles = Loadable(lazy(() => import('../views/pages/controlPanel/sequences/SpecialRoles')));
 
@@ -114,6 +115,7 @@ const MainRoutes = {
         { index: true, element: <Navigate to="list" replace /> },
         { path: 'list', element: <SequencesList /> },
         { path: 'groups', element: <SequenceGroups /> },
+        { path: 'categories', element: <Categories /> },
         { path: 'special-roles', element: <SpecialRoles /> }
       ]
     },

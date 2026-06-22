@@ -375,6 +375,31 @@ export const saveSequenceGroupsService = (updatedSequenceGroups, updateSequenceG
   });
 };
 
+export const saveCategoriesService = (updatedCategories, updateCategoriesMutation, callback) => {
+  updateCategoriesMutation({
+    context: {
+      headers: {
+        Route: 'Control-Panel'
+      }
+    },
+    variables: {
+      categories: updatedCategories
+    },
+    onCompleted: () => {
+      callback({
+        success: true,
+        toast: { message: 'Category Saved' }
+      });
+    },
+    onError: () => {
+      callback({
+        success: false,
+        toast: { alert: 'error' }
+      });
+    }
+  });
+};
+
 export const saveShowService = (updatedShow, updateShowMutation, callback) => {
   updateShowMutation({
     context: {
