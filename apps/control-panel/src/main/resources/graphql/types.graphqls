@@ -79,6 +79,7 @@ type Preference {
     selfHostedRedirectUrl: String
     blockedViewerIps: [String]
     votingExemptIps: [String]
+    statsExcludedIps: [String]
     notificationPreferences: NotificationPreference
     analyticsBetaOptIn: Boolean
     wrappedPublic: Boolean

@@ -371,11 +371,15 @@ public class ShowRepository implements PanacheMongoRepository<Show> {
 
   public long appendPageStatIfNotOwner(String showSubdomain, String clientIp, Stat.Page stat) {
     this.pruneStatArray(showSubdomain, "stats.page");
-    // Only append stat if clientIp is different from lastLoginIp (owner's IP)
+    // Append the page stat only if clientIp is neither the owner's lastLoginIp
+    // nor on the operator's stats-excluded list (#168). $ne on an array field
+    // matches when the array does not contain the value (and when it's absent),
+    // so legacy shows without statsExcludedIps still record normally.
     var result = mongoCollection().updateOne(
         Filters.and(
             Filters.eq("showSubdomain", showSubdomain),
-            Filters.ne("lastLoginIp", clientIp)
+            Filters.ne("lastLoginIp", clientIp),
+            Filters.ne("preferences.statsExcludedIps", clientIp)
         ),
         Updates.push("stats.page", stat)
     );
