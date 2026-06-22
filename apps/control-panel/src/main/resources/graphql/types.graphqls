@@ -62,6 +62,7 @@ type Preference {
     showLatitude: Float
     showLongitude: Float
     allowedRadius: Float
+    additionalGpsLocations: [GpsLocation]
     checkIfVoted: Boolean
     checkIfRequested: Boolean
     psaEnabled: Boolean
@@ -115,6 +116,11 @@ type Sequence {
 type SequenceGroup {
     name: String
     visibilityCount: Int
+}
+
+type GpsLocation {
+    latitude: Float
+    longitude: Float
 }
 
 type Category {

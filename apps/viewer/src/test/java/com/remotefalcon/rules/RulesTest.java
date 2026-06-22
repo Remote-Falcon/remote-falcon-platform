@@ -2,6 +2,7 @@ package com.remotefalcon.rules;
 
 import com.remotefalcon.library.enums.LocationCheckMethod;
 import com.remotefalcon.library.enums.StatusResponse;
+import com.remotefalcon.library.models.GpsLocation;
 import com.remotefalcon.library.models.Preference;
 import com.remotefalcon.library.models.Request;
 import com.remotefalcon.library.models.Vote;
@@ -219,6 +220,24 @@ class RulesTest {
   @Test
   void geofence_deniesOutsideRadius() {
     Decision d = new GeofenceRule().evaluate(ctx(showWith(geoPrefs()), "1.2.3.4", 51.5074f, -0.1278f));
+    assertTrue(d.denied());
+    assertEquals(StatusResponse.INVALID_LOCATION.name(), d.reason());
+  }
+
+  @Test
+  void geofence_allowsWithinAnAdditionalLocation() {
+    Preference p = geoPrefs(); // primary near NYC, radius 0.1 mi
+    p.setAdditionalGpsLocations(List.of(GpsLocation.builder().latitude(51.5074f).longitude(-0.1278f).build())); // London
+    // Viewer in London: far from the primary NYC location, but within an additional one.
+    assertFalse(new GeofenceRule().evaluate(ctx(showWith(p), "1.2.3.4", 51.5074f, -0.1278f)).denied());
+  }
+
+  @Test
+  void geofence_deniesWhenOutsideAllLocations() {
+    Preference p = geoPrefs();
+    p.setAdditionalGpsLocations(List.of(GpsLocation.builder().latitude(51.5074f).longitude(-0.1278f).build()));
+    // Viewer in Tokyo: far from both the primary and the additional location.
+    Decision d = new GeofenceRule().evaluate(ctx(showWith(p), "1.2.3.4", 35.6762f, 139.6503f));
     assertTrue(d.denied());
     assertEquals(StatusResponse.INVALID_LOCATION.name(), d.reason());
   }
