@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { useMutation } from '@apollo/client';
 import InfoTwoToneIcon from '@mui/icons-material/InfoTwoTone';
-import { Grid, CardActions, Divider, Typography, Switch, Stack } from '@mui/material';
+import { Grid, CardActions, Divider, Typography, Switch, Stack, TextField, Autocomplete } from '@mui/material';
 import _ from 'lodash';
 
 import MainCard from '../../../../ui-component/cards/MainCard';
@@ -23,15 +23,24 @@ const VotingSettings = () => {
 
   const [values, setValues] = useState({
     checkIfVoted: !!show?.preferences?.checkIfVoted,
-    resetVotes: !!show?.preferences?.resetVotes
+    resetVotes: !!show?.preferences?.resetVotes,
+    dailyVoteLimit: show?.preferences?.dailyVoteLimit ?? 0,
+    votingExemptIps: show?.preferences?.votingExemptIps || []
   });
 
   useEffect(() => {
     setValues({
       checkIfVoted: !!show?.preferences?.checkIfVoted,
-      resetVotes: !!show?.preferences?.resetVotes
+      resetVotes: !!show?.preferences?.resetVotes,
+      dailyVoteLimit: show?.preferences?.dailyVoteLimit ?? 0,
+      votingExemptIps: show?.preferences?.votingExemptIps || []
     });
-  }, [show?.preferences?.checkIfVoted, show?.preferences?.resetVotes]);
+  }, [
+    show?.preferences?.checkIfVoted,
+    show?.preferences?.resetVotes,
+    show?.preferences?.dailyVoteLimit,
+    show?.preferences?.votingExemptIps
+  ]);
 
   const save = useCallback(
     (snapshot) =>
@@ -50,7 +59,9 @@ const VotingSettings = () => {
     [dispatch, show, updatePreferencesMutation]
   );
 
-  const status = useAutoSave(values, save);
+  const isValid = useCallback(() => Number.isFinite(values.dailyVoteLimit), [values]);
+
+  const status = useAutoSave(values, save, { isValid });
 
   return (
     <>
@@ -114,6 +125,53 @@ const VotingSettings = () => {
                   color="primary"
                   checked={values.resetVotes}
                   onChange={(_e, v) => setValues((prev) => ({ ...prev, resetVotes: v }))}
+                />
+              </Grid>
+            </Grid>
+          </CardActions>
+          <Divider />
+          <CardActions>
+            <Grid container alignItems="center" justifyContent="space-between" spacing={2}>
+              <Grid item xs={12} md={6} lg={4}>
+                <Stack direction="row" spacing={2} pb={1}>
+                  <Typography variant="h4">Daily Vote Limit</Typography>
+                </Stack>
+                <Typography component="div" variant="caption">
+                  Limits how many times a viewer can vote per day (0 = no limit). Exempt devices below are not affected.
+                </Typography>
+              </Grid>
+              <Grid item xs={12} md={6} lg={4}>
+                <TextField
+                  type="number"
+                  fullWidth
+                  label="Votes Per Day"
+                  value={Number.isFinite(values.dailyVoteLimit) ? values.dailyVoteLimit : ''}
+                  onChange={(e) => setValues((prev) => ({ ...prev, dailyVoteLimit: parseInt(e.target.value, 10) }))}
+                />
+              </Grid>
+            </Grid>
+          </CardActions>
+          <Divider />
+          <CardActions>
+            <Grid container alignItems="center" justifyContent="space-between" spacing={2}>
+              <Grid item xs={12} md={6} lg={4}>
+                <Stack direction="row" spacing={2} pb={1}>
+                  <Typography variant="h4">Voting-Exempt Devices</Typography>
+                </Stack>
+                <Typography component="div" variant="caption">
+                  IP addresses exempt from the multiple-vote restriction and the daily vote limit — e.g. a shared lawn kiosk. Type an IP and press Enter.
+                </Typography>
+              </Grid>
+              <Grid item xs={12} md={6} lg={4}>
+                <Autocomplete
+                  freeSolo
+                  multiple
+                  disableCloseOnSelect
+                  filterSelectedOptions
+                  options={[]}
+                  value={values.votingExemptIps}
+                  renderInput={(params) => <TextField {...params} label="Exempt IPs" />}
+                  onChange={(_e, v) => setValues((prev) => ({ ...prev, votingExemptIps: v }))}
                 />
               </Grid>
             </Grid>
