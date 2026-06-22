@@ -424,6 +424,10 @@ public class GraphQLMutationService {
       this.logRejectedRequest(show.getShowSubdomain(), requestedSequence.getName(), null, StatusResponse.SEQUENCE_REQUESTED.name());
       throw new CustomGraphQLExceptionResolver(StatusResponse.SEQUENCE_REQUESTED.name());
     }
+    if (this.isRequestedCategoryWithinRequestLimit(show, requestedSequence)) {
+      this.logRejectedRequest(show.getShowSubdomain(), requestedSequence.getName(), null, StatusResponse.SEQUENCE_REQUESTED.name());
+      throw new CustomGraphQLExceptionResolver(StatusResponse.SEQUENCE_REQUESTED.name());
+    }
   }
 
   private Boolean isRequestedSequencePlayingNow(Show show, Sequence requestedSequence) {
@@ -456,6 +460,37 @@ public class GraphQLMutationService {
       return requestNamesLastToFirst.contains(requestedSequence.getName());
     }
     return false;
+  }
+
+  // PRD-009 #72 — collective request limit for a category. If the requested
+  // sequence's category is a first-class Category with a requestLimit, deny when
+  // ANY member of that category is within the last `requestLimit` song-like
+  // requests — so a whole group (e.g. non-seasonal songs) is throttled together,
+  // not just each title individually. Uses the same song-like recent window as
+  // the per-sequence limit.
+  private Boolean isRequestedCategoryWithinRequestLimit(Show show, Sequence requestedSequence) {
+    String category = requestedSequence.getCategory();
+    if (StringUtils.isEmpty(category) || CollectionUtils.isEmpty(show.getCategories())) {
+      return false;
+    }
+    Optional<Category> matchingCategory = show.getCategories().stream()
+        .filter(c -> StringUtils.equalsIgnoreCase(c.getName(), category))
+        .findFirst();
+    if (matchingCategory.isEmpty() || matchingCategory.get().getRequestLimit() == null
+        || matchingCategory.get().getRequestLimit() == 0) {
+      return false;
+    }
+    List<String> recentRequestNames = show.getRequests().stream()
+        .filter(request -> request.getSequence() != null
+            && PluginQueueHelper.isSongLike(show, request.getSequence().getName()))
+        .sorted(Comparator.comparing(Request::getPosition).reversed())
+        .limit(matchingCategory.get().getRequestLimit())
+        .map(request -> request.getSequence().getName())
+        .toList();
+    return show.getSequences().stream()
+        .filter(seq -> StringUtils.equalsIgnoreCase(seq.getCategory(), category))
+        .anyMatch(seq -> recentRequestNames.stream()
+            .anyMatch(name -> StringUtils.equalsIgnoreCase(name, seq.getName())));
   }
 
   private void saveSequenceRequest(String showSubdomain, Show show, Sequence requestedSequence, String ipAddress) {
