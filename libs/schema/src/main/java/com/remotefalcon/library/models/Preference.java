@@ -8,6 +8,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.eclipse.microprofile.graphql.Type;
 
+import java.util.List;
 import java.util.Set;
 
 @Type
@@ -25,6 +26,7 @@ public class Preference {
     private Float showLatitude;
     private Float showLongitude;
     private Float allowedRadius;
+    private List<GpsLocation> additionalGpsLocations;
     private Boolean checkIfVoted;
     private Boolean checkIfRequested;
     private Boolean psaEnabled;

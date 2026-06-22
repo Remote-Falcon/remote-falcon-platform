@@ -55,6 +55,7 @@ input PreferenceInput {
     showLatitude: Float
     showLongitude: Float
     allowedRadius: Float
+    additionalGpsLocations: [GpsLocationInput]
     checkIfVoted: Boolean
     checkIfRequested: Boolean
     psaEnabled: Boolean
@@ -108,6 +109,11 @@ input SequenceInput {
 input SequenceGroupInput {
     name: String
     visibilityCount: Int
+}
+
+input GpsLocationInput {
+    latitude: Float
+    longitude: Float
 }
 
 input CategoryInput {
