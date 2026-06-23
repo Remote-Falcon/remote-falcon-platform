@@ -167,6 +167,7 @@ public class GraphQLMutationService {
           .filter(seq -> StringUtils.equalsIgnoreCase(seq.getName(), name))
           .findFirst();
       if (requestedSequence.isPresent()) {
+        this.checkIfSequenceUnavailable(show.get(), requestedSequence.get());
         this.checkIfSequenceRequested(show.get(), requestedSequence.get());
 
         // PSA-v2 PR-3 (Q6): leader sequence injection. If the show has a
@@ -344,6 +345,7 @@ public class GraphQLMutationService {
           .filter(seq -> StringUtils.equalsIgnoreCase(seq.getName(), name))
           .findFirst();
       if (requestedSequence.isPresent()) {
+        this.checkIfSequenceUnavailable(existingShow, requestedSequence.get());
         this.saveSequenceVote(existingShow, requestedSequence.get(), clientIp, viewerId, false);
         this.recordVoteEvent(existingShow, requestedSequence.get().getName(), clientIp, viewerId, latitude, longitude);
         try {
@@ -408,6 +410,30 @@ public class GraphQLMutationService {
       );
     } catch (Exception e) {
       log.warnf("appendRejectedRequestStat failed for showSubdomain=%s reason=%s: %s", showSubdomain, reason, e.getMessage());
+    }
+  }
+
+  /**
+   * #73 — rejects a request/vote for a sequence that can't currently play: it's
+   * on the hide-after-play cooldown ({@code visibilityCount > 0}) or has reached
+   * its #163 nightly play cap ({@code playsToday >= nightlyPlayLimit}). The
+   * viewer page grays these out, but this is the server-side guard so a client
+   * that doesn't (e.g. a custom page) can't queue or skew votes on a sequence
+   * that plugins-api would only skip at play-selection.
+   */
+  private void checkIfSequenceUnavailable(Show show, Sequence requestedSequence) {
+    Integer visibilityCount = requestedSequence.getVisibilityCount();
+    if (visibilityCount != null && visibilityCount > 0) {
+      this.logRejectedRequest(show.getShowSubdomain(), requestedSequence.getName(), null,
+          StatusResponse.SEQUENCE_UNAVAILABLE.name());
+      throw new CustomGraphQLExceptionResolver(StatusResponse.SEQUENCE_UNAVAILABLE.name());
+    }
+    Integer nightlyLimit = show.getPreferences().getNightlyPlayLimit();
+    Integer playsToday = requestedSequence.getPlaysToday();
+    if (nightlyLimit != null && nightlyLimit > 0 && playsToday != null && playsToday >= nightlyLimit) {
+      this.logRejectedRequest(show.getShowSubdomain(), requestedSequence.getName(), null,
+          StatusResponse.SEQUENCE_UNAVAILABLE.name());
+      throw new CustomGraphQLExceptionResolver(StatusResponse.SEQUENCE_UNAVAILABLE.name());
     }
   }
 
