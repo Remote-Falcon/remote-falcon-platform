@@ -83,10 +83,10 @@ describe('route-guard helpers', () => {
 
     it('returns false when CP subdomain is loaded (default mode)', () => {
       setHostname('controlpanel.remotefalcon.com');
-      // CP subdomain still has a non-empty subdomain string, so default
-      // mode treats it as external — pin the current behaviour so any
-      // future re-routing fix is intentional.
-      expect(isExternalViewer()).toBe(true);
+      // The control-panel host is never an external viewer: isExternalViewer()
+      // must agree with isSubdomainCP(). Issue #151 — before the fix this
+      // returned true and redirected the control panel to /remote-falcon.
+      expect(isExternalViewer()).toBe(false);
     });
 
     it('returns true under SWAP_CP when host is NOT controlpanel', () => {
@@ -125,6 +125,16 @@ describe('route-guard helpers', () => {
       expect(getSubdomain()).toBe('lightshow');
       expect(isSubdomainCP()).toBe(false);
       expect(isExternalViewer()).toBe(true);
+    });
+
+    // Regression guard for issue #151: the configured control-panel label must
+    // NOT be treated as an external viewer. Before the fix isExternalViewer()
+    // returned true here (non-empty subdomain) and redirected control.example.com
+    // to /remote-falcon, so the control panel never loaded.
+    it('does NOT treat the configured control-panel label as an external viewer', () => {
+      setHostname('control.example.com');
+      expect(isSubdomainCP()).toBe(true);
+      expect(isExternalViewer()).toBeFalsy();
     });
 
     it('falls back to controlpanel when the var is blank', () => {
