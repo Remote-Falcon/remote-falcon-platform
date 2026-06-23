@@ -350,6 +350,11 @@ public class GraphQLMutationService {
             } else {
                 preferences.setWrappedShareToken(existingToken);
             }
+            // #163 — lastPlayCountedAt is the plugins-api nightly-reset clock,
+            // written on play and never by the operator (not in PreferenceInput).
+            // Preserve it from the existing doc so a settings save doesn't null it
+            // and spuriously reset every song's nightly tally mid-show.
+            preferences.setLastPlayCountedAt(current == null ? null : current.getLastPlayCountedAt());
             show.get().setPreferences(preferences);
             this.showRepository.save(show.get());
             return true;

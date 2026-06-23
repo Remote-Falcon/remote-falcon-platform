@@ -66,6 +66,7 @@ const InteractionSettings = () => {
     allowedRadius: show?.preferences?.allowedRadius ?? 0,
     locationCode: show?.preferences?.locationCode ?? 0,
     hideSequenceCount: show?.preferences?.hideSequenceCount ?? 0,
+    nightlyPlayLimit: show?.preferences?.nightlyPlayLimit ?? 0,
     blockedViewerIps: show?.preferences?.blockedViewerIps || [],
     statsExcludedIps: show?.preferences?.statsExcludedIps || [],
     additionalGpsLocations: show?.preferences?.additionalGpsLocations || []
@@ -123,7 +124,8 @@ const InteractionSettings = () => {
       Number.isFinite(values.psaFrequency) &&
       Number.isFinite(values.allowedRadius) &&
       Number.isFinite(values.locationCode) &&
-      Number.isFinite(values.hideSequenceCount),
+      Number.isFinite(values.hideSequenceCount) &&
+      Number.isFinite(values.nightlyPlayLimit),
     [values]
   );
 
@@ -640,6 +642,29 @@ const InteractionSettings = () => {
                   type="number"
                   value={Number.isFinite(values.hideSequenceCount) ? values.hideSequenceCount : ''}
                   onChange={(e) => setValues((prev) => ({ ...prev, hideSequenceCount: parseInt(e.target.value, 10) }))}
+                />
+              </Grid>
+            </Grid>
+          </CardActions>
+          <Divider />
+          <CardActions>
+            <Grid container alignItems="center" justifyContent="space-between" spacing={2}>
+              <Grid item xs={12} md={6} lg={4}>
+                <Stack direction="row" spacing={2} pb={1}>
+                  <Typography variant="h4">Nightly Play Limit</Typography>
+                </Stack>
+                <Typography component="div" variant="caption">
+                  The maximum number of times any single song may play per night, so no one song dominates the show. When a song reaches this
+                  limit it won&apos;t be picked again until the next night. Set to 0 for no limit.
+                </Typography>
+              </Grid>
+              <Grid item xs={12} md={6} lg={4}>
+                <TextField
+                  fullWidth
+                  label="Nightly Play Limit"
+                  type="number"
+                  value={Number.isFinite(values.nightlyPlayLimit) ? values.nightlyPlayLimit : ''}
+                  onChange={(e) => setValues((prev) => ({ ...prev, nightlyPlayLimit: parseInt(e.target.value, 10) }))}
                 />
               </Grid>
             </Grid>

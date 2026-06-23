@@ -69,27 +69,34 @@ public class PluginService {
     // happens — but at the viewer's GraphQLQueryService.updatePlayingNext.
     // That's the correct boundary: viewer doesn't see PSAs as "up next";
     // FPP still plays them.
-    Optional<Request> nextRequest = show.getRequests().stream()
+    List<Request> orderedRequests = show.getRequests().stream()
         .filter(r -> r != null && r.getSequence() != null)
-        .min(Comparator.comparing(Request::getPosition));
-    if (nextRequest.isEmpty()) {
+        .sorted(Comparator.comparing(Request::getPosition))
+        .toList();
+    if (orderedRequests.isEmpty()) {
       return defaultResponse;
     }
-    this.updateVisibilityCounts(show, nextRequest.get());
+    // #109 anti-consecutive (PRD-009, ADR-3): skip a queued request whose
+    // category matches the just-playing sequence's category when that category
+    // is flagged antiConsecutive and an alternative is queued. Operator-policy
+    // items (PSA/leader/override/owner) keep their slot; the rule yields to the
+    // head when every queued item shares the blocked category.
+    Request nextRequest = this.selectNextRequest(show, orderedRequests);
+    this.updateVisibilityCounts(show, nextRequest);
 
     // Atomic removal of the request by position and update visibility counts
     Show.mongoCollection().updateOne(
         Filters.eq("showToken", show.getShowToken()),
         Updates.combine(
-            Updates.pull("requests", Filters.eq("position", nextRequest.get().getPosition())),
+            Updates.pull("requests", Filters.eq("position", nextRequest.getPosition())),
             Updates.set("sequences", show.getSequences()),
             Updates.set("sequenceGroups", show.getSequenceGroups())
         )
     );
 
     return NextPlaylistResponse.builder()
-        .nextPlaylist(nextRequest.get().getSequence().getName())
-        .playlistIndex(nextRequest.get().getSequence().getIndex())
+        .nextPlaylist(nextRequest.getSequence().getName())
+        .playlistIndex(nextRequest.getSequence().getIndex())
         .build();
   }
 
@@ -107,6 +114,216 @@ public class PluginService {
         sequence.ifPresent(seq -> seq.setVisibilityCount(show.getPreferences().getHideSequenceCount() + 1));
       }
     }
+  }
+
+  // ---- #109 anti-consecutive category enforcement (PRD-009, ADR-3) ----
+  //
+  // Operators flag a Category as antiConsecutive so its songs don't play
+  // back-to-back (the "non-Christmas songs play all night" complaint). At
+  // play-selection time we skip a candidate whose category equals the
+  // just-playing sequence's category when that category is flagged — but only
+  // when an alternative is available; otherwise the rule yields rather than
+  // stall the show. Enforced in both modes: nextPlaylistInQueue (jukebox) and
+  // highestVotedPlaylist (voting).
+
+  /** Names (lower-cased) of categories flagged antiConsecutive on this show. */
+  private Set<String> antiConsecutiveCategories(Show show) {
+    if (CollectionUtils.isEmpty(show.getCategories())) {
+      return Collections.emptySet();
+    }
+    return show.getCategories().stream()
+        .filter(Objects::nonNull)
+        .filter(category -> Boolean.TRUE.equals(category.getAntiConsecutive()))
+        .map(Category::getName)
+        .filter(StringUtils::isNotEmpty)
+        .map(name -> name.toLowerCase(Locale.ROOT))
+        .collect(Collectors.toSet());
+  }
+
+  /**
+   * Resolves a sequence name to its category via the FPP-synced sequence list
+   * (the source of truth), not the embedded request/vote snapshot — which can
+   * be partial. Returns null when the name is unknown or has no category.
+   */
+  private String categoryForSequenceName(Show show, String sequenceName) {
+    if (StringUtils.isEmpty(sequenceName) || CollectionUtils.isEmpty(show.getSequences())) {
+      return null;
+    }
+    return show.getSequences().stream()
+        .filter(Objects::nonNull)
+        .filter(seq -> StringUtils.equalsIgnoreCase(seq.getName(), sequenceName))
+        .map(Sequence::getCategory)
+        .filter(StringUtils::isNotEmpty)
+        .findFirst()
+        .orElse(null);
+  }
+
+  /**
+   * True when a candidate must be skipped to avoid playing two songs from the
+   * same antiConsecutive category back-to-back: the candidate's category
+   * matches the just-played one and that category is flagged.
+   */
+  private boolean isConsecutiveBlocked(String candidateCategory, String lastPlayedCategory,
+                                       Set<String> antiConsecutiveCategories) {
+    if (StringUtils.isEmpty(candidateCategory) || StringUtils.isEmpty(lastPlayedCategory)) {
+      return false;
+    }
+    if (!StringUtils.equalsIgnoreCase(candidateCategory, lastPlayedCategory)) {
+      return false;
+    }
+    return antiConsecutiveCategories.contains(candidateCategory.toLowerCase(Locale.ROOT));
+  }
+
+  /**
+   * Jukebox play-selection: walk the queue in position order and return the
+   * first request that doesn't violate the anti-consecutive rule. Operator
+   * injections (owner requests and PSA/leader/override markers) are never
+   * skipped. Yields to the head when no constraint applies or every queued
+   * item is in the blocked category.
+   */
+  private Request selectNextRequest(Show show, List<Request> orderedByPosition) {
+    String lastPlayedCategory = this.categoryForSequenceName(show, show.getPlayingNow());
+    Set<String> antiConsecutive = this.antiConsecutiveCategories(show);
+    Integer nightlyLimit = this.nightlyPlayLimit(show);
+    boolean antiActive = !antiConsecutive.isEmpty() && StringUtils.isNotEmpty(lastPlayedCategory);
+    boolean nightlyActive = nightlyLimit != null && nightlyLimit > 0;
+    if (!antiActive && !nightlyActive) {
+      return orderedByPosition.getFirst();
+    }
+    for (Request request : orderedByPosition) {
+      // viewerRequested is null on genuine viewer requests after the per-poll
+      // IP scrub in updateWhatsPlaying; guard before the null-hostile Set.of().
+      String marker = request.getViewerRequested();
+      if (Boolean.TRUE.equals(request.getOwnerRequested())
+          || (marker != null && OPERATOR_INJECTION_MARKERS.contains(marker))) {
+        return request;
+      }
+      String name = request.getSequence().getName();
+      // #163 per-night cap: skip a song that's hit its nightly play limit.
+      if (nightlyActive && this.isNightlyCapped(show, name, nightlyLimit)) {
+        continue;
+      }
+      if (antiActive && this.isConsecutiveBlocked(this.categoryForSequenceName(show, name),
+          lastPlayedCategory, antiConsecutive)) {
+        continue;
+      }
+      return request;
+    }
+    return orderedByPosition.getFirst();
+  }
+
+  /**
+   * Voting play-selection: pick the highest-priority vote that doesn't violate
+   * the anti-consecutive rule. System-injected votes (PSA/leader/group/owner
+   * override — see {@link Vote#isSystemInjected}), group votes, and any
+   * sequence-less vote are never skipped. Yields to the top vote when no
+   * constraint applies or every viewer vote is in the blocked category.
+   * Preserves the original winner ordering (most votes, ties to earliest vote
+   * time) for the no-constraint case.
+   */
+  private Optional<Vote> selectWinningVote(Show show) {
+    if (CollectionUtils.isEmpty(show.getVotes())) {
+      return Optional.empty();
+    }
+    Comparator<Vote> winningOrder = Comparator.comparing(Vote::getVotes)
+        .thenComparing(Comparator.comparing(Vote::getLastVoteTime).reversed());
+    List<Vote> ordered = show.getVotes().stream()
+        .filter(Objects::nonNull)
+        .sorted(winningOrder.reversed())
+        .toList();
+    if (ordered.isEmpty()) {
+      return Optional.empty();
+    }
+    String lastPlayedCategory = this.categoryForSequenceName(show, show.getPlayingNow());
+    Set<String> antiConsecutive = this.antiConsecutiveCategories(show);
+    Integer nightlyLimit = this.nightlyPlayLimit(show);
+    boolean antiActive = !antiConsecutive.isEmpty() && StringUtils.isNotEmpty(lastPlayedCategory);
+    boolean nightlyActive = nightlyLimit != null && nightlyLimit > 0;
+    if (!antiActive && !nightlyActive) {
+      return Optional.of(ordered.getFirst());
+    }
+    for (Vote vote : ordered) {
+      if (Vote.isSystemInjected(vote) || vote.getSequenceGroup() != null || vote.getSequence() == null) {
+        return Optional.of(vote);
+      }
+      String name = vote.getSequence().getName();
+      // #163 per-night cap: skip a song that's hit its nightly play limit.
+      if (nightlyActive && this.isNightlyCapped(show, name, nightlyLimit)) {
+        continue;
+      }
+      if (antiActive && this.isConsecutiveBlocked(this.categoryForSequenceName(show, name),
+          lastPlayedCategory, antiConsecutive)) {
+        continue;
+      }
+      return Optional.of(vote);
+    }
+    // Every viewer vote is blocked (capped or same-category) — yield to the top vote.
+    return Optional.of(ordered.getFirst());
+  }
+
+  // ---- #163 per-night play cap (PRD-009, ADR-3) ----
+  //
+  // A show-level Preference.nightlyPlayLimit caps how many times any single
+  // song may play per show-night. The per-sequence tally lives on
+  // Sequence.playsToday, incremented on play in updateWhatsPlaying and reset
+  // lazily at the first play of a new night. At play-selection a capped song is
+  // skipped (combined with the #109 anti-consecutive rule).
+
+  // A multi-hour gap since the last counted play marks a new show-night. 6h
+  // cleanly separates nights (overnight is ~18-20h) while tolerating any
+  // realistic mid-evening pause. A calendar reset would misfire — midnight UTC
+  // is early evening for US operators, resetting counters mid-show. Tunable.
+  private static final long NIGHTLY_RESET_GAP_HOURS = 6L;
+
+  private Integer nightlyPlayLimit(Show show) {
+    return show.getPreferences() == null ? null : show.getPreferences().getNightlyPlayLimit();
+  }
+
+  /** True when the named song has reached its nightly play limit. */
+  private boolean isNightlyCapped(Show show, String sequenceName, Integer nightlyLimit) {
+    if (nightlyLimit == null || nightlyLimit <= 0
+        || StringUtils.isEmpty(sequenceName) || CollectionUtils.isEmpty(show.getSequences())) {
+      return false;
+    }
+    return show.getSequences().stream()
+        .filter(Objects::nonNull)
+        .filter(seq -> StringUtils.equalsIgnoreCase(seq.getName(), sequenceName))
+        .findFirst()
+        .map(seq -> seq.getPlaysToday() != null && seq.getPlaysToday() >= nightlyLimit)
+        .orElse(false);
+  }
+
+  /**
+   * Maintains the #163 per-night counters on each play: lazily resets every
+   * tally at the first play of a new show-night (gap-based), then counts this
+   * play. Only song-like plays burn the cap — PSAs/leaders are operator-policy
+   * interstitials (mirrors the isSongLike cadence rule). No-op (and no clock
+   * maintained) when the cap is disabled.
+   */
+  private void applyNightlyPlayCount(Show show, List<Sequence> sequences, String playlistName) {
+    Preference prefs = show.getPreferences();
+    Integer limit = prefs.getNightlyPlayLimit();
+    if (limit == null || limit <= 0) {
+      return;
+    }
+    LocalDateTime now = LocalDateTime.now();
+    LocalDateTime last = prefs.getLastPlayCountedAt();
+    if (last == null || last.isBefore(now.minusHours(NIGHTLY_RESET_GAP_HOURS))) {
+      for (Sequence sequence : sequences) {
+        if (sequence != null) {
+          sequence.setPlaysToday(0);
+        }
+      }
+    }
+    if (PluginQueueHelper.isSongLike(show, playlistName)) {
+      sequences.stream()
+          .filter(Objects::nonNull)
+          .filter(seq -> StringUtils.equalsIgnoreCase(seq.getName(), playlistName))
+          .findFirst()
+          .ifPresent(seq -> seq.setPlaysToday(
+              (seq.getPlaysToday() == null ? 0 : seq.getPlaysToday()) + 1));
+    }
+    prefs.setLastPlayCountedAt(now);
   }
 
   public PluginResponse updatePlaylistQueue() {
@@ -370,6 +587,9 @@ public class PluginService {
         }
       }
 
+      // #163 per-night play cap: lazy nightly reset + count this play.
+      this.applyNightlyPlayCount(show, sequences, request.getPlaylist());
+
       Set<String> psaNamesLowerCase = psaSequences.stream()
           .filter(Objects::nonNull)
           .map(PsaSequence::getName)
@@ -405,6 +625,7 @@ public class PluginService {
           Updates.combine(
               Updates.set("playingNow", request.getPlaylist()),
               Updates.set("preferences.sequencesPlayed", sequencesPlayed),
+              Updates.set("preferences.lastPlayCountedAt", show.getPreferences().getLastPlayCountedAt()),
               Updates.set("sequences", sequences),
               Updates.set("sequenceGroups", sequenceGroups),
               Updates.set("psaSequences", show.getPsaSequences() != null ? show.getPsaSequences() : new ArrayList<>()),
@@ -812,11 +1033,12 @@ public class PluginService {
         .winningPlaylist(null)
         .playlistIndex(-1)
         .build();
-    //Get the sequence with the most votes. If there is a tie, get the sequence with the earliest vote time
+    //Get the sequence with the most votes. If there is a tie, get the sequence with the earliest vote time.
+    //#109 anti-consecutive (PRD-009, ADR-3): selectWinningVote skips a viewer
+    //vote whose category matches the just-played one when flagged, deferring it
+    //to a later cycle. System-injected/group votes are never skipped.
     if (CollectionUtils.isNotEmpty(show.getVotes())) {
-      Optional<Vote> winningVote = show.getVotes().stream()
-          .max(Comparator.comparing(Vote::getVotes)
-              .thenComparing(Comparator.comparing(Vote::getLastVoteTime).reversed()));
+      Optional<Vote> winningVote = this.selectWinningVote(show);
       if (winningVote.isPresent()) {
         SequenceGroup winningSequenceGroup = winningVote.get().getSequenceGroup();
         if (winningSequenceGroup != null) {

@@ -64,6 +64,8 @@ input PreferenceInput {
     dailyVoteLimit: Int
     locationCode: Int
     hideSequenceCount: Int
+    # #163 per-night play cap (0/null = off).
+    nightlyPlayLimit: Int
     makeItSnow: Boolean
     managePsa: Boolean
     sequencesPlayed: Int

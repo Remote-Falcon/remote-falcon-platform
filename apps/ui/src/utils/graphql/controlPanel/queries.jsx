@@ -46,6 +46,7 @@ export const SIGN_IN = gql`
         jukeboxRequestLimit
         locationCode
         hideSequenceCount
+        nightlyPlayLimit
         makeItSnow
         managePsa
         playAllPsas
@@ -190,6 +191,7 @@ export const GET_SHOW = gql`
         jukeboxRequestLimit
         locationCode
         hideSequenceCount
+        nightlyPlayLimit
         makeItSnow
         managePsa
         playAllPsas
@@ -502,6 +504,7 @@ export const GET_SHOW_BY_SHOW_NAME = gql`
         jukeboxRequestLimit
         locationCode
         hideSequenceCount
+        nightlyPlayLimit
         makeItSnow
         managePsa
         playAllPsas

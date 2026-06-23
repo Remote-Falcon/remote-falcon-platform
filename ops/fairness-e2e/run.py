@@ -16,7 +16,8 @@ Covered:
   geofence + multi-GPS (#16)      blocked IPs (NAUGHTY)
   daily vote limit (#162)         queue full (QUEUE_FULL)
   vote-exempt IPs (#156)          category request limit (#72/#128)
-  stats-excluded IPs (#168)       FPP request->play loop + voting->play loop
+  stats-excluded IPs (#168)       anti-consecutive category (#109)
+  per-night play cap (#163)       FPP request->play loop + voting->play loop
 
 Safe to run repeatedly: it snapshots every field it touches and restores the
 show on exit, and purges only the voteEvent rows it created (TEST-NET IPs).
@@ -244,7 +245,7 @@ SNAPSHOT_PREF_FIELDS = [
     "locationCheckMethod", "showLatitude", "showLongitude", "allowedRadius",
     "additionalGpsLocations", "checkIfVoted", "checkIfRequested", "dailyVoteLimit",
     "votingExemptIps", "statsExcludedIps", "blockedViewerIps", "jukeboxDepth",
-    "viewerControlMode", "viewerControlEnabled",
+    "viewerControlMode", "viewerControlEnabled", "nightlyPlayLimit", "lastPlayCountedAt",
 ]
 
 
@@ -262,14 +263,18 @@ def setup() -> dict:
         raise RuntimeError(f"need >=4 active+visible sequences, found {len(seqs)}")
 
     snap = show_field(
-        "{prefs: " + "{" + ",".join(f'{f}:s.preferences.{f}' for f in SNAPSHOT_PREF_FIELDS) + "},"
+        # `??null` so fields absent on the show (e.g. the new nightlyPlayLimit /
+        # lastPlayCountedAt) snapshot as null and restore as null rather than
+        # being dropped from the JSON and left mutated after teardown.
+        "{prefs: " + "{" + ",".join(f'{f}:(s.preferences.{f}??null)' for f in SNAPSHOT_PREF_FIELDS) + "},"
         " categories: s.categories||[],"
         " playingNow: s.playingNow||null,"
         " playingNext: s.playingNext||null,"
         " requests: s.requests||[],"
         " votes: s.votes||[],"
         " seqState: (s.sequences||[]).filter(x=>" + json.dumps(seqs) + ".indexOf(x.name)>=0)"
-        "   .map(x=>({name:x.name, category:x.category||null, active:x.active, visible:x.visible}))"
+        "   .map(x=>({name:x.name, category:x.category||null, active:x.active, visible:x.visible,"
+        "             playsToday:(x.playsToday??null)}))"
         "}"
     )
     snap["seqs"] = seqs
@@ -301,6 +306,7 @@ def teardown(snap: dict) -> None:
     for st in snap["seqState"]:
         steps.append(lambda st=st: tag_sequences([st["name"]], {
             "category": st["category"], "active": st["active"], "visible": st["visible"],
+            "playsToday": st.get("playsToday"),
         }))
     steps.append(purge_test_vote_events)
 
@@ -504,10 +510,128 @@ def scn_voting_loop(r: Results, seqs):
             code == 200 and winner == seq, f"http={code} winner={winner!r}")
 
 
+def scn_anti_consecutive(r: Results, seqs):
+    g = "Anti-consecutive category (#109)"
+    print(f"\n{g}")
+    anchor, blocked, allowed = seqs[0], seqs[1], seqs[2]
+
+    # One flagged (anti-consecutive) category + one plain category. Append-if-
+    # absent so a skipped teardown can't clobber the operator's real list;
+    # teardown restores the original categories array wholesale.
+    for cat, anti in (("E2EAntiCat", True), ("E2EOtherCat", False)):
+        mongo(
+            f'db.show.updateOne({{email:{json.dumps(EMAIL)}, "categories.name":{{$ne:{json.dumps(cat)}}}}}, '
+            f'{{$push:{{categories:{{name:{json.dumps(cat)}, requestLimit:null, '
+            f'antiConsecutive:{str(anti).lower()}}}}}}})'
+        )
+    tag_sequences([anchor, blocked], {"category": "E2EAntiCat", "active": True, "visible": True})
+    tag_sequences([allowed], {"category": "E2EOtherCat", "active": True, "visible": True})
+    idx = {n: show_field(f'((s.sequences||[]).find(x=>x.name=={json.dumps(n)})||{{}}).index ?? -1')
+           for n in (anchor, blocked, allowed)}
+
+    def req(name, position):
+        return {"position": position, "sequence": {"name": name, "index": idx[name]}}
+
+    # --- Jukebox: skip the same-category head, play the different category ---
+    set_prefs({"viewerControlMode": "JUKEBOX", "viewerControlEnabled": True})
+    set_show({"playingNow": anchor,  # just played a song in the anti-consecutive category
+              "requests": [req(blocked, 1), req(allowed, 2)], "votes": []})
+    code, resp = plugin_req("GET", "/nextPlaylistInQueue")
+    got = (resp or {}).get("nextPlaylist")
+    r.check(g, "jukebox skips same-category head, plays a different category",
+            code == 200 and got == allowed, f"http={code} nextPlaylist={got!r} (expected {allowed!r})")
+
+    # --- Jukebox yield: with no alternative, play the blocked song anyway ---
+    set_show({"playingNow": anchor, "requests": [req(blocked, 1)], "votes": []})
+    code, resp = plugin_req("GET", "/nextPlaylistInQueue")
+    got = (resp or {}).get("nextPlaylist")
+    r.check(g, "jukebox yields (plays blocked song) when it's the only option",
+            code == 200 and got == blocked, f"http={code} nextPlaylist={got!r} (expected {blocked!r})")
+
+    # --- Voting: defer the higher-voted same-category song to a later cycle ---
+    set_prefs({"locationCheckMethod": "NONE", "checkIfVoted": False, "dailyVoteLimit": 0,
+               "votingExemptIps": [], "statsExcludedIps": [], "blockedViewerIps": [],
+               "viewerControlMode": "VOTING"})
+    clear_queue_and_votes()
+    purge_test_vote_events()
+    # Real viewer votes (correct lastVoteTime serialization), then bump counts so
+    # the blocked-category song out-votes the allowed one (5 vs 3).
+    viewer_gql("voteForSequence", blocked, IP["vote_a"])
+    viewer_gql("voteForSequence", allowed, IP["vote_b"])
+    mongo(
+        f'db.show.updateOne({{email:{json.dumps(EMAIL)}}}, '
+        f'{{$set:{{"votes.$[b].votes":5, "votes.$[a].votes":3}}}}, '
+        f'{{arrayFilters:[{{"b.sequence.name":{json.dumps(blocked)}}}, '
+        f'{{"a.sequence.name":{json.dumps(allowed)}}}]}})'
+    )
+    set_show({"playingNow": anchor})
+    code, resp = plugin_req("GET", "/highestVotedPlaylist")
+    winner = (resp or {}).get("winningPlaylist")
+    r.check(g, "voting defers higher-voted same-category song, plays a different one",
+            code == 200 and winner == allowed, f"http={code} winner={winner!r} (expected {allowed!r})")
+
+
+def scn_nightly_play_cap(r: Results, seqs):
+    g = "Per-night play cap (#163)"
+    print(f"\n{g}")
+    capped, fresh, spare = seqs[0], seqs[1], seqs[2]
+
+    def req(name, position):
+        idx = show_field(f'((s.sequences||[]).find(x=>x.name=={json.dumps(name)})||{{}}).index ?? -1')
+        return {"position": position, "sequence": {"name": name, "index": idx}}
+
+    # --- Jukebox: a song at its nightly cap is skipped for a fresh one ---
+    set_prefs({"viewerControlMode": "JUKEBOX", "viewerControlEnabled": True, "nightlyPlayLimit": 2})
+    tag_sequences([capped], {"playsToday": 2, "category": None, "active": True, "visible": True})
+    tag_sequences([fresh], {"playsToday": 0, "category": None, "active": True, "visible": True})
+    set_show({"playingNow": None, "requests": [req(capped, 1), req(fresh, 2)], "votes": []})
+    code, resp = plugin_req("GET", "/nextPlaylistInQueue")
+    got = (resp or {}).get("nextPlaylist")
+    r.check(g, "jukebox skips a song at its nightly cap, plays a fresh one",
+            code == 200 and got == fresh, f"http={code} nextPlaylist={got!r} (expected {fresh!r})")
+
+    # --- Voting: the capped song is deferred even with more votes ---
+    set_prefs({"locationCheckMethod": "NONE", "checkIfVoted": False, "dailyVoteLimit": 0,
+               "votingExemptIps": [], "statsExcludedIps": [], "blockedViewerIps": [],
+               "viewerControlMode": "VOTING", "nightlyPlayLimit": 2})
+    tag_sequences([capped], {"playsToday": 2, "category": None, "active": True, "visible": True})
+    tag_sequences([fresh], {"playsToday": 0, "category": None, "active": True, "visible": True})
+    clear_queue_and_votes()
+    purge_test_vote_events()
+    viewer_gql("voteForSequence", capped, IP["vote_a"])
+    viewer_gql("voteForSequence", fresh, IP["vote_b"])
+    mongo(
+        f'db.show.updateOne({{email:{json.dumps(EMAIL)}}}, '
+        f'{{$set:{{"votes.$[c].votes":5, "votes.$[f].votes":3}}}}, '
+        f'{{arrayFilters:[{{"c.sequence.name":{json.dumps(capped)}}}, '
+        f'{{"f.sequence.name":{json.dumps(fresh)}}}]}})'
+    )
+    code, resp = plugin_req("GET", "/highestVotedPlaylist")
+    winner = (resp or {}).get("winningPlaylist")
+    r.check(g, "voting defers a capped song, plays a fresh one",
+            code == 200 and winner == fresh, f"http={code} winner={winner!r} (expected {fresh!r})")
+
+    # --- Counter: updateWhatsPlaying counts the play and resets a stale tally ---
+    # lastPlayCountedAt=null -> the next play is the first of a new show-night, so
+    # `spare`'s stale tally resets to 0 before `fresh` is counted to 1.
+    set_prefs({"viewerControlMode": "JUKEBOX", "viewerControlEnabled": True,
+               "nightlyPlayLimit": 2, "lastPlayCountedAt": None})
+    tag_sequences([fresh], {"playsToday": 0, "category": None, "active": True, "visible": True})
+    tag_sequences([spare], {"playsToday": 5, "category": None, "active": True, "visible": True})
+    clear_queue_and_votes()
+    plugin_req("POST", "/updateWhatsPlaying", {"playlist": fresh})
+    fresh_plays = show_field(f'((s.sequences||[]).find(x=>x.name=={json.dumps(fresh)})||{{}}).playsToday ?? null')
+    spare_plays = show_field(f'((s.sequences||[]).find(x=>x.name=={json.dumps(spare)})||{{}}).playsToday ?? null')
+    r.check(g, "updateWhatsPlaying counts the play (playsToday -> 1)",
+            fresh_plays == 1, f"fresh.playsToday={fresh_plays!r}")
+    r.check(g, "new-night reset zeroes a stale tally",
+            spare_plays == 0, f"spare.playsToday={spare_plays!r}")
+
+
 SCENARIOS = [
     scn_geofence, scn_daily_vote_limit, scn_vote_exempt, scn_stats_excluded,
     scn_blocked_ip, scn_queue_full, scn_category_limit,
-    scn_fpp_request_loop, scn_voting_loop,
+    scn_fpp_request_loop, scn_voting_loop, scn_nightly_play_cap, scn_anti_consecutive,
 ]
 
 
