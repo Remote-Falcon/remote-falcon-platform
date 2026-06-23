@@ -1268,4 +1268,200 @@ class PluginServiceTest {
     HighestVotedPlaylistResponse resp = pluginService.highestVotedPlaylist();
     assertEquals("Same-Name", resp.getWinningPlaylist());
   }
+
+  // ---------- #109 anti-consecutive category enforcement (PRD-009, ADR-3) ----------
+  //
+  // A Category flagged antiConsecutive must not have its songs play
+  // back-to-back. At play-selection the just-playing sequence's category
+  // (derived from playingNow) is the "last played" category; a candidate in
+  // that same flagged category is skipped when an alternative exists, and the
+  // rule yields when every queued/voted item shares the blocked category.
+  // Operator-policy items (owner requests, PSA/leader/override, system-injected
+  // votes, group votes) are never skipped. Enforced in both modes.
+
+  // --- Jukebox (nextPlaylistInQueue) ---
+
+  @Test
+  void nextPlaylistInQueue_antiConsecutive_skipsSameCategory_picksDifferent() {
+    baseShow.setCategories(new ArrayList<>(List.of(
+        Category.builder().name("NonChristmas").antiConsecutive(true).build(),
+        Category.builder().name("Christmas").antiConsecutive(false).build()
+    )));
+    Sequence nowPlaying = Sequence.builder().name("NowNonXmas").index(1).category("NonChristmas").group("").visibilityCount(0).active(true).build();
+    Sequence blocked = Sequence.builder().name("AnotherNonXmas").index(2).category("NonChristmas").group("").visibilityCount(0).active(true).build();
+    Sequence allowed = Sequence.builder().name("AXmasSong").index(3).category("Christmas").group("").visibilityCount(0).active(true).build();
+    baseShow.setSequences(new ArrayList<>(List.of(nowPlaying, blocked, allowed)));
+    baseShow.setPlayingNow("NowNonXmas");
+    baseShow.setRequests(new ArrayList<>(List.of(
+        Request.builder().position(1).sequence(blocked).build(),  // same category -> skip
+        Request.builder().position(2).sequence(allowed).build()   // different -> pick
+    )));
+
+    NextPlaylistResponse resp = pluginService.nextPlaylistInQueue();
+    assertEquals("AXmasSong", resp.getNextPlaylist());
+    assertEquals(3, resp.getPlaylistIndex());
+  }
+
+  @Test
+  void nextPlaylistInQueue_antiConsecutive_allSameCategory_yieldsHead() {
+    baseShow.setCategories(new ArrayList<>(List.of(
+        Category.builder().name("NonChristmas").antiConsecutive(true).build()
+    )));
+    Sequence nowPlaying = Sequence.builder().name("NowNonXmas").index(1).category("NonChristmas").group("").visibilityCount(0).active(true).build();
+    Sequence a = Sequence.builder().name("NonXmasA").index(2).category("NonChristmas").group("").visibilityCount(0).active(true).build();
+    Sequence b = Sequence.builder().name("NonXmasB").index(3).category("NonChristmas").group("").visibilityCount(0).active(true).build();
+    baseShow.setSequences(new ArrayList<>(List.of(nowPlaying, a, b)));
+    baseShow.setPlayingNow("NowNonXmas");
+    baseShow.setRequests(new ArrayList<>(List.of(
+        Request.builder().position(1).sequence(a).build(),
+        Request.builder().position(2).sequence(b).build()
+    )));
+
+    NextPlaylistResponse resp = pluginService.nextPlaylistInQueue();
+    // No alternative category in the queue -> rule yields to the head.
+    assertEquals("NonXmasA", resp.getNextPlaylist());
+  }
+
+  @Test
+  void nextPlaylistInQueue_antiConsecutive_categoryNotFlagged_noSkip() {
+    baseShow.setCategories(new ArrayList<>(List.of(
+        Category.builder().name("NonChristmas").antiConsecutive(false).build()
+    )));
+    Sequence nowPlaying = Sequence.builder().name("NowNonXmas").index(1).category("NonChristmas").group("").visibilityCount(0).active(true).build();
+    Sequence head = Sequence.builder().name("NonXmasHead").index(2).category("NonChristmas").group("").visibilityCount(0).active(true).build();
+    baseShow.setSequences(new ArrayList<>(List.of(nowPlaying, head)));
+    baseShow.setPlayingNow("NowNonXmas");
+    baseShow.setRequests(new ArrayList<>(List.of(
+        Request.builder().position(1).sequence(head).build()
+    )));
+
+    NextPlaylistResponse resp = pluginService.nextPlaylistInQueue();
+    // Category exists but isn't flagged -> rule inactive, head plays.
+    assertEquals("NonXmasHead", resp.getNextPlaylist());
+  }
+
+  @Test
+  void nextPlaylistInQueue_antiConsecutive_ownerRequestedNotSkipped() {
+    baseShow.setCategories(new ArrayList<>(List.of(
+        Category.builder().name("NonChristmas").antiConsecutive(true).build(),
+        Category.builder().name("Christmas").antiConsecutive(false).build()
+    )));
+    Sequence nowPlaying = Sequence.builder().name("NowNonXmas").index(1).category("NonChristmas").group("").visibilityCount(0).active(true).build();
+    Sequence ownerSame = Sequence.builder().name("OwnerNonXmas").index(2).category("NonChristmas").group("").visibilityCount(0).active(true).build();
+    Sequence allowed = Sequence.builder().name("AXmasSong").index(3).category("Christmas").group("").visibilityCount(0).active(true).build();
+    baseShow.setSequences(new ArrayList<>(List.of(nowPlaying, ownerSame, allowed)));
+    baseShow.setPlayingNow("NowNonXmas");
+    baseShow.setRequests(new ArrayList<>(List.of(
+        // Operator-injected at the head, same blocked category -> must NOT be skipped.
+        Request.builder().position(1).sequence(ownerSame).ownerRequested(true).build(),
+        Request.builder().position(2).sequence(allowed).build()
+    )));
+
+    NextPlaylistResponse resp = pluginService.nextPlaylistInQueue();
+    assertEquals("OwnerNonXmas", resp.getNextPlaylist());
+  }
+
+  @Test
+  void nextPlaylistInQueue_antiConsecutive_noPlayingNow_noSkip() {
+    // Nothing has played yet (playingNow empty) -> no constraint, head plays
+    // even though it's in a flagged category.
+    baseShow.setCategories(new ArrayList<>(List.of(
+        Category.builder().name("NonChristmas").antiConsecutive(true).build()
+    )));
+    Sequence head = Sequence.builder().name("NonXmasHead").index(2).category("NonChristmas").group("").visibilityCount(0).active(true).build();
+    baseShow.setSequences(new ArrayList<>(List.of(head)));
+    baseShow.setPlayingNow("");
+    baseShow.setRequests(new ArrayList<>(List.of(
+        Request.builder().position(1).sequence(head).build()
+    )));
+
+    NextPlaylistResponse resp = pluginService.nextPlaylistInQueue();
+    assertEquals("NonXmasHead", resp.getNextPlaylist());
+  }
+
+  // --- Voting (highestVotedPlaylist) ---
+
+  @Test
+  void highestVotedPlaylist_antiConsecutive_skipsSameCategory_picksLowerVotedDifferent() {
+    baseShow.getPreferences().setHideSequenceCount(0);
+    baseShow.getPreferences().setResetVotes(false);
+    baseShow.getPreferences().setPsaEnabled(false);
+    baseShow.setStats(Stat.builder().votingWin(new ArrayList<>()).build());
+    baseShow.setCategories(new ArrayList<>(List.of(
+        Category.builder().name("NonChristmas").antiConsecutive(true).build(),
+        Category.builder().name("Christmas").antiConsecutive(false).build()
+    )));
+    Sequence nowPlaying = Sequence.builder().name("NowNonXmas").index(1).category("NonChristmas").build();
+    Sequence blockedHigh = Sequence.builder().name("NonXmasHigh").index(2).category("NonChristmas").build();
+    Sequence allowedLow = Sequence.builder().name("XmasLow").index(3).category("Christmas").build();
+    baseShow.setSequences(new ArrayList<>(List.of(nowPlaying, blockedHigh, allowedLow)));
+    baseShow.setPlayingNow("NowNonXmas");
+    baseShow.setVotes(new ArrayList<>(List.of(
+        Vote.builder().sequence(blockedHigh).votes(5).lastVoteTime(LocalDateTime.now()).ownerVoted(false).build(),
+        Vote.builder().sequence(allowedLow).votes(3).lastVoteTime(LocalDateTime.now()).ownerVoted(false).build()
+    )));
+
+    HighestVotedPlaylistResponse resp = pluginService.highestVotedPlaylist();
+    // The higher-voted blocked song is deferred; the lower-voted different
+    // category wins this cycle.
+    assertEquals("XmasLow", resp.getWinningPlaylist());
+    assertEquals(3, resp.getPlaylistIndex());
+    // The deferred (blocked) vote remains for a later cycle.
+    boolean blockedRemains = baseShow.getVotes().stream().anyMatch(v ->
+        v.getSequence() != null && "NonXmasHigh".equals(v.getSequence().getName()));
+    assertTrue(blockedRemains);
+  }
+
+  @Test
+  void highestVotedPlaylist_antiConsecutive_allSameCategory_yieldsTop() {
+    baseShow.getPreferences().setHideSequenceCount(0);
+    baseShow.getPreferences().setResetVotes(false);
+    baseShow.getPreferences().setPsaEnabled(false);
+    baseShow.setStats(Stat.builder().votingWin(new ArrayList<>()).build());
+    baseShow.setCategories(new ArrayList<>(List.of(
+        Category.builder().name("NonChristmas").antiConsecutive(true).build()
+    )));
+    Sequence nowPlaying = Sequence.builder().name("NowNonXmas").index(1).category("NonChristmas").build();
+    Sequence top = Sequence.builder().name("NonXmasTop").index(2).category("NonChristmas").build();
+    Sequence other = Sequence.builder().name("NonXmasOther").index(3).category("NonChristmas").build();
+    baseShow.setSequences(new ArrayList<>(List.of(nowPlaying, top, other)));
+    baseShow.setPlayingNow("NowNonXmas");
+    baseShow.setVotes(new ArrayList<>(List.of(
+        Vote.builder().sequence(top).votes(5).lastVoteTime(LocalDateTime.now()).ownerVoted(false).build(),
+        Vote.builder().sequence(other).votes(3).lastVoteTime(LocalDateTime.now()).ownerVoted(false).build()
+    )));
+
+    HighestVotedPlaylistResponse resp = pluginService.highestVotedPlaylist();
+    // No different-category alternative -> rule yields to the top vote.
+    assertEquals("NonXmasTop", resp.getWinningPlaylist());
+  }
+
+  @Test
+  void highestVotedPlaylist_antiConsecutive_systemInjectedExempt() {
+    baseShow.getPreferences().setHideSequenceCount(0);
+    baseShow.getPreferences().setResetVotes(false);
+    baseShow.getPreferences().setPsaEnabled(false);
+    baseShow.setStats(Stat.builder().votingWin(new ArrayList<>()).build());
+    baseShow.setCategories(new ArrayList<>(List.of(
+        Category.builder().name("NonChristmas").antiConsecutive(true).build(),
+        Category.builder().name("Christmas").antiConsecutive(false).build()
+    )));
+    Sequence nowPlaying = Sequence.builder().name("NowNonXmas").index(1).category("NonChristmas").build();
+    // A system-injected vote (e.g. a PSA at the 2000 sentinel) that happens to
+    // be in the blocked category must still win — operator policy is exempt.
+    Sequence injected = Sequence.builder().name("InjectedNonXmas").index(2).category("NonChristmas").build();
+    Sequence viewerAllowed = Sequence.builder().name("XmasViewer").index(3).category("Christmas").build();
+    baseShow.setSequences(new ArrayList<>(List.of(nowPlaying, injected, viewerAllowed)));
+    baseShow.setPsaSequences(new ArrayList<>(List.of(
+        PsaSequence.builder().name("InjectedNonXmas").order(1).lastPlayed(LocalDateTime.now().minusHours(1)).build()
+    )));
+    baseShow.setPlayingNow("NowNonXmas");
+    baseShow.setVotes(new ArrayList<>(List.of(
+        Vote.builder().sequence(injected).votes(2000).systemInjected(true).lastVoteTime(LocalDateTime.now()).ownerVoted(false).build(),
+        Vote.builder().sequence(viewerAllowed).votes(3).lastVoteTime(LocalDateTime.now()).ownerVoted(false).build()
+    )));
+
+    HighestVotedPlaylistResponse resp = pluginService.highestVotedPlaylist();
+    assertEquals("InjectedNonXmas", resp.getWinningPlaylist());
+  }
 }

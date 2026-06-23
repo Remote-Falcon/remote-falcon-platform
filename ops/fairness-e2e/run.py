@@ -16,7 +16,8 @@ Covered:
   geofence + multi-GPS (#16)      blocked IPs (NAUGHTY)
   daily vote limit (#162)         queue full (QUEUE_FULL)
   vote-exempt IPs (#156)          category request limit (#72/#128)
-  stats-excluded IPs (#168)       FPP request->play loop + voting->play loop
+  stats-excluded IPs (#168)       anti-consecutive category (#109)
+  FPP request->play loop + voting->play loop
 
 Safe to run repeatedly: it snapshots every field it touches and restores the
 show on exit, and purges only the voteEvent rows it created (TEST-NET IPs).
@@ -504,10 +505,71 @@ def scn_voting_loop(r: Results, seqs):
             code == 200 and winner == seq, f"http={code} winner={winner!r}")
 
 
+def scn_anti_consecutive(r: Results, seqs):
+    g = "Anti-consecutive category (#109)"
+    print(f"\n{g}")
+    anchor, blocked, allowed = seqs[0], seqs[1], seqs[2]
+
+    # One flagged (anti-consecutive) category + one plain category. Append-if-
+    # absent so a skipped teardown can't clobber the operator's real list;
+    # teardown restores the original categories array wholesale.
+    for cat, anti in (("E2EAntiCat", True), ("E2EOtherCat", False)):
+        mongo(
+            f'db.show.updateOne({{email:{json.dumps(EMAIL)}, "categories.name":{{$ne:{json.dumps(cat)}}}}}, '
+            f'{{$push:{{categories:{{name:{json.dumps(cat)}, requestLimit:null, '
+            f'antiConsecutive:{str(anti).lower()}}}}}}})'
+        )
+    tag_sequences([anchor, blocked], {"category": "E2EAntiCat", "active": True, "visible": True})
+    tag_sequences([allowed], {"category": "E2EOtherCat", "active": True, "visible": True})
+    idx = {n: show_field(f'((s.sequences||[]).find(x=>x.name=={json.dumps(n)})||{{}}).index ?? -1')
+           for n in (anchor, blocked, allowed)}
+
+    def req(name, position):
+        return {"position": position, "sequence": {"name": name, "index": idx[name]}}
+
+    # --- Jukebox: skip the same-category head, play the different category ---
+    set_prefs({"viewerControlMode": "JUKEBOX", "viewerControlEnabled": True})
+    set_show({"playingNow": anchor,  # just played a song in the anti-consecutive category
+              "requests": [req(blocked, 1), req(allowed, 2)], "votes": []})
+    code, resp = plugin_req("GET", "/nextPlaylistInQueue")
+    got = (resp or {}).get("nextPlaylist")
+    r.check(g, "jukebox skips same-category head, plays a different category",
+            code == 200 and got == allowed, f"http={code} nextPlaylist={got!r} (expected {allowed!r})")
+
+    # --- Jukebox yield: with no alternative, play the blocked song anyway ---
+    set_show({"playingNow": anchor, "requests": [req(blocked, 1)], "votes": []})
+    code, resp = plugin_req("GET", "/nextPlaylistInQueue")
+    got = (resp or {}).get("nextPlaylist")
+    r.check(g, "jukebox yields (plays blocked song) when it's the only option",
+            code == 200 and got == blocked, f"http={code} nextPlaylist={got!r} (expected {blocked!r})")
+
+    # --- Voting: defer the higher-voted same-category song to a later cycle ---
+    set_prefs({"locationCheckMethod": "NONE", "checkIfVoted": False, "dailyVoteLimit": 0,
+               "votingExemptIps": [], "statsExcludedIps": [], "blockedViewerIps": [],
+               "viewerControlMode": "VOTING"})
+    clear_queue_and_votes()
+    purge_test_vote_events()
+    # Real viewer votes (correct lastVoteTime serialization), then bump counts so
+    # the blocked-category song out-votes the allowed one (5 vs 3).
+    viewer_gql("voteForSequence", blocked, IP["vote_a"])
+    viewer_gql("voteForSequence", allowed, IP["vote_b"])
+    mongo(
+        f'db.show.updateOne({{email:{json.dumps(EMAIL)}}}, '
+        f'{{$set:{{"votes.$[b].votes":5, "votes.$[a].votes":3}}}}, '
+        f'{{arrayFilters:[{{"b.sequence.name":{json.dumps(blocked)}}}, '
+        f'{{"a.sequence.name":{json.dumps(allowed)}}}]}})'
+    )
+    set_show({"playingNow": anchor})
+    code, resp = plugin_req("GET", "/highestVotedPlaylist")
+    winner = (resp or {}).get("winningPlaylist")
+    r.check(g, "voting defers higher-voted same-category song, plays a different one",
+            code == 200 and winner == allowed, f"http={code} winner={winner!r} (expected {allowed!r})")
+
+
 SCENARIOS = [
     scn_geofence, scn_daily_vote_limit, scn_vote_exempt, scn_stats_excluded,
     scn_blocked_ip, scn_queue_full, scn_category_limit,
-    scn_fpp_request_loop, scn_voting_loop,
+    scn_fpp_request_loop, scn_voting_loop, scn_anti_consecutive,
 ]
 
 
