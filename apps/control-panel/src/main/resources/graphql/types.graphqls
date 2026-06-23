@@ -71,6 +71,9 @@ type Preference {
     dailyVoteLimit: Int
     locationCode: Int
     hideSequenceCount: Int
+    # #163 per-night play cap — max times any single song plays per show-night
+    # (0/null = off). Enforced at play-selection in plugins-api.
+    nightlyPlayLimit: Int
     makeItSnow: Boolean
     managePsa: Boolean
     sequencesPlayed: Int

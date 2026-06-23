@@ -425,6 +425,27 @@ class GraphQLMutationServiceTest {
                 .hasMessage(StatusResponse.UNEXPECTED_ERROR.name());
     }
 
+    @Test
+    void updatePreferences_preservesLastPlayCountedAt_andPersistsNightlyPlayLimit() {
+        // #163 — lastPlayCountedAt is the plugins-api nightly-reset clock, not in
+        // PreferenceInput, so the UI sends it null. The mutation must preserve the
+        // existing value (nulling it would reset every song's nightly tally
+        // mid-show), while the operator-set nightlyPlayLimit flows through.
+        stubAuth();
+        java.time.LocalDateTime clock = java.time.LocalDateTime.now().minusHours(2);
+        Show show = Show.builder().showToken(SHOW_TOKEN)
+                .preferences(Preference.builder().lastPlayCountedAt(clock).nightlyPlayLimit(1).build())
+                .build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        // As the UI sends it: nightlyPlayLimit set, lastPlayCountedAt absent.
+        Preference newPrefs = Preference.builder().nightlyPlayLimit(3).build();
+        service.updatePreferences(newPrefs);
+
+        assertThat(newPrefs.getLastPlayCountedAt()).isEqualTo(clock);
+        assertThat(show.getPreferences().getNightlyPlayLimit()).isEqualTo(3);
+    }
+
     // ---- updatePages / updatePsaSequences / updateSequences / updateSequenceGroups ----
 
     @Test
