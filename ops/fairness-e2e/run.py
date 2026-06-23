@@ -17,7 +17,8 @@ Covered:
   daily vote limit (#162)         queue full (QUEUE_FULL)
   vote-exempt IPs (#156)          category request limit (#72/#128)
   stats-excluded IPs (#168)       anti-consecutive category (#109)
-  per-night play cap (#163)       FPP request->play loop + voting->play loop
+  per-night play cap (#163)       unavailable-sequence reject (#73)
+  FPP request->play loop + voting->play loop
 
 Safe to run repeatedly: it snapshots every field it touches and restores the
 show on exit, and purges only the voteEvent rows it created (TEST-NET IPs).
@@ -274,7 +275,7 @@ def setup() -> dict:
         " votes: s.votes||[],"
         " seqState: (s.sequences||[]).filter(x=>" + json.dumps(seqs) + ".indexOf(x.name)>=0)"
         "   .map(x=>({name:x.name, category:x.category||null, active:x.active, visible:x.visible,"
-        "             playsToday:(x.playsToday??null)}))"
+        "             playsToday:(x.playsToday??null), visibilityCount:(x.visibilityCount??null)}))"
         "}"
     )
     snap["seqs"] = seqs
@@ -306,7 +307,7 @@ def teardown(snap: dict) -> None:
     for st in snap["seqState"]:
         steps.append(lambda st=st: tag_sequences([st["name"]], {
             "category": st["category"], "active": st["active"], "visible": st["visible"],
-            "playsToday": st.get("playsToday"),
+            "playsToday": st.get("playsToday"), "visibilityCount": st.get("visibilityCount"),
         }))
     steps.append(purge_test_vote_events)
 
@@ -628,10 +629,42 @@ def scn_nightly_play_cap(r: Results, seqs):
             spare_plays == 0, f"spare.playsToday={spare_plays!r}")
 
 
+def scn_unavailable_sequence(r: Results, seqs):
+    g = "Unavailable sequence rejected (#73)"
+    print(f"\n{g}")
+    cooldown, capped, ok = seqs[0], seqs[1], seqs[2]
+
+    # --- Cooldown (visibilityCount > 0): not requestable/votable ---
+    set_prefs({"locationCheckMethod": "NONE", "checkIfRequested": False, "checkIfVoted": False,
+               "dailyVoteLimit": 0, "jukeboxDepth": 50, "blockedViewerIps": [],
+               "votingExemptIps": [], "statsExcludedIps": [], "nightlyPlayLimit": 0,
+               "viewerControlMode": "JUKEBOX"})
+    clear_queue_and_votes()
+    tag_sequences([cooldown], {"visibilityCount": 5, "playsToday": 0, "category": None, "active": True, "visible": True})
+    tag_sequences([ok], {"visibilityCount": 0, "playsToday": 0, "category": None, "active": True, "visible": True})
+    r.expect_deny(g, "request for a song on cooldown is denied",
+                  viewer_gql("addSequenceToQueue", cooldown, IP["loop"]), "SEQUENCE_UNAVAILABLE")
+    r.expect_allow(g, "request for an available song is allowed",
+                   viewer_gql("addSequenceToQueue", ok, IP["loop"]))
+
+    set_prefs({"viewerControlMode": "VOTING", "nightlyPlayLimit": 0})
+    clear_queue_and_votes()
+    r.expect_deny(g, "vote for a song on cooldown is denied",
+                  viewer_gql("voteForSequence", cooldown, IP["vote_a"]), "SEQUENCE_UNAVAILABLE")
+
+    # --- Nightly cap (playsToday >= nightlyPlayLimit): not requestable ---
+    set_prefs({"viewerControlMode": "JUKEBOX", "nightlyPlayLimit": 1})
+    clear_queue_and_votes()
+    tag_sequences([capped], {"visibilityCount": 0, "playsToday": 1, "category": None, "active": True, "visible": True})
+    r.expect_deny(g, "request for a nightly-capped song is denied",
+                  viewer_gql("addSequenceToQueue", capped, IP["loop"]), "SEQUENCE_UNAVAILABLE")
+
+
 SCENARIOS = [
     scn_geofence, scn_daily_vote_limit, scn_vote_exempt, scn_stats_excluded,
     scn_blocked_ip, scn_queue_full, scn_category_limit,
     scn_fpp_request_loop, scn_voting_loop, scn_nightly_play_cap, scn_anti_consecutive,
+    scn_unavailable_sequence,
 ]
 
 

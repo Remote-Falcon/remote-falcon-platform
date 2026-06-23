@@ -1061,4 +1061,64 @@ class GraphQLMutationServiceTest {
       ));
     }
   }
+
+  @Nested
+  @DisplayName("#73 unavailable-sequence guard (cooldown + nightly cap)")
+  class UnavailableSequenceTests {
+    @Test
+    @DisplayName("request for a sequence on cooldown (visibilityCount>0) is rejected as SEQUENCE_UNAVAILABLE")
+    void cooldownSequenceRequestRejected() {
+      Show show = mockShowWithPrefsAndCollections();
+      Sequence s = mock(Sequence.class);
+      when(s.getName()).thenReturn("song-a");
+      when(s.getVisibilityCount()).thenReturn(5);
+      show.getSequences().add(s);
+      when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
+
+      try {
+        service.addSequenceToQueue("sub", "song-a", 0f, 0f, "");
+        fail("expected exception");
+      } catch (CustomGraphQLExceptionResolver e) {
+        assertEquals("SEQUENCE_UNAVAILABLE", e.getMessage());
+      }
+    }
+
+    @Test
+    @DisplayName("vote for a sequence on cooldown is rejected as SEQUENCE_UNAVAILABLE")
+    void cooldownSequenceVoteRejected() {
+      Show show = mockShowWithPrefsAndCollections();
+      Sequence s = mock(Sequence.class);
+      when(s.getName()).thenReturn("song-a");
+      when(s.getVisibilityCount()).thenReturn(3);
+      show.getSequences().add(s);
+      when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
+
+      try {
+        service.voteForSequence("sub", "song-a", 0f, 0f, "");
+        fail("expected exception");
+      } catch (CustomGraphQLExceptionResolver e) {
+        assertEquals("SEQUENCE_UNAVAILABLE", e.getMessage());
+      }
+    }
+
+    @Test
+    @DisplayName("request for a sequence at its #163 nightly cap (playsToday>=nightlyPlayLimit) is rejected")
+    void nightlyCappedSequenceRequestRejected() {
+      Show show = mockShowWithPrefsAndCollections();
+      when(show.getPreferences().getNightlyPlayLimit()).thenReturn(1);
+      Sequence s = mock(Sequence.class);
+      when(s.getName()).thenReturn("song-a");
+      when(s.getVisibilityCount()).thenReturn(0);
+      when(s.getPlaysToday()).thenReturn(2);
+      show.getSequences().add(s);
+      when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
+
+      try {
+        service.addSequenceToQueue("sub", "song-a", 0f, 0f, "");
+        fail("expected exception");
+      } catch (CustomGraphQLExceptionResolver e) {
+        assertEquals("SEQUENCE_UNAVAILABLE", e.getMessage());
+      }
+    }
+  }
 }
