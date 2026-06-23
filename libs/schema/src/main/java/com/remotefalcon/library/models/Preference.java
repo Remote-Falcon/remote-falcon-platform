@@ -8,6 +8,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.eclipse.microprofile.graphql.Type;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
 
@@ -35,6 +36,15 @@ public class Preference {
     private Integer dailyVoteLimit;
     private Integer locationCode;
     private Integer hideSequenceCount;
+    // #163 per-night play cap (PRD-009, ADR-3): max times any single song may
+    // play per show-night (0/null = off). Enforced at play-selection in
+    // plugins-api; the per-sequence tally lives on Sequence.playsToday and
+    // resets lazily on the first play of a new night.
+    private Integer nightlyPlayLimit;
+    // Timestamp of the last counted play — drives the #163 nightly reset.
+    // A multi-hour gap since this marks a new show-night (timezone-free; a
+    // calendar reset at midnight UTC would fall mid-show for US operators).
+    private LocalDateTime lastPlayCountedAt;
     private Boolean makeItSnow;
     private Boolean managePsa;
     // PSA-v2 Q4 — when true, the cadence-tick PSA injection bursts ALL enabled

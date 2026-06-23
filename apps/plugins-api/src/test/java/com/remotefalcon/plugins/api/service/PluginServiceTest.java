@@ -1464,4 +1464,126 @@ class PluginServiceTest {
     HighestVotedPlaylistResponse resp = pluginService.highestVotedPlaylist();
     assertEquals("InjectedNonXmas", resp.getWinningPlaylist());
   }
+
+  // ---------- #163 per-night play cap (PRD-009, ADR-3) ----------
+  //
+  // Preference.nightlyPlayLimit caps how many times any single song plays per
+  // show-night. Sequence.playsToday is the per-song tally, incremented on play
+  // in updateWhatsPlaying and reset lazily at the first play of a new night
+  // (gap-based: >6h since lastPlayCountedAt). At play-selection a capped song is
+  // skipped; the rule yields when every candidate is capped.
+
+  // --- Selection: skip capped songs ---
+
+  @Test
+  void nextPlaylistInQueue_nightlyCap_skipsCappedSong_picksUncapped() {
+    baseShow.getPreferences().setNightlyPlayLimit(2);
+    Sequence capped = Sequence.builder().name("Capped").index(1).group("").visibilityCount(0).active(true).playsToday(2).build();
+    Sequence fresh = Sequence.builder().name("Fresh").index(2).group("").visibilityCount(0).active(true).playsToday(0).build();
+    baseShow.setSequences(new ArrayList<>(List.of(capped, fresh)));
+    baseShow.setRequests(new ArrayList<>(List.of(
+        Request.builder().position(1).sequence(capped).build(),  // at the nightly cap -> skip
+        Request.builder().position(2).sequence(fresh).build()
+    )));
+
+    NextPlaylistResponse resp = pluginService.nextPlaylistInQueue();
+    assertEquals("Fresh", resp.getNextPlaylist());
+    assertEquals(2, resp.getPlaylistIndex());
+  }
+
+  @Test
+  void nextPlaylistInQueue_nightlyCap_allCapped_yieldsHead() {
+    baseShow.getPreferences().setNightlyPlayLimit(2);
+    Sequence a = Sequence.builder().name("CapA").index(1).group("").visibilityCount(0).active(true).playsToday(2).build();
+    Sequence b = Sequence.builder().name("CapB").index(2).group("").visibilityCount(0).active(true).playsToday(3).build();
+    baseShow.setSequences(new ArrayList<>(List.of(a, b)));
+    baseShow.setRequests(new ArrayList<>(List.of(
+        Request.builder().position(1).sequence(a).build(),
+        Request.builder().position(2).sequence(b).build()
+    )));
+
+    NextPlaylistResponse resp = pluginService.nextPlaylistInQueue();
+    // Everything is capped -> rule yields to the head rather than play silence.
+    assertEquals("CapA", resp.getNextPlaylist());
+  }
+
+  @Test
+  void nextPlaylistInQueue_nightlyCap_disabled_noSkip() {
+    baseShow.getPreferences().setNightlyPlayLimit(0);  // disabled
+    Sequence hot = Sequence.builder().name("Hot").index(1).group("").visibilityCount(0).active(true).playsToday(99).build();
+    baseShow.setSequences(new ArrayList<>(List.of(hot)));
+    baseShow.setRequests(new ArrayList<>(List.of(
+        Request.builder().position(1).sequence(hot).build()
+    )));
+
+    NextPlaylistResponse resp = pluginService.nextPlaylistInQueue();
+    assertEquals("Hot", resp.getNextPlaylist());
+  }
+
+  @Test
+  void highestVotedPlaylist_nightlyCap_skipsCappedWinner_picksUncapped() {
+    baseShow.getPreferences().setHideSequenceCount(0);
+    baseShow.getPreferences().setResetVotes(false);
+    baseShow.getPreferences().setPsaEnabled(false);
+    baseShow.getPreferences().setNightlyPlayLimit(2);
+    baseShow.setStats(Stat.builder().votingWin(new ArrayList<>()).build());
+    Sequence cappedHigh = Sequence.builder().name("CappedHigh").index(1).playsToday(2).build();
+    Sequence freshLow = Sequence.builder().name("FreshLow").index(2).playsToday(0).build();
+    baseShow.setSequences(new ArrayList<>(List.of(cappedHigh, freshLow)));
+    baseShow.setVotes(new ArrayList<>(List.of(
+        Vote.builder().sequence(cappedHigh).votes(5).lastVoteTime(LocalDateTime.now()).ownerVoted(false).build(),
+        Vote.builder().sequence(freshLow).votes(3).lastVoteTime(LocalDateTime.now()).ownerVoted(false).build()
+    )));
+
+    HighestVotedPlaylistResponse resp = pluginService.highestVotedPlaylist();
+    // The higher-voted song is at its nightly cap; the lower-voted fresh one wins.
+    assertEquals("FreshLow", resp.getWinningPlaylist());
+  }
+
+  // --- Counter: increment + lazy reset in updateWhatsPlaying ---
+
+  @Test
+  void updateWhatsPlaying_nightlyCap_incrementsPlaysToday() {
+    baseShow.getPreferences().setNightlyPlayLimit(2);
+    baseShow.getPreferences().setLastPlayCountedAt(LocalDateTime.now().minusMinutes(3)); // same night
+    Sequence play = Sequence.builder().name("Play1").index(1).visibilityCount(0).active(true).playsToday(0).build();
+    baseShow.setSequences(new ArrayList<>(List.of(play)));
+
+    pluginService.updateWhatsPlaying(UpdateWhatsPlayingRequest.builder().playlist("Play1").build());
+
+    Optional<Sequence> after = baseShow.getSequences().stream().filter(s -> "Play1".equals(s.getName())).findFirst();
+    assertTrue(after.isPresent());
+    assertEquals(1, after.get().getPlaysToday());
+    assertNotNull(baseShow.getPreferences().getLastPlayCountedAt());
+  }
+
+  @Test
+  void updateWhatsPlaying_nightlyCap_newNight_resetsCountersThenCounts() {
+    baseShow.getPreferences().setNightlyPlayLimit(2);
+    // Last play was 7h ago -> a new show-night -> all tallies reset before counting.
+    baseShow.getPreferences().setLastPlayCountedAt(LocalDateTime.now().minusHours(7));
+    Sequence stale = Sequence.builder().name("Stale").index(1).visibilityCount(0).active(true).playsToday(2).build();
+    Sequence tonight = Sequence.builder().name("Tonight").index(2).visibilityCount(0).active(true).playsToday(0).build();
+    baseShow.setSequences(new ArrayList<>(List.of(stale, tonight)));
+
+    pluginService.updateWhatsPlaying(UpdateWhatsPlayingRequest.builder().playlist("Tonight").build());
+
+    Optional<Sequence> staleAfter = baseShow.getSequences().stream().filter(s -> "Stale".equals(s.getName())).findFirst();
+    Optional<Sequence> tonightAfter = baseShow.getSequences().stream().filter(s -> "Tonight".equals(s.getName())).findFirst();
+    assertEquals(0, staleAfter.orElseThrow().getPlaysToday(), "yesterday's tally reset");
+    assertEquals(1, tonightAfter.orElseThrow().getPlaysToday(), "this play counted after reset");
+  }
+
+  @Test
+  void updateWhatsPlaying_nightlyCap_disabled_doesNotCount() {
+    baseShow.getPreferences().setNightlyPlayLimit(null);  // disabled
+    Sequence play = Sequence.builder().name("Play1").index(1).visibilityCount(0).active(true).playsToday(0).build();
+    baseShow.setSequences(new ArrayList<>(List.of(play)));
+
+    pluginService.updateWhatsPlaying(UpdateWhatsPlayingRequest.builder().playlist("Play1").build());
+
+    Optional<Sequence> after = baseShow.getSequences().stream().filter(s -> "Play1".equals(s.getName())).findFirst();
+    assertEquals(0, after.orElseThrow().getPlaysToday(), "cap disabled -> no counting");
+    assertNull(baseShow.getPreferences().getLastPlayCountedAt(), "cap disabled -> no reset clock maintained");
+  }
 }

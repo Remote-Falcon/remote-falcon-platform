@@ -184,7 +184,10 @@ public class PluginService {
   private Request selectNextRequest(Show show, List<Request> orderedByPosition) {
     String lastPlayedCategory = this.categoryForSequenceName(show, show.getPlayingNow());
     Set<String> antiConsecutive = this.antiConsecutiveCategories(show);
-    if (StringUtils.isEmpty(lastPlayedCategory) || antiConsecutive.isEmpty()) {
+    Integer nightlyLimit = this.nightlyPlayLimit(show);
+    boolean antiActive = !antiConsecutive.isEmpty() && StringUtils.isNotEmpty(lastPlayedCategory);
+    boolean nightlyActive = nightlyLimit != null && nightlyLimit > 0;
+    if (!antiActive && !nightlyActive) {
       return orderedByPosition.getFirst();
     }
     for (Request request : orderedByPosition) {
@@ -195,10 +198,16 @@ public class PluginService {
           || (marker != null && OPERATOR_INJECTION_MARKERS.contains(marker))) {
         return request;
       }
-      String category = this.categoryForSequenceName(show, request.getSequence().getName());
-      if (!this.isConsecutiveBlocked(category, lastPlayedCategory, antiConsecutive)) {
-        return request;
+      String name = request.getSequence().getName();
+      // #163 per-night cap: skip a song that's hit its nightly play limit.
+      if (nightlyActive && this.isNightlyCapped(show, name, nightlyLimit)) {
+        continue;
       }
+      if (antiActive && this.isConsecutiveBlocked(this.categoryForSequenceName(show, name),
+          lastPlayedCategory, antiConsecutive)) {
+        continue;
+      }
+      return request;
     }
     return orderedByPosition.getFirst();
   }
@@ -227,19 +236,94 @@ public class PluginService {
     }
     String lastPlayedCategory = this.categoryForSequenceName(show, show.getPlayingNow());
     Set<String> antiConsecutive = this.antiConsecutiveCategories(show);
-    if (StringUtils.isEmpty(lastPlayedCategory) || antiConsecutive.isEmpty()) {
+    Integer nightlyLimit = this.nightlyPlayLimit(show);
+    boolean antiActive = !antiConsecutive.isEmpty() && StringUtils.isNotEmpty(lastPlayedCategory);
+    boolean nightlyActive = nightlyLimit != null && nightlyLimit > 0;
+    if (!antiActive && !nightlyActive) {
       return Optional.of(ordered.getFirst());
     }
     for (Vote vote : ordered) {
       if (Vote.isSystemInjected(vote) || vote.getSequenceGroup() != null || vote.getSequence() == null) {
         return Optional.of(vote);
       }
-      String category = this.categoryForSequenceName(show, vote.getSequence().getName());
-      if (!this.isConsecutiveBlocked(category, lastPlayedCategory, antiConsecutive)) {
-        return Optional.of(vote);
+      String name = vote.getSequence().getName();
+      // #163 per-night cap: skip a song that's hit its nightly play limit.
+      if (nightlyActive && this.isNightlyCapped(show, name, nightlyLimit)) {
+        continue;
+      }
+      if (antiActive && this.isConsecutiveBlocked(this.categoryForSequenceName(show, name),
+          lastPlayedCategory, antiConsecutive)) {
+        continue;
+      }
+      return Optional.of(vote);
+    }
+    // Every viewer vote is blocked (capped or same-category) — yield to the top vote.
+    return Optional.of(ordered.getFirst());
+  }
+
+  // ---- #163 per-night play cap (PRD-009, ADR-3) ----
+  //
+  // A show-level Preference.nightlyPlayLimit caps how many times any single
+  // song may play per show-night. The per-sequence tally lives on
+  // Sequence.playsToday, incremented on play in updateWhatsPlaying and reset
+  // lazily at the first play of a new night. At play-selection a capped song is
+  // skipped (combined with the #109 anti-consecutive rule).
+
+  // A multi-hour gap since the last counted play marks a new show-night. 6h
+  // cleanly separates nights (overnight is ~18-20h) while tolerating any
+  // realistic mid-evening pause. A calendar reset would misfire — midnight UTC
+  // is early evening for US operators, resetting counters mid-show. Tunable.
+  private static final long NIGHTLY_RESET_GAP_HOURS = 6L;
+
+  private Integer nightlyPlayLimit(Show show) {
+    return show.getPreferences() == null ? null : show.getPreferences().getNightlyPlayLimit();
+  }
+
+  /** True when the named song has reached its nightly play limit. */
+  private boolean isNightlyCapped(Show show, String sequenceName, Integer nightlyLimit) {
+    if (nightlyLimit == null || nightlyLimit <= 0
+        || StringUtils.isEmpty(sequenceName) || CollectionUtils.isEmpty(show.getSequences())) {
+      return false;
+    }
+    return show.getSequences().stream()
+        .filter(Objects::nonNull)
+        .filter(seq -> StringUtils.equalsIgnoreCase(seq.getName(), sequenceName))
+        .findFirst()
+        .map(seq -> seq.getPlaysToday() != null && seq.getPlaysToday() >= nightlyLimit)
+        .orElse(false);
+  }
+
+  /**
+   * Maintains the #163 per-night counters on each play: lazily resets every
+   * tally at the first play of a new show-night (gap-based), then counts this
+   * play. Only song-like plays burn the cap — PSAs/leaders are operator-policy
+   * interstitials (mirrors the isSongLike cadence rule). No-op (and no clock
+   * maintained) when the cap is disabled.
+   */
+  private void applyNightlyPlayCount(Show show, List<Sequence> sequences, String playlistName) {
+    Preference prefs = show.getPreferences();
+    Integer limit = prefs.getNightlyPlayLimit();
+    if (limit == null || limit <= 0) {
+      return;
+    }
+    LocalDateTime now = LocalDateTime.now();
+    LocalDateTime last = prefs.getLastPlayCountedAt();
+    if (last == null || last.isBefore(now.minusHours(NIGHTLY_RESET_GAP_HOURS))) {
+      for (Sequence sequence : sequences) {
+        if (sequence != null) {
+          sequence.setPlaysToday(0);
+        }
       }
     }
-    return Optional.of(ordered.getFirst());
+    if (PluginQueueHelper.isSongLike(show, playlistName)) {
+      sequences.stream()
+          .filter(Objects::nonNull)
+          .filter(seq -> StringUtils.equalsIgnoreCase(seq.getName(), playlistName))
+          .findFirst()
+          .ifPresent(seq -> seq.setPlaysToday(
+              (seq.getPlaysToday() == null ? 0 : seq.getPlaysToday()) + 1));
+    }
+    prefs.setLastPlayCountedAt(now);
   }
 
   public PluginResponse updatePlaylistQueue() {
@@ -503,6 +587,9 @@ public class PluginService {
         }
       }
 
+      // #163 per-night play cap: lazy nightly reset + count this play.
+      this.applyNightlyPlayCount(show, sequences, request.getPlaylist());
+
       Set<String> psaNamesLowerCase = psaSequences.stream()
           .filter(Objects::nonNull)
           .map(PsaSequence::getName)
@@ -538,6 +625,7 @@ public class PluginService {
           Updates.combine(
               Updates.set("playingNow", request.getPlaylist()),
               Updates.set("preferences.sequencesPlayed", sequencesPlayed),
+              Updates.set("preferences.lastPlayCountedAt", show.getPreferences().getLastPlayCountedAt()),
               Updates.set("sequences", sequences),
               Updates.set("sequenceGroups", sequenceGroups),
               Updates.set("psaSequences", show.getPsaSequences() != null ? show.getPsaSequences() : new ArrayList<>()),
