@@ -61,6 +61,7 @@ export const GET_SHOW_FOR_VIEWER = gql`
         jukeboxRequestLimit
         locationCode
         hideSequenceCount
+        nightlyPlayLimit
         makeItSnow
         analyticsBetaOptIn
         managePsa
@@ -83,6 +84,7 @@ export const GET_SHOW_FOR_VIEWER = gql`
         group
         category
         artist
+        playsToday
       }
       sequenceGroups {
         name
