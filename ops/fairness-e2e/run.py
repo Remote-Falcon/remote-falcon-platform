@@ -191,6 +191,22 @@ def viewer_gql(field: str, name: str, ip: str, lat=None, lon=None):
     return False, status
 
 
+def viewer_votes_remaining(ip: str):
+    """Call the votesRemaining query (#162). Returns the int (or None when no cap
+    / exempt). Identity is IP-only here (no viewerId), matching how the harness
+    votes, so the count lines up with what the cap enforces."""
+    query = f'query {{ votesRemaining(showSubdomain: "{_gql_escape(Ctx.subdomain)}") }}'
+    body = json.dumps({"query": query}).encode()
+    req = urllib.request.Request(
+        f"{Ctx.base_url}/remote-falcon-viewer/graphql",
+        data=body, method="POST",
+        headers={"Content-Type": "application/json", "CF-Connecting-IP": ip},
+    )
+    with urllib.request.urlopen(req, timeout=15) as r:
+        payload = json.loads(r.read())
+    return (payload.get("data") or {}).get("votesRemaining")
+
+
 def plugin_req(method: str, path: str, body: dict | None = None):
     """Call a plugins-api endpoint with the showtoken header. Returns (code, json|None)."""
     data = json.dumps(body).encode() if body is not None else None
@@ -247,6 +263,7 @@ SNAPSHOT_PREF_FIELDS = [
     "additionalGpsLocations", "checkIfVoted", "checkIfRequested", "dailyVoteLimit",
     "votingExemptIps", "statsExcludedIps", "blockedViewerIps", "jukeboxDepth",
     "viewerControlMode", "viewerControlEnabled", "nightlyPlayLimit", "lastPlayCountedAt",
+    "votingWindowStartedAt", "lastVoteCountedAt",
 ]
 
 
@@ -366,6 +383,45 @@ def scn_daily_vote_limit(r: Results, seqs):
                    viewer_gql("voteForSequence", seqs[1], IP["limit"]))
     r.expect_deny(g, "3rd vote over the cap is denied",
                   viewer_gql("voteForSequence", seqs[2], IP["limit"]), "DAILY_VOTE_LIMIT_REACHED")
+
+
+def scn_votes_remaining(r: Results, seqs):
+    g = "Votes-left countdown + session reset (#162)"
+    print(f"\n{g}")
+    # Fresh session: null the window so the first vote opens it (the gap/enable
+    # rollover is what makes the cap timezone-free — counts per show session,
+    # not per UTC day).
+    set_prefs({
+        "locationCheckMethod": "NONE", "checkIfVoted": False, "dailyVoteLimit": 2,
+        "votingExemptIps": [], "statsExcludedIps": [], "blockedViewerIps": [],
+        "viewerControlMode": "VOTING", "viewerControlEnabled": True,
+        "votingWindowStartedAt": None, "lastVoteCountedAt": None,
+    })
+    purge_test_vote_events()
+    ip = IP["limit"]
+
+    vr = viewer_votes_remaining(ip)
+    r.check(g, "votesRemaining starts at the cap (2)", vr == 2, f"got {vr}")
+    r.expect_allow(g, "1st vote allowed", viewer_gql("voteForSequence", seqs[0], ip))
+    vr = viewer_votes_remaining(ip)
+    r.check(g, "votesRemaining decremented to 1 after 1 vote", vr == 1, f"got {vr}")
+    r.expect_allow(g, "2nd vote allowed", viewer_gql("voteForSequence", seqs[1], ip))
+    vr = viewer_votes_remaining(ip)
+    r.check(g, "votesRemaining hits 0 at the cap", vr == 0, f"got {vr}")
+    r.expect_deny(g, "3rd vote denied at 0 remaining",
+                  viewer_gql("voteForSequence", seqs[2], ip), "DAILY_VOTE_LIMIT_REACHED")
+
+    # Operator re-enables viewer control (FPP plugin) -> fresh session window ->
+    # the prior votes fall outside it, so the allowance resets without any
+    # calendar/timezone reset.
+    code, _ = plugin_req("POST", "/updateViewerControl", {"viewerControlEnabled": "Y"})
+    r.check(g, "updateViewerControl(enable) succeeds", code == 200, f"http {code}")
+    vr = viewer_votes_remaining(ip)
+    r.check(g, "enabling voting resets the allowance to the cap", vr == 2, f"got {vr}")
+    r.expect_allow(g, "vote allowed again in the new session",
+                   viewer_gql("voteForSequence", seqs[3], ip))
+    vr = viewer_votes_remaining(ip)
+    r.check(g, "new-session count decremented to 1", vr == 1, f"got {vr}")
 
 
 def scn_vote_exempt(r: Results, seqs):
@@ -704,7 +760,7 @@ def scn_force_to_top(r: Results, seqs):
 
 
 SCENARIOS = [
-    scn_geofence, scn_daily_vote_limit, scn_vote_exempt, scn_stats_excluded,
+    scn_geofence, scn_daily_vote_limit, scn_votes_remaining, scn_vote_exempt, scn_stats_excluded,
     scn_blocked_ip, scn_queue_full, scn_category_limit,
     scn_fpp_request_loop, scn_voting_loop, scn_nightly_play_cap, scn_anti_consecutive,
     scn_unavailable_sequence, scn_force_to_top,

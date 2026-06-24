@@ -339,6 +339,20 @@ public class ShowRepository implements PanacheMongoRepository<Show> {
     );
   }
 
+  // #162 — persist the votes-left session window + last-vote marker after a
+  // counted vote. windowStartedAt anchors the cap/countdown count; lastVoteCountedAt
+  // drives the new-show-night gap rollover (parallel to #163's lastPlayCountedAt).
+  public void updateVotingWindow(String showSubdomain, java.time.LocalDateTime windowStartedAt,
+                                 java.time.LocalDateTime lastVoteCountedAt) {
+    mongoCollection().updateOne(
+        Filters.eq("showSubdomain", showSubdomain),
+        Updates.combine(
+            Updates.set("preferences.votingWindowStartedAt", windowStartedAt),
+            Updates.set("preferences.lastVoteCountedAt", lastVoteCountedAt)
+        )
+    );
+  }
+
   public void appendRequestAndJukeboxStat(String showSubdomain, Request request, Stat.Jukebox stat) {
     this.pruneStatArray(showSubdomain, "stats.jukebox");
     mongoCollection().updateOne(
