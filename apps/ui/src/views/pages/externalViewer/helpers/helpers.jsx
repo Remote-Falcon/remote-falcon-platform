@@ -81,6 +81,19 @@ const jukeboxQueueNode = (value) => ({
   }
 });
 
+// #162 — operator-placed {VOTES_REMAINING} variable. Filled with "X of N votes
+// left this show" in voting mode when a daily cap is set; empty otherwise (no
+// cap, jukebox mode, or a voting-exempt IP) so the slot collapses.
+const votesRemainingNode = (value) => ({
+  replaceChildren: true,
+  shouldProcessNode(node) {
+    return node && node.children && node.children[0] && node.children[0].data && node.children[0].data.trim() === '{VOTES_REMAINING}';
+  },
+  processNode() {
+    return value;
+  }
+});
+
 const afterHoursNode = (value) => ({
   replaceChildren: true,
   shouldProcessNode(node) {
@@ -171,7 +184,8 @@ export const processingInstructions = (
   nextSequence,
   queueDepth,
   locationCode,
-  nowPlayingTimer
+  nowPlayingTimer,
+  votesRemaining
 ) => {
   let processedNodes = [];
   if (!viewerControlEnabled) {
@@ -179,6 +193,7 @@ export const processingInstructions = (
       locationCodeNode(<></>),
       sequencesNode(<></>),
       votesNode(<></>),
+      votesRemainingNode(<></>),
       nowPlayingNode(<></>),
       nowPlayingTimerNode(<></>),
       nextSequenceNode(<></>),
@@ -195,6 +210,7 @@ export const processingInstructions = (
     processedNodes = [
       locationCodeNode(<>{locationCode}</>),
       sequencesNode(<>{sequences}</>),
+      votesRemainingNode(<></>),
       nowPlayingNode(<>{nowPlaying}</>),
       nowPlayingTimerNode(<>{nowPlayingTimer}</>),
       nextSequenceNode(<>{nextSequence}</>),
@@ -211,6 +227,7 @@ export const processingInstructions = (
       locationCodeNode(<>{locationCode}</>),
       sequencesNode(<>{sequences}</>),
       votesNode(<></>),
+      votesRemainingNode(<>{votesRemaining}</>),
       nowPlayingNode(<>{nowPlaying}</>),
       nowPlayingTimerNode(<>{nowPlayingTimer}</>),
       nextSequenceNode(<>{nextSequence}</>),

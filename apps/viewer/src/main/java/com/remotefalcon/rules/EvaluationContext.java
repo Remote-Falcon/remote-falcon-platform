@@ -6,13 +6,14 @@ import com.remotefalcon.library.quarkus.entity.Show;
  * Inputs shared by every vote/request enforcement rule, resolved once per
  * mutation and passed down the chain (PRD-009, ADR-4).
  *
- * <p>{@code votesToday} is the voter's vote count for the current UTC day,
- * computed by the service from the voteEvent collection (#162) — and only when a
- * daily limit is configured, so the I/O stays out of the rules and the rules
- * remain pure. It is {@code null} when no daily-cap check is needed.
+ * <p>{@code votesInWindow} is the voter's vote count for the current show
+ * session (votes since {@code Preference.votingWindowStartedAt}, #162), computed
+ * by the service from the voteEvent collection — and only when a daily limit is
+ * configured, so the I/O stays out of the rules and the rules remain pure. It is
+ * {@code null} when no daily-cap check is needed.
  */
 public record EvaluationContext(Show show, String ip, String viewerId, Float latitude, Float longitude,
-                                Long votesToday) {
+                                Long votesInWindow) {
 
   /**
    * #156 — true when this IP is on the show's voting-exempt allowlist (e.g. a

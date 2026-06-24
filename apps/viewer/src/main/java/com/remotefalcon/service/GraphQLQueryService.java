@@ -1,6 +1,7 @@
 package com.remotefalcon.service;
 
 import com.remotefalcon.library.enums.ViewerControlMode;
+import com.remotefalcon.library.models.Preference;
 import com.remotefalcon.library.models.Request;
 import com.remotefalcon.library.models.Sequence;
 import com.remotefalcon.library.models.SequenceGroup;
@@ -8,21 +9,32 @@ import com.remotefalcon.library.models.ViewerPage;
 import com.remotefalcon.library.quarkus.entity.Show;
 import com.remotefalcon.library.util.PluginQueueHelper;
 import com.remotefalcon.repository.ShowRepository;
+import com.remotefalcon.repository.VoteEventRepository;
+import com.remotefalcon.util.ClientUtil;
+import io.vertx.ext.web.RoutingContext;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import lombok.extern.jbosslog.JBossLog;
 import org.apache.commons.lang3.StringUtils;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 @JBossLog
 @ApplicationScoped
 public class GraphQLQueryService {
   @Inject
   ShowRepository showRepository;
+
+  @Inject
+  VoteEventRepository voteEventRepository;
+
+  @Inject
+  RoutingContext context;
 
   public Show getShow(String showSubdomain) {
     // Use optimized query that excludes stats and sensitive fields
@@ -45,6 +57,37 @@ public class GraphQLQueryService {
       existingShow.setRequests(this.stripOperatorInjectedRequests(existingShow));
     }
     return show.orElse(null);
+  }
+
+  /**
+   * #162 — how many votes this viewer has left in the current show session, for
+   * the "X of N votes left this show" countdown. Returns {@code null} (→ the UI
+   * shows nothing) when no daily limit is configured or this IP is voting-exempt
+   * (#156). The count is session-scoped (votes since votingWindowStartedAt), so
+   * it matches the cap the DailyVoteLimitRule enforces — same identity (viewerId
+   * first, else IP) and same window. Called on page load + after each vote, not
+   * on the polled getShow, so the count read stays off the hot path.
+   */
+  public Integer votesRemaining(String showSubdomain, String viewerId) {
+    Optional<Show> show = this.showRepository.findByShowSubdomainForViewer(showSubdomain);
+    if (show.isEmpty() || show.get().getPreferences() == null) {
+      return null;
+    }
+    Preference prefs = show.get().getPreferences();
+    Integer limit = prefs.getDailyVoteLimit();
+    if (limit == null || limit == 0) {
+      return null; // no cap configured → no countdown
+    }
+    String clientIp = ClientUtil.getClientIP(context);
+    Set<String> exemptIps = prefs.getVotingExemptIps();
+    if (exemptIps != null && clientIp != null && exemptIps.contains(clientIp)) {
+      return null; // #156 exempt → effectively unlimited, hide the countdown
+    }
+    LocalDateTime window = prefs.getVotingWindowStartedAt();
+    long used = (window == null)
+        ? 0L // session not started yet → full allowance
+        : this.voteEventRepository.countVotesSince(show.get().id, viewerId, clientIp, window);
+    return (int) Math.max(0L, (long) limit - used);
   }
 
   private List<Request> stripOperatorInjectedRequests(Show show) {

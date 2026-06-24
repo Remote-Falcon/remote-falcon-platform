@@ -21,7 +21,7 @@ import { addSequenceToQueueService, voteForSequenceService } from '../../../serv
 import { getViewerId } from '../../../utils/viewerId';
 import { LocationCheckMethod, ViewerControlMode } from '../../../utils/enum';
 import { ADD_SEQUENCE_TO_QUEUE, INSERT_VIEWER_PAGE_STATS, VOTE_FOR_SEQUENCE } from '../../../utils/graphql/viewer/mutations';
-import { GET_ACTIVE_VIEWER_PAGE, GET_SHOW_FOR_VIEWER } from '../../../utils/graphql/viewer/queries';
+import { GET_ACTIVE_VIEWER_PAGE, GET_SHOW_FOR_VIEWER, VOTES_REMAINING } from '../../../utils/graphql/viewer/queries';
 import { showAlert } from '../globalPageHelpers';
 import { defaultProcessingInstructions, nextNowPlayingState, processingInstructions, viewerPageMessageElements } from './helpers/helpers';
 
@@ -42,9 +42,13 @@ const ExternalViewerPage = () => {
   const [messageDisplayTime] = useState(6000);
   const [nowPlaying, setNowPlaying] = useState(null);
   const [nowPlayingTimer, setNowPlayingTimer] = useState(0);
+  // #162 — votes this viewer has left in the current show session (null = no cap
+  // configured or exempt → the {VOTES_REMAINING} slot renders empty).
+  const [votesRemaining, setVotesRemaining] = useState(null);
 
   const [getShowQuery] = useLazyQuery(GET_SHOW_FOR_VIEWER);
   const [getActiveViewerPageQuery] = useLazyQuery(GET_ACTIVE_VIEWER_PAGE);
+  const [getVotesRemainingQuery] = useLazyQuery(VOTES_REMAINING);
   const [insertViewerPageStatsMutation] = useMutation(INSERT_VIEWER_PAGE_STATS);
   const [addSequenceToQueueMutation] = useMutation(ADD_SEQUENCE_TO_QUEUE);
   const [voteForSequenceMutation] = useMutation(VOTE_FOR_SEQUENCE);
@@ -75,6 +79,28 @@ const ExternalViewerPage = () => {
       });
     }
   }, []);
+
+  // #162 — pull this viewer's remaining session votes for the {VOTES_REMAINING}
+  // slot. Called on load and after each vote (not on the 5s poll, to keep the
+  // count read off the hot path). `optedIn` decides the identity sent (viewerId
+  // vs IP-backstop) so the count matches what the server enforces. Returns null
+  // when no cap is set or the IP is exempt → the slot stays empty.
+  const refreshVotesRemaining = useCallback(
+    (optedIn) => {
+      getVotesRemainingQuery({
+        context: { headers: { Route: 'Viewer' } },
+        variables: {
+          showSubdomain: getSubdomain(),
+          viewerId: optedIn ? getViewerId() : null
+        },
+        fetchPolicy: 'network-only',
+        onCompleted: (data) => {
+          setVotesRemaining(data?.votesRemaining ?? null);
+        }
+      });
+    },
+    [getVotesRemainingQuery]
+  );
 
   const showViewerMessage = useCallback(
     (response) => {
@@ -215,6 +241,13 @@ const ExternalViewerPage = () => {
         show?.preferences?.analyticsBetaOptIn ? getViewerId() : null,
         (response) => {
           showViewerMessage(response);
+          if (response?.success) {
+            // #162 — optimistic decrement for snappy feedback, then reconcile
+            // with the server (covers the gap rollover, other tabs/devices on
+            // the same IP, and the exact authoritative count).
+            setVotesRemaining((prev) => (prev != null ? Math.max(0, prev - 1) : prev));
+            refreshVotesRemaining(show?.preferences?.analyticsBetaOptIn);
+          }
         }
       );
     },
@@ -228,7 +261,8 @@ const ExternalViewerPage = () => {
       viewerLongitude,
       setViewerLocation,
       enteredLocationCode,
-      showViewerMessage
+      showViewerMessage,
+      refreshVotesRemaining
     ]
   );
 
@@ -733,6 +767,18 @@ const ExternalViewerPage = () => {
       </>
     );
 
+    // #162 — fill the {VOTES_REMAINING} slot only in voting mode with a cap set
+    // and a known count; the helper renders empty for the other branches.
+    const dailyVoteLimit = show?.preferences?.dailyVoteLimit ?? 0;
+    const votesRemainingElement =
+      show?.preferences?.viewerControlMode === ViewerControlMode.VOTING && dailyVoteLimit > 0 && votesRemaining != null ? (
+        <>
+          {votesRemaining} of {dailyVoteLimit} votes left this show
+        </>
+      ) : (
+        <></>
+      );
+
     instructions = processingInstructions(
       processNodeDefinitions,
       show?.preferences?.viewerControlEnabled,
@@ -745,7 +791,8 @@ const ExternalViewerPage = () => {
       // Already filtered server-side to viewer-visible requests only.
       show?.requests?.length,
       locationCodeElement,
-      formattedNowPlayingTimer
+      formattedNowPlayingTimer,
+      votesRemainingElement
     );
 
     const reactHtml = htmlToReactParser.parseWithInstructions(parsedViewerPage, isValidNode, instructions);
@@ -761,10 +808,12 @@ const ExternalViewerPage = () => {
     show?.preferences?.makeItSnow,
     show?.preferences?.viewerControlEnabled,
     show?.preferences?.viewerControlMode,
+    show?.preferences?.dailyVoteLimit,
     show?.requests?.length,
     show?.sequences,
     voteForSequence,
-    nowPlayingTimer
+    nowPlayingTimer,
+    votesRemaining
   ]);
 
   const getActiveViewerPage = useCallback(() => {
@@ -836,6 +885,9 @@ const ExternalViewerPage = () => {
             orderSequencesForVoting(showData);
           }
           setShow(showData);
+          // #162 — seed the votes-left count on load so the {VOTES_REMAINING}
+          // slot is correct before the first vote.
+          refreshVotesRemaining(showData?.preferences?.analyticsBetaOptIn);
           getActiveViewerPage();
           if (showData?.preferences?.locationCheckMethod === LocationCheckMethod.GEO) {
             setViewerLocation();
@@ -871,7 +923,7 @@ const ExternalViewerPage = () => {
         showAlert(dispatch, { alert: 'error' });
       }
     }).then();
-  }, [dispatch, getShowQuery, getActiveViewerPage, orderSequencesForVoting, setViewerLocation, insertViewerPageStatsMutation]);
+  }, [dispatch, getShowQuery, getActiveViewerPage, orderSequencesForVoting, setViewerLocation, insertViewerPageStatsMutation, refreshVotesRemaining]);
 
   useEffect(() => {
     setLoading(true);

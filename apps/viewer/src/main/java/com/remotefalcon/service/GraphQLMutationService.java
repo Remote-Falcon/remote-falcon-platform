@@ -28,6 +28,7 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -330,14 +331,19 @@ public class GraphQLMutationService {
         log.errorf("Client IP not found or empty in voteForSequence: showSubdomain=%s, name=%s", showSubdomain, name);
         throw new CustomGraphQLExceptionResolver(StatusResponse.UNEXPECTED_ERROR.name());
       }
-      // #162 — only pay for the daily-cap count read when a limit is configured,
-      // keeping the rule pure (the count is supplied via the context).
+      // #162 — only pay for the cap count read when a limit is configured,
+      // keeping the rule pure (the count is supplied via the context). The count
+      // is session-scoped: votes since votingWindowStartedAt, which rolls on a
+      // new show-night (gap) so it's timezone-free.
       Integer dailyVoteLimit = existingShow.getPreferences().getDailyVoteLimit();
-      Long votesToday = (dailyVoteLimit != null && dailyVoteLimit > 0)
-          ? this.voteEventRepository.countVotesToday(existingShow.id, viewerId, clientIp)
-          : null;
+      LocalDateTime votingWindowStart = null;
+      Long votesInWindow = null;
+      if (dailyVoteLimit != null && dailyVoteLimit > 0) {
+        votingWindowStart = this.resolveVotingWindowStart(existingShow);
+        votesInWindow = this.voteEventRepository.countVotesSince(existingShow.id, viewerId, clientIp, votingWindowStart);
+      }
       Decision decision = RuleChain.firstDenial(VOTE_RULES,
-          new EvaluationContext(existingShow, clientIp, viewerId, latitude, longitude, votesToday));
+          new EvaluationContext(existingShow, clientIp, viewerId, latitude, longitude, votesInWindow));
       if (decision.denied()) {
         throw new CustomGraphQLExceptionResolver(decision.reason());
       }
@@ -348,6 +354,7 @@ public class GraphQLMutationService {
         this.checkIfSequenceUnavailable(existingShow, requestedSequence.get());
         this.saveSequenceVote(existingShow, requestedSequence.get(), clientIp, viewerId, false);
         this.recordVoteEvent(existingShow, requestedSequence.get().getName(), clientIp, viewerId, latitude, longitude);
+        this.persistVotingWindow(existingShow, votingWindowStart);
         try {
           this.showRepository.upsertViewerSession(showSubdomain, clientIp, viewerId, LocalDateTime.now());
         } catch (Exception e) {
@@ -362,6 +369,7 @@ public class GraphQLMutationService {
         if (votedSequenceGroup.isPresent()) {
           this.saveSequenceGroupVote(existingShow, votedSequenceGroup.get(), clientIp, viewerId);
           this.recordVoteEvent(existingShow, votedSequenceGroup.get().getName(), clientIp, viewerId, latitude, longitude);
+          this.persistVotingWindow(existingShow, votingWindowStart);
           try {
             this.showRepository.upsertViewerSession(showSubdomain, clientIp, viewerId, LocalDateTime.now());
           } catch (Exception e) {
@@ -392,6 +400,43 @@ public class GraphQLMutationService {
       this.voteEventRepository.record(show.id, clientIp, viewerId, sequenceName, latitude, longitude);
     } catch (Exception e) {
       log.warnf("recordVoteEvent failed for showSubdomain=%s: %s", show.getShowSubdomain(), e.getMessage());
+    }
+  }
+
+  // #162 — a gap longer than this since the last counted vote marks a new show
+  // session, rolling the votes-left window. Same heuristic + constant intent as
+  // #163's NIGHTLY_RESET_GAP_HOURS so the vote-cap and play-cap "nights" agree.
+  private static final long VOTE_SESSION_GAP_HOURS = 6L;
+
+  // #162 — resolve the current votes-left session window. Rolls forward (in
+  // memory; persisted by persistVotingWindow on a successful vote) when there's
+  // no window yet or the last counted vote was more than VOTE_SESSION_GAP_HOURS
+  // ago — i.e. a new show-night the operator never explicitly re-enabled.
+  // Fully UTC-explicit so it lines up with the UTC-stamped voteEvent.votedAt
+  // regardless of the (PRD-011) container zone.
+  private LocalDateTime resolveVotingWindowStart(Show show) {
+    var prefs = show.getPreferences();
+    LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+    LocalDateTime window = prefs.getVotingWindowStartedAt();
+    LocalDateTime lastVote = prefs.getLastVoteCountedAt();
+    if (window == null || lastVote == null || lastVote.isBefore(now.minusHours(VOTE_SESSION_GAP_HOURS))) {
+      window = now;
+      prefs.setVotingWindowStartedAt(window);
+    }
+    return window;
+  }
+
+  // #162 — persist the session window + last-vote marker after a counted vote
+  // (gated on a configured limit). Best-effort, mirroring recordVoteEvent: a
+  // failure here must never undo a vote that already succeeded.
+  private void persistVotingWindow(Show show, LocalDateTime windowStart) {
+    if (windowStart == null) {
+      return;
+    }
+    try {
+      this.showRepository.updateVotingWindow(show.getShowSubdomain(), windowStart, LocalDateTime.now(ZoneOffset.UTC));
+    } catch (Exception e) {
+      log.warnf("updateVotingWindow failed for showSubdomain=%s: %s", show.getShowSubdomain(), e.getMessage());
     }
   }
 

@@ -45,6 +45,17 @@ public class Preference {
     // A multi-hour gap since this marks a new show-night (timezone-free; a
     // calendar reset at midnight UTC would fall mid-show for US operators).
     private LocalDateTime lastPlayCountedAt;
+    // #162 votes-left — session-anchored daily-vote window (PRD-009). The cap
+    // and the viewer "X of N votes left this show" countdown both count votes
+    // cast since votingWindowStartedAt rather than since a calendar day, so
+    // they're timezone-free (a UTC-midnight reset falls mid-show for US
+    // operators) and don't depend on the date/time foundation (PRD-011). The
+    // window rolls forward when the operator enables viewer control (plugins-api)
+    // or, as a fallback, on the first vote after a multi-hour gap — a new
+    // show-night. lastVoteCountedAt drives that gap test, exactly parallel to
+    // lastPlayCountedAt for #163.
+    private LocalDateTime votingWindowStartedAt;
+    private LocalDateTime lastVoteCountedAt;
     private Boolean makeItSnow;
     private Boolean managePsa;
     // PSA-v2 Q4 — when true, the cadence-tick PSA injection bursts ALL enabled

@@ -88,6 +88,16 @@ public class GraphQLController {
     return graphQLQueryService.activeViewerPage(showSubdomain);
   }
 
+  // #162 — votes this viewer has left in the current show session (null when no
+  // cap is configured or the IP is voting-exempt). Per-viewer, so it's its own
+  // query rather than a field on the polled getShow.
+  @Query
+  @Name("votesRemaining")
+  @Description("Votes Remaining For Viewer")
+  public Integer votesRemaining(String showSubdomain, @DefaultValue("") String viewerId) {
+    return this.graphQLQueryService.votesRemaining(showSubdomain, emptyToNull(viewerId));
+  }
+
   // SmallRye GraphQL doesn't support nullable scalar args without @DefaultValue,
   // so we accept "" and normalize to null at the boundary.
   private static String emptyToNull(String s) {
