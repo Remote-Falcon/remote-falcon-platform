@@ -1117,6 +1117,11 @@ public class PluginService {
     if (winningSequence != null) {
       boolean winningSequenceIsPSA = show.getPsaSequences().stream()
           .anyMatch(psaSequence -> StringUtils.equalsIgnoreCase(psaSequence.getName(), winningSequence.getName()));
+      // #167 — an owner force-to-top override is, like a PSA, a policy-injected
+      // winner: stat-neutral (records no vote win) and not gilded with a leader
+      // (it plays immediately). Folding both into one flag keeps the guards below
+      // single-condition.
+      boolean winnerIsPolicyInjected = winningSequenceIsPSA || Boolean.TRUE.equals(winningVote.getOwnerOverride());
       Optional<Sequence> actualSequence = show.getSequences().stream()
           .filter(sequence -> StringUtils.equalsIgnoreCase(sequence.getName(), winningSequence.getName()))
           .findFirst();
@@ -1138,10 +1143,9 @@ public class PluginService {
           actualSequence.get().setVisibilityCount(show.getPreferences().getHideSequenceCount() + 1);
         }
 
-        //Only save stats for non-grouped sequences. #167 — an owner force-to-top
-        //override is stat-neutral: it wins the queue but records no vote win.
-        if (StringUtils.isEmpty(actualSequence.get().getGroup()) && !winningSequenceIsPSA
-            && !Boolean.TRUE.equals(winningVote.getOwnerOverride())) {
+        //Only save stats for non-grouped sequences. A policy-injected winner
+        //(PSA or #167 owner override) records no vote win.
+        if (StringUtils.isEmpty(actualSequence.get().getGroup()) && !winnerIsPolicyInjected) {
           show.getStats().getVotingWin().add(Stat.VotingWin.builder()
               .name(actualSequence.get().getName())
               .dateTime(LocalDateTime.now())
@@ -1211,11 +1215,8 @@ public class PluginService {
             && winningVote.getVotes() == LEADER_PROMOTED_WINNER_VOTES;
         Optional<Sequence> leaderSequence = this.resolveVoteLeaderSequence(show);
         if (leaderSequence.isPresent()
-            && !winningSequenceIsPSA
+            && !winnerIsPolicyInjected
             && !winnerAlreadyLed
-            // #167 — don't gild an owner force-to-top override with a leader;
-            // the override plays immediately.
-            && !Boolean.TRUE.equals(winningVote.getOwnerOverride())
             && !StringUtils.equalsIgnoreCase(leaderSequence.get().getName(), actualSequence.get().getName())) {
           show.getVotes().add(Vote.builder()
               .sequence(actualSequence.get())
