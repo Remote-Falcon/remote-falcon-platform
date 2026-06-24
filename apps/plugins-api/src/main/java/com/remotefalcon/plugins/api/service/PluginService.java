@@ -22,6 +22,7 @@ import org.jboss.logging.Logger;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.*;
+import org.bson.conversions.Bson;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
@@ -1360,27 +1361,17 @@ public class PluginService {
   public PluginResponse toggleViewerControl() {
     Show show = showContext.getShow();
     boolean newValue = !show.getPreferences().getViewerControlEnabled();
+    Bson update = Updates.combine(
+        Updates.set("preferences.viewerControlEnabled", newValue),
+        Updates.set("preferences.sequencesPlayed", 0));
     if (newValue) {
       // #162 — enabling viewer control opens a fresh votes-left session window
-      // (the cap + countdown count votes cast since this instant). UTC-explicit
-      // so it lines up with the viewer's UTC-stamped voteEvent.votedAt.
-      Show.mongoCollection().updateOne(
-          Filters.eq("showToken", show.getShowToken()),
-          Updates.combine(
-              Updates.set("preferences.viewerControlEnabled", true),
-              Updates.set("preferences.sequencesPlayed", 0),
-              Updates.set("preferences.votingWindowStartedAt", LocalDateTime.now(ZoneOffset.UTC))
-          )
-      );
-    } else {
-      Show.mongoCollection().updateOne(
-          Filters.eq("showToken", show.getShowToken()),
-          Updates.combine(
-              Updates.set("preferences.viewerControlEnabled", false),
-              Updates.set("preferences.sequencesPlayed", 0)
-          )
-      );
+      // (cap + countdown count votes since this instant). UTC-explicit so it
+      // lines up with the viewer's UTC-stamped voteEvent.votedAt.
+      update = Updates.combine(update,
+          Updates.set("preferences.votingWindowStartedAt", LocalDateTime.now(ZoneOffset.UTC)));
     }
+    Show.mongoCollection().updateOne(Filters.eq("showToken", show.getShowToken()), update);
     return PluginResponse.builder().viewerControlEnabled(newValue).build();
   }
 
@@ -1395,21 +1386,13 @@ public class PluginService {
       );
     }
     boolean enabled = StringUtils.equalsIgnoreCase("Y", request.getViewerControlEnabled());
+    Bson update = Updates.set("preferences.viewerControlEnabled", enabled);
     if (enabled) {
       // #162 — enabling viewer control opens a fresh votes-left session window.
-      Show.mongoCollection().updateOne(
-          Filters.eq("showToken", show.getShowToken()),
-          Updates.combine(
-              Updates.set("preferences.viewerControlEnabled", true),
-              Updates.set("preferences.votingWindowStartedAt", LocalDateTime.now(ZoneOffset.UTC))
-          )
-      );
-    } else {
-      Show.mongoCollection().updateOne(
-          Filters.eq("showToken", show.getShowToken()),
-          Updates.set("preferences.viewerControlEnabled", false)
-      );
+      update = Updates.combine(update,
+          Updates.set("preferences.votingWindowStartedAt", LocalDateTime.now(ZoneOffset.UTC)));
     }
+    Show.mongoCollection().updateOne(Filters.eq("showToken", show.getShowToken()), update);
     return PluginResponse.builder().viewerControlEnabled(enabled).build();
   }
 
