@@ -1138,8 +1138,10 @@ public class PluginService {
           actualSequence.get().setVisibilityCount(show.getPreferences().getHideSequenceCount() + 1);
         }
 
-        //Only save stats for non-grouped sequences
-        if (StringUtils.isEmpty(actualSequence.get().getGroup()) && !winningSequenceIsPSA) {
+        //Only save stats for non-grouped sequences. #167 — an owner force-to-top
+        //override is stat-neutral: it wins the queue but records no vote win.
+        if (StringUtils.isEmpty(actualSequence.get().getGroup()) && !winningSequenceIsPSA
+            && !Boolean.TRUE.equals(winningVote.getOwnerOverride())) {
           show.getStats().getVotingWin().add(Stat.VotingWin.builder()
               .name(actualSequence.get().getName())
               .dateTime(LocalDateTime.now())
@@ -1211,6 +1213,9 @@ public class PluginService {
         if (leaderSequence.isPresent()
             && !winningSequenceIsPSA
             && !winnerAlreadyLed
+            // #167 — don't gild an owner force-to-top override with a leader;
+            // the override plays immediately.
+            && !Boolean.TRUE.equals(winningVote.getOwnerOverride())
             && !StringUtils.equalsIgnoreCase(leaderSequence.get().getName(), actualSequence.get().getName())) {
           show.getVotes().add(Vote.builder()
               .sequence(actualSequence.get())

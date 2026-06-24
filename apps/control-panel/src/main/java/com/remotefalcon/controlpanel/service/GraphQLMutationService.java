@@ -589,6 +589,91 @@ public class GraphQLMutationService {
         return true;
     }
 
+    // #167 — force-to-top vote value, above the group-winner (2099), leader
+    // (2001), and PSA (2000) sentinels so a forced song always wins the next
+    // selection. >= SYSTEM_VOTE_FLOOR, so it's systemInjected and stays out of
+    // viewer-facing tallies.
+    private static final int FORCE_TO_TOP_VOTES = 2100;
+
+    /**
+     * #167 — force an operator-chosen song to play next, stat-neutral. Mirrors
+     * the PSA "Play Next" override ({@link #setNextPsaOverride}) but for any
+     * active sequence: injects a top-priority {@code ownerOverride} vote (voting)
+     * plus a front-of-queue request (jukebox), reusing the OVERRIDE marker so the
+     * cancel/dedup paths find it. The override bypasses the #109/#163/#73 rules
+     * (it's systemInjected) and records no vote win — plugins-api skips the
+     * {@code votingWin} stat and the leader for {@code ownerOverride} winners,
+     * and jukebox plays of operator-injected requests record no jukebox stat.
+     * A blank {@code name} cancels a pending override.
+     */
+    public Boolean forceNextSong(String name) {
+        String showToken = authUtil.getTokenDTO().getShowToken();
+        Show s = this.showRepository.findByShowToken(showToken)
+                .orElseThrow(() -> new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name()));
+        Query query = Query.query(Criteria.where("showToken").is(showToken));
+
+        // Cancel pending: drop the OVERRIDE request + override vote. There's one
+        // "next override" slot, shared with the PSA override.
+        if (StringUtils.isBlank(name)) {
+            this.mongoTemplate.updateFirst(query, new Update()
+                    .pull("requests", new Document("viewerRequested", OVERRIDE_REQUEST_MARKER))
+                    .pull("votes", new Document("ownerOverride", true)), Show.class);
+            return true;
+        }
+
+        // Validate: must be an active sequence on the FPP-synced list.
+        Optional<Sequence> sequenceMatch = (s.getSequences() == null) ? Optional.empty() : s.getSequences().stream()
+                .filter(seq -> seq != null && StringUtils.equalsIgnoreCase(seq.getName(), name)
+                        && Boolean.TRUE.equals(seq.getActive()))
+                .findFirst();
+        if (sequenceMatch.isEmpty()) {
+            throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());
+        }
+        Sequence seq = sequenceMatch.get();
+
+        // Single-shot dedup: pull any prior override request + vote so repeated
+        // clicks don't pile up ($pull and $push can't touch the same path in one
+        // update, so the push is a second step).
+        this.mongoTemplate.updateFirst(query, new Update()
+                .pull("requests", new Document("viewerRequested", OVERRIDE_REQUEST_MARKER))
+                .pull("votes", new Document("ownerOverride", true)), Show.class);
+
+        // Inject the override. ownerOverride=true so the cancel/dedup paths find it.
+        Update inject = new Update().push("votes", Vote.builder()
+                .sequence(seq)
+                .ownerVoted(false)
+                .ownerOverride(true)
+                .systemInjected(true)
+                .lastVoteTime(LocalDateTime.now())
+                .votes(FORCE_TO_TOP_VOTES)
+                .build());
+
+        ViewerControlMode mode = s.getPreferences() != null ? s.getPreferences().getViewerControlMode() : null;
+        if (mode != ViewerControlMode.VOTING) {
+            // JUKEBOX (default): front of queue (min existing non-override position - 1).
+            int position = 1;
+            if (s.getRequests() != null) {
+                Optional<Integer> minPosition = s.getRequests().stream()
+                        .filter(r -> r != null
+                                && !StringUtils.equals(r.getViewerRequested(), OVERRIDE_REQUEST_MARKER))
+                        .map(Request::getPosition)
+                        .filter(Objects::nonNull)
+                        .min(Integer::compareTo);
+                if (minPosition.isPresent()) {
+                    position = minPosition.get() - 1;
+                }
+            }
+            inject.push("requests", Request.builder()
+                    .sequence(seq)
+                    .ownerRequested(false)
+                    .viewerRequested(OVERRIDE_REQUEST_MARKER)
+                    .position(position)
+                    .build());
+        }
+        this.mongoTemplate.updateFirst(query, inject, Show.class);
+        return true;
+    }
+
     // PSA-v2 PR-5 (Q6) — leader sequence played right before each
     // viewer-requested song. Null/empty clears the field. We don't
     // validate that the name matches an FPP sequence today — the

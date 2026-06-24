@@ -27,6 +27,9 @@ type Mutation {
     # at the next sequence boundary. Pass null (or omit) to clear a
     # pending override.
     setNextPsaOverride(name: String): Boolean
+    # #167 — force any active song to play next, stat-neutral (top-priority
+    # ownerOverride injection). Null/blank cancels a pending override.
+    forceNextSong(name: String): Boolean
     # PSA-v2 PR-5 (Q6) — leader sequence played right before a viewer
     # request. Null/empty clears the field. PR-3 consumes both leader
     # fields.

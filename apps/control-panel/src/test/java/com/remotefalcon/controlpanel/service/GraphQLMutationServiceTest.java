@@ -629,6 +629,87 @@ class GraphQLMutationServiceTest {
         verify(showRepository, never()).save(any(Show.class));
     }
 
+    // ---- #167 forceNextSong (arbitrary-song force-to-top, stat-neutral) ----
+
+    @Test
+    void forceNextSong_jukebox_injectsAtFront_withTopPriorityOverride() {
+        stubAuth();
+        Show show = Show.builder().showToken(SHOW_TOKEN)
+                .preferences(Preference.builder().viewerControlMode(ViewerControlMode.JUKEBOX).build())
+                .sequences(new ArrayList<>(List.of(
+                        Sequence.builder().name("Dedication").index(7).active(true).build())))
+                .requests(new ArrayList<>(List.of(
+                        Request.builder().position(2).sequence(Sequence.builder().name("Existing").build()).build())))
+                .votes(new ArrayList<>())
+                .build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        assertThat(service.forceNextSong("Dedication")).isTrue();
+
+        ArgumentCaptor<Update> updates = ArgumentCaptor.forClass(Update.class);
+        verify(mongoTemplate, times(2)).updateFirst(any(Query.class), updates.capture(), eq(Show.class));
+        Update inject = updates.getAllValues().get(1);
+        Request pushedRequest = (Request) op(inject, "$push").get("requests");
+        assertThat(pushedRequest.getViewerRequested()).isEqualTo("OVERRIDE");
+        assertThat(pushedRequest.getPosition()).isEqualTo(1); // min(2) - 1
+        Vote pushedVote = (Vote) op(inject, "$push").get("votes");
+        assertThat(pushedVote.getVotes()).isEqualTo(2100); // above group(2099)/leader(2001)/PSA(2000)
+        assertThat(pushedVote.getOwnerOverride()).isTrue();
+        verify(showRepository, never()).save(any(Show.class));
+    }
+
+    @Test
+    void forceNextSong_voting_addsTopPriorityOverrideVote_noRequest() {
+        stubAuth();
+        Show show = Show.builder().showToken(SHOW_TOKEN)
+                .preferences(Preference.builder().viewerControlMode(ViewerControlMode.VOTING).build())
+                .sequences(new ArrayList<>(List.of(
+                        Sequence.builder().name("Dedication").index(7).active(true).build())))
+                .requests(new ArrayList<>())
+                .votes(new ArrayList<>())
+                .build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        assertThat(service.forceNextSong("Dedication")).isTrue();
+
+        ArgumentCaptor<Update> updates = ArgumentCaptor.forClass(Update.class);
+        verify(mongoTemplate, times(2)).updateFirst(any(Query.class), updates.capture(), eq(Show.class));
+        Update inject = updates.getAllValues().get(1);
+        Vote pushedVote = (Vote) op(inject, "$push").get("votes");
+        assertThat(pushedVote.getVotes()).isEqualTo(2100);
+        assertThat(pushedVote.getSequence().getName()).isEqualTo("Dedication");
+        assertThat(pushedVote.getOwnerOverride()).isTrue();
+        assertThat(op(inject, "$push").containsKey("requests")).isFalse();
+    }
+
+    @Test
+    void forceNextSong_unknownOrInactiveSequence_throws() {
+        stubAuth();
+        Show show = Show.builder().showToken(SHOW_TOKEN)
+                .preferences(Preference.builder().viewerControlMode(ViewerControlMode.VOTING).build())
+                .sequences(new ArrayList<>(List.of(
+                        Sequence.builder().name("Inactive").index(1).active(false).build())))
+                .build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        assertThatThrownBy(() -> service.forceNextSong("Ghost")).isInstanceOf(RuntimeException.class);
+        assertThatThrownBy(() -> service.forceNextSong("Inactive")).isInstanceOf(RuntimeException.class);
+    }
+
+    @Test
+    void forceNextSong_blank_cancelsPendingOverride() {
+        stubAuth();
+        Show show = Show.builder().showToken(SHOW_TOKEN).build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        assertThat(service.forceNextSong(null)).isTrue();
+
+        ArgumentCaptor<Update> update = ArgumentCaptor.forClass(Update.class);
+        verify(mongoTemplate, times(1)).updateFirst(any(Query.class), update.capture(), eq(Show.class));
+        assertThat(op(update.getValue(), "$pull")).containsKey("requests");
+        assertThat(op(update.getValue(), "$pull")).containsKey("votes");
+    }
+
     @Test
     void setNextPsaOverride_replacesPriorOverride_onSecondCall_latestClickWins() {
         // Click PSA A → click PSA B. Single-shot: each call's dedup step pulls
