@@ -1586,4 +1586,34 @@ class PluginServiceTest {
     assertEquals(0, after.orElseThrow().getPlaysToday(), "cap disabled -> no counting");
     assertNull(baseShow.getPreferences().getLastPlayCountedAt(), "cap disabled -> no reset clock maintained");
   }
+
+  // ---------- #167 owner force-to-top override (stat-neutral) ----------
+
+  @Test
+  void highestVotedPlaylist_ownerOverride_winsOutright_statNeutral_noLeader() {
+    baseShow.getPreferences().setHideSequenceCount(0);
+    baseShow.getPreferences().setResetVotes(false);
+    baseShow.getPreferences().setPsaEnabled(false);
+    baseShow.setStats(Stat.builder().votingWin(new ArrayList<>()).build());
+
+    Sequence win = Sequence.builder().name("WIN").index(5).build();
+    Sequence leader = Sequence.builder().name("Leader-Vote").index(77).build();
+    Sequence loud = Sequence.builder().name("LoudViewerPick").index(6).build();
+    baseShow.setSequences(new ArrayList<>(List.of(win, leader, loud)));
+    // A leader is configured AND a high-vote viewer pick exists — the override
+    // must still win outright, without the leader firing ahead of it.
+    baseShow.setVoteLeaderSequence("Leader-Vote");
+    baseShow.setVotes(new ArrayList<>(List.of(
+        Vote.builder().sequence(loud).votes(50).lastVoteTime(LocalDateTime.now()).ownerVoted(false).build(),
+        Vote.builder().sequence(win).votes(2100).ownerOverride(true).systemInjected(true)
+            .lastVoteTime(LocalDateTime.now()).ownerVoted(false).build()
+    )));
+
+    HighestVotedPlaylistResponse resp = pluginService.highestVotedPlaylist();
+
+    assertEquals("WIN", resp.getWinningPlaylist());          // forced song wins...
+    assertNotEquals("Leader-Vote", resp.getWinningPlaylist()); // ...leader did NOT fire ahead of it...
+    assertTrue(baseShow.getStats().getVotingWin().isEmpty(),  // ...and it's stat-neutral.
+        "owner override must not record a vote win");
+  }
 }

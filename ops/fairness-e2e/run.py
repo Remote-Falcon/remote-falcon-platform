@@ -18,7 +18,7 @@ Covered:
   vote-exempt IPs (#156)          category request limit (#72/#128)
   stats-excluded IPs (#168)       anti-consecutive category (#109)
   per-night play cap (#163)       unavailable-sequence reject (#73)
-  FPP request->play loop + voting->play loop
+  owner force-to-top (#167)       FPP request->play loop + voting->play loop
 
 Safe to run repeatedly: it snapshots every field it touches and restores the
 show on exit, and purges only the voteEvent rows it created (TEST-NET IPs).
@@ -660,11 +660,54 @@ def scn_unavailable_sequence(r: Results, seqs):
                   viewer_gql("addSequenceToQueue", capped, IP["loop"]), "SEQUENCE_UNAVAILABLE")
 
 
+def scn_force_to_top(r: Results, seqs):
+    g = "Owner force-to-top (#167)"
+    print(f"\n{g}")
+    override_song, control_song = seqs[0], seqs[1]
+
+    set_prefs({"locationCheckMethod": "NONE", "checkIfVoted": False, "dailyVoteLimit": 0,
+               "votingExemptIps": [], "statsExcludedIps": [], "blockedViewerIps": [],
+               "nightlyPlayLimit": 0, "viewerControlMode": "VOTING"})
+    tag_sequences([override_song, control_song],
+                  {"visibilityCount": 0, "playsToday": 0, "category": None, "active": True, "visible": True})
+    clear_queue_and_votes()
+    purge_test_vote_events()
+
+    # Real viewer votes (proper lastVoteTime), then promote one to a force-to-top
+    # override (votes=2100, ownerOverride, systemInjected) like control-panel
+    # forceNextSong does, and make the other a strong viewer pick (50) it beats.
+    viewer_gql("voteForSequence", override_song, IP["vote_a"])
+    viewer_gql("voteForSequence", control_song, IP["vote_b"])
+    mongo(
+        f'db.show.updateOne({{email:{json.dumps(EMAIL)}}}, '
+        f'{{$set:{{"votes.$[o].votes":2100, "votes.$[o].ownerOverride":true, '
+        f'"votes.$[o].systemInjected":true, "votes.$[c].votes":50}}}}, '
+        f'{{arrayFilters:[{{"o.sequence.name":{json.dumps(override_song)}}}, '
+        f'{{"c.sequence.name":{json.dumps(control_song)}}}]}})'
+    )
+
+    def win_count(name):
+        return mongo_json(
+            f'var s=db.show.findOne({{email:{json.dumps(EMAIL)}}}); '
+            f'print(JSON.stringify(((s.stats||{{}}).votingWin||[]).filter(w=>w.name=={json.dumps(name)}).length))'
+        )
+    before = win_count(override_song)
+
+    code, resp = plugin_req("GET", "/highestVotedPlaylist")
+    winner = (resp or {}).get("winningPlaylist")
+    r.check(g, "forced song wins over a strong viewer pick",
+            code == 200 and winner == override_song, f"http={code} winner={winner!r} (expected {override_song!r})")
+
+    after = win_count(override_song)
+    r.check(g, "forced song is stat-neutral (records no vote win)",
+            after == before, f"votingWin count for forced song: before={before} after={after}")
+
+
 SCENARIOS = [
     scn_geofence, scn_daily_vote_limit, scn_vote_exempt, scn_stats_excluded,
     scn_blocked_ip, scn_queue_full, scn_category_limit,
     scn_fpp_request_loop, scn_voting_loop, scn_nightly_play_cap, scn_anti_consecutive,
-    scn_unavailable_sequence,
+    scn_unavailable_sequence, scn_force_to_top,
 ]
 
 
