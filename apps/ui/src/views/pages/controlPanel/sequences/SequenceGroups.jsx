@@ -143,8 +143,21 @@ const SequenceGroups = () => {
   };
 
   const deleteGroup = (group) => {
-    const updated = groups.filter((g) => g?.name !== group?.name);
-    persistGroups(updated, `Group "${group?.name}" deleted`);
+    const updatedGroups = groups.filter((g) => g?.name !== group?.name);
+    // The server cascades on delete (updateSequenceGroups clears sequence.group
+    // for the removed group, so its songs become ungrouped instead of vanishing
+    // from the viewer). Mirror it optimistically so the UI stays in sync.
+    const updatedSequences = sequences.map((s) => (s?.group === group?.name ? { ...s, group: null } : s));
+    setBusy(true);
+    saveSequenceGroupsService(updatedGroups, updateSequenceGroupsMutation, (response) => {
+      if (response?.success) {
+        dispatch(setShow({ ...show, sequenceGroups: [...updatedGroups], sequences: [...updatedSequences] }));
+        showAlert(dispatch, { message: `Group "${group?.name}" deleted` });
+      } else {
+        showAlert(dispatch, response?.toast);
+      }
+      setBusy(false);
+    });
   };
 
   const filterListByGroup = (groupName) => {
@@ -222,11 +235,10 @@ const SequenceGroups = () => {
                           <span>
                             <IconButton
                               size="small"
-                              disabled={members.length > 0}
                               onClick={() =>
                                 setConfirm({
                                   title: `Delete "${group?.name}"?`,
-                                  message: 'This deletes the group itself; sequences are not affected.',
+                                  message: 'Deletes the group. Songs in it become ungrouped (they show individually on the viewer page).',
                                   confirmLabel: 'Delete',
                                   action: () => deleteGroup(group)
                                 })
