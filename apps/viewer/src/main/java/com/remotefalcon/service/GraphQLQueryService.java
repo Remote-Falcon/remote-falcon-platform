@@ -167,7 +167,15 @@ public class GraphQLQueryService {
   private List<Sequence> sortAndFilterSequences(List<Sequence> sequences) {
     sequences.sort(Comparator.comparing(Sequence::getOrder));
     return sequences.stream()
-        .filter(sequence -> sequence.getVisibilityCount() == 0)
+        // #73 — keep a non-grouped sequence even while on the hide-after-play
+        // cooldown (visibilityCount > 0) so the viewer page can gray it out
+        // instead of vanishing it; nightly-capped songs already carry
+        // visibilityCount 0 and pass through. Grouped members stay filtered — a
+        // group's availability is driven by the group's own visibilityCount
+        // (replaceSequencesWithSequenceGroups), so un-hiding a member here would
+        // only churn which member represents the group.
+        .filter(sequence -> sequence.getVisibilityCount() == 0
+            || StringUtils.isEmpty(sequence.getGroup()))
         .filter(Sequence::getActive)
         // A sequence with no FPP playlist index can't actually play: the
         // plugin's Insert-Playlist call to FPPD requires a numeric index,

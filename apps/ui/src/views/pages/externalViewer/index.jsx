@@ -361,8 +361,23 @@ const ExternalViewerPage = () => {
     let playingNow = <>{show?.playingNow}</>;
     let playingNext = <>{show?.playingNext}</>;
 
+    // #73 — a sequence the viewer can't currently request/vote on (on the
+    // hide-after-play cooldown, or at its #163 nightly play cap) is rendered
+    // grayed-out and non-interactive instead of vanishing. Inline styling so it
+    // holds regardless of the operator's page CSS; the server-side
+    // SEQUENCE_UNAVAILABLE guard backs it up for clients that don't re-check.
+    const nightlyPlayLimit = show?.preferences?.nightlyPlayLimit;
+    // Nightly cap is per-song; skip it for group entries (which carry a
+    // representative member's playsToday). Cooldown (visibilityCount) applies to
+    // both — a group entry carries the group's own visibilityCount.
+    const isSequenceUnavailable = (seq) =>
+      (seq?.visibilityCount ?? 0) > 0 ||
+      (!seq?.group && nightlyPlayLimit > 0 && (seq?.playsToday ?? 0) >= nightlyPlayLimit);
+    const unavailableStyle = { opacity: 0.4, pointerEvents: 'none' };
+    const unavailableHint = (seq) => ((seq?.visibilityCount ?? 0) > 0 ? 'Available again soon' : 'Back next show');
+
     _.map(show?.sequences, (sequence) => {
-      if (sequence.visible && sequence.visibilityCount === 0) {
+      if (sequence.visible) {
         let sequenceImageElement = [<></>];
         if (sequence && sequence.imageUrl && sequence.imageUrl.replace(/\s/g, '').length) {
           const classname = `sequence-image sequence-image-${sequence.index}`;
@@ -450,7 +465,11 @@ const ExternalViewerPage = () => {
                 <>
                   <div
                     className={votingListClassname}
-                    onClick={(e) => show?.preferences?.viewerPageViewOnly ? _.noop() : voteForSequence(e)}
+                    style={isSequenceUnavailable(sequence) ? unavailableStyle : undefined}
+                    title={isSequenceUnavailable(sequence) ? unavailableHint(sequence) : undefined}
+                    onClick={(e) =>
+                      show?.preferences?.viewerPageViewOnly || isSequenceUnavailable(sequence) ? _.noop() : voteForSequence(e)
+                    }
                     data-key={sequence.name}
                     data-key-2={sequence.displayName}
                   >
@@ -495,7 +514,13 @@ const ExternalViewerPage = () => {
                       <>
                         <div
                           className={categorizedVotingListClassname}
-                          onClick={(e) => show?.preferences?.viewerPageViewOnly ? _.noop() : voteForSequence(e)}
+                          style={isSequenceUnavailable(categorizedSequence) ? unavailableStyle : undefined}
+                          title={isSequenceUnavailable(categorizedSequence) ? unavailableHint(categorizedSequence) : undefined}
+                          onClick={(e) =>
+                            show?.preferences?.viewerPageViewOnly || isSequenceUnavailable(categorizedSequence)
+                              ? _.noop()
+                              : voteForSequence(e)
+                          }
                           data-key={categorizedSequence.name}
                         >
                           {sequenceImageElement}
@@ -591,7 +616,11 @@ const ExternalViewerPage = () => {
               <>
                 <div
                   className={jukeboxListClassname}
-                  onClick={(e) => show?.preferences?.viewerPageViewOnly ? _.noop() : addSequenceToQueue(e)}
+                  style={isSequenceUnavailable(sequence) ? unavailableStyle : undefined}
+                  title={isSequenceUnavailable(sequence) ? unavailableHint(sequence) : undefined}
+                  onClick={(e) =>
+                    show?.preferences?.viewerPageViewOnly || isSequenceUnavailable(sequence) ? _.noop() : addSequenceToQueue(e)
+                  }
                   data-key={sequence.name}
                   data-key-2={sequence.displayName}
                 >
@@ -628,7 +657,13 @@ const ExternalViewerPage = () => {
                     <>
                       <div
                         className={categorizedJukeboxListClassname}
-                        onClick={(e) => show?.preferences?.viewerPageViewOnly ? _.noop() : addSequenceToQueue(e)}
+                        style={isSequenceUnavailable(categorizedSequence) ? unavailableStyle : undefined}
+                        title={isSequenceUnavailable(categorizedSequence) ? unavailableHint(categorizedSequence) : undefined}
+                        onClick={(e) =>
+                          show?.preferences?.viewerPageViewOnly || isSequenceUnavailable(categorizedSequence)
+                            ? _.noop()
+                            : addSequenceToQueue(e)
+                        }
                         data-key={categorizedSequence.name}
                       >
                         {sequenceImageElement}
