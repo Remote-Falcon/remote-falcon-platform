@@ -37,6 +37,7 @@ import {
   IconLoader2,
   IconMovie,
   IconPlayerPlay,
+  IconPlayerTrackNext,
   IconPlaylist,
   IconPlus,
   IconSearch,
@@ -48,6 +49,7 @@ import _ from 'lodash';
 import { useSearchParams } from 'react-router-dom';
 
 import {
+  forceNextSongService,
   playSequenceFromControlPanelService,
   saveCategoriesService,
   saveSequenceGroupsService,
@@ -61,6 +63,7 @@ import MainCard from '../../../../ui-component/cards/MainCard';
 import useCoalescedSave from '../../../../hooks/useCoalescedSave';
 import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
 import {
+  FORCE_NEXT_SONG,
   PLAY_SEQUENCE_FROM_CONTROL_PANEL,
   UPDATE_CATEGORIES,
   UPDATE_SEQUENCES,
@@ -177,6 +180,7 @@ const SequencesList = () => {
   const [updateSequenceGroupsMutation] = useMutation(UPDATE_SEQUENCE_GROUPS);
   const [updateCategoriesMutation] = useMutation(UPDATE_CATEGORIES);
   const [playSequenceFromControlPanelMutation] = useMutation(PLAY_SEQUENCE_FROM_CONTROL_PANEL);
+  const [forceNextSongMutation] = useMutation(FORCE_NEXT_SONG);
 
   // View state. Group filter is URL-encoded so the Groups tab can deep-link
   // ("show me everything in group X") and the link is shareable / back-button-friendly.
@@ -544,6 +548,21 @@ const SequencesList = () => {
       sequence_artist: sequence?.artist
     });
     playSequenceFromControlPanelService(sequence, playSequenceFromControlPanelMutation, (response) => {
+      showAlert(dispatch, response?.toast);
+      setBusy(false);
+    });
+  };
+
+  // #167 — force a song to play next, stat-neutral (distinct from "Play now",
+  // which casts the operator's own counted vote/request). Top-priority override
+  // that wins outright and records no vote stat.
+  const forceNext = (sequence) => {
+    setBusy(true);
+    trackPosthogEvent('sequence_force_next', {
+      sequence_name: sequence?.name,
+      sequence_artist: sequence?.artist
+    });
+    forceNextSongService(sequence?.name, forceNextSongMutation, (response) => {
       showAlert(dispatch, response?.toast);
       setBusy(false);
     });
@@ -1201,7 +1220,7 @@ const SequencesList = () => {
                                       </Box>
                                     </Tooltip>
                                   </TableCell>
-                                  <TableCell sx={{ width: 80, px: 1 }}>
+                                  <TableCell sx={{ width: 112, px: 1 }}>
                                     <Stack direction="row" spacing={0.25}>
                                       <Tooltip title="Play now">
                                         <span>
@@ -1213,6 +1232,19 @@ const SequencesList = () => {
                                             sx={{ color: 'success.main' }}
                                           >
                                             <IconPlayerPlay size={16} stroke={1.75} />
+                                          </IconButton>
+                                        </span>
+                                      </Tooltip>
+                                      <Tooltip title="Play next (force to top, not counted in stats)">
+                                        <span>
+                                          <IconButton
+                                            size="small"
+                                            aria-label="Play next (force to top)"
+                                            onClick={() => forceNext(sequence)}
+                                            disabled={!sequence.active}
+                                            sx={{ color: 'warning.main' }}
+                                          >
+                                            <IconPlayerTrackNext size={16} stroke={1.75} />
                                           </IconButton>
                                         </span>
                                       </Tooltip>
