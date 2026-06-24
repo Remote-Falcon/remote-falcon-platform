@@ -878,6 +878,52 @@ class GraphQLMutationServiceTest {
         assertThat(show.getCategories()).isEqualTo(categories);
     }
 
+    @Test
+    void updateCategories_deleteCategory_cascadeClearsOnlyRemovedMembers() {
+        stubAuth();
+        Sequence s1 = Sequence.builder().name("s1").category("Christmas").build();
+        Sequence s2 = Sequence.builder().name("s2").category("NonChristmas").build();
+        Sequence s3 = Sequence.builder().name("s3").category("Freetext").build(); // never a managed entity
+        Show show = Show.builder().showToken(SHOW_TOKEN)
+                .categories(new ArrayList<>(List.of(
+                        Category.builder().name("Christmas").build(),
+                        Category.builder().name("NonChristmas").build())))
+                .sequences(new ArrayList<>(List.of(s1, s2, s3)))
+                .build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        // Delete "NonChristmas" (incoming keeps only Christmas).
+        service.updateCategories(new ArrayList<>(List.of(Category.builder().name("Christmas").build())));
+
+        assertThat(s1.getCategory()).isEqualTo("Christmas"); // kept (still a category)
+        assertThat(s2.getCategory()).isNull();               // cascade-cleared (removed)
+        assertThat(s3.getCategory()).isEqualTo("Freetext");  // free-text label preserved
+        verify(showRepository).save(show);
+    }
+
+    @Test
+    void updateSequenceGroups_deleteGroup_cascadeClearsOnlyRemovedMembers() {
+        stubAuth();
+        Sequence s1 = Sequence.builder().name("s1").group("GroupA").build();
+        Sequence s2 = Sequence.builder().name("s2").group("GroupB").build();
+        Sequence s3 = Sequence.builder().name("s3").group("Freetext").build();
+        Show show = Show.builder().showToken(SHOW_TOKEN)
+                .sequenceGroups(new ArrayList<>(List.of(
+                        SequenceGroup.builder().name("GroupA").build(),
+                        SequenceGroup.builder().name("GroupB").build())))
+                .sequences(new ArrayList<>(List.of(s1, s2, s3)))
+                .build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        // Delete "GroupB" — its members must become ungrouped, not orphaned/vanished.
+        service.updateSequenceGroups(new ArrayList<>(List.of(SequenceGroup.builder().name("GroupA").build())));
+
+        assertThat(s1.getGroup()).isEqualTo("GroupA"); // kept
+        assertThat(s2.getGroup()).isNull();            // cascade-cleared
+        assertThat(s3.getGroup()).isEqualTo("Freetext"); // free-text label preserved
+        verify(showRepository).save(show);
+    }
+
     // ---- deleteAccount ----
 
     @Test

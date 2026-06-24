@@ -33,6 +33,8 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.*;
+import java.util.function.BiConsumer;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
@@ -713,9 +715,49 @@ public class GraphQLMutationService {
         throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());
     }
 
+    private <T> List<String> namesOf(List<T> items, Function<T, String> getName) {
+        if (items == null) {
+            return List.of();
+        }
+        return items.stream().filter(Objects::nonNull).map(getName).filter(Objects::nonNull).toList();
+    }
+
+    // #128 — cascade-clear on delete. When a category/group is removed (present
+    // in the existing list but absent from the incoming one), blank the matching
+    // reference on its member sequences so the delete doesn't leave orphans.
+    // Orphaned sequence.group memberships otherwise VANISH from the viewer
+    // (replaceSequencesWithSequenceGroups drops a grouped sequence whose group
+    // has no entity); orphaned categories lose their managed limit. Free-text
+    // labels never promoted to an entity (not in the existing list) are
+    // preserved. Renames stay client-side — the membership update follows this
+    // save, so a renamed entry briefly clears here and is re-set to the new name.
+    private void clearRemovedMemberships(Show show, Collection<String> existingNames,
+            Collection<String> incomingNames, Function<Sequence, String> getRef,
+            BiConsumer<Sequence, String> setRef) {
+        Set<String> incoming = incomingNames.stream().filter(Objects::nonNull)
+                .map(name -> name.toLowerCase(Locale.ROOT)).collect(Collectors.toSet());
+        Set<String> removed = existingNames.stream().filter(Objects::nonNull)
+                .map(name -> name.toLowerCase(Locale.ROOT))
+                .filter(name -> !incoming.contains(name)).collect(Collectors.toSet());
+        if (removed.isEmpty() || show.getSequences() == null) {
+            return;
+        }
+        show.getSequences().stream().filter(Objects::nonNull).forEach(seq -> {
+            String ref = getRef.apply(seq);
+            if (ref != null && removed.contains(ref.toLowerCase(Locale.ROOT))) {
+                setRef.accept(seq, null);
+            }
+        });
+    }
+
     public Boolean updateSequenceGroups(List<SequenceGroup> sequenceGroups) {
         Optional<Show> show = this.showRepository.findByShowToken(authUtil.getTokenDTO().getShowToken());
         if(show.isPresent()) {
+            // #128 — cascade-clear sequence.group for any group removed in this update.
+            this.clearRemovedMemberships(show.get(),
+                    this.namesOf(show.get().getSequenceGroups(), SequenceGroup::getName),
+                    this.namesOf(sequenceGroups, SequenceGroup::getName),
+                    Sequence::getGroup, Sequence::setGroup);
             show.get().setSequenceGroups(sequenceGroups);
             this.showRepository.save(show.get());
             return true;
@@ -723,12 +765,16 @@ public class GraphQLMutationService {
         throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());
     }
 
-    // PRD-009 #128, ADR-3 — full-array replace, mirroring updateSequenceGroups.
-    // Cascade-on-delete/rename of Sequence.category references is deferred to a
-    // follow-up (it's coupled to the one-shot free-text -> entity migration).
+    // PRD-009 #128, ADR-3 — full-array replace, mirroring updateSequenceGroups,
+    // with a server-side cascade-clear of Sequence.category on category delete.
     public Boolean updateCategories(List<Category> categories) {
         Optional<Show> show = this.showRepository.findByShowToken(authUtil.getTokenDTO().getShowToken());
         if(show.isPresent()) {
+            // #128 — cascade-clear sequence.category for any category removed here.
+            this.clearRemovedMemberships(show.get(),
+                    this.namesOf(show.get().getCategories(), Category::getName),
+                    this.namesOf(categories, Category::getName),
+                    Sequence::getCategory, Sequence::setCategory);
             show.get().setCategories(categories);
             this.showRepository.save(show.get());
             return true;

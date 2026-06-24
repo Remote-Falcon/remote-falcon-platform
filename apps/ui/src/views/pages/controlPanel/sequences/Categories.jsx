@@ -143,8 +143,21 @@ const Categories = () => {
   };
 
   const deleteCategory = (category) => {
-    const updated = categories.filter((c) => c?.name !== category?.name);
-    persistCategories(updated, `Category "${category?.name}" deleted`);
+    const updatedCategories = categories.filter((c) => c?.name !== category?.name);
+    // The server cascades on delete (updateCategories clears sequence.category for
+    // the removed category). Mirror it optimistically so the Sequences list +
+    // member counts stay in sync without a refetch.
+    const updatedSequences = sequences.map((s) => (s?.category === category?.name ? { ...s, category: null } : s));
+    setBusy(true);
+    saveCategoriesService(updatedCategories, updateCategoriesMutation, (response) => {
+      if (response?.success) {
+        dispatch(setShow({ ...show, categories: [...updatedCategories], sequences: [...updatedSequences] }));
+        showAlert(dispatch, { message: `Category "${category?.name}" deleted` });
+      } else {
+        showAlert(dispatch, response?.toast);
+      }
+      setBusy(false);
+    });
   };
 
   const filterListByCategory = (categoryName) => {
@@ -228,7 +241,7 @@ const Categories = () => {
                               setConfirm({
                                 title: `Delete "${category?.name}"?`,
                                 message:
-                                  'This removes the category and its limits. Sequences keep their category label but lose the collective limit.',
+                                  'This removes the category and its limit. Songs in it become uncategorized.',
                                 confirmLabel: 'Delete',
                                 action: () => deleteCategory(category)
                               })
