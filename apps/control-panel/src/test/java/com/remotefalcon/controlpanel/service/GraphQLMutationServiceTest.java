@@ -446,6 +446,35 @@ class GraphQLMutationServiceTest {
         assertThat(show.getPreferences().getNightlyPlayLimit()).isEqualTo(3);
     }
 
+    @Test
+    void updatePreferences_preservesVotingWindowClocks_andPersistsDailyVoteLimit() {
+        // #162 — votingWindowStartedAt and lastVoteCountedAt are the server-managed
+        // vote-window clocks written by the viewer on votes, not in PreferenceInput,
+        // so the UI sends them null. The mutation must preserve the existing values
+        // (nulling them would open a fresh window and reset every viewer's daily-vote
+        // cap + "votes left" countdown to full), while operator-set dailyVoteLimit
+        // flows through.
+        stubAuth();
+        java.time.LocalDateTime windowStart = java.time.LocalDateTime.now().minusHours(3);
+        java.time.LocalDateTime lastVote = java.time.LocalDateTime.now().minusMinutes(10);
+        Show show = Show.builder().showToken(SHOW_TOKEN)
+                .preferences(Preference.builder()
+                        .votingWindowStartedAt(windowStart)
+                        .lastVoteCountedAt(lastVote)
+                        .dailyVoteLimit(1)
+                        .build())
+                .build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        // As the UI sends it: dailyVoteLimit set, the #162 clocks absent.
+        Preference newPrefs = Preference.builder().dailyVoteLimit(5).build();
+        service.updatePreferences(newPrefs);
+
+        assertThat(newPrefs.getVotingWindowStartedAt()).isEqualTo(windowStart);
+        assertThat(newPrefs.getLastVoteCountedAt()).isEqualTo(lastVote);
+        assertThat(show.getPreferences().getDailyVoteLimit()).isEqualTo(5);
+    }
+
     // ---- updatePages / updatePsaSequences / updateSequences / updateSequenceGroups ----
 
     @Test
@@ -854,6 +883,40 @@ class GraphQLMutationServiceTest {
         List<Sequence> seqs = new ArrayList<>(List.of(a, b, a));
         service.updateSequences(seqs);
         assertThat(show.getSequences()).hasSize(2);
+    }
+
+    @Test
+    void updateSequences_preservesPlaysToday_fromExistingByName() {
+        // #163 — playsToday is the plugins-api per-song nightly counter, not in the
+        // sequence input, so the UI sends it null. The full-array replace must
+        // preserve each song's existing value (matched case-insensitively by name)
+        // so saving the sequence list mid-show (e.g. assigning a category via the
+        // #128 Categories UI) doesn't reset every song's nightly tally. Net-new
+        // sequences with no prior match keep whatever they came in with (null).
+        stubAuth();
+        Show show = Show.builder().showToken(SHOW_TOKEN)
+                .sequences(new ArrayList<>(List.of(
+                        Sequence.builder().name("Carol").playsToday(3).build(),
+                        Sequence.builder().name("Sleigh").playsToday(1).build())))
+                .build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        // As the UI sends it: playsToday absent; "carol" differs in case to prove
+        // the match is case-insensitive; "Frosty" is net-new (no prior tally).
+        List<Sequence> incoming = new ArrayList<>(List.of(
+                Sequence.builder().name("carol").category("Christmas").build(),
+                Sequence.builder().name("Sleigh").category("Christmas").build(),
+                Sequence.builder().name("Frosty").category("Christmas").build()));
+        service.updateSequences(incoming);
+
+        // Build the lookup with a null-tolerant put (Collectors.toMap rejects the
+        // null playsToday that net-new "Frosty" legitimately carries).
+        java.util.Map<String, Integer> savedByName = new java.util.HashMap<>();
+        show.getSequences().forEach(s ->
+                savedByName.put(s.getName().toLowerCase(java.util.Locale.ROOT), s.getPlaysToday()));
+        assertThat(savedByName.get("carol")).isEqualTo(3);  // preserved (case-insensitive match)
+        assertThat(savedByName.get("sleigh")).isEqualTo(1); // preserved
+        assertThat(savedByName.get("frosty")).isNull();     // net-new, no prior tally
     }
 
     @Test

@@ -136,7 +136,10 @@ describe('viewerPageMessageElements', () => {
       'alreadyVoted',
       'alreadyRequested',
       'requestFailed',
-      'invalidLocationCode'
+      'invalidLocationCode',
+      // #162 daily vote cap + #73/#163 nightly cap / cooldown feedback ids.
+      'dailyVoteLimitReached',
+      'sequenceUnavailable'
     ];
     expect(Object.keys(viewerPageMessageElements).sort()).toEqual(expected.sort());
   });

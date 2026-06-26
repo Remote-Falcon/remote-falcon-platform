@@ -129,6 +129,12 @@ const ExternalViewerPage = () => {
       } else if (errorMessage === 'ALREADY_REQUESTED') {
         viewerPageMessageElements.alreadyRequested.current = viewerPageMessageElements?.alreadyRequested?.block;
         trackPosthogEvent('viewer_interaction_result', { result: 'Viewer Already Requested' });
+      } else if (errorMessage === 'DAILY_VOTE_LIMIT_REACHED') {
+        viewerPageMessageElements.dailyVoteLimitReached.current = viewerPageMessageElements?.dailyVoteLimitReached?.block;
+        trackPosthogEvent('viewer_interaction_result', { result: 'Daily Vote Limit Reached' });
+      } else if (errorMessage === 'SEQUENCE_UNAVAILABLE') {
+        viewerPageMessageElements.sequenceUnavailable.current = viewerPageMessageElements?.sequenceUnavailable?.block;
+        trackPosthogEvent('viewer_interaction_result', { result: 'Sequence Unavailable' });
       } else {
         viewerPageMessageElements.requestFailed.current = viewerPageMessageElements?.requestFailed?.block;
         trackPosthogEvent('viewer_interaction_result', { result: 'Failed' });
@@ -404,6 +410,13 @@ const ExternalViewerPage = () => {
     // Nightly cap is per-song; skip it for group entries (which carry a
     // representative member's playsToday). Cooldown (visibilityCount) applies to
     // both — a group entry carries the group's own visibilityCount.
+    //
+    // The `!seq?.group` exemption mirrors the server: GraphQLMutationService's
+    // checkIfSequenceUnavailable (the SEQUENCE_UNAVAILABLE guard) runs ONLY on
+    // single-sequence requests/votes. The grouped branches of addSequenceToQueue
+    // and voteForSequence never call it, so the server never rejects a grouped
+    // request/vote on the nightly cap. Keeping the client exemption in sync means
+    // we don't gray out something the server would actually accept.
     const isSequenceUnavailable = (seq) =>
       (seq?.visibilityCount ?? 0) > 0 ||
       (!seq?.group && nightlyPlayLimit > 0 && (seq?.playsToday ?? 0) >= nightlyPlayLimit);

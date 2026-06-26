@@ -109,6 +109,41 @@ class RulesTest {
     assertEquals(Decision.Outcome.SKIP, new AlreadyVotedRule().evaluate(ctx(show, "1.2.3.4")).outcome());
   }
 
+  @Test
+  void alreadyVoted_allowsWhenVotesNull() {
+    // Fresh/empty show: votes array is null. Must not NPE — treat as not-voted.
+    Preference p = new Preference();
+    p.setCheckIfVoted(true);
+    Show show = showWith(p);
+    show.setVotes(null);
+    assertFalse(new AlreadyVotedRule().evaluate(ctx(show, "1.2.3.4")).denied());
+  }
+
+  @Test
+  void alreadyVoted_allowsWhenAVoteHasNullViewersVoted() {
+    // System-injected vote (PSA/leader/override) carries no viewersVoted list.
+    // Must skip it without NPE rather than surfacing UNEXPECTED_ERROR.
+    Preference p = new Preference();
+    p.setCheckIfVoted(true);
+    Show show = showWith(p);
+    show.getVotes().add(Vote.builder().votes(2000).build()); // viewersVoted == null
+    assertFalse(new AlreadyVotedRule().evaluate(ctx(show, "1.2.3.4")).denied());
+  }
+
+  @Test
+  void alreadyVoted_deniesWhenIpVotedAlongsideASystemVote() {
+    // A null-viewersVoted system vote coexists with a real human vote from this
+    // IP: the null one is skipped, the real one still triggers the deny.
+    Preference p = new Preference();
+    p.setCheckIfVoted(true);
+    Show show = showWith(p);
+    show.getVotes().add(Vote.builder().votes(2000).build()); // viewersVoted == null
+    show.getVotes().add(Vote.builder().viewersVoted(new ArrayList<>(List.of("1.2.3.4"))).build());
+    Decision d = new AlreadyVotedRule().evaluate(ctx(show, "1.2.3.4"));
+    assertTrue(d.denied());
+    assertEquals(StatusResponse.ALREADY_VOTED.name(), d.reason());
+  }
+
   // --- AlreadyRequestedRule ------------------------------------------------
 
   @Test

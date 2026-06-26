@@ -147,6 +147,14 @@ def vote_event_count(show_id: str, ip: str) -> int:
     )
 
 
+def stats_voting_count() -> int:
+    """Length of the show's embedded stats.voting array (operator analytics)."""
+    return mongo_json(
+        f'var s=db.show.findOne({{email:{json.dumps(EMAIL)}}});'
+        f'print(JSON.stringify(((s.stats||{{}}).voting||[]).length))'
+    )
+
+
 def purge_test_vote_events() -> None:
     mongo(f'db.voteEvent.deleteMany({{ip:{{$regex:"^{IP_PREFIX.replace(".", chr(92)+".")}"}}}})')
 
@@ -450,13 +458,26 @@ def scn_stats_excluded(r: Results, seqs):
         "viewerControlMode": "VOTING",
     })
     purge_test_vote_events()
+    # #168 excludes a device from OPERATOR ANALYTICS (the embedded stats.voting
+    # array), NOT from the daily-vote cap (#162) or the voteEvent audit/cap store
+    # — those are separate controls (#156 votingExemptIps is cap exemption). So an
+    # excluded IP still votes, still writes a voteEvent (the cap counts it), but is
+    # kept out of stats.voting. Verify the stats exclusion via a before/after delta.
+    stats_before = stats_voting_count()
     r.expect_allow(g, "excluded IP can still vote",
                    viewer_gql("voteForSequence", seqs[0], IP["stats_excl"]))
+    stats_after_excl = stats_voting_count()
     r.expect_allow(g, "control IP can vote",
-                   viewer_gql("voteForSequence", seqs[0], IP["stats_ctrl"]))
+                   viewer_gql("voteForSequence", seqs[1], IP["stats_ctrl"]))
+    stats_after_ctrl = stats_voting_count()
     excl = vote_event_count(Ctx.show_id, IP["stats_excl"])
     ctrl = vote_event_count(Ctx.show_id, IP["stats_ctrl"])
-    r.check(g, "excluded IP records NO voteEvent", excl == 0, f"voteEvent count={excl}")
+    r.check(g, "excluded IP's vote is kept OUT of stats.voting (#168)",
+            stats_after_excl == stats_before, f"stats.voting grew by {stats_after_excl - stats_before}")
+    r.check(g, "excluded IP DOES record a voteEvent (so the #162 cap counts it)",
+            excl == 1, f"voteEvent count={excl}")
+    r.check(g, "control IP's vote IS recorded in stats.voting",
+            stats_after_ctrl == stats_after_excl + 1, f"stats.voting grew by {stats_after_ctrl - stats_after_excl}")
     r.check(g, "control IP DOES record a voteEvent", ctrl == 1, f"voteEvent count={ctrl}")
 
 
@@ -638,14 +659,28 @@ def scn_nightly_play_cap(r: Results, seqs):
         return {"position": position, "sequence": {"name": name, "index": idx}}
 
     # --- Jukebox: a song at its nightly cap is skipped for a fresh one ---
+    # Mid-night: the cap is active only when lastPlayCountedAt is recent. A song
+    # only reaches its cap by being played, which stamps lastPlayCountedAt; the
+    # selector bypasses the cap on a >6h new-night gap (the tallies are about to
+    # reset on the first play). So stamp it now to simulate a genuine mid-show cap.
     set_prefs({"viewerControlMode": "JUKEBOX", "viewerControlEnabled": True, "nightlyPlayLimit": 2})
     tag_sequences([capped], {"playsToday": 2, "category": None, "active": True, "visible": True})
     tag_sequences([fresh], {"playsToday": 0, "category": None, "active": True, "visible": True})
     set_show({"playingNow": None, "requests": [req(capped, 1), req(fresh, 2)], "votes": []})
+    mongo(f'db.show.updateOne({{email:{json.dumps(EMAIL)}}}, {{$set:{{"preferences.lastPlayCountedAt": new Date()}}}})')
     code, resp = plugin_req("GET", "/nextPlaylistInQueue")
     got = (resp or {}).get("nextPlaylist")
-    r.check(g, "jukebox skips a song at its nightly cap, plays a fresh one",
+    r.check(g, "jukebox skips a capped song mid-night, plays a fresh one",
             code == 200 and got == fresh, f"http={code} nextPlaylist={got!r} (expected {fresh!r})")
+
+    # New-night gap: with a stale lastPlayCountedAt the cap is bypassed (tallies
+    # reset on the first play), so a song still showing last night's cap is
+    # playable rather than wrongly skipped before the reset materializes.
+    mongo(f'db.show.updateOne({{email:{json.dumps(EMAIL)}}}, {{$set:{{"preferences.lastPlayCountedAt": null}}}})')
+    code, resp = plugin_req("GET", "/nextPlaylistInQueue")
+    got = (resp or {}).get("nextPlaylist")
+    r.check(g, "jukebox un-caps at a new night's first selection (stale tally)",
+            code == 200 and got == capped, f"http={code} nextPlaylist={got!r} (expected {capped!r})")
 
     # --- Voting: the capped song is deferred even with more votes ---
     set_prefs({"locationCheckMethod": "NONE", "checkIfVoted": False, "dailyVoteLimit": 0,
@@ -663,6 +698,9 @@ def scn_nightly_play_cap(r: Results, seqs):
         f'{{arrayFilters:[{{"c.sequence.name":{json.dumps(capped)}}}, '
         f'{{"f.sequence.name":{json.dumps(fresh)}}}]}})'
     )
+    # Mid-night: stamp lastPlayCountedAt recent so the nightly cap is active (the
+    # selector bypasses it on a new-night gap — see the jukebox block above).
+    mongo(f'db.show.updateOne({{email:{json.dumps(EMAIL)}}}, {{$set:{{"preferences.lastPlayCountedAt": new Date()}}}})')
     code, resp = plugin_req("GET", "/highestVotedPlaylist")
     winner = (resp or {}).get("winningPlaylist")
     r.check(g, "voting defers a capped song, plays a fresh one",

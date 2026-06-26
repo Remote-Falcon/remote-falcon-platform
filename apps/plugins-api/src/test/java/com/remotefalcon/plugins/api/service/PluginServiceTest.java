@@ -1478,6 +1478,9 @@ class PluginServiceTest {
   @Test
   void nextPlaylistInQueue_nightlyCap_skipsCappedSong_picksUncapped() {
     baseShow.getPreferences().setNightlyPlayLimit(2);
+    // Mid-night: a recent lastPlayCountedAt keeps the cap active. The selector
+    // bypasses the cap on a >6h new-night gap (tallies reset on the first play).
+    baseShow.getPreferences().setLastPlayCountedAt(LocalDateTime.now().minusMinutes(3));
     Sequence capped = Sequence.builder().name("Capped").index(1).group("").visibilityCount(0).active(true).playsToday(2).build();
     Sequence fresh = Sequence.builder().name("Fresh").index(2).group("").visibilityCount(0).active(true).playsToday(0).build();
     baseShow.setSequences(new ArrayList<>(List.of(capped, fresh)));
@@ -1526,6 +1529,9 @@ class PluginServiceTest {
     baseShow.getPreferences().setResetVotes(false);
     baseShow.getPreferences().setPsaEnabled(false);
     baseShow.getPreferences().setNightlyPlayLimit(2);
+    // Mid-night: recent lastPlayCountedAt keeps the cap active (the selector
+    // bypasses it on a >6h new-night gap — see the jukebox cap test above).
+    baseShow.getPreferences().setLastPlayCountedAt(LocalDateTime.now().minusMinutes(3));
     baseShow.setStats(Stat.builder().votingWin(new ArrayList<>()).build());
     Sequence cappedHigh = Sequence.builder().name("CappedHigh").index(1).playsToday(2).build();
     Sequence freshLow = Sequence.builder().name("FreshLow").index(2).playsToday(0).build();

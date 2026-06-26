@@ -391,11 +391,15 @@ public class GraphQLMutationService {
   // call into the post-allow persistence step of the pipeline.
   private void recordVoteEvent(Show show, String sequenceName, String clientIp, String viewerId,
                                Float latitude, Float longitude) {
-    // #168 — operator-excluded IPs (testing/recording) don't write vote events,
-    // so they neither pollute the audit/analytics nor count toward the daily cap.
-    if (isStatsExcluded(show, clientIp)) {
-      return;
-    }
+    // #168/#162 — vote events are written for ALL voters, including operator
+    // stats-excluded IPs. "Exclude from stats" (#168) and "exempt from cap"
+    // (#156) are separate operator controls: voteEvent is only the #162 daily-cap
+    // counter (countVotesSince) plus the #165 audit store — it is NOT read by any
+    // operator-facing analytics (those use the embedded stats.voting array, which
+    // is already suppressed for excluded IPs in saveSequenceVote/GroupVote). So
+    // suppressing the row here would let an excluded-but-not-exempt IP bypass the
+    // daily cap; we record it so the cap still counts, accepting a test IP in the
+    // audit.
     try {
       this.voteEventRepository.record(show.id, clientIp, viewerId, sequenceName, latitude, longitude);
     } catch (Exception e) {
@@ -523,8 +527,10 @@ public class GraphQLMutationService {
       List<String> requestNamesLastToFirst = show.getRequests().stream()
           .filter(request -> request.getSequence() != null
               && PluginQueueHelper.isSongLike(show, request.getSequence().getName()))
-          .sorted(Comparator.comparing(Request::getPosition)
-              .reversed())
+          // Highest position (most recent) first; null positions sort last so a
+          // request with an unset position can't NPE the comparator (#72).
+          .sorted(Comparator.comparing(Request::getPosition,
+              Comparator.nullsLast(Comparator.reverseOrder())))
           .limit(show.getPreferences().getJukeboxRequestLimit())
           .map(request -> request.getSequence().getName())
           .toList();
@@ -554,7 +560,10 @@ public class GraphQLMutationService {
     List<String> recentRequestNames = show.getRequests().stream()
         .filter(request -> request.getSequence() != null
             && PluginQueueHelper.isSongLike(show, request.getSequence().getName()))
-        .sorted(Comparator.comparing(Request::getPosition).reversed())
+        // Highest position (most recent) first; null positions sort last so a
+        // request with an unset position can't NPE the comparator (#72).
+        .sorted(Comparator.comparing(Request::getPosition,
+            Comparator.nullsLast(Comparator.reverseOrder())))
         .limit(matchingCategory.get().getRequestLimit())
         .map(request -> request.getSequence().getName())
         .toList();
@@ -678,14 +687,18 @@ public class GraphQLMutationService {
         .findFirst();
 
     LocalDateTime voteTime = LocalDateTime.now();
-    Stat.Voting votingStat = Stat.Voting.builder()
+    // Suppress the voting stat for operator stats-excluded IPs (#168), mirroring
+    // saveSequenceVote on the per-sequence path. The vote itself still registers;
+    // only the analytics stat is skipped so a test/record device voting for a
+    // group doesn't pollute voting analytics.
+    Stat.Voting votingStat = isStatsExcluded(show, ipAddress) ? null : Stat.Voting.builder()
         .dateTime(voteTime)
         .name(votedSequenceGroup.getName())
         .viewerId(viewerId)
         .build();
 
     if (sequenceVotes.isPresent()) {
-      // Existing vote: increment count, append voter, update time, and add stat
+      // Existing vote: increment count, append voter, update time, and (unless suppressed) add stat
       this.showRepository.incrementSequenceGroupVoteAndAppendVoter(
           show.getShowSubdomain(),
           votedSequenceGroup.getName(),
@@ -694,7 +707,7 @@ public class GraphQLMutationService {
           votingStat
       );
     } else {
-      // New vote: add vote entry and stat
+      // New vote: add vote entry and (unless suppressed) stat
       Vote newVote = Vote.builder()
           .sequenceGroup(votedSequenceGroup)
           .ownerVoted(false)
