@@ -58,7 +58,7 @@ class StatsExcludeIntegrationTest {
   }
 
   @Test
-  @DisplayName("E2E: a vote from an excluded IP registers but records no voteEvent or voting stat")
+  @DisplayName("E2E: a vote from an excluded IP registers + counts toward the cap (voteEvent) but records no voting stat")
   void excludedIp_voteRegistersButNoStats() {
     given()
         .contentType(ContentType.JSON)
@@ -80,10 +80,13 @@ class StatsExcludeIntegrationTest {
     assertEquals(1, show.getVotes().size(), "the vote should still register");
     assertEquals("Jingle Bells", show.getVotes().get(0).getSequence().getName());
 
-    // ...but it left no analytics footprint.
+    // ...but it left no OPERATOR-ANALYTICS footprint: stats.voting stays empty.
     assertTrue(show.getStats().getVoting().isEmpty(), "no stats.voting entry for an excluded IP");
-    assertEquals(0, voteEventRepository.find("showId", show.id).list().size(),
-        "no voteEvent for an excluded IP");
+    // It DOES write a voteEvent — that is the #162 daily-cap counter / audit store,
+    // which is separate from operator analytics. #168 excludes a device from STATS,
+    // not from the vote cap (cap exemption is #156 votingExemptIps).
+    assertEquals(1, voteEventRepository.find("showId", show.id).list().size(),
+        "excluded IP still records a voteEvent so the #162 cap counts it");
   }
 
   private Show createTestShow() {
