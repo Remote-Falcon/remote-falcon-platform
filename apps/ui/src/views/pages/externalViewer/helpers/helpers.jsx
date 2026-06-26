@@ -291,6 +291,25 @@ export const viewerPageMessageElements = {
     current: 'id="invalidLocationCode" style="display: none"',
     block: 'id="invalidLocationCode" style="display: block"',
     none: 'id="invalidLocationCode" style="display: none"'
+  },
+  // #162 — shown when the viewer has used up their daily vote allotment
+  // (server DAILY_VOTE_LIMIT_REACHED). Operator templates must add an
+  // id="dailyVoteLimitReached" element for this to render.
+  dailyVoteLimitReached: {
+    element: /id="dailyVoteLimitReached"/g,
+    current: 'id="dailyVoteLimitReached" style="display: none"',
+    block: 'id="dailyVoteLimitReached" style="display: block"',
+    none: 'id="dailyVoteLimitReached" style="display: none"'
+  },
+  // #73/#163 — shown when the viewer requests/votes a sequence that is on its
+  // hide-after-play cooldown or at its nightly play cap (server
+  // SEQUENCE_UNAVAILABLE). Operator templates must add an
+  // id="sequenceUnavailable" element for this to render.
+  sequenceUnavailable: {
+    element: /id="sequenceUnavailable"/g,
+    current: 'id="sequenceUnavailable" style="display: none"',
+    block: 'id="sequenceUnavailable" style="display: block"',
+    none: 'id="sequenceUnavailable" style="display: none"'
   }
 };
 

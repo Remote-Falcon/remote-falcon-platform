@@ -188,7 +188,11 @@ public class PluginService {
     Set<String> antiConsecutive = this.antiConsecutiveCategories(show);
     Integer nightlyLimit = this.nightlyPlayLimit(show);
     boolean antiActive = !antiConsecutive.isEmpty() && StringUtils.isNotEmpty(lastPlayedCategory);
-    boolean nightlyActive = nightlyLimit != null && nightlyLimit > 0;
+    // #163: bypass the nightly cap at a new night's first selection — playsToday
+    // still holds last night's tallies until the first play records and resets
+    // them (the reset lives in applyNightlyPlayCount, which runs on a play, not
+    // on this read path). isNewShowNight matches that reset's gap test exactly.
+    boolean nightlyActive = nightlyLimit != null && nightlyLimit > 0 && !this.isNewShowNight(show);
     if (!antiActive && !nightlyActive) {
       return orderedByPosition.getFirst();
     }
@@ -240,7 +244,11 @@ public class PluginService {
     Set<String> antiConsecutive = this.antiConsecutiveCategories(show);
     Integer nightlyLimit = this.nightlyPlayLimit(show);
     boolean antiActive = !antiConsecutive.isEmpty() && StringUtils.isNotEmpty(lastPlayedCategory);
-    boolean nightlyActive = nightlyLimit != null && nightlyLimit > 0;
+    // #163: bypass the nightly cap at a new night's first selection — playsToday
+    // still holds last night's tallies until the first play records and resets
+    // them (the reset lives in applyNightlyPlayCount, which runs on a play, not
+    // on this read path). isNewShowNight matches that reset's gap test exactly.
+    boolean nightlyActive = nightlyLimit != null && nightlyLimit > 0 && !this.isNewShowNight(show);
     if (!antiActive && !nightlyActive) {
       return Optional.of(ordered.getFirst());
     }
@@ -279,6 +287,24 @@ public class PluginService {
 
   private Integer nightlyPlayLimit(Show show) {
     return show.getPreferences() == null ? null : show.getPreferences().getNightlyPlayLimit();
+  }
+
+  /**
+   * True at the first selection of a new show-night, before any play has been
+   * recorded for it. Mirrors the gap test in {@link #applyNightlyPlayCount}
+   * (same bare {@code LocalDateTime.now()} clock + {@link #NIGHTLY_RESET_GAP_HOURS}
+   * gap) so the read/selection path agrees with the lazy reset that the next
+   * updateWhatsPlaying will persist. #163: the nightly reset runs only on a
+   * recorded play, so at a new night's first selection playsToday still holds
+   * last night's tallies — without this gate, songs capped last night would be
+   * wrongly skipped until the first play resets them. Read-only: never mutates
+   * or persists playsToday/lastPlayCountedAt (the reset stays in
+   * applyNightlyPlayCount/updateWhatsPlaying).
+   */
+  private boolean isNewShowNight(Show show) {
+    Preference prefs = show.getPreferences();
+    LocalDateTime last = prefs == null ? null : prefs.getLastPlayCountedAt();
+    return last == null || last.isBefore(LocalDateTime.now().minusHours(NIGHTLY_RESET_GAP_HOURS));
   }
 
   /** True when the named song has reached its nightly play limit. */

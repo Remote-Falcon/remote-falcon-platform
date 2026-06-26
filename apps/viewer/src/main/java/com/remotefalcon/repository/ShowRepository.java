@@ -203,19 +203,33 @@ public class ShowRepository implements PanacheMongoRepository<Show> {
   }
 
   public void incrementSequenceGroupVoteAndAppendVoter(String showSubdomain, String groupName, String voterIp, java.time.LocalDateTime voteTime, Stat.Voting votingStat) {
-    this.pruneStatArray(showSubdomain, "stats.voting");
-    mongoCollection().updateOne(
-        Filters.and(
-            Filters.eq("showSubdomain", showSubdomain),
-            Filters.eq("votes.sequenceGroup.name", groupName)
-        ),
-        Updates.combine(
-            Updates.inc("votes.$.votes", 1),
-            Updates.push("votes.$.viewersVoted", voterIp),
-            Updates.set("votes.$.lastVoteTime", voteTime),
-            Updates.push("stats.voting", votingStat)
-        )
-    );
+    if (votingStat != null) {
+      this.pruneStatArray(showSubdomain, "stats.voting");
+      mongoCollection().updateOne(
+          Filters.and(
+              Filters.eq("showSubdomain", showSubdomain),
+              Filters.eq("votes.sequenceGroup.name", groupName)
+          ),
+          Updates.combine(
+              Updates.inc("votes.$.votes", 1),
+              Updates.push("votes.$.viewersVoted", voterIp),
+              Updates.set("votes.$.lastVoteTime", voteTime),
+              Updates.push("stats.voting", votingStat)
+          )
+      );
+    } else {
+      mongoCollection().updateOne(
+          Filters.and(
+              Filters.eq("showSubdomain", showSubdomain),
+              Filters.eq("votes.sequenceGroup.name", groupName)
+          ),
+          Updates.combine(
+              Updates.inc("votes.$.votes", 1),
+              Updates.push("votes.$.viewersVoted", voterIp),
+              Updates.set("votes.$.lastVoteTime", voteTime)
+          )
+      );
+    }
   }
 
   public void updateActiveViewer(String showSubdomain, String ipAddress, String viewerId, java.time.LocalDateTime visitTime) {

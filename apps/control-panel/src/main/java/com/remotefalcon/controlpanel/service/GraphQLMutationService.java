@@ -357,6 +357,13 @@ public class GraphQLMutationService {
             // Preserve it from the existing doc so a settings save doesn't null it
             // and spuriously reset every song's nightly tally mid-show.
             preferences.setLastPlayCountedAt(current == null ? null : current.getLastPlayCountedAt());
+            // #162 — votingWindowStartedAt and lastVoteCountedAt are the parallel
+            // server-managed vote-window clocks, written by the viewer on votes and
+            // never by the operator (not in PreferenceInput). Preserve them too so a
+            // settings save doesn't null them and silently reset every viewer's
+            // daily-vote cap + "votes left" countdown to full mid-show.
+            preferences.setVotingWindowStartedAt(current == null ? null : current.getVotingWindowStartedAt());
+            preferences.setLastVoteCountedAt(current == null ? null : current.getLastVoteCountedAt());
             show.get().setPreferences(preferences);
             this.showRepository.save(show.get());
             return true;
@@ -707,6 +714,28 @@ public class GraphQLMutationService {
     public Boolean updateSequences(List<Sequence> sequences) {
         Optional<Show> show = this.showRepository.findByShowToken(authUtil.getTokenDTO().getShowToken());
         if(show.isPresent()) {
+            // #163 — playsToday is the plugins-api per-song nightly counter,
+            // written on play and never by the operator (not in the sequence
+            // input). The full-array replace below would null it for every song,
+            // so preserve each incoming sequence's value from the existing doc by
+            // matching on name (case-insensitive, consistent with the rest of the
+            // codebase). Net-new sequences with no prior match keep their value.
+            List<Sequence> existingSequences = show.get().getSequences();
+            Map<String, Integer> playsTodayByName = existingSequences == null
+                    ? Map.of()
+                    : existingSequences.stream()
+                            .filter(seq -> seq != null && seq.getName() != null && seq.getPlaysToday() != null)
+                            .collect(Collectors.toMap(
+                                    seq -> seq.getName().toLowerCase(Locale.ROOT),
+                                    Sequence::getPlaysToday,
+                                    (a, b) -> a));
+            for (Sequence incoming : sequences) {
+                if (incoming == null || incoming.getName() == null) continue;
+                Integer existingPlaysToday = playsTodayByName.get(incoming.getName().toLowerCase(Locale.ROOT));
+                if (existingPlaysToday != null) {
+                    incoming.setPlaysToday(existingPlaysToday);
+                }
+            }
             Set<Sequence> sequencesSet = new HashSet<>(sequences);
             show.get().setSequences(sequencesSet.stream().toList());
             this.showRepository.save(show.get());

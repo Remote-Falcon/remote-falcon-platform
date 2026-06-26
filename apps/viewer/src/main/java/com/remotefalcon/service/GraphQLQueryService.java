@@ -18,6 +18,7 @@ import lombok.extern.jbosslog.JBossLog;
 import org.apache.commons.lang3.StringUtils;
 
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -59,14 +60,30 @@ public class GraphQLQueryService {
     return show.orElse(null);
   }
 
+  // #162 — must match VOTE_SESSION_GAP_HOURS in GraphQLMutationService. Kept as a
+  // local copy because the constant is private to the mutation service and they
+  // live in different files; the two MUST stay in sync so the countdown rolls the
+  // session window on exactly the same gap the enforcement path does.
+  private static final long VOTE_SESSION_GAP_HOURS = 6L;
+
   /**
    * #162 — how many votes this viewer has left in the current show session, for
    * the "X of N votes left this show" countdown. Returns {@code null} (→ the UI
    * shows nothing) when no daily limit is configured or this IP is voting-exempt
-   * (#156). The count is session-scoped (votes since votingWindowStartedAt), so
-   * it matches the cap the DailyVoteLimitRule enforces — same identity (viewerId
-   * first, else IP) and same window. Called on page load + after each vote, not
-   * on the polled getShow, so the count read stays off the hot path.
+   * (#156).
+   *
+   * <p>The count is session-scoped and applies the SAME gap-roll the enforcement
+   * path uses ({@code resolveVotingWindowStart} in GraphQLMutationService): if
+   * there is no window yet, no last-counted vote, or the last counted vote was
+   * more than {@link #VOTE_SESSION_GAP_HOURS} ago (a new show-night the operator
+   * never explicitly re-enabled), the effective window rolls forward to "now" so
+   * zero votes are counted and the full limit is returned — matching the server,
+   * which rolls the window and ALLOWS the first vote of the new night rather than
+   * counting yesterday's. Otherwise it counts votes since votingWindowStartedAt
+   * as today's. Same identity (viewerId first, else IP) and same UTC clock basis
+   * as enforcement. This is read-only — it never mutates or persists the window.
+   * Called on page load + after each vote, not on the polled getShow, so the
+   * count read stays off the hot path.
    */
   public Integer votesRemaining(String showSubdomain, String viewerId) {
     Optional<Show> show = this.showRepository.findByShowSubdomainForViewer(showSubdomain);
@@ -83,9 +100,16 @@ public class GraphQLQueryService {
     if (exemptIps != null && clientIp != null && exemptIps.contains(clientIp)) {
       return null; // #156 exempt → effectively unlimited, hide the countdown
     }
+    // Replicate resolveVotingWindowStart's gap-roll read-only: a null window,
+    // null last-counted vote, or a stale last vote (> gap) is a new session →
+    // nothing counted yet → full allowance. Same UTC basis as enforcement.
+    LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
     LocalDateTime window = prefs.getVotingWindowStartedAt();
-    long used = (window == null)
-        ? 0L // session not started yet → full allowance
+    LocalDateTime lastVote = prefs.getLastVoteCountedAt();
+    boolean newSession = window == null || lastVote == null
+        || lastVote.isBefore(now.minusHours(VOTE_SESSION_GAP_HOURS));
+    long used = newSession
+        ? 0L // window rolls to now on a new show-night → full allowance
         : this.voteEventRepository.countVotesSince(show.get().id, viewerId, clientIp, window);
     return (int) Math.max(0L, (long) limit - used);
   }
