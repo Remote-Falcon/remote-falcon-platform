@@ -23,6 +23,7 @@ import { LocationCheckMethod, ViewerControlMode } from '../../../utils/enum';
 import { ADD_SEQUENCE_TO_QUEUE, INSERT_VIEWER_PAGE_STATS, VOTE_FOR_SEQUENCE } from '../../../utils/graphql/viewer/mutations';
 import { GET_ACTIVE_VIEWER_PAGE, GET_SHOW_FOR_VIEWER, VOTES_REMAINING } from '../../../utils/graphql/viewer/queries';
 import { showAlert } from '../globalPageHelpers';
+import { orderSequencesByCategory } from './helpers/categoryOrder';
 import { defaultProcessingInstructions, nextNowPlayingState, processingInstructions, viewerPageMessageElements } from './helpers/helpers';
 
 const ExternalViewerPage = () => {
@@ -423,7 +424,13 @@ const ExternalViewerPage = () => {
     const unavailableStyle = { opacity: 0.4, pointerEvents: 'none' };
     const unavailableHint = (seq) => ((seq?.visibilityCount ?? 0) > 0 ? 'Available again soon' : 'Back next show');
 
-    _.map(show?.sequences, (sequence) => {
+    // Category sections render in the operator's dashboard order. The walk below
+    // opens a section on first-encounter of a member, so reorder the sequences by
+    // category rank up front; uncategorized songs lead, everything else keeps its
+    // incoming (by-`order`) sequence order.
+    const orderedSequences = orderSequencesByCategory(show?.sequences, show?.categories);
+
+    _.map(orderedSequences, (sequence) => {
       if (sequence.visible) {
         let sequenceImageElement = [<></>];
         if (sequence && sequence.imageUrl && sequence.imageUrl.replace(/\s/g, '').length) {
@@ -824,6 +831,7 @@ const ExternalViewerPage = () => {
     show?.preferences?.dailyVoteLimit,
     show?.requests?.length,
     show?.sequences,
+    show?.categories,
     voteForSequence,
     nowPlayingTimer,
     votesRemaining

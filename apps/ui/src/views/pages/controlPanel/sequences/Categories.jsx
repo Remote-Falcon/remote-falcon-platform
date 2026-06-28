@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import * as React from 'react';
 
 import { useMutation } from '@apollo/client';
+import { DragDropContext, Draggable, Droppable } from '@hello-pangea/dnd';
 import {
   Box,
   Button,
@@ -19,7 +20,7 @@ import {
   Tooltip,
   Typography
 } from '@mui/material';
-import { IconPlus, IconTags, IconTrash } from '@tabler/icons-react';
+import { IconGripVertical, IconPlus, IconTags, IconTrash } from '@tabler/icons-react';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 
 import {
@@ -37,6 +38,7 @@ import {
 } from '../../../../utils/graphql/controlPanel/mutations';
 import { showAlert } from '../../globalPageHelpers';
 
+import { reorderCategories } from './categoriesReorder';
 import EditableCell from './EditableCell';
 
 // Categories tab (PRD-009 #128). First-class categories carry the Cluster A
@@ -75,6 +77,23 @@ const Categories = () => {
       if (response?.success) {
         dispatch(setShow({ ...show, categories: [...updated] }));
         if (message) showAlert(dispatch, { message });
+      } else {
+        showAlert(dispatch, response?.toast);
+      }
+      setBusy(false);
+    });
+  };
+
+  const reorder = (result) => {
+    if (!result.destination || result.destination.index === result.source.index) return;
+    const reordered = reorderCategories(categories, result.source.index, result.destination.index);
+    // Optimistic dispatch so @hello-pangea/dnd settles the row in its new spot
+    // instead of snapping it back while the save round-trips.
+    dispatch(setShow({ ...show, categories: reordered }));
+    setBusy(true);
+    saveCategoriesService(reordered, updateCategoriesMutation, (response) => {
+      if (response?.success) {
+        showAlert(dispatch, { message: 'Category order updated' });
       } else {
         showAlert(dispatch, response?.toast);
       }
@@ -137,7 +156,7 @@ const Categories = () => {
       showAlert(dispatch, { alert: 'error', message: `A category named "${trimmed}" already exists.` });
       return;
     }
-    const updated = [...categories, { name: trimmed, requestLimit: 0, antiConsecutive: false }];
+    const updated = [...categories, { name: trimmed, requestLimit: 0, antiConsecutive: false, displayOrder: categories.length }];
     persistCategories(updated, `Category "${trimmed}" created`);
     setNewName('');
   };
@@ -182,6 +201,7 @@ const Categories = () => {
             <Table size="small" aria-label="categories">
               <TableHead sx={{ '& th,& td': { whiteSpace: 'nowrap' } }}>
                 <TableRow>
+                  <TableCell sx={{ width: 28, p: 0 }} />
                   <TableCell>Category name</TableCell>
                   <TableCell>Members</TableCell>
                   <TableCell>Request limit</TableCell>
@@ -189,75 +209,110 @@ const Categories = () => {
                   <TableCell align="right">Actions</TableCell>
                 </TableRow>
               </TableHead>
-              <TableBody>
-                {categories.map((category) => {
-                  const members = membersByCategory.get(category?.name) || [];
-                  return (
-                    <TableRow key={category?.name} hover>
-                      <TableCell sx={{ minWidth: 200 }}>
-                        <EditableCell
-                          value={category?.name}
-                          onCommit={(v) => renameCategory(category?.name, v)}
-                          placeholder="Category name"
-                        />
-                      </TableCell>
-                      <TableCell sx={{ minWidth: 100 }}>
-                        <Chip
-                          label={`${members.length} ${members.length === 1 ? 'sequence' : 'sequences'}`}
-                          size="small"
-                          variant="outlined"
-                          color={members.length > 0 ? 'primary' : 'default'}
-                          onClick={members.length > 0 ? () => filterListByCategory(category?.name) : undefined}
-                          sx={{ cursor: members.length > 0 ? 'pointer' : 'default' }}
-                        />
-                      </TableCell>
-                      <TableCell sx={{ minWidth: 120 }}>
-                        <Tooltip title="Max requests for this whole category within the recent window. 0 = no limit.">
-                          <TextField
-                            size="small"
-                            type="number"
-                            defaultValue={category?.requestLimit ?? 0}
-                            onBlur={(e) =>
-                              updateCategory(category?.name, { requestLimit: parseInt(e.target.value, 10) || 0 })
-                            }
-                            sx={{ width: 90 }}
-                          />
-                        </Tooltip>
-                      </TableCell>
-                      <TableCell sx={{ minWidth: 100 }}>
-                        <Tooltip title="Don't let two songs from this category play back-to-back.">
-                          <Switch
-                            color="primary"
-                            checked={!!category?.antiConsecutive}
-                            onChange={(_e, v) => updateCategory(category?.name, { antiConsecutive: v })}
-                          />
-                        </Tooltip>
-                      </TableCell>
-                      <TableCell align="right">
-                        <Tooltip title="Delete category">
-                          <IconButton
-                            size="small"
-                            onClick={() =>
-                              setConfirm({
-                                title: `Delete "${category?.name}"?`,
-                                message:
-                                  'This removes the category and its limit. Songs in it become uncategorized.',
-                                confirmLabel: 'Delete',
-                                action: () => deleteCategory(category)
-                              })
-                            }
-                            sx={{ color: 'error.main' }}
+              <DragDropContext onDragEnd={reorder}>
+                <Droppable droppableId="categories" isDropDisabled={busy}>
+                  {(provided) => (
+                    <TableBody {...provided.droppableProps} ref={provided.innerRef}>
+                      {categories.map((category, index) => {
+                        const members = membersByCategory.get(category?.name) || [];
+                        return (
+                          <Draggable
+                            key={category?.name}
+                            draggableId={String(category?.name)}
+                            index={index}
+                            isDragDisabled={busy}
                           >
-                            <IconTrash size={16} stroke={1.75} />
-                          </IconButton>
-                        </Tooltip>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-
+                            {(dragProvided) => (
+                              <TableRow ref={dragProvided.innerRef} {...dragProvided.draggableProps} hover>
+                                <TableCell sx={{ width: 28, p: 0, color: 'text.disabled' }}>
+                                  <Tooltip title={busy ? 'Saving…' : 'Drag to reorder'}>
+                                    <Box
+                                      {...(!busy ? dragProvided.dragHandleProps : {})}
+                                      sx={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        height: '100%',
+                                        cursor: busy ? 'default' : 'grab',
+                                        opacity: busy ? 0.3 : 1
+                                      }}
+                                    >
+                                      <IconGripVertical size={14} />
+                                    </Box>
+                                  </Tooltip>
+                                </TableCell>
+                                <TableCell sx={{ minWidth: 200 }}>
+                                  <EditableCell
+                                    value={category?.name}
+                                    onCommit={(v) => renameCategory(category?.name, v)}
+                                    placeholder="Category name"
+                                  />
+                                </TableCell>
+                                <TableCell sx={{ minWidth: 100 }}>
+                                  <Chip
+                                    label={`${members.length} ${members.length === 1 ? 'sequence' : 'sequences'}`}
+                                    size="small"
+                                    variant="outlined"
+                                    color={members.length > 0 ? 'primary' : 'default'}
+                                    onClick={members.length > 0 ? () => filterListByCategory(category?.name) : undefined}
+                                    sx={{ cursor: members.length > 0 ? 'pointer' : 'default' }}
+                                  />
+                                </TableCell>
+                                <TableCell sx={{ minWidth: 120 }}>
+                                  <Tooltip title="Max requests for this whole category within the recent window. 0 = no limit.">
+                                    <TextField
+                                      size="small"
+                                      type="number"
+                                      defaultValue={category?.requestLimit ?? 0}
+                                      onBlur={(e) =>
+                                        updateCategory(category?.name, { requestLimit: parseInt(e.target.value, 10) || 0 })
+                                      }
+                                      sx={{ width: 90 }}
+                                    />
+                                  </Tooltip>
+                                </TableCell>
+                                <TableCell sx={{ minWidth: 100 }}>
+                                  <Tooltip title="Don't let two songs from this category play back-to-back.">
+                                    <Switch
+                                      color="primary"
+                                      checked={!!category?.antiConsecutive}
+                                      onChange={(_e, v) => updateCategory(category?.name, { antiConsecutive: v })}
+                                    />
+                                  </Tooltip>
+                                </TableCell>
+                                <TableCell align="right">
+                                  <Tooltip title="Delete category">
+                                    <IconButton
+                                      size="small"
+                                      onClick={() =>
+                                        setConfirm({
+                                          title: `Delete "${category?.name}"?`,
+                                          message:
+                                            'This removes the category and its limit. Songs in it become uncategorized.',
+                                          confirmLabel: 'Delete',
+                                          action: () => deleteCategory(category)
+                                        })
+                                      }
+                                      sx={{ color: 'error.main' }}
+                                    >
+                                      <IconTrash size={16} stroke={1.75} />
+                                    </IconButton>
+                                  </Tooltip>
+                                </TableCell>
+                              </TableRow>
+                            )}
+                          </Draggable>
+                        );
+                      })}
+                      {provided.placeholder}
+                    </TableBody>
+                  )}
+                </Droppable>
+              </DragDropContext>
+              <TableBody>
                 {/* Inline add row */}
                 <TableRow>
+                  <TableCell sx={{ borderBottom: 'none' }} />
                   <TableCell sx={{ borderBottom: 'none' }}>
                     <TextField
                       size="small"
@@ -295,6 +350,12 @@ const Categories = () => {
 
       {!isEmpty && (
         <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 1, ml: 1 }}>
+          Drag rows to reorder — category sections appear on your viewer page in this order.
+        </Typography>
+      )}
+
+      {!isEmpty && (
+        <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5, ml: 1 }}>
           To assign sequences to a category, edit the Category cell on the{' '}
           <RouterLink to="/control-panel/sequences/list" style={{ color: 'inherit' }}>
             Sequences

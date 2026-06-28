@@ -2,13 +2,13 @@ import { useMemo, useState } from 'react';
 import * as React from 'react';
 
 import { useMutation } from '@apollo/client';
+import { DragDropContext, Draggable, Droppable } from '@hello-pangea/dnd';
 import {
   Box,
   Button,
   Chip,
   IconButton,
   LinearProgress,
-  Stack,
   Table,
   TableBody,
   TableCell,
@@ -19,8 +19,7 @@ import {
   Tooltip,
   Typography
 } from '@mui/material';
-import { IconPlus, IconStack2, IconTrash } from '@tabler/icons-react';
-import _ from 'lodash';
+import { IconGripVertical, IconPlus, IconStack2, IconTrash } from '@tabler/icons-react';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 
 import {
@@ -38,6 +37,7 @@ import {
 } from '../../../../utils/graphql/controlPanel/mutations';
 import { showAlert } from '../../globalPageHelpers';
 
+import { reorderSequenceGroups } from './sequenceGroupsReorder';
 import EditableCell from './EditableCell';
 
 // Sequence Groups tab. Replaces the old "Manage Sequence Groups" modal +
@@ -79,6 +79,23 @@ const SequenceGroups = () => {
       if (response?.success) {
         dispatch(setShow({ ...show, sequenceGroups: [...updated] }));
         if (message) showAlert(dispatch, { message });
+      } else {
+        showAlert(dispatch, response?.toast);
+      }
+      setBusy(false);
+    });
+  };
+
+  const reorder = (result) => {
+    if (!result.destination || result.destination.index === result.source.index) return;
+    const reordered = reorderSequenceGroups(groups, result.source.index, result.destination.index);
+    // Optimistic dispatch so @hello-pangea/dnd settles the row in its new spot
+    // instead of snapping it back while the save round-trips.
+    dispatch(setShow({ ...show, sequenceGroups: reordered }));
+    setBusy(true);
+    saveSequenceGroupsService(reordered, updateSequenceGroupsMutation, (response) => {
+      if (response?.success) {
+        showAlert(dispatch, { message: 'Group order updated' });
       } else {
         showAlert(dispatch, response?.toast);
       }
@@ -182,80 +199,116 @@ const SequenceGroups = () => {
             <Table size="small" aria-label="sequence groups">
               <TableHead sx={{ '& th,& td': { whiteSpace: 'nowrap' } }}>
                 <TableRow>
+                  <TableCell sx={{ width: 28, p: 0 }} />
                   <TableCell>Group name</TableCell>
                   <TableCell>Members</TableCell>
                   <TableCell>Sequences</TableCell>
                   <TableCell align="right">Actions</TableCell>
                 </TableRow>
               </TableHead>
+              <DragDropContext onDragEnd={reorder}>
+                <Droppable droppableId="sequence-groups" isDropDisabled={busy}>
+                  {(provided) => (
+                    <TableBody {...provided.droppableProps} ref={provided.innerRef}>
+                      {groups.map((group, index) => {
+                        const members = membersByGroup.get(group?.name) || [];
+                        const previewNames = members.slice(0, 3).map((m) => m?.displayName || m?.name).join(', ');
+                        const more = members.length > 3 ? ` +${members.length - 3} more` : '';
+                        return (
+                          <Draggable
+                            key={group?.name}
+                            draggableId={String(group?.name)}
+                            index={index}
+                            isDragDisabled={busy}
+                          >
+                            {(dragProvided) => (
+                              <TableRow ref={dragProvided.innerRef} {...dragProvided.draggableProps} hover>
+                                <TableCell sx={{ width: 28, p: 0, color: 'text.disabled' }}>
+                                  <Tooltip title={busy ? 'Saving…' : 'Drag to reorder'}>
+                                    <Box
+                                      {...(!busy ? dragProvided.dragHandleProps : {})}
+                                      sx={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        height: '100%',
+                                        cursor: busy ? 'default' : 'grab',
+                                        opacity: busy ? 0.3 : 1
+                                      }}
+                                    >
+                                      <IconGripVertical size={14} />
+                                    </Box>
+                                  </Tooltip>
+                                </TableCell>
+                                <TableCell sx={{ minWidth: 200 }}>
+                                  <EditableCell
+                                    value={group?.name}
+                                    onCommit={(v) => renameGroup(group?.name, v)}
+                                    placeholder="Group name"
+                                  />
+                                </TableCell>
+                                <TableCell sx={{ minWidth: 100 }}>
+                                  <Chip
+                                    label={`${members.length} ${members.length === 1 ? 'sequence' : 'sequences'}`}
+                                    size="small"
+                                    variant="outlined"
+                                    color={members.length > 0 ? 'primary' : 'default'}
+                                    onClick={members.length > 0 ? () => filterListByGroup(group?.name) : undefined}
+                                    sx={{ cursor: members.length > 0 ? 'pointer' : 'default' }}
+                                  />
+                                </TableCell>
+                                <TableCell sx={{ minWidth: 240, color: 'text.secondary' }}>
+                                  {members.length > 0 ? (
+                                    <Typography variant="body2" noWrap>
+                                      {previewNames}
+                                      {more}
+                                    </Typography>
+                                  ) : (
+                                    <Typography variant="caption" sx={{ color: 'text.disabled', fontStyle: 'italic' }}>
+                                      No sequences in this group yet
+                                    </Typography>
+                                  )}
+                                </TableCell>
+                                <TableCell align="right">
+                                  <Tooltip
+                                    title={
+                                      members.length > 0
+                                        ? 'Remove all members from this group before deleting'
+                                        : 'Delete group'
+                                    }
+                                  >
+                                    <span>
+                                      <IconButton
+                                        size="small"
+                                        onClick={() =>
+                                          setConfirm({
+                                            title: `Delete "${group?.name}"?`,
+                                            message: 'Deletes the group. Songs in it become ungrouped (they show individually on the viewer page).',
+                                            confirmLabel: 'Delete',
+                                            action: () => deleteGroup(group)
+                                          })
+                                        }
+                                        sx={{ color: 'error.main' }}
+                                      >
+                                        <IconTrash size={16} stroke={1.75} />
+                                      </IconButton>
+                                    </span>
+                                  </Tooltip>
+                                </TableCell>
+                              </TableRow>
+                            )}
+                          </Draggable>
+                        );
+                      })}
+                      {provided.placeholder}
+                    </TableBody>
+                  )}
+                </Droppable>
+              </DragDropContext>
               <TableBody>
-                {groups.map((group) => {
-                  const members = membersByGroup.get(group?.name) || [];
-                  const previewNames = members.slice(0, 3).map((m) => m?.displayName || m?.name).join(', ');
-                  const more = members.length > 3 ? ` +${members.length - 3} more` : '';
-                  return (
-                    <TableRow key={group?.name} hover>
-                      <TableCell sx={{ minWidth: 200 }}>
-                        <EditableCell
-                          value={group?.name}
-                          onCommit={(v) => renameGroup(group?.name, v)}
-                          placeholder="Group name"
-                        />
-                      </TableCell>
-                      <TableCell sx={{ minWidth: 100 }}>
-                        <Chip
-                          label={`${members.length} ${members.length === 1 ? 'sequence' : 'sequences'}`}
-                          size="small"
-                          variant="outlined"
-                          color={members.length > 0 ? 'primary' : 'default'}
-                          onClick={members.length > 0 ? () => filterListByGroup(group?.name) : undefined}
-                          sx={{ cursor: members.length > 0 ? 'pointer' : 'default' }}
-                        />
-                      </TableCell>
-                      <TableCell sx={{ minWidth: 240, color: 'text.secondary' }}>
-                        {members.length > 0 ? (
-                          <Typography variant="body2" noWrap>
-                            {previewNames}
-                            {more}
-                          </Typography>
-                        ) : (
-                          <Typography variant="caption" sx={{ color: 'text.disabled', fontStyle: 'italic' }}>
-                            No sequences in this group yet
-                          </Typography>
-                        )}
-                      </TableCell>
-                      <TableCell align="right">
-                        <Tooltip
-                          title={
-                            members.length > 0
-                              ? 'Remove all members from this group before deleting'
-                              : 'Delete group'
-                          }
-                        >
-                          <span>
-                            <IconButton
-                              size="small"
-                              onClick={() =>
-                                setConfirm({
-                                  title: `Delete "${group?.name}"?`,
-                                  message: 'Deletes the group. Songs in it become ungrouped (they show individually on the viewer page).',
-                                  confirmLabel: 'Delete',
-                                  action: () => deleteGroup(group)
-                                })
-                              }
-                              sx={{ color: 'error.main' }}
-                            >
-                              <IconTrash size={16} stroke={1.75} />
-                            </IconButton>
-                          </span>
-                        </Tooltip>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-
                 {/* Inline add row — last row in the table for natural eye flow */}
                 <TableRow>
+                  <TableCell sx={{ borderBottom: 'none' }} />
                   <TableCell sx={{ borderBottom: 'none' }}>
                     <TextField
                       size="small"
@@ -293,6 +346,13 @@ const SequenceGroups = () => {
 
       {!isEmpty && (
         <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 1, ml: 1 }}>
+          Drag rows to reorder this list. This organizes the dashboard only — on your viewer page a
+          group appears at the position of its first song in the Sequences order, not the order set here.
+        </Typography>
+      )}
+
+      {!isEmpty && (
+        <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5, ml: 1 }}>
           To add sequences to a group, edit the Group cell on the{' '}
           <RouterLink to="/control-panel/sequences/list" style={{ color: 'inherit' }}>
             Sequences

@@ -1137,6 +1137,9 @@ const SequencesList = () => {
                 </Tooltip>
               </Stack>
             )}
+            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 0.5, px: 1 }}>
+              Drag rows to reorder — this is the order songs appear on your viewer page.
+            </Typography>
             <TableContainer ref={tableContainerRef}>
               <Table size="small" aria-label="sequences">
                 <TableHead sx={{ '& th,& td': { whiteSpace: 'nowrap' } }}>

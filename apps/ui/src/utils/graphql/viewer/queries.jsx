@@ -101,6 +101,10 @@ export const GET_SHOW_FOR_VIEWER = gql`
         name
         visibilityCount
       }
+      categories {
+        name
+        displayOrder
+      }
       requests {
         sequence {
           index
