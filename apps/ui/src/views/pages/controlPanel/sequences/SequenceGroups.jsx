@@ -346,6 +346,13 @@ const SequenceGroups = () => {
 
       {!isEmpty && (
         <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 1, ml: 1 }}>
+          Drag rows to reorder this list. This organizes the dashboard only — on your viewer page a
+          group appears at the position of its first song in the Sequences order, not the order set here.
+        </Typography>
+      )}
+
+      {!isEmpty && (
+        <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5, ml: 1 }}>
           To add sequences to a group, edit the Group cell on the{' '}
           <RouterLink to="/control-panel/sequences/list" style={{ color: 'inherit' }}>
             Sequences

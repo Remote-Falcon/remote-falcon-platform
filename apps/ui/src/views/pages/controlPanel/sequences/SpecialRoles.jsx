@@ -471,6 +471,10 @@ const SpecialRoles = () => {
 
         <Divider />
         <Box sx={{ px: 3, py: 2 }}>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+            Drag rows to reorder — this sets the order PSAs rotate through during your show. PSAs are
+            not shown on the viewer page.
+          </Typography>
           <Typography variant="caption" color="text.secondary">
             Frequency and burst settings live on{' '}
             <Box

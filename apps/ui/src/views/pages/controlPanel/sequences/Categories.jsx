@@ -350,6 +350,12 @@ const Categories = () => {
 
       {!isEmpty && (
         <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 1, ml: 1 }}>
+          Drag rows to reorder — category sections appear on your viewer page in this order.
+        </Typography>
+      )}
+
+      {!isEmpty && (
+        <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5, ml: 1 }}>
           To assign sequences to a category, edit the Category cell on the{' '}
           <RouterLink to="/control-panel/sequences/list" style={{ color: 'inherit' }}>
             Sequences
