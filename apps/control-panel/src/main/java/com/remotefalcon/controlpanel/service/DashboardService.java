@@ -124,7 +124,7 @@ public class DashboardService {
     int accepted = (int) this.statsRepository.jukeboxStatsInRange(showToken, lower, upper).stream()
             .filter(j -> j.getDateTime() != null)
             .filter(j -> {
-              ZonedDateTime t = j.getDateTime().atZone(userZone);
+              ZonedDateTime t = convertServerStatDateTime(j.getDateTime(), userZone);
               return t.isAfter(startDateAtZone) && t.isBefore(endDateAtZone);
             })
             .count();
@@ -133,7 +133,7 @@ public class DashboardService {
     var inRange = this.statsRepository.rejectedRequestsInRange(showToken, lower, upper).stream()
             .filter(r -> r.getDateTime() != null)
             .filter(r -> {
-              ZonedDateTime t = r.getDateTime().atZone(userZone);
+              ZonedDateTime t = convertServerStatDateTime(r.getDateTime(), userZone);
               return t.isAfter(startDateAtZone) && t.isBefore(endDateAtZone);
             })
             .collect(Collectors.toList());
@@ -488,7 +488,7 @@ public class DashboardService {
       Map<String, Long> requestsByName = show.getStats().getJukebox().stream()
               .filter(j -> j.getDateTime() != null)
               .filter(j -> {
-                ZonedDateTime t = j.getDateTime().atZone(userZone);
+                ZonedDateTime t = convertServerStatDateTime(j.getDateTime(), userZone);
                 return !t.isBefore(startZdt) && t.isBefore(endZdt);
               })
               .filter(j -> j.getName() != null)
@@ -516,7 +516,7 @@ public class DashboardService {
       Map<String, Long> votesByName = show.getStats().getVoting().stream()
               .filter(v -> v.getDateTime() != null)
               .filter(v -> {
-                ZonedDateTime t = v.getDateTime().atZone(userZone);
+                ZonedDateTime t = convertServerStatDateTime(v.getDateTime(), userZone);
                 return !t.isBefore(startZdt) && t.isBefore(endZdt);
               })
               .filter(v -> v.getName() != null)
@@ -767,7 +767,7 @@ public class DashboardService {
     Map<LocalDate, List<Stat.Jukebox>> jukeboxStatsGroupedByDate = inRange
             .stream()
             .filter(stat -> stat.getDateTime() != null)
-            .map(stat -> Map.entry(stat, convertStatDateTime(stat.getDateTime(), userZone)))
+            .map(stat -> Map.entry(stat, convertServerStatDateTime(stat.getDateTime(), userZone)))
             .filter(stat -> stat.getValue().isAfter(startDateAtZone))
             .filter(stat -> stat.getValue().isBefore(endDateAtZone))
             .collect(Collectors.groupingBy(stat -> stat.getValue().toLocalDate(), Collectors.mapping(Map.Entry::getKey, Collectors.toList())));
@@ -807,7 +807,7 @@ public class DashboardService {
     Map<String, List<Stat.Jukebox>> jukeboxStatsGroupedBySequence = inRange
             .stream()
             .filter(stat -> stat.getDateTime() != null)
-            .map(stat -> Map.entry(stat, convertStatDateTime(stat.getDateTime(), userZone)))
+            .map(stat -> Map.entry(stat, convertServerStatDateTime(stat.getDateTime(), userZone)))
             .filter(stat -> stat.getValue().isAfter(startDateAtZone))
             .filter(stat -> stat.getValue().isBefore(endDateAtZone))
             .collect(Collectors.groupingBy(stat -> stat.getKey().getName(), Collectors.mapping(Map.Entry::getKey, Collectors.toList())));
@@ -833,7 +833,7 @@ public class DashboardService {
     Map<LocalDate, List<Stat.Voting>> votingStatsGroupedByDate = inRange
             .stream()
             .filter(stat -> stat.getDateTime() != null)
-            .map(stat -> Map.entry(stat, convertStatDateTime(stat.getDateTime(), userZone)))
+            .map(stat -> Map.entry(stat, convertServerStatDateTime(stat.getDateTime(), userZone)))
             .filter(stat -> stat.getValue().isAfter(startDateAtZone))
             .filter(stat -> stat.getValue().isBefore(endDateAtZone))
             .collect(Collectors.groupingBy(stat -> stat.getValue().toLocalDate(), Collectors.mapping(Map.Entry::getKey, Collectors.toList())));
@@ -873,7 +873,7 @@ public class DashboardService {
     Map<String, List<Stat.Voting>> voteStatsGroupedBySequence = inRange
             .stream()
             .filter(stat -> stat.getDateTime() != null)
-            .map(stat -> Map.entry(stat, convertStatDateTime(stat.getDateTime(), userZone)))
+            .map(stat -> Map.entry(stat, convertServerStatDateTime(stat.getDateTime(), userZone)))
             .filter(stat -> stat.getValue().isAfter(startDateAtZone))
             .filter(stat -> stat.getValue().isBefore(endDateAtZone))
             .collect(Collectors.groupingBy(stat -> stat.getKey().getName(), Collectors.mapping(Map.Entry::getKey, Collectors.toList())));
@@ -899,7 +899,7 @@ public class DashboardService {
     Map<LocalDate, List<Stat.VotingWin>> votingWinStatsGroupedByDate = inRange
             .stream()
             .filter(stat -> stat.getDateTime() != null)
-            .map(stat -> Map.entry(stat, convertStatDateTime(stat.getDateTime(), userZone)))
+            .map(stat -> Map.entry(stat, convertServerStatDateTime(stat.getDateTime(), userZone)))
             .sorted(Comparator.comparing(entry -> entry.getValue().toLocalDateTime()))
             .filter(stat -> stat.getValue().isAfter(startDateAtZone))
             .filter(stat -> stat.getValue().isBefore(endDateAtZone))
@@ -940,7 +940,7 @@ public class DashboardService {
     Map<String, List<Stat.VotingWin>> voteWinStatsGroupedBySequence = inRange
             .stream()
             .filter(stat -> stat.getDateTime() != null)
-            .map(stat -> Map.entry(stat, convertStatDateTime(stat.getDateTime(), userZone)))
+            .map(stat -> Map.entry(stat, convertServerStatDateTime(stat.getDateTime(), userZone)))
             .filter(stat -> stat.getValue().isAfter(startDateAtZone))
             .filter(stat -> stat.getValue().isBefore(endDateAtZone))
             .collect(Collectors.groupingBy(stat -> stat.getKey().getName(), Collectors.mapping(Map.Entry::getKey, Collectors.toList())));
@@ -966,7 +966,7 @@ public class DashboardService {
     Map<LocalDate, List<Stat.Jukebox>> jukeboxStatsGroupedByDate = show.getStats().getJukebox()
             .stream()
             .filter(stat -> stat.getDateTime() != null)
-            .map(stat -> Map.entry(stat, convertStatDateTime(stat.getDateTime(), userZone)))
+            .map(stat -> Map.entry(stat, convertServerStatDateTime(stat.getDateTime(), userZone)))
             .filter(stat -> stat.getValue().isAfter(startDateAtZone))
             .filter(stat -> stat.getValue().isBefore(endDateAtZone))
             .collect(Collectors.groupingBy(stat -> stat.getValue().toLocalDate(), Collectors.mapping(Map.Entry::getKey, Collectors.toList())));
@@ -995,7 +995,7 @@ public class DashboardService {
     Map<LocalDate, List<Stat.Voting>> voteStatsGroupedByDate = show.getStats().getVoting()
             .stream()
             .filter(stat -> stat.getDateTime() != null)
-            .map(stat -> Map.entry(stat, convertStatDateTime(stat.getDateTime(), userZone)))
+            .map(stat -> Map.entry(stat, convertServerStatDateTime(stat.getDateTime(), userZone)))
             .filter(stat -> stat.getValue().isAfter(startDateAtZone))
             .filter(stat -> stat.getValue().isBefore(endDateAtZone))
             .collect(Collectors.groupingBy(stat -> stat.getValue().toLocalDate(), Collectors.mapping(Map.Entry::getKey, Collectors.toList())));
@@ -1040,11 +1040,23 @@ public class DashboardService {
   }
 
   private ZonedDateTime convertStatDateTime(LocalDateTime statDateTime, ZoneId userZone) {
-    // Stat.*.dateTime is written as naive viewer-browser wall-clock time
-    // (apps/ui/.../externalViewer/index.jsx — moment().format(...)). Attach
-    // the user's zone without shifting; other call sites in this file
-    // assume the same convention. Long-term redesign: issue-tracker #135.
+    // PAGE stats only. Stat.Page.dateTime is written as naive viewer-browser
+    // wall-clock time (apps/ui/.../externalViewer/index.jsx — moment().format(...)),
+    // so we attach the user's zone without shifting. Server-stamped stats
+    // (voting/jukebox/vote-win) use convertServerStatDateTime instead.
+    // Long-term redesign to a single UTC convention: issue-tracker #135.
     return statDateTime.atZone(userZone);
+  }
+
+  private ZonedDateTime convertServerStatDateTime(LocalDateTime statDateTime, ZoneId userZone) {
+    // VOTING / JUKEBOX / VOTE-WIN stats. Unlike page stats, these are stamped
+    // server-side with LocalDateTime.now() on a UTC JVM (viewer's
+    // GraphQLMutationService, plugins-api's PluginService), so the stored
+    // wall-clock IS UTC. Interpret it as UTC and convert to the operator's
+    // zone by instant — otherwise the raw UTC digits get re-labelled as local
+    // time, shifting every "today"/by-date bucket by the operator's UTC offset
+    // (e.g. an evening show's votes counted on the wrong calendar day). #135.
+    return statDateTime.atZone(ZoneOffset.UTC).withZoneSameInstant(userZone);
   }
 
   // Best-effort caller-IP lookup for the public wrappedSummary path. The
