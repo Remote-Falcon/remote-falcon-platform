@@ -2,6 +2,8 @@ package com.remotefalcon.controlpanel.controller;
 
 import com.remotefalcon.controlpanel.aop.RequiresAccess;
 import com.remotefalcon.controlpanel.aop.RequiresAdminAccess;
+import com.remotefalcon.controlpanel.response.MfaEnrollment;
+import com.remotefalcon.controlpanel.response.MfaRecoveryCodes;
 import com.remotefalcon.controlpanel.response.ShowsOnAMap;
 import com.remotefalcon.library.documents.Notification;
 import com.remotefalcon.library.documents.Show;
@@ -12,10 +14,12 @@ import com.remotefalcon.controlpanel.service.DashboardService;
 import com.remotefalcon.controlpanel.service.GraphQLMutationService;
 import com.remotefalcon.controlpanel.service.GraphQLQueryService;
 import com.remotefalcon.controlpanel.service.LaunchExternalEditorService;
+import com.remotefalcon.controlpanel.service.MfaService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.graphql.data.method.annotation.Argument;
 import org.springframework.graphql.data.method.annotation.MutationMapping;
 import org.springframework.graphql.data.method.annotation.QueryMapping;
+import org.springframework.graphql.data.method.annotation.SchemaMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -27,6 +31,7 @@ public class GraphQLController {
     private final GraphQLQueryService graphQLQueryService;
     private final DashboardService dashboardService;
     private final LaunchExternalEditorService launchExternalEditorService;
+    private final MfaService mfaService;
 
     /********
     Mutations
@@ -237,6 +242,36 @@ public class GraphQLController {
         return this.graphQLMutationService.updateNotification(uuid, notification);
     }
 
+    @MutationMapping
+    @RequiresAccess
+    public MfaEnrollment startMfaEnrollment() {
+        return this.mfaService.startMfaEnrollment();
+    }
+
+    @MutationMapping
+    @RequiresAccess
+    public MfaRecoveryCodes confirmMfaEnrollment(@Argument String code) {
+        return this.mfaService.confirmMfaEnrollment(code);
+    }
+
+    @MutationMapping
+    @RequiresAccess
+    public Boolean disableMfa(@Argument String code) {
+        return this.mfaService.disableMfa(code);
+    }
+
+    @MutationMapping
+    @RequiresAccess
+    public MfaRecoveryCodes regenerateRecoveryCodes(@Argument String code) {
+        return this.mfaService.regenerateRecoveryCodes(code);
+    }
+
+    @MutationMapping
+    @RequiresAdminAccess
+    public Boolean adminResetMfa(@Argument String showSubdomain) {
+        return this.mfaService.adminResetMfa(showSubdomain);
+    }
+
 
 
     /*******
@@ -245,6 +280,22 @@ public class GraphQLController {
     @QueryMapping
     public Show signIn() {
         return graphQLQueryService.signIn();
+    }
+
+    // Public resolver (no @RequiresAccess): authenticates via the 5-minute
+    // MFA-pending challenge token in the Bearer header, which every
+    // protected resolver rejects. See AuthUtil.validateMfaPendingToken.
+    @QueryMapping
+    public Show verifyMfa(@Argument String code) {
+        return mfaService.verifyMfa(code);
+    }
+
+    // 2FA PRD §7.4 — the ONLY MFA data the GraphQL Show type exposes.
+    // The MfaConfig itself (encrypted secret, hashed recovery codes) is
+    // never schema-reachable.
+    @SchemaMapping(typeName = "Show", field = "mfaEnabled")
+    public Boolean mfaEnabled(Show show) {
+        return show.getMfa() != null && Boolean.TRUE.equals(show.getMfa().getEnabled());
     }
 
     @QueryMapping

@@ -4,6 +4,18 @@ type Mutation {
     verifyEmail(showToken: String!): Boolean
     resetPassword: Boolean
     updatePassword: Boolean
+    # 2FA (PRD 2FA-TOTP). Enrollment is two-step: start returns the QR
+    # provisioning data with the secret stored pending; confirm verifies a
+    # live code and returns the one-time recovery codes. disableMfa /
+    # regenerateRecoveryCodes require fresh re-auth — current password via
+    # the base64 Password header (like updatePassword) OR a current TOTP
+    # code as the argument.
+    startMfaEnrollment: MfaEnrollment
+    confirmMfaEnrollment(code: String!): MfaRecoveryCodes
+    disableMfa(code: String): Boolean
+    regenerateRecoveryCodes(code: String): MfaRecoveryCodes
+    # Admin lockout recovery (lost device + lost recovery codes); audit-logged.
+    adminResetMfa(showSubdomain: String!): Boolean
     updateUserProfile(userProfile: UserProfileInput!): Boolean
     requestApiAccess: ApiAccess
     refreshApiSecret: String

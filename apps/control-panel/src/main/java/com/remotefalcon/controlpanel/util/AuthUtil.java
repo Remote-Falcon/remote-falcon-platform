@@ -11,6 +11,7 @@ import com.remotefalcon.library.documents.Show;
 import com.remotefalcon.controlpanel.dto.TokenDTO;
 import com.remotefalcon.controlpanel.exception.InvalidJwtException;
 import com.remotefalcon.library.enums.ShowRole;
+import com.remotefalcon.library.enums.StatusResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -31,6 +32,15 @@ public class AuthUtil {
   @Value("${jwt.user}")
   String jwtSignKey;
 
+  @Value("${mfa.pending-token-minutes:5}")
+  Integer mfaPendingTokenMinutes;
+
+  // 2FA PRD §8.1 — claim marking a token as an MFA-pending challenge.
+  // Such a token authorizes ONLY the verifyMfa step; isJwtValid and
+  // isAdminJwtValid reject it outright so it can never be replayed
+  // against @RequiresAccess/@RequiresAdminAccess resolvers.
+  private static final String MFA_PENDING_CLAIM = "mfa-pending";
+
   private final ThreadLocal<TokenDTO> tokenHolder = new ThreadLocal<>();
 
   public String signJwt(Show show) {
@@ -48,6 +58,52 @@ public class AuthUtil {
     } catch (JWTCreationException e) {
       log.error("Error creating JWT", e);
       return null;
+    }
+  }
+
+  // 2FA PRD §8.1 — short-lived challenge token minted by signIn for
+  // enrolled accounts instead of the 30-day service token. Carries only
+  // showToken (no user-data authorization payload).
+  public String signMfaPendingJwt(Show show) {
+    try {
+      Algorithm algorithm = Algorithm.HMAC256(jwtSignKey);
+      return JWT.create()
+              .withClaim(MFA_PENDING_CLAIM, true)
+              .withClaim("showToken", show.getShowToken())
+              .withIssuer("remotefalcon")
+              .withExpiresAt(Date.from(ZonedDateTime.now().plusMinutes(mfaPendingTokenMinutes).toInstant()))
+              .sign(algorithm);
+    } catch (JWTCreationException e) {
+      log.error("Error creating MFA pending JWT", e);
+      return null;
+    }
+  }
+
+  /**
+   * Validates the Bearer token as an MFA-pending challenge and returns its
+   * showToken. Throws MFA_CHALLENGE_EXPIRED (a GraphQL-surfaced status, not
+   * InvalidJwtException/401) for anything invalid or expired so the UI can
+   * route the user back to the password step.
+   */
+  public String validateMfaPendingToken(HttpServletRequest httpServletRequest) {
+    try {
+      String token = this.getTokenFromRequest(httpServletRequest);
+      if (StringUtils.isEmpty(token)) {
+        throw new RuntimeException(StatusResponse.MFA_CHALLENGE_EXPIRED.name());
+      }
+      Algorithm algorithm = Algorithm.HMAC256(jwtSignKey);
+      JWTVerifier verifier = JWT.require(algorithm).withIssuer("remotefalcon").build();
+      DecodedJWT decodedJWT = verifier.verify(token);
+      if (!Boolean.TRUE.equals(decodedJWT.getClaim(MFA_PENDING_CLAIM).asBoolean())) {
+        throw new RuntimeException(StatusResponse.MFA_CHALLENGE_EXPIRED.name());
+      }
+      String showToken = decodedJWT.getClaim("showToken").asString();
+      if (StringUtils.isEmpty(showToken)) {
+        throw new RuntimeException(StatusResponse.MFA_CHALLENGE_EXPIRED.name());
+      }
+      return showToken;
+    } catch (JWTVerificationException | InvalidJwtException e) {
+      throw new RuntimeException(StatusResponse.MFA_CHALLENGE_EXPIRED.name());
     }
   }
 
@@ -82,7 +138,12 @@ public class AuthUtil {
       }
       Algorithm algorithm = Algorithm.HMAC256(jwtSignKey);
       JWTVerifier verifier = JWT.require(algorithm).withIssuer("remotefalcon").build();
-      verifier.verify(token);
+      DecodedJWT decodedJWT = verifier.verify(token);
+      // 2FA PRD §8.2 — an MFA-pending challenge token must never pass as
+      // a session token, or the second factor could be skipped entirely.
+      if (Boolean.TRUE.equals(decodedJWT.getClaim(MFA_PENDING_CLAIM).asBoolean())) {
+        throw new InvalidJwtException();
+      }
       setTokenDTO(getJwtPayload());
       return true;
     } catch (JWTVerificationException e) {
@@ -98,7 +159,11 @@ public class AuthUtil {
       }
       Algorithm algorithm = Algorithm.HMAC256(jwtSignKey);
       JWTVerifier verifier = JWT.require(algorithm).withIssuer("remotefalcon").build();
-      verifier.verify(token);
+      DecodedJWT decodedJWT = verifier.verify(token);
+      // 2FA PRD §8.2 — same pending-token rejection as isJwtValid.
+      if (Boolean.TRUE.equals(decodedJWT.getClaim(MFA_PENDING_CLAIM).asBoolean())) {
+        throw new InvalidJwtException();
+      }
       TokenDTO tokenDTO = setTokenDTO(getJwtPayload());
       return tokenDTO.getShowRole() == ShowRole.ADMIN;
     } catch (JWTVerificationException e) {

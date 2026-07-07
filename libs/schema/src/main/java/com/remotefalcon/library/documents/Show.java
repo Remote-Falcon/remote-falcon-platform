@@ -86,6 +86,10 @@ public class Show {
     // boundary (out-of-band from cadence) and then clears. Null = no override.
     private String nextPsaOverride;
 
+    // 2FA PRD §6.2 — opt-in TOTP second factor. null = never enrolled
+    // (every pre-existing document); only enabled=true changes sign-in.
+    private MfaConfig mfa;
+
     @JsonIgnore
     private String serviceToken;
 }

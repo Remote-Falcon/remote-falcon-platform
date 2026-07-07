@@ -771,6 +771,11 @@ public class GraphQLMutationService {
         if(optionalShow.isPresent()) {
             show.setId(optionalShow.get().getId());
             show.setPassword(optionalShow.get().getPassword());
+            // mfa is not part of ShowInput (secrets never transit GraphQL),
+            // so like password it must be carried over from the stored
+            // document — otherwise any admin JSON edit would silently strip
+            // the user's second factor.
+            show.setMfa(optionalShow.get().getMfa());
             this.showRepository.save(show);
         }
         return true;

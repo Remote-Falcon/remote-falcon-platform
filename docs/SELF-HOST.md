@@ -72,6 +72,20 @@ though the viewer service doesn't currently verify it (viewer auth is
 host-header based via showSubdomain). Set both anyway — easier to leave
 slots wired than to retrofit later.
 
+**Optional — two-factor authentication.** To let accounts enroll in TOTP
+2FA (authenticator-app codes at sign-in), also set:
+
+```sh
+echo "MFA_SECRET_KEY=$(openssl rand -base64 32)"
+```
+
+`MFA_SECRET_KEY` encrypts enrolled TOTP secrets at rest (AES-GCM) and is
+deliberately a *different* key from `JWT_USER`. 2FA works fully offline —
+no external service involved. If you leave it unset, the Two-Factor Auth
+tab reports 2FA as unavailable and nothing else changes. Don't rotate it
+casually: changing the key orphans every enrolled TOTP secret (affected
+users would need to disable/re-enroll while signed in, or an admin reset).
+
 ### 3. Boot the stack
 
 ```sh

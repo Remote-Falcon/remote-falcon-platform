@@ -30,6 +30,48 @@ export const UPDATE_PASSWORD = gql`
   }
 `;
 
+// TOTP 2FA enrollment + management. startMfaEnrollment mints the shared
+// secret; confirmMfaEnrollment activates 2FA and returns the recovery
+// codes EXACTLY ONCE. disableMfa / regenerateRecoveryCodes re-auth with
+// EITHER the current password (base64 `Password` header, same as
+// UPDATE_PASSWORD) OR a current TOTP code via the `code` arg.
+export const START_MFA_ENROLLMENT = gql`
+  mutation @api(name: controlPanel) {
+    startMfaEnrollment {
+      otpauthUri
+      secret
+    }
+  }
+`;
+
+export const CONFIRM_MFA_ENROLLMENT = gql`
+  mutation ($code: String!) @api(name: controlPanel) {
+    confirmMfaEnrollment(code: $code) {
+      recoveryCodes
+    }
+  }
+`;
+
+export const DISABLE_MFA = gql`
+  mutation ($code: String) @api(name: controlPanel) {
+    disableMfa(code: $code)
+  }
+`;
+
+export const REGENERATE_RECOVERY_CODES = gql`
+  mutation ($code: String) @api(name: controlPanel) {
+    regenerateRecoveryCodes(code: $code) {
+      recoveryCodes
+    }
+  }
+`;
+
+export const ADMIN_RESET_MFA = gql`
+  mutation ($showSubdomain: String!) @api(name: controlPanel) {
+    adminResetMfa(showSubdomain: $showSubdomain)
+  }
+`;
+
 export const UPDATE_USER_PROFILE = gql`
   mutation ($userProfile: UserProfileInput!) @api(name: controlPanel) {
     updateUserProfile(userProfile: $userProfile)

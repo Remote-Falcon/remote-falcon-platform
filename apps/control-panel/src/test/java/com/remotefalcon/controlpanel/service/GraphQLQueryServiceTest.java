@@ -11,6 +11,7 @@ import com.remotefalcon.library.documents.Show;
 import com.remotefalcon.library.enums.NotificationType;
 import com.remotefalcon.library.enums.StatusResponse;
 import com.remotefalcon.library.enums.ViewerControlMode;
+import com.remotefalcon.library.models.MfaConfig;
 import com.remotefalcon.library.models.NotificationPage;
 import com.remotefalcon.library.models.Preference;
 import com.remotefalcon.library.models.PsaSequence;
@@ -165,6 +166,51 @@ class GraphQLQueryServiceTest {
         assertThatThrownBy(() -> service.signIn())
                 .isInstanceOf(RuntimeException.class)
                 .hasMessage(StatusResponse.UNAUTHORIZED.name());
+    }
+
+    @Test
+    void signIn_returnsPendingChallengeStub_whenMfaEnabled() {
+        Show show = showWithBcrypt("hunter2", true);
+        show.setMfa(MfaConfig.builder().enabled(true).secret("aes-gcm-ciphertext").build());
+        HttpServletRequest req = org.mockito.Mockito.mock(HttpServletRequest.class);
+        when(authUtil.getCurrentRequest()).thenReturn(req);
+        when(authUtil.getBasicAuthCredentials(req)).thenReturn(new String[]{"user@example.com", "hunter2"});
+        when(clientUtil.getClientIp(req)).thenReturn("198.51.100.1");
+        when(showRepository.findByEmailCollationForAuth("user@example.com")).thenReturn(Optional.of(show));
+        when(authUtil.signMfaPendingJwt(show)).thenReturn("pending-jwt");
+
+        Show result = service.signIn();
+
+        // 2FA PRD FR-6 — a stub: pending token + mfa marker, NO account data
+        // and NO full service token until the second factor verifies.
+        assertThat(result.getServiceToken()).isEqualTo("pending-jwt");
+        assertThat(result.getMfa().getEnabled()).isTrue();
+        assertThat(result.getEmail()).isNull();
+        assertThat(result.getShowToken()).isNull();
+        assertThat(result.getPreferences()).isNull();
+        verify(authUtil, never()).signJwt(any(Show.class));
+        // Post-login bookkeeping is deferred to verifyMfa.
+        verify(mongoTemplate, never()).updateFirst(any(), any(), eq(Show.class));
+    }
+
+    @Test
+    void signIn_ignoresPendingUnconfirmedEnrollment_andSignsInNormally() {
+        // EC-5 — a started-but-never-confirmed enrollment (enabled=false)
+        // must not trigger the challenge.
+        Show show = showWithBcrypt("hunter2", true);
+        show.setMfa(MfaConfig.builder().enabled(false).secret("aes-gcm-ciphertext").build());
+        HttpServletRequest req = org.mockito.Mockito.mock(HttpServletRequest.class);
+        when(authUtil.getCurrentRequest()).thenReturn(req);
+        when(authUtil.getBasicAuthCredentials(req)).thenReturn(new String[]{"user@example.com", "hunter2"});
+        when(clientUtil.getClientIp(req)).thenReturn("198.51.100.1");
+        when(showRepository.findByEmailCollationForAuth("user@example.com")).thenReturn(Optional.of(show));
+        when(authUtil.signJwt(any(Show.class))).thenReturn("full-jwt");
+
+        Show result = service.signIn();
+
+        assertThat(result.getServiceToken()).isEqualTo("full-jwt");
+        verify(authUtil, never()).signMfaPendingJwt(any(Show.class));
+        verify(mongoTemplate, times(1)).updateFirst(any(), any(), eq(Show.class));
     }
 
     @Test

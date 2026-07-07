@@ -84,6 +84,10 @@ services:
       # fail to verify. Override either via ops/.env.dev or shell.
       RF_RFPB_LAUNCH_SECRET: ${RF_RFPB_LAUNCH_SECRET:-4P7xdaBdlPrePFURkDthPbJ2RYjfoLCJ369ZmNGK7rmVbs4K}
       RFPB_BASE_URL: ${RFPB_BASE_URL:-http://localhost:3001}
+      # 2FA — dev-only encryption key so enrollment works out of the box
+      # locally (and in the CI e2e stack). Prod key lives in the cluster
+      # Secret; self-host operators set their own.
+      MFA_SECRET_KEY: ${MFA_SECRET_KEY:-dev-mfa-secret-key-not-for-prod}
     ports: ["8081:8080"]
     depends_on:
       mongo: { condition: service_healthy }
