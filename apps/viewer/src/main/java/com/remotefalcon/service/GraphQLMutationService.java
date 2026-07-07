@@ -412,6 +412,12 @@ public class GraphQLMutationService {
   // #163's NIGHTLY_RESET_GAP_HOURS so the vote-cap and play-cap "nights" agree.
   private static final long VOTE_SESSION_GAP_HOURS = 6L;
 
+  // #163 — mirror of plugins-api PluginService.NIGHTLY_RESET_GAP_HOURS: a gap
+  // longer than this since the last counted play means playsToday is a stale
+  // tally from a prior night and must not gate availability. Kept equal to
+  // VOTE_SESSION_GAP_HOURS so vote-cap and play-cap "nights" stay aligned.
+  private static final long NIGHTLY_RESET_GAP_HOURS = 6L;
+
   // #162 — resolve the current votes-left session window. Rolls forward (in
   // memory; persisted by persistVotingWindow on a successful vote) when there's
   // no window yet or the last counted vote was more than VOTE_SESSION_GAP_HOURS
@@ -479,7 +485,18 @@ public class GraphQLMutationService {
     }
     Integer nightlyLimit = show.getPreferences().getNightlyPlayLimit();
     Integer playsToday = requestedSequence.getPlaysToday();
-    if (nightlyLimit != null && nightlyLimit > 0 && playsToday != null && playsToday >= nightlyLimit) {
+    // #163 — only trust playsToday while the tally belongs to the current
+    // show-night. At a new night's first selection playsToday still holds last
+    // night's counts until the first play records and resets them (the reset
+    // lives in plugins-api applyNightlyPlayCount, not on this read path). Mirror
+    // plugins-api's isNewShowNight gate exactly — same bare now() clock (the
+    // field's writer) + NIGHTLY_RESET_GAP_HOURS — so this guard can't reject a
+    // sequence that the play-selection path would happily play.
+    LocalDateTime lastPlayCounted = show.getPreferences().getLastPlayCountedAt();
+    boolean nightlyActive = nightlyLimit != null && nightlyLimit > 0
+        && lastPlayCounted != null
+        && !lastPlayCounted.isBefore(LocalDateTime.now().minusHours(NIGHTLY_RESET_GAP_HOURS));
+    if (nightlyActive && playsToday != null && playsToday >= nightlyLimit) {
       this.logRejectedRequest(show.getShowSubdomain(), requestedSequence.getName(), null,
           StatusResponse.SEQUENCE_UNAVAILABLE.name());
       throw new CustomGraphQLExceptionResolver(StatusResponse.SEQUENCE_UNAVAILABLE.name());

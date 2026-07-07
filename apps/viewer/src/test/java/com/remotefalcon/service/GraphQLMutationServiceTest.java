@@ -1106,6 +1106,8 @@ class GraphQLMutationServiceTest {
     void nightlyCappedSequenceRequestRejected() {
       Show show = mockShowWithPrefsAndCollections();
       when(show.getPreferences().getNightlyPlayLimit()).thenReturn(1);
+      // Recent play → tally belongs to the current show-night, so the cap applies.
+      when(show.getPreferences().getLastPlayCountedAt()).thenReturn(LocalDateTime.now().minusMinutes(30));
       Sequence s = mock(Sequence.class);
       when(s.getName()).thenReturn("song-a");
       when(s.getVisibilityCount()).thenReturn(0);
@@ -1119,6 +1121,30 @@ class GraphQLMutationServiceTest {
       } catch (CustomGraphQLExceptionResolver e) {
         assertEquals("SEQUENCE_UNAVAILABLE", e.getMessage());
       }
+    }
+
+    @Test
+    @DisplayName("#163 new-show-night: stale playsToday does NOT reject before the first play resets it")
+    void nightlyCapBypassedOnNewShowNight() {
+      Show show = mockShowWithPrefsAndCollections();
+      when(show.getPreferences().getNightlyPlayLimit()).thenReturn(1);
+      // Last play was long ago (>NIGHTLY_RESET_GAP_HOURS) — playsToday is last
+      // night's stale tally. Mirrors plugins-api isNewShowNight: the cap must not
+      // fire until the first play of the night records and resets the count.
+      // (playsToday is intentionally NOT stubbed: the gap short-circuits before
+      // it's read, so stubbing it would be flagged as unnecessary.)
+      when(show.getPreferences().getLastPlayCountedAt()).thenReturn(LocalDateTime.now().minusHours(20));
+      Sequence s = mock(Sequence.class);
+      when(s.getName()).thenReturn("song-a");
+      when(s.getVisibilityCount()).thenReturn(0);
+      show.getSequences().add(s);
+      when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
+
+      // Guard must let this through — consistent with the play-selection path in
+      // plugins-api — so the request completes and reaches the DB append.
+      Boolean result = service.addSequenceToQueue("sub", "song-a", 0f, 0f, "");
+      assertTrue(result);
+      verify(showRepository).appendRequestAndJukeboxStat(eq("sub"), any(), any());
     }
   }
 }

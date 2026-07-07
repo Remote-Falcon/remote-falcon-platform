@@ -82,6 +82,7 @@ const InteractionSettings = () => {
       allowedRadius: show?.preferences?.allowedRadius ?? 0,
       locationCode: show?.preferences?.locationCode ?? 0,
       hideSequenceCount: show?.preferences?.hideSequenceCount ?? 0,
+      nightlyPlayLimit: show?.preferences?.nightlyPlayLimit ?? 0,
       blockedViewerIps: show?.preferences?.blockedViewerIps || [],
       statsExcludedIps: show?.preferences?.statsExcludedIps || [],
       additionalGpsLocations: show?.preferences?.additionalGpsLocations || []
