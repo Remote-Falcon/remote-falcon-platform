@@ -36,6 +36,7 @@ import {
   IconGripVertical,
   IconLoader2,
   IconMovie,
+  IconMusicSearch,
   IconPlayerPlay,
   IconPlayerTrackNext,
   IconPlaylist,
@@ -72,6 +73,7 @@ import {
 import { showAlert } from '../../globalPageHelpers';
 
 import EditableCell from './EditableCell';
+import SequenceMetadataLookup from './SequenceMetadataLookup';
 
 // Status chip palette helper. Keeps the JSX tight.
 const STATUS_CHIP = {
@@ -234,6 +236,10 @@ const SequencesList = () => {
   const [categoryMenuAnchor, setCategoryMenuAnchor] = useState(null);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [creatingCategory, setCreatingCategory] = useState(false);
+
+  // Metadata-lookup popover target ({ anchorEl, sequence } or null).
+  // One popover instance serves all rows — only one can be open at a time.
+  const [lookup, setLookup] = useState(null);
 
   // Horizontal-scroll hints — the table can be wider than the viewport with
   // long image URLs. Checkbox/drag/actions/status are sticky-pinned on the
@@ -1293,11 +1299,24 @@ const SequencesList = () => {
                                     </Stack>
                                   </TableCell>
                                   <TableCell sx={{ minWidth: 180 }}>
-                                    <EditableCell
-                                      value={sequence.displayName}
-                                      onCommit={(v) => commitField(sequence, 'displayName', v)}
-                                      placeholder="Display name"
-                                    />
+                                    <Stack direction="row" alignItems="center" spacing={0.5}>
+                                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                                        <EditableCell
+                                          value={sequence.displayName}
+                                          onCommit={(v) => commitField(sequence, 'displayName', v)}
+                                          placeholder="Display name"
+                                        />
+                                      </Box>
+                                      <Tooltip title="Look up artist & album art">
+                                        <IconButton
+                                          size="small"
+                                          aria-label={`Look up metadata for ${sequence.displayName || sequence.name}`}
+                                          onClick={(e) => setLookup({ anchorEl: e.currentTarget, sequence })}
+                                        >
+                                          <IconMusicSearch size={16} stroke={1.75} />
+                                        </IconButton>
+                                      </Tooltip>
+                                    </Stack>
                                   </TableCell>
                                   <TableCell sx={{ minWidth: 140 }}>
                                     <EditableCell
@@ -1414,6 +1433,20 @@ const SequencesList = () => {
       </MainCard>
 
       <ConfirmDialog confirm={confirm} onClose={() => setConfirm(null)} />
+
+      <SequenceMetadataLookup
+        anchorEl={lookup?.anchorEl || null}
+        defaultQuery={lookup?.sequence?.displayName || lookup?.sequence?.name || ''}
+        onClose={() => setLookup(null)}
+        onSelect={(result) => {
+          // Both patches coalesce into one save for the row. Never blank an
+          // existing image with a null artworkUrl (rare artless results).
+          commitField(lookup.sequence, 'artist', result.artist);
+          if (result.artworkUrl) {
+            commitField(lookup.sequence, 'imageUrl', result.artworkUrl);
+          }
+        }}
+      />
     </Box>
   );
 };
