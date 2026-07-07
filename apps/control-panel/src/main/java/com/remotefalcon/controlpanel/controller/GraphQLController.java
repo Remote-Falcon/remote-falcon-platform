@@ -320,8 +320,12 @@ public class GraphQLController {
         return dashboardService.wrappedSummary(token, season, year, timezone);
     }
 
+    // PUBLIC — no @RequiresAccess. Powers the public /map page. Only shows
+    // that opted in (preferences.showOnMap) are returned, coordinates are
+    // rounded to ~11 m in the service, and the result is cached in-memory
+    // for 5 minutes so anonymous traffic can't hammer Mongo. The partial
+    // index idx_showOnMap was built for exactly this query.
     @QueryMapping
-    @RequiresAccess()
     public List<ShowsOnAMap> showsOnAMap() {
         return graphQLQueryService.showsOnAMap();
     }

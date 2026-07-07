@@ -1,19 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import * as React from 'react';
 
 import { useLazyQuery, useMutation } from '@apollo/client';
-import { Box, Grid, Stack, Typography, Switch, CardActions, TextField, IconButton, Tooltip } from '@mui/material';
+import { Box, Button, Grid, Stack, Typography, Switch, CardActions, TextField, IconButton, Tooltip } from '@mui/material';
 import MyLocationTwoToneIcon from '@mui/icons-material/MyLocationTwoTone';
 import SaveTwoToneIcon from '@mui/icons-material/SaveTwoTone';
-import { APIProvider, Map, useMap, useMapsLibrary } from '@vis.gl/react-google-maps';
-import { MarkerClusterer } from '@googlemaps/markerclusterer';
+import { IconExternalLink } from '@tabler/icons-react';
 import _ from 'lodash';
-
-/* global google */
 
 import { useDispatch, useSelector } from '../../../../store';
 import { gridSpacing } from '../../../../store/constant';
 import MainCard from '../../../../ui-component/cards/MainCard';
+import ShowsMapLibre from '../../../../ui-component/maps/ShowsMapLibre';
 import PageHead from '../../../../ui-component/PageHead';
 import TrackerSkeleton from '../../../../ui-component/cards/Skeleton/TrackerSkeleton';
 
@@ -21,74 +19,16 @@ import { savePreferencesService } from '../../../../services/controlPanel/mutati
 import { setShow } from '../../../../store/slices/show';
 import { UPDATE_PREFERENCES } from '../../../../utils/graphql/controlPanel/mutations';
 import { SHOWS_ON_MAP } from '../../../../utils/graphql/controlPanel/queries';
+import { getShowPublicUrl } from '../../../../utils/showPublicUrl';
 import { showAlert } from '../../globalPageHelpers';
-const ShowsCluster = ({ shows }) => {
-  const map = useMap();
-  const markerLib = useMapsLibrary('marker');
-  const infoWindowRef = useRef(null);
-  const clustererRef = useRef(null);
-
-  useEffect(() => {
-    if (!markerLib || infoWindowRef.current) return;
-    infoWindowRef.current = new google.maps.InfoWindow();
-  }, [markerLib]);
-
-  useEffect(() => {
-    if (!map || !markerLib) return undefined;
-    const { AdvancedMarkerElement } = markerLib;
-    const infoWindow = infoWindowRef.current ?? new google.maps.InfoWindow();
-    const mapClickListener = map.addListener('click', () => infoWindow.close());
-
-    const markers = shows
-      .filter((show) => Number.isFinite(show?.location?.lat) && Number.isFinite(show?.location?.lng))
-      .map((show) => {
-        const title = show?.showName || 'Show';
-        const marker = new AdvancedMarkerElement({
-          position: show.location,
-          title
-        });
-        marker.addListener('click', () => {
-          infoWindow.close();
-          const content = document.createElement('div');
-          content.textContent = title;
-          content.style.color = '#0d47a1';
-          content.style.fontWeight = '600';
-          content.style.fontSize = '14px';
-          content.style.padding = '4px 8px';
-          infoWindow.setContent(content);
-          infoWindow.open({ anchor: marker, map });
-        });
-        return marker;
-      });
-
-    // Construct the clusterer with markers already populated. The
-    // previous split-effect implementation (empty-init then addMarkers)
-    // is a known sharp edge in @googlemaps/markerclusterer v2.5+ when
-    // paired with AdvancedMarkerElement — the renderer is left in a
-    // state where the first addMarkers() call silently produces no DOM
-    // output, with no console error. Result: ~1,040 valid markers
-    // entered the cluster but zero <gmp-advanced-marker> elements ever
-    // appeared in the DOM (#117).
-    clustererRef.current = new MarkerClusterer({ map, markers });
-
-    return () => {
-      google.maps.event.removeListener(mapClickListener);
-      clustererRef.current?.clearMarkers();
-      clustererRef.current = null;
-      markers.forEach((marker) => marker.map && (marker.map = null));
-    };
-  }, [map, markerLib, shows]);
-
-  return null;
-};
 
 const ShowsMap = () => {
   const dispatch = useDispatch();
   const { show } = useSelector((state) => state.show);
 
   const [isLoading, setIsLoading] = useState(false);
-  const [mapLoaded, setMapLoaded] = useState(false);
   const [showsOnMap, setShowsOnMap] = useState([]);
+  const [selectedShow, setSelectedShow] = useState(null);
   const [manualLat, setManualLat] = useState('');
   const [manualLng, setManualLng] = useState('');
 
@@ -151,13 +91,15 @@ const ShowsMap = () => {
       fetchPolicy: 'network-only',
       onCompleted: (data) => {
         const shows = [];
-        _.forEach(data?.showsOnAMap, (show) => {
-          const lat = Number(show?.showLatitude);
-          const lng = Number(show?.showLongitude);
-          if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        _.forEach(data?.showsOnAMap, (mappedShow) => {
+          const latitude = Number(mappedShow?.showLatitude);
+          const longitude = Number(mappedShow?.showLongitude);
+          if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
             shows.push({
-              showName: show?.showName,
-              location: { lat, lng }
+              showName: mappedShow?.showName,
+              showSubdomain: mappedShow?.showSubdomain,
+              latitude,
+              longitude
             });
           }
         });
@@ -216,11 +158,6 @@ const ShowsMap = () => {
       showAlert(dispatch, response?.toast);
       getShowsOnMap();
     });
-  };
-
-  const center = {
-    lat: 41.69194824042432,
-    lng: -97.64580975379515
   };
 
   useEffect(() => {
@@ -314,15 +251,25 @@ const ShowsMap = () => {
                   <Typography variant="h3" align="center" color="secondary">
                     Total Shows on Map: {showsOnMap?.length}
                   </Typography>
+                  {selectedShow && (
+                    <Stack direction="row" spacing={1} alignItems="center" justifyContent="center" sx={{ mt: 1 }}>
+                      <Typography variant="h5">{selectedShow.showName}</Typography>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        endIcon={<IconExternalLink size={16} />}
+                        component="a"
+                        href={getShowPublicUrl(selectedShow.showSubdomain)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        Visit Show
+                      </Button>
+                    </Stack>
+                  )}
                 </Box>
                 <CardActions sx={{ height: '39em' }}>
-                  <APIProvider apiKey={import.meta.env.VITE_GOOGLE_MAPS_KEY} onLoad={() => setMapLoaded(true)}>
-                    {mapLoaded && (
-                      <Map mapId="972618e58193992a" defaultZoom={1} defaultCenter={center}>
-                        <ShowsCluster shows={showsOnMap} />
-                      </Map>
-                    )}
-                  </APIProvider>
+                  <ShowsMapLibre shows={showsOnMap} onPinClick={setSelectedShow} />
                 </CardActions>
               </>
             )}

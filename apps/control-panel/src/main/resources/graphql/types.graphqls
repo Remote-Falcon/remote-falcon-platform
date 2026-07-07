@@ -279,6 +279,7 @@ type SequenceStat {
 
 type ShowsOnAMap {
     showName: String
+    showSubdomain: String
     showLatitude: Float
     showLongitude: Float
 }

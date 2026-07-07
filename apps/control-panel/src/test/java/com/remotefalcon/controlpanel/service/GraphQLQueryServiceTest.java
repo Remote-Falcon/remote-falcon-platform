@@ -344,7 +344,7 @@ class GraphQLQueryServiceTest {
 
     @Test
     void showsOnAMap_onlyIncludesShowsWithOptInPreference() {
-        Show optIn = Show.builder().showName("Yes")
+        Show optIn = Show.builder().showName("Yes").showSubdomain("yes-show")
                 .preferences(Preference.builder().showOnMap(true).showLatitude(1.0f).showLongitude(2.0f).build())
                 .build();
         Show optOut = Show.builder().showName("No")
@@ -356,8 +356,40 @@ class GraphQLQueryServiceTest {
         List<ShowsOnAMap> shown = service.showsOnAMap();
         assertThat(shown).hasSize(1);
         assertThat(shown.get(0).getShowName()).isEqualTo("Yes");
+        assertThat(shown.get(0).getShowSubdomain()).isEqualTo("yes-show");
         assertThat(shown.get(0).getShowLatitude()).isEqualTo(1.0f);
         assertThat(shown.get(0).getShowLongitude()).isEqualTo(2.0f);
+    }
+
+    // The public map must not expose exact home coordinates: the projection
+    // rounds to 4 decimal places (~11 m). Full precision stays in Mongo for
+    // the viewer geofence.
+    @Test
+    void showsOnAMap_roundsCoordinatesToFourDecimalPlaces() {
+        Show show = Show.builder().showName("Precise").showSubdomain("precise")
+                .preferences(Preference.builder().showOnMap(true)
+                        .showLatitude(35.123456f).showLongitude(-80.987654f).build())
+                .build();
+        when(showRepository.getShowsOnMap()).thenReturn(List.of(show));
+
+        List<ShowsOnAMap> shown = service.showsOnAMap();
+        assertThat(shown.get(0).getShowLatitude()).isEqualTo(35.1235f);
+        assertThat(shown.get(0).getShowLongitude()).isEqualTo(-80.9877f);
+    }
+
+    // showsOnAMap is public/unauthenticated — the 5-minute in-memory cache is
+    // what keeps anonymous map traffic from hitting Mongo per page load.
+    @Test
+    void showsOnAMap_cachesResultAndSkipsRepositoryOnSecondCall() {
+        Show show = Show.builder().showName("Cached").showSubdomain("cached")
+                .preferences(Preference.builder().showOnMap(true).showLatitude(1.0f).showLongitude(2.0f).build())
+                .build();
+        when(showRepository.getShowsOnMap()).thenReturn(List.of(show));
+
+        List<ShowsOnAMap> first = service.showsOnAMap();
+        List<ShowsOnAMap> second = service.showsOnAMap();
+        assertThat(second).isSameAs(first);
+        verify(showRepository, times(1)).getShowsOnMap();
     }
 
     // ---- getShowByShowName ----

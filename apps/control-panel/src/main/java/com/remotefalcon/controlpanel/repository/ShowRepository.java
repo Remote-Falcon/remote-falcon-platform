@@ -79,7 +79,8 @@ public interface ShowRepository extends MongoRepository<Show, String> {
                    "'preferences.showLatitude':  { $gte: -90,  $lte: 90 }, " +
                    "'preferences.showLongitude': { $gte: -180, $lte: 180 }, " +
                    "$or: [ { 'preferences.showLatitude': { $ne: 0 } }, { 'preferences.showLongitude': { $ne: 0 } } ] }",
-            fields = "{ 'showName': 1, 'preferences.showLatitude': 1, 'preferences.showLongitude': 1, 'preferences.showOnMap': 1 }")
+            fields = "{ 'showName': 1, 'showSubdomain': 1, " +
+                     "'preferences.showLatitude': 1, 'preferences.showLongitude': 1, 'preferences.showOnMap': 1 }")
     List<Show> getShowsOnMap();
 
     @Aggregation(pipeline = {

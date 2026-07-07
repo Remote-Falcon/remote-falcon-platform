@@ -50,7 +50,7 @@ This is the operator's map of the Remote Falcon stack: every service, what it do
 | **Ingress** | Host `remotefalcon.com` (path `/`) **and** subdomain catch-all `*.remotefalcon.com` (path `/`) |
 | **Health probe** | `GET /health.json` |
 | **Talks to** | Control Panel API, Viewer API (URLs baked in at build time) |
-| **GH Actions secrets** | `VIEWER_JWT_KEY`, `GOOGLE_MAPS_KEY`, `PUBLIC_POSTHOG_KEY`, `GA_TRACKING_ID`, `MIXPANEL_KEY`, `CLARITY_PROJECT_ID`, `DIGITALOCEAN_ACCESS_TOKEN` |
+| **GH Actions secrets** | `VIEWER_JWT_KEY`, `PROTOMAPS_API_KEY`, `PUBLIC_POSTHOG_KEY`, `GA_TRACKING_ID`, `MIXPANEL_KEY`, `CLARITY_PROJECT_ID`, `DIGITALOCEAN_ACCESS_TOKEN` |
 | **In-cluster secrets** | none (all config is build-time `VITE_*` env) |
 | **Note** | All third-party keys are **baked into the bundle at image build time** — rotate by re-running the workflow, not by restarting pods. |
 | **⚠ Dead config (verified 2026-04-27)** | `MIXPANEL_KEY`, `GA_TRACKING_ID`, and `CLARITY_PROJECT_ID` are still plumbed through Dockerfile build-args, GH Actions secrets, and `VITE_*` env vars, **but nothing reads them in source**. Only `posthog-js` (`VITE_PUBLIC_POSTHOG_KEY`) is actually wired in `apps/ui/src/`. Removing the dead chain is a no-op simplification, captured in [OBSERVABILITY-PLAN.md](OBSERVABILITY-PLAN.md) Obs-2. `VIEWER_JWT_KEY` is similarly absent from source — verify intent before relying on it. |
@@ -345,7 +345,7 @@ Empty remote — clones with `warning: You appear to have cloned an empty reposi
 | `MONGO_URI` | viewer, plugins-api, account-archive, mongo-backup |
 | `OTEL_URI` | account-archive, mongo-backup *(viewer / plugins-api hardcode empty)* |
 | `VIEWER_JWT_KEY` | ui |
-| `GOOGLE_MAPS_KEY` | ui |
+| `PROTOMAPS_API_KEY` | ui |
 | `PUBLIC_POSTHOG_KEY` | ui |
 | `GA_TRACKING_ID` | ui |
 | `MIXPANEL_KEY` | ui |

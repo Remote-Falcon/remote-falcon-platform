@@ -424,6 +424,7 @@ export const SHOWS_ON_MAP = gql`
   query @api(name: controlPanel) {
     showsOnAMap {
       showName
+      showSubdomain
       showLatitude
       showLongitude
     }

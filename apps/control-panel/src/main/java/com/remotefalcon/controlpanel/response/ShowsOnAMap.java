@@ -11,6 +11,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 public class ShowsOnAMap {
     private String showName;
+    private String showSubdomain;
     private Float showLatitude;
     private Float showLongitude;
 }

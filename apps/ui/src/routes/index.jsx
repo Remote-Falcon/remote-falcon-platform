@@ -2,6 +2,7 @@ import { Navigate, useRoutes } from 'react-router-dom';
 
 import LoginRoutes from './LoginRoutes';
 import MainRoutes from './MainRoutes';
+import MapRoutes from './MapRoutes';
 import ViewerRoutes from './ViewerRoutes';
 import WrappedRoutes from './WrappedRoutes';
 
@@ -13,5 +14,5 @@ const NotFoundRedirect = {
 };
 
 export default function ThemeRoutes() {
-  return useRoutes([WrappedRoutes, LoginRoutes, MainRoutes, ViewerRoutes, NotFoundRedirect]);
+  return useRoutes([WrappedRoutes, MapRoutes, LoginRoutes, MainRoutes, ViewerRoutes, NotFoundRedirect]);
 }

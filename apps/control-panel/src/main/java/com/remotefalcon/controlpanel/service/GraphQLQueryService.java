@@ -212,20 +212,51 @@ public class GraphQLQueryService {
       return changed;
     }
 
+    // showsOnAMap is PUBLIC (unauthenticated — powers the /map page), so two
+    // protections live here rather than in the resolver:
+    //
+    //   1. Coordinates are rounded to 4 decimal places (~11 m) in the public
+    //      projection ONLY. The stored preferences keep full precision because
+    //      the viewer geofence (allowedRadius) depends on it.
+    //   2. The result is cached in-memory for 5 minutes so anonymous traffic
+    //      can't turn every map load into a Mongo query. Plain AtomicReference
+    //      (not a cache lib) — native-image build strips runtime-conditional
+    //      beans, and this survives that (see control-panel @Conditional trap).
+    private static final long SHOWS_ON_MAP_CACHE_MS = 5 * 60 * 1000L;
+    private record ShowsOnAMapCache(List<ShowsOnAMap> shows, long fetchedAtMs) {}
+    private final java.util.concurrent.atomic.AtomicReference<ShowsOnAMapCache> showsOnAMapCache = new java.util.concurrent.atomic.AtomicReference<>();
+
     public List<ShowsOnAMap> showsOnAMap() {
+        ShowsOnAMapCache cached = this.showsOnAMapCache.get();
+        long now = System.currentTimeMillis();
+        if (cached != null && now - cached.fetchedAtMs() < SHOWS_ON_MAP_CACHE_MS) {
+            return cached.shows();
+        }
         List<Show> allShows = this.showRepository.getShowsOnMap();
         List<ShowsOnAMap> showsOnAMapList = new ArrayList<>();
         allShows.forEach(show -> {
             if(show.getPreferences() != null
-                    && show.getPreferences().getShowOnMap()) {
+                    && Boolean.TRUE.equals(show.getPreferences().getShowOnMap())) {
                 showsOnAMapList.add(ShowsOnAMap.builder()
                                 .showName(show.getShowName())
-                                .showLatitude(show.getPreferences().getShowLatitude())
-                                .showLongitude(show.getPreferences().getShowLongitude())
+                                .showSubdomain(show.getShowSubdomain())
+                                .showLatitude(roundCoordinate(show.getPreferences().getShowLatitude()))
+                                .showLongitude(roundCoordinate(show.getPreferences().getShowLongitude()))
                         .build());
             }
         });
-        return showsOnAMapList;
+        List<ShowsOnAMap> result = Collections.unmodifiableList(showsOnAMapList);
+        this.showsOnAMapCache.set(new ShowsOnAMapCache(result, now));
+        return result;
+    }
+
+    // ~11 m precision — enough to find the show, coarse enough to obscure the
+    // exact driveway (privacy requirement on the public map).
+    private static Float roundCoordinate(Float coordinate) {
+        if (coordinate == null) {
+            return null;
+        }
+        return Math.round(coordinate * 10000f) / 10000f;
     }
 
     public Show getShowByShowName(String showName) {
