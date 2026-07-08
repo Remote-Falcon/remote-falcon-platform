@@ -1,7 +1,10 @@
 package com.remotefalcon.controlpanel.service;
 
+import com.remotefalcon.controlpanel.document.MfaKeyRotationAudit;
+import com.remotefalcon.controlpanel.repository.MfaKeyRotationAuditRepository;
 import com.remotefalcon.controlpanel.repository.ShowRepository;
 import com.remotefalcon.controlpanel.response.MfaEnrollment;
+import com.remotefalcon.controlpanel.response.MfaKeyRotationResult;
 import com.remotefalcon.controlpanel.response.MfaRecoveryCodes;
 import com.remotefalcon.controlpanel.util.AuthUtil;
 import com.remotefalcon.controlpanel.util.Base32Util;
@@ -25,10 +28,13 @@ import org.springframework.stereotype.Service;
 
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.stream.Stream;
 
 /**
  * Opt-in TOTP second factor (PRD 2FA-TOTP). Every MFA write is an atomic
@@ -62,6 +68,7 @@ public class MfaService {
     private final TotpUtil totpUtil;
     private final MfaCryptoUtil mfaCryptoUtil;
     private final GraphQLQueryService graphQLQueryService;
+    private final MfaKeyRotationAuditRepository mfaKeyRotationAuditRepository;
 
     private final ConcurrentHashMap<String, ConcurrentLinkedDeque<Long>> failedAttempts = new ConcurrentHashMap<>();
 
@@ -201,39 +208,93 @@ public class MfaService {
     /**
      * Key rotation (2FA-TOTP). Re-encrypts every stored TOTP secret that is
      * NOT already under the current primary key onto that key, so rotating
-     * MFA_SECRET_KEY doesn't orphan enrolled accounts. Gated by
-     * @RequiresAdminAccess at the resolver and audit-logged.
+     * MFA_SECRET_KEY doesn't orphan enrolled accounts. Covers BOTH confirmed
+     * enrollments and still-pending ones (any show with a stored mfa.secret).
+     * Gated by @RequiresAdminAccess at the resolver; every run — including a
+     * dry run — is persisted to the {@code mfaKeyRotationAudit} collection.
      *
-     * Idempotent and resumable: secrets already on the primary key are
+     * <p>Idempotent and resumable: secrets already on the primary key are
      * skipped, so re-running (or resuming after a crash) only touches what's
-     * left. Each secret is written with an atomic single-field updateFirst,
-     * and MfaCryptoUtil's decrypt keyring must still hold the old key (via
-     * MFA_SECRET_KEY_RETIRED) for the old ciphertext to be readable. Returns
-     * the number of secrets re-encrypted.
+     * left. The collection is STREAMED, not loaded into a list, so a large
+     * enrolled population can't blow the pod's heap (same pattern as the
+     * stats-retention sweep). Each write is an atomic single-field
+     * updateFirst, and MfaCryptoUtil's decrypt keyring must still hold the old
+     * key (via MFA_SECRET_KEY_RETIRED) for the old ciphertext to be readable.
+     *
+     * <p>A secret that no held key can decrypt does NOT abort the run: it is
+     * counted as {@code failed}, logged with its showToken, and left untouched
+     * so a later run (with the right retired key configured) can still rescue
+     * it.
+     *
+     * @param dryRun when true, report what WOULD be re-encrypted without
+     *               writing any secret.
      */
-    public int adminRotateMfaKeys() {
+    public MfaKeyRotationResult adminRotateMfaKeys(boolean dryRun) {
         if (!this.mfaCryptoUtil.isConfigured()) {
             throw new RuntimeException(StatusResponse.MFA_NOT_CONFIGURED.name());
         }
         Query query = Query.query(Criteria.where("mfa.secret").exists(true).ne(null));
         query.fields().include("showToken").include("mfa.secret");
-        List<Show> shows = this.mongoTemplate.find(query, Show.class);
-        int rotated = 0;
-        for (Show show : shows) {
-            String stored = show.getMfa() == null ? null : show.getMfa().getSecret();
-            if (StringUtils.isBlank(stored) || this.mfaCryptoUtil.isEncryptedWithPrimary(stored)) {
-                continue;
+        int total = 0;
+        int reencrypted = 0;
+        int alreadyOnPrimary = 0;
+        int failed = 0;
+        try (Stream<Show> shows = this.mongoTemplate.stream(query, Show.class)) {
+            Iterator<Show> it = shows.iterator();
+            while (it.hasNext()) {
+                Show show = it.next();
+                String stored = show.getMfa() == null ? null : show.getMfa().getSecret();
+                if (StringUtils.isBlank(stored)) {
+                    continue;
+                }
+                total++;
+                if (this.mfaCryptoUtil.isEncryptedWithPrimary(stored)) {
+                    alreadyOnPrimary++;
+                    continue;
+                }
+                try {
+                    String rekeyed = this.mfaCryptoUtil.encrypt(this.mfaCryptoUtil.decrypt(stored));
+                    if (!dryRun) {
+                        this.mongoTemplate.updateFirst(
+                                Query.query(Criteria.where("showToken").is(show.getShowToken())),
+                                new Update().set("mfa.secret", rekeyed),
+                                Show.class);
+                    }
+                    reencrypted++;
+                } catch (Exception e) {
+                    failed++;
+                    log.error("MFA key rotation: no configured key could decrypt the secret for show {} — "
+                            + "left untouched (is the old key set as MFA_SECRET_KEY_RETIRED?): {}",
+                            show.getShowToken(), e.getMessage());
+                }
             }
-            String reencrypted = this.mfaCryptoUtil.encrypt(this.mfaCryptoUtil.decrypt(stored));
-            this.mongoTemplate.updateFirst(
-                    Query.query(Criteria.where("showToken").is(show.getShowToken())),
-                    new Update().set("mfa.secret", reencrypted),
-                    Show.class);
-            rotated++;
         }
-        log.warn("ADMIN MFA KEY ROTATION: admin {} re-encrypted {} of {} stored TOTP secret(s) onto the primary key",
-                this.authUtil.getTokenDTO().getEmail(), rotated, shows.size());
-        return rotated;
+        MfaKeyRotationResult result = MfaKeyRotationResult.builder()
+                .totalSecrets(total)
+                .reencrypted(reencrypted)
+                .alreadyOnPrimary(alreadyOnPrimary)
+                .failed(failed)
+                .dryRun(dryRun)
+                .build();
+        this.recordRotationAudit(result);
+        log.warn("ADMIN MFA KEY ROTATION{}: admin {} — total={} reencrypted={} alreadyOnPrimary={} failed={} "
+                + "onto primary keyId {}",
+                dryRun ? " (DRY RUN)" : "", this.authUtil.getTokenDTO().getEmail(),
+                total, reencrypted, alreadyOnPrimary, failed, this.mfaCryptoUtil.primaryKeyId());
+        return result;
+    }
+
+    private void recordRotationAudit(MfaKeyRotationResult result) {
+        this.mfaKeyRotationAuditRepository.save(MfaKeyRotationAudit.builder()
+                .rotatedAt(LocalDateTime.now(ZoneOffset.UTC))
+                .adminEmail(this.authUtil.getTokenDTO().getEmail())
+                .primaryKeyId(this.mfaCryptoUtil.primaryKeyId())
+                .totalSecrets(result.getTotalSecrets())
+                .reencrypted(result.getReencrypted())
+                .alreadyOnPrimary(result.getAlreadyOnPrimary())
+                .failed(result.getFailed())
+                .dryRun(result.isDryRun())
+                .build());
     }
 
     // SR-6 — disable/regenerate require fresh re-auth: the current password

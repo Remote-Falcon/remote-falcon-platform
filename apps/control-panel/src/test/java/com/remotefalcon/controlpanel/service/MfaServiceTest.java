@@ -2,8 +2,10 @@ package com.remotefalcon.controlpanel.service;
 
 import com.eatthepath.otp.TimeBasedOneTimePasswordGenerator;
 import com.remotefalcon.controlpanel.dto.TokenDTO;
+import com.remotefalcon.controlpanel.repository.MfaKeyRotationAuditRepository;
 import com.remotefalcon.controlpanel.repository.ShowRepository;
 import com.remotefalcon.controlpanel.response.MfaEnrollment;
+import com.remotefalcon.controlpanel.response.MfaKeyRotationResult;
 import com.remotefalcon.controlpanel.response.MfaRecoveryCodes;
 import com.remotefalcon.controlpanel.util.AuthUtil;
 import com.remotefalcon.controlpanel.util.ClientUtil;
@@ -30,6 +32,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -59,6 +62,7 @@ class MfaServiceTest {
     @Mock private ShowRepository showRepository;
     @Mock private MongoTemplate mongoTemplate;
     @Mock private GraphQLQueryService graphQLQueryService;
+    @Mock private MfaKeyRotationAuditRepository mfaKeyRotationAuditRepository;
 
     private TotpUtil totpUtil;
     private MfaCryptoUtil crypto;
@@ -72,7 +76,7 @@ class MfaServiceTest {
         crypto = new MfaCryptoUtil();
         ReflectionTestUtils.setField(crypto, "mfaSecretKey", "unit-test-mfa-encryption-key");
         mfaService = new MfaService(authUtil, clientUtil, showRepository, mongoTemplate,
-                totpUtil, crypto, graphQLQueryService);
+                totpUtil, crypto, graphQLQueryService, mfaKeyRotationAuditRepository);
         secret = totpUtil.generateSecret();
     }
 
@@ -406,47 +410,116 @@ class MfaServiceTest {
 
     // ---- adminRotateMfaKeys ----
 
-    @Test
-    void adminRotateMfaKeys_reencryptsStaleSecrets_ontoPrimaryKey_andSkipsCurrent() {
-        // Simulate a rotation: the service's crypto now has a NEW primary key
-        // and retains the OLD one as retired so old blobs still decrypt.
+    /** Puts the service's crypto into a mid-rotation state: NEW primary key,
+     *  OLD key retained as retired so its blobs still decrypt. Returns an
+     *  old-key MfaCryptoUtil for minting "stale" ciphertext. */
+    private MfaCryptoUtil enterRotationState() {
         MfaCryptoUtil oldCrypto = new MfaCryptoUtil();
         ReflectionTestUtils.setField(oldCrypto, "mfaSecretKey", "unit-test-mfa-encryption-key");
         ReflectionTestUtils.setField(crypto, "mfaSecretKey", "rotated-primary-key");
         ReflectionTestUtils.setField(crypto, "mfaSecretKeyRetired", "unit-test-mfa-encryption-key");
-
-        // Two shows on the OLD key (need rotating) + one already on the new key.
-        Show stale1 = Show.builder().showToken("s1")
-                .mfa(MfaConfig.builder().secret(oldCrypto.encrypt(secret)).build()).build();
-        Show stale2 = Show.builder().showToken("s2")
-                .mfa(MfaConfig.builder().secret(oldCrypto.encrypt(secret)).build()).build();
-        Show current = Show.builder().showToken("s3")
-                .mfa(MfaConfig.builder().secret(crypto.encrypt(secret)).build()).build();
-        when(mongoTemplate.find(any(), eq(Show.class))).thenReturn(List.of(stale1, stale2, current));
         when(authUtil.getTokenDTO()).thenReturn(TokenDTO.builder().email("admin@example.com").build());
+        return oldCrypto;
+    }
 
-        int rotated = mfaService.adminRotateMfaKeys();
+    private Show showWithSecret(String showToken, String secretCiphertext) {
+        return Show.builder().showToken(showToken)
+                .mfa(MfaConfig.builder().secret(secretCiphertext).build()).build();
+    }
 
-        // Only the two stale secrets are re-encrypted; the current one is skipped.
-        assertThat(rotated).isEqualTo(2);
+    private void stubRotationStream(Show... shows) {
+        when(mongoTemplate.stream(any(), eq(Show.class))).thenReturn(Stream.of(shows));
+    }
+
+    @Test
+    void adminRotateMfaKeys_reencryptsStaleSecrets_ontoPrimaryKey_andSkipsCurrent() {
+        MfaCryptoUtil oldCrypto = enterRotationState();
+        // Two shows on the OLD key (need rotating) + one already on the new key.
+        stubRotationStream(
+                showWithSecret("s1", oldCrypto.encrypt(secret)),
+                showWithSecret("s2", oldCrypto.encrypt(secret)),
+                showWithSecret("s3", crypto.encrypt(secret)));
+
+        MfaKeyRotationResult result = mfaService.adminRotateMfaKeys(false);
+
+        assertThat(result.getTotalSecrets()).isEqualTo(3);
+        assertThat(result.getReencrypted()).isEqualTo(2);
+        assertThat(result.getAlreadyOnPrimary()).isEqualTo(1);
+        assertThat(result.getFailed()).isZero();
+        assertThat(result.isDryRun()).isFalse();
+        // Only the two stale secrets are written; the current one is skipped.
         ArgumentCaptor<Update> updateCaptor = ArgumentCaptor.forClass(Update.class);
         verify(mongoTemplate, org.mockito.Mockito.times(2))
                 .updateFirst(any(), updateCaptor.capture(), eq(Show.class));
         for (Update update : updateCaptor.getAllValues()) {
             String newSecret = (String) update.getUpdateObject()
                     .get("$set", org.bson.Document.class).get("mfa.secret");
-            // Written under the new primary key and still decrypts to the same secret.
             assertThat(crypto.isEncryptedWithPrimary(newSecret)).isTrue();
             assertThat(crypto.decrypt(newSecret)).isEqualTo(secret);
         }
+        // Every run — even a real one — is persisted to the audit collection.
+        verify(mfaKeyRotationAuditRepository).save(any());
+    }
+
+    @Test
+    void adminRotateMfaKeys_dryRun_countsButWritesNoSecret() {
+        MfaCryptoUtil oldCrypto = enterRotationState();
+        stubRotationStream(
+                showWithSecret("s1", oldCrypto.encrypt(secret)),
+                showWithSecret("s2", crypto.encrypt(secret)));
+
+        MfaKeyRotationResult result = mfaService.adminRotateMfaKeys(true);
+
+        assertThat(result.isDryRun()).isTrue();
+        assertThat(result.getReencrypted()).isEqualTo(1);   // would rotate s1
+        assertThat(result.getAlreadyOnPrimary()).isEqualTo(1);
+        verify(mongoTemplate, never()).updateFirst(any(), any(), eq(Show.class));
+        // A dry run is still an admin action worth recording.
+        verify(mfaKeyRotationAuditRepository).save(any());
+    }
+
+    @Test
+    void adminRotateMfaKeys_countsUndecryptableSecretAsFailed_andContinues() {
+        MfaCryptoUtil oldCrypto = enterRotationState();
+        // A blob under a key NOT in the keyring (neither primary nor retired)
+        // can't be decrypted — it must be counted and skipped, not abort the run.
+        MfaCryptoUtil unknownKey = new MfaCryptoUtil();
+        ReflectionTestUtils.setField(unknownKey, "mfaSecretKey", "some-lost-key");
+        stubRotationStream(
+                showWithSecret("s1", unknownKey.encrypt(secret)),
+                showWithSecret("s2", oldCrypto.encrypt(secret)));
+
+        MfaKeyRotationResult result = mfaService.adminRotateMfaKeys(false);
+
+        assertThat(result.getTotalSecrets()).isEqualTo(2);
+        assertThat(result.getFailed()).isEqualTo(1);
+        assertThat(result.getReencrypted()).isEqualTo(1);   // s2 still rotated
+        verify(mongoTemplate, org.mockito.Mockito.times(1))
+                .updateFirst(any(), any(), eq(Show.class));
+    }
+
+    @Test
+    void adminRotateMfaKeys_rotatesPendingEnrollmentsToo() {
+        MfaCryptoUtil oldCrypto = enterRotationState();
+        // enabled=false (pending) but with a stored secret — must be rotated.
+        Show pending = Show.builder().showToken("s1")
+                .mfa(MfaConfig.builder().enabled(false).secret(oldCrypto.encrypt(secret)).build())
+                .build();
+        stubRotationStream(pending);
+
+        MfaKeyRotationResult result = mfaService.adminRotateMfaKeys(false);
+
+        assertThat(result.getReencrypted()).isEqualTo(1);
+        verify(mongoTemplate).updateFirst(any(), any(), eq(Show.class));
     }
 
     @Test
     void adminRotateMfaKeys_throwsWhenNotConfigured() {
         ReflectionTestUtils.setField(crypto, "mfaSecretKey", "");
 
-        assertThatThrownBy(() -> mfaService.adminRotateMfaKeys())
+        assertThatThrownBy(() -> mfaService.adminRotateMfaKeys(false))
                 .hasMessage(StatusResponse.MFA_NOT_CONFIGURED.name());
         verify(mongoTemplate, never()).updateFirst(any(), any(), eq(Show.class));
+        verify(mfaKeyRotationAuditRepository, never()).save(any());
     }
 }

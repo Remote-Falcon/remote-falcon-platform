@@ -82,9 +82,29 @@ echo "MFA_SECRET_KEY=$(openssl rand -base64 32)"
 `MFA_SECRET_KEY` encrypts enrolled TOTP secrets at rest (AES-GCM) and is
 deliberately a *different* key from `JWT_USER`. 2FA works fully offline —
 no external service involved. If you leave it unset, the Two-Factor Auth
-tab reports 2FA as unavailable and nothing else changes. Don't rotate it
-casually: changing the key orphans every enrolled TOTP secret (affected
-users would need to disable/re-enroll while signed in, or an admin reset).
+tab reports 2FA as unavailable and nothing else changes.
+
+**Rotating `MFA_SECRET_KEY`.** Stored secrets are tagged with a fingerprint
+of the key that encrypted them, and the service can hold more than one key
+at once, so rotation re-encrypts every enrolled secret onto the new key
+without forcing anyone to re-enroll:
+
+1. Generate a new key: `openssl rand -base64 32`.
+2. Set it as `MFA_SECRET_KEY`, and move the *old* value to
+   `MFA_SECRET_KEY_RETIRED` (comma-separated if you're carrying more than
+   one). Restart the control-panel. Enrolled users can still sign in —
+   their secrets decrypt under the retired key.
+3. Signed in as an admin, run the `adminRotateMfaKeys` GraphQL mutation
+   (pass `dryRun: true` first to preview the counts). It re-encrypts every
+   stored secret onto the new key; it's idempotent, so it's safe to re-run.
+   Each run is recorded in the `mfaKeyRotationAudit` collection.
+4. Once it reports `reencrypted` covering all secrets and `failed: 0`,
+   clear `MFA_SECRET_KEY_RETIRED` and restart. The old key is no longer
+   needed.
+
+If you skip this and simply change the key, any secret still encrypted
+under the old key can no longer be decrypted — affected users would have to
+re-enroll (or get an admin reset).
 
 ### 3. Boot the stack
 

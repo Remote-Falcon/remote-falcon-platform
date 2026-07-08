@@ -62,6 +62,11 @@ public class MfaCryptoUtil {
         return StringUtils.isNotBlank(mfaSecretKey);
     }
 
+    /** Non-secret fingerprint of the current primary key (for audit/logging). */
+    public String primaryKeyId() {
+        return keyIdOf(mfaSecretKey);
+    }
+
     public String encrypt(byte[] plaintext) {
         try {
             byte[] iv = new byte[IV_LENGTH_BYTES];

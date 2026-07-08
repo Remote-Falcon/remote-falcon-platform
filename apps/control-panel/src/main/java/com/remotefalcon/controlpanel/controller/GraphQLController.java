@@ -3,6 +3,7 @@ package com.remotefalcon.controlpanel.controller;
 import com.remotefalcon.controlpanel.aop.RequiresAccess;
 import com.remotefalcon.controlpanel.aop.RequiresAdminAccess;
 import com.remotefalcon.controlpanel.response.MfaEnrollment;
+import com.remotefalcon.controlpanel.response.MfaKeyRotationResult;
 import com.remotefalcon.controlpanel.response.MfaRecoveryCodes;
 import com.remotefalcon.controlpanel.response.ShowsOnAMap;
 import com.remotefalcon.library.documents.Notification;
@@ -274,8 +275,8 @@ public class GraphQLController {
 
     @MutationMapping
     @RequiresAdminAccess
-    public Integer adminRotateMfaKeys() {
-        return this.mfaService.adminRotateMfaKeys();
+    public MfaKeyRotationResult adminRotateMfaKeys(@Argument Boolean dryRun) {
+        return this.mfaService.adminRotateMfaKeys(Boolean.TRUE.equals(dryRun));
     }
 
 

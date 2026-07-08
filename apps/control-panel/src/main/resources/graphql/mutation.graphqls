@@ -18,10 +18,11 @@ type Mutation {
     adminResetMfa(showSubdomain: String!): Boolean
     # Key rotation: re-encrypts every stored TOTP secret onto the current
     # primary MFA_SECRET_KEY, so rotating the key doesn't orphan enrolled
-    # accounts. Idempotent; returns the number of secrets re-encrypted. Set
-    # the new key as MFA_SECRET_KEY and the old as MFA_SECRET_KEY_RETIRED,
-    # run this, then drop MFA_SECRET_KEY_RETIRED. Audit-logged.
-    adminRotateMfaKeys: Int
+    # accounts. Idempotent. Set the new key as MFA_SECRET_KEY and the old as
+    # MFA_SECRET_KEY_RETIRED, run this, then drop MFA_SECRET_KEY_RETIRED. Every
+    # run is recorded to the mfaKeyRotationAudit collection. Pass dryRun: true
+    # first to preview the counts without writing anything.
+    adminRotateMfaKeys(dryRun: Boolean = false): MfaKeyRotationResult
     updateUserProfile(userProfile: UserProfileInput!): Boolean
     requestApiAccess: ApiAccess
     refreshApiSecret: String
