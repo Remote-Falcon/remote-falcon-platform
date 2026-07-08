@@ -58,6 +58,10 @@ services:
       # secrets at rest; generate with `openssl rand -base64 32`). Leaving
       # it empty just disables 2FA enrollment; everything else works.
       MFA_SECRET_KEY: ${MFA_SECRET_KEY:-}
+      # Optional — previous MFA_SECRET_KEY value(s), comma-separated, kept only
+      # so existing enrollments still decrypt while rotating the key. Set the
+      # old key here, run the adminRotateMfaKeys mutation, then clear it.
+      MFA_SECRET_KEY_RETIRED: ${MFA_SECRET_KEY_RETIRED:-}
       AUTO_VALIDATE_EMAIL: ${AUTO_VALIDATE_EMAIL:-true}
       CLIENT_HEADER: ${CLIENT_HEADER:-X-Forwarded-For}
       GITHUB_PAT: ${GITHUB_PAT:-}

@@ -198,6 +198,44 @@ public class MfaService {
         return true;
     }
 
+    /**
+     * Key rotation (2FA-TOTP). Re-encrypts every stored TOTP secret that is
+     * NOT already under the current primary key onto that key, so rotating
+     * MFA_SECRET_KEY doesn't orphan enrolled accounts. Gated by
+     * @RequiresAdminAccess at the resolver and audit-logged.
+     *
+     * Idempotent and resumable: secrets already on the primary key are
+     * skipped, so re-running (or resuming after a crash) only touches what's
+     * left. Each secret is written with an atomic single-field updateFirst,
+     * and MfaCryptoUtil's decrypt keyring must still hold the old key (via
+     * MFA_SECRET_KEY_RETIRED) for the old ciphertext to be readable. Returns
+     * the number of secrets re-encrypted.
+     */
+    public int adminRotateMfaKeys() {
+        if (!this.mfaCryptoUtil.isConfigured()) {
+            throw new RuntimeException(StatusResponse.MFA_NOT_CONFIGURED.name());
+        }
+        Query query = Query.query(Criteria.where("mfa.secret").exists(true).ne(null));
+        query.fields().include("showToken").include("mfa.secret");
+        List<Show> shows = this.mongoTemplate.find(query, Show.class);
+        int rotated = 0;
+        for (Show show : shows) {
+            String stored = show.getMfa() == null ? null : show.getMfa().getSecret();
+            if (StringUtils.isBlank(stored) || this.mfaCryptoUtil.isEncryptedWithPrimary(stored)) {
+                continue;
+            }
+            String reencrypted = this.mfaCryptoUtil.encrypt(this.mfaCryptoUtil.decrypt(stored));
+            this.mongoTemplate.updateFirst(
+                    Query.query(Criteria.where("showToken").is(show.getShowToken())),
+                    new Update().set("mfa.secret", reencrypted),
+                    Show.class);
+            rotated++;
+        }
+        log.warn("ADMIN MFA KEY ROTATION: admin {} re-encrypted {} of {} stored TOTP secret(s) onto the primary key",
+                this.authUtil.getTokenDTO().getEmail(), rotated, shows.size());
+        return rotated;
+    }
+
     // SR-6 — disable/regenerate require fresh re-auth: the current password
     // (base64 Password header, mirroring updatePassword) OR a current TOTP
     // code. A stolen still-valid session alone is not enough.

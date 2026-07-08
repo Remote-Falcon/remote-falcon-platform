@@ -403,4 +403,50 @@ class MfaServiceTest {
         assertThatThrownBy(() -> mfaService.adminResetMfa("nope"))
                 .hasMessage(StatusResponse.SHOW_NOT_FOUND.name());
     }
+
+    // ---- adminRotateMfaKeys ----
+
+    @Test
+    void adminRotateMfaKeys_reencryptsStaleSecrets_ontoPrimaryKey_andSkipsCurrent() {
+        // Simulate a rotation: the service's crypto now has a NEW primary key
+        // and retains the OLD one as retired so old blobs still decrypt.
+        MfaCryptoUtil oldCrypto = new MfaCryptoUtil();
+        ReflectionTestUtils.setField(oldCrypto, "mfaSecretKey", "unit-test-mfa-encryption-key");
+        ReflectionTestUtils.setField(crypto, "mfaSecretKey", "rotated-primary-key");
+        ReflectionTestUtils.setField(crypto, "mfaSecretKeyRetired", "unit-test-mfa-encryption-key");
+
+        // Two shows on the OLD key (need rotating) + one already on the new key.
+        Show stale1 = Show.builder().showToken("s1")
+                .mfa(MfaConfig.builder().secret(oldCrypto.encrypt(secret)).build()).build();
+        Show stale2 = Show.builder().showToken("s2")
+                .mfa(MfaConfig.builder().secret(oldCrypto.encrypt(secret)).build()).build();
+        Show current = Show.builder().showToken("s3")
+                .mfa(MfaConfig.builder().secret(crypto.encrypt(secret)).build()).build();
+        when(mongoTemplate.find(any(), eq(Show.class))).thenReturn(List.of(stale1, stale2, current));
+        when(authUtil.getTokenDTO()).thenReturn(TokenDTO.builder().email("admin@example.com").build());
+
+        int rotated = mfaService.adminRotateMfaKeys();
+
+        // Only the two stale secrets are re-encrypted; the current one is skipped.
+        assertThat(rotated).isEqualTo(2);
+        ArgumentCaptor<Update> updateCaptor = ArgumentCaptor.forClass(Update.class);
+        verify(mongoTemplate, org.mockito.Mockito.times(2))
+                .updateFirst(any(), updateCaptor.capture(), eq(Show.class));
+        for (Update update : updateCaptor.getAllValues()) {
+            String newSecret = (String) update.getUpdateObject()
+                    .get("$set", org.bson.Document.class).get("mfa.secret");
+            // Written under the new primary key and still decrypts to the same secret.
+            assertThat(crypto.isEncryptedWithPrimary(newSecret)).isTrue();
+            assertThat(crypto.decrypt(newSecret)).isEqualTo(secret);
+        }
+    }
+
+    @Test
+    void adminRotateMfaKeys_throwsWhenNotConfigured() {
+        ReflectionTestUtils.setField(crypto, "mfaSecretKey", "");
+
+        assertThatThrownBy(() -> mfaService.adminRotateMfaKeys())
+                .hasMessage(StatusResponse.MFA_NOT_CONFIGURED.name());
+        verify(mongoTemplate, never()).updateFirst(any(), any(), eq(Show.class));
+    }
 }

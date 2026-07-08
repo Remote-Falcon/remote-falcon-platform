@@ -272,6 +272,12 @@ public class GraphQLController {
         return this.mfaService.adminResetMfa(showSubdomain);
     }
 
+    @MutationMapping
+    @RequiresAdminAccess
+    public Integer adminRotateMfaKeys() {
+        return this.mfaService.adminRotateMfaKeys();
+    }
+
 
 
     /*******

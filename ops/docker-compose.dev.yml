@@ -88,6 +88,8 @@ services:
       # locally (and in the CI e2e stack). Prod key lives in the cluster
       # Secret; self-host operators set their own.
       MFA_SECRET_KEY: ${MFA_SECRET_KEY:-dev-mfa-secret-key-not-for-prod}
+      # Retired key(s) for rotation testing (comma-separated); empty by default.
+      MFA_SECRET_KEY_RETIRED: ${MFA_SECRET_KEY_RETIRED:-}
     ports: ["8081:8080"]
     depends_on:
       mongo: { condition: service_healthy }

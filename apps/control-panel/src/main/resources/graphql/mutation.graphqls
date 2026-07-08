@@ -16,6 +16,12 @@ type Mutation {
     regenerateRecoveryCodes(code: String): MfaRecoveryCodes
     # Admin lockout recovery (lost device + lost recovery codes); audit-logged.
     adminResetMfa(showSubdomain: String!): Boolean
+    # Key rotation: re-encrypts every stored TOTP secret onto the current
+    # primary MFA_SECRET_KEY, so rotating the key doesn't orphan enrolled
+    # accounts. Idempotent; returns the number of secrets re-encrypted. Set
+    # the new key as MFA_SECRET_KEY and the old as MFA_SECRET_KEY_RETIRED,
+    # run this, then drop MFA_SECRET_KEY_RETIRED. Audit-logged.
+    adminRotateMfaKeys: Int
     updateUserProfile(userProfile: UserProfileInput!): Boolean
     requestApiAccess: ApiAccess
     refreshApiSecret: String

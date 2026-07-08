@@ -82,4 +82,10 @@ rfpb:
 # beans gated on runtime-only env — see issue #160).
 mfa:
   secret-key: ${MFA_SECRET_KEY:}
+  # Zero or more previous secret-key values (comma-separated), kept ONLY so
+  # their stored ciphertext still decrypts across a key rotation. To rotate:
+  # set the new key as secret-key, move the old one here, run the
+  # adminRotateMfaKeys mutation to re-encrypt every secret onto the new key,
+  # then drop it from here. Never used to encrypt.
+  secret-key-retired: ${MFA_SECRET_KEY_RETIRED:}
   pending-token-minutes: ${MFA_PENDING_TOKEN_MINUTES:5}
