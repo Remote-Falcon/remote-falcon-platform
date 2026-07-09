@@ -27,13 +27,12 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.security.SecureRandom;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.stream.Stream;
 
 /**
@@ -47,13 +46,12 @@ import java.util.stream.Stream;
 @RequiredArgsConstructor
 public class MfaService {
     // 2FA PRD SR-3 / OQ-3 — a 6-digit code is brute-forceable without
-    // throttling. Per-account in-memory sliding window (same pattern as
-    // DashboardService's wrapped rate limit — deliberately not a
-    // @Conditional/cache bean, which native-image builds strip): 5
-    // consecutive failures lock the account's MFA verification for the
-    // remainder of the 15-minute window.
+    // throttling. The failed-attempt counter is PERSISTED on the account's
+    // MfaConfig (not an in-JVM map), so the "5 failures / 15 min" cap holds
+    // across control-panel replicas and survives pod restarts — an in-memory
+    // counter would enforce only 5×replicas and reset on every deploy.
     protected static final int MAX_FAILED_ATTEMPTS = 5;
-    protected static final long FAILURE_WINDOW_MS = 15 * 60 * 1000L;
+    protected static final Duration FAILURE_WINDOW = Duration.ofMinutes(15);
 
     // 2FA PRD OQ-2 — 10 codes, 10 chars grouped 5-5. Alphabet drops the
     // ambiguous characters (0/O, 1/I/L) since users read these off paper.
@@ -69,8 +67,6 @@ public class MfaService {
     private final MfaCryptoUtil mfaCryptoUtil;
     private final GraphQLQueryService graphQLQueryService;
     private final MfaKeyRotationAuditRepository mfaKeyRotationAuditRepository;
-
-    private final ConcurrentHashMap<String, ConcurrentLinkedDeque<Long>> failedAttempts = new ConcurrentHashMap<>();
 
     public MfaEnrollment startMfaEnrollment() {
         if (!mfaCryptoUtil.isConfigured()) {
@@ -97,6 +93,9 @@ public class MfaService {
     }
 
     public MfaRecoveryCodes confirmMfaEnrollment(String code) {
+        if (!this.mfaCryptoUtil.isConfigured()) {
+            throw new RuntimeException(StatusResponse.MFA_NOT_CONFIGURED.name());
+        }
         Show show = this.getShowForMfa();
         if (this.isMfaEnabled(show)) {
             throw new RuntimeException(StatusResponse.MFA_ALREADY_ENABLED.name());
@@ -105,19 +104,21 @@ public class MfaService {
         if (mfa == null || StringUtils.isBlank(mfa.getSecret())) {
             throw new RuntimeException(StatusResponse.MFA_NOT_ENABLED.name());
         }
-        this.checkRateLimit(show.getShowToken());
+        this.checkRateLimit(mfa);
         long matchedStep = this.totpUtil.verifyCode(this.mfaCryptoUtil.decrypt(mfa.getSecret()), code, null);
         if (matchedStep == TotpUtil.NO_MATCH) {
-            this.recordFailure(show.getShowToken());
+            this.recordFailure(show.getShowToken(), mfa);
             throw new RuntimeException(StatusResponse.INVALID_MFA_CODE.name());
         }
-        this.clearFailures(show.getShowToken());
         List<String> plaintextCodes = this.generateRecoveryCodes();
         mfa.setEnabled(true);
         mfa.setEnrolledDate(LocalDateTime.now());
         mfa.setPendingSince(null);
         mfa.setRecoveryCodes(this.hashRecoveryCodes(plaintextCodes));
         mfa.setLastUsedTimeStep(matchedStep);
+        // The full write below replaces mfa wholesale, so null the failure
+        // counters here to clear them on success.
+        this.resetFailureCounters(mfa);
         this.persistMfa(show.getShowToken(), mfa);
         log.info("MFA enrollment confirmed for show {}", show.getShowSubdomain());
         return MfaRecoveryCodes.builder().recoveryCodes(plaintextCodes).build();
@@ -132,34 +133,45 @@ public class MfaService {
     public Show verifyMfa(String code) {
         var request = this.authUtil.getCurrentRequest();
         String showToken = this.authUtil.validateMfaPendingToken(request);
-        this.checkRateLimit(showToken);
         Show show = this.showRepository.findByShowTokenForAuth(showToken)
                 .orElseThrow(() -> new RuntimeException(StatusResponse.SHOW_NOT_FOUND.name()));
         if (!this.isMfaEnabled(show)) {
             throw new RuntimeException(StatusResponse.MFA_NOT_ENABLED.name());
         }
         MfaConfig mfa = show.getMfa();
-        boolean verified = false;
+        this.checkRateLimit(mfa);
+        // The atomic single-field write below also clears the failure
+        // counters on success, so a consumed recovery code / advanced replay
+        // floor is persisted BEFORE the session is minted — a crash can't
+        // leave a reusable code behind, and concurrent distinct-credential
+        // submissions can't lose-update each other (a full mfa replace from a
+        // stale projection could reinstate a used code or lower the floor).
+        Update credentialUpdate;
         if (this.totpUtil.isTotpCodeFormat(code)) {
+            if (!this.mfaCryptoUtil.isConfigured()) {
+                throw new RuntimeException(StatusResponse.MFA_NOT_CONFIGURED.name());
+            }
             long matchedStep = this.totpUtil.verifyCode(
                     this.mfaCryptoUtil.decrypt(mfa.getSecret()), code, mfa.getLastUsedTimeStep());
-            if (matchedStep != TotpUtil.NO_MATCH) {
-                mfa.setLastUsedTimeStep(matchedStep);
-                verified = true;
+            if (matchedStep == TotpUtil.NO_MATCH) {
+                this.recordFailure(showToken, mfa);
+                throw new RuntimeException(StatusResponse.INVALID_MFA_CODE.name());
             }
+            // $max: never lower the replay floor even under a concurrent write.
+            credentialUpdate = new Update().max("mfa.lastUsedTimeStep", matchedStep);
         } else {
-            // FR-8 — recovery codes are single-use; consumeRecoveryCode
-            // removes the matched hash from the config.
-            verified = this.consumeRecoveryCode(mfa, code);
+            // FR-8 — recovery codes are single-use. $pull removes exactly the
+            // matched (unique bcrypt) hash atomically.
+            String matchedHash = this.consumeRecoveryCode(mfa, code);
+            if (matchedHash == null) {
+                this.recordFailure(showToken, mfa);
+                throw new RuntimeException(StatusResponse.INVALID_MFA_CODE.name());
+            }
+            credentialUpdate = new Update().pull("mfa.recoveryCodes", matchedHash);
         }
-        if (!verified) {
-            this.recordFailure(showToken);
-            throw new RuntimeException(StatusResponse.INVALID_MFA_CODE.name());
-        }
-        this.clearFailures(showToken);
-        // Persist the consumed recovery code / advanced replay floor BEFORE
-        // minting the session so a crash can't leave a reusable code behind.
-        this.persistMfa(showToken, mfa);
+        this.clearFailures(credentialUpdate);
+        this.mongoTemplate.updateFirst(
+                Query.query(Criteria.where("showToken").is(showToken)), credentialUpdate, Show.class);
         return this.graphQLQueryService.completeSignIn(show, this.clientUtil.getClientIp(request));
     }
 
@@ -169,9 +181,9 @@ public class MfaService {
             throw new RuntimeException(StatusResponse.MFA_NOT_ENABLED.name());
         }
         this.reauthenticate(show, code);
-        // FR-10 — disabling clears ALL MFA state (secret + recovery codes).
+        // FR-10 — disabling clears ALL MFA state (secret + recovery codes +
+        // failure counters).
         this.persistMfa(show.getShowToken(), null);
-        this.clearFailures(show.getShowToken());
         log.info("MFA disabled for show {}", show.getShowSubdomain());
         return true;
     }
@@ -199,7 +211,6 @@ public class MfaService {
         Show show = this.showRepository.findByShowSubdomain(showSubdomain)
                 .orElseThrow(() -> new RuntimeException(StatusResponse.SHOW_NOT_FOUND.name()));
         this.persistMfa(show.getShowToken(), null);
-        this.clearFailures(show.getShowToken());
         log.warn("ADMIN MFA RESET: admin {} cleared MFA for show {} (lockout recovery)",
                 this.authUtil.getTokenDTO().getEmail(), showSubdomain);
         return true;
@@ -299,45 +310,60 @@ public class MfaService {
 
     // SR-6 — disable/regenerate require fresh re-auth: the current password
     // (base64 Password header, mirroring updatePassword) OR a current TOTP
-    // code. A stolen still-valid session alone is not enough.
+    // code. A stolen still-valid session alone is not enough. BOTH branches
+    // are rate-limited: an unthrottled password branch would let a session
+    // holder brute-force the password to strip the second factor. The caller
+    // persists show.getMfa() (or null), which flushes the in-memory counter
+    // reset done here on success.
     private void reauthenticate(Show show, String code) {
+        this.checkRateLimit(show.getMfa());
         String password = this.authUtil.getPasswordFromHeader(this.authUtil.getCurrentRequest());
         if (StringUtils.isNotBlank(password)) {
             if (!new BCryptPasswordEncoder().matches(password, show.getPassword())) {
+                this.recordFailure(show.getShowToken(), show.getMfa());
                 throw new RuntimeException(StatusResponse.UNAUTHORIZED.name());
             }
+            this.resetFailureCounters(show.getMfa());
             return;
         }
         if (this.totpUtil.isTotpCodeFormat(code)) {
-            this.checkRateLimit(show.getShowToken());
+            if (!this.mfaCryptoUtil.isConfigured()) {
+                throw new RuntimeException(StatusResponse.MFA_NOT_CONFIGURED.name());
+            }
             long matchedStep = this.totpUtil.verifyCode(
                     this.mfaCryptoUtil.decrypt(show.getMfa().getSecret()), code, show.getMfa().getLastUsedTimeStep());
             if (matchedStep == TotpUtil.NO_MATCH) {
-                this.recordFailure(show.getShowToken());
+                this.recordFailure(show.getShowToken(), show.getMfa());
                 throw new RuntimeException(StatusResponse.INVALID_MFA_CODE.name());
             }
-            this.clearFailures(show.getShowToken());
             show.getMfa().setLastUsedTimeStep(matchedStep);
+            this.resetFailureCounters(show.getMfa());
             return;
         }
         throw new RuntimeException(StatusResponse.UNAUTHORIZED.name());
     }
 
-    private boolean consumeRecoveryCode(MfaConfig mfa, String submitted) {
+    // Returns the matched (unique bcrypt) hash so the caller can $pull exactly
+    // it, or null if no stored code matches. Normalization strips the display
+    // hyphen and whitespace and upper-cases, so a code typed as "ABCDE-FGHJK",
+    // "ABCDEFGHJK", or "abcde fghjk" all match — a correct code entered
+    // without the separator must not be rejected on the lockout path.
+    private String consumeRecoveryCode(MfaConfig mfa, String submitted) {
         if (CollectionUtils.isEmpty(mfa.getRecoveryCodes()) || StringUtils.isBlank(submitted)) {
-            return false;
+            return null;
         }
-        String normalized = submitted.trim().toUpperCase();
+        String normalized = normalizeRecoveryCode(submitted);
         BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
         for (String hash : mfa.getRecoveryCodes()) {
             if (encoder.matches(normalized, hash)) {
-                List<String> remaining = new ArrayList<>(mfa.getRecoveryCodes());
-                remaining.remove(hash);
-                mfa.setRecoveryCodes(remaining);
-                return true;
+                return hash;
             }
         }
-        return false;
+        return null;
+    }
+
+    private static String normalizeRecoveryCode(String code) {
+        return code.trim().replaceAll("[\\s-]", "").toUpperCase();
     }
 
     private List<String> generateRecoveryCodes() {
@@ -356,8 +382,10 @@ public class MfaService {
     }
 
     private List<String> hashRecoveryCodes(List<String> plaintextCodes) {
+        // Hash the NORMALIZED (dash-less, upper-cased) form so verification is
+        // separator-insensitive; the display codes keep their hyphen.
         BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
-        return plaintextCodes.stream().map(encoder::encode).toList();
+        return plaintextCodes.stream().map(code -> encoder.encode(normalizeRecoveryCode(code))).toList();
     }
 
     private Show getShowForMfa() {
@@ -376,25 +404,44 @@ public class MfaService {
                 Show.class);
     }
 
-    private void checkRateLimit(String showToken) {
-        ConcurrentLinkedDeque<Long> failures = this.failedAttempts.get(showToken);
-        if (failures == null) {
+    // SR-3 throttle, read from the persisted counters on the loaded config.
+    private void checkRateLimit(MfaConfig mfa) {
+        if (mfa == null || mfa.getFailedAttempts() == null || mfa.getFailedWindowStart() == null) {
             return;
         }
-        long cutoff = System.currentTimeMillis() - FAILURE_WINDOW_MS;
-        failures.removeIf(timestamp -> timestamp < cutoff);
-        if (failures.size() >= MAX_FAILED_ATTEMPTS) {
+        if (mfa.getFailedWindowStart().isBefore(LocalDateTime.now().minus(FAILURE_WINDOW))) {
+            return; // window elapsed — the next failure starts a fresh one
+        }
+        if (mfa.getFailedAttempts() >= MAX_FAILED_ATTEMPTS) {
             throw new RuntimeException(StatusResponse.MFA_RATE_LIMITED.name());
         }
     }
 
-    private void recordFailure(String showToken) {
-        this.failedAttempts
-                .computeIfAbsent(showToken, key -> new ConcurrentLinkedDeque<>())
-                .add(System.currentTimeMillis());
+    // Persist a failure across replicas/restarts. Within a live window the
+    // count is bumped with an atomic $inc; a fresh or elapsed window is reset
+    // to 1. `mfa` is the just-loaded config, read only to decide which case.
+    private void recordFailure(String showToken, MfaConfig mfa) {
+        LocalDateTime windowStart = mfa == null ? null : mfa.getFailedWindowStart();
+        boolean withinWindow = windowStart != null
+                && windowStart.isAfter(LocalDateTime.now().minus(FAILURE_WINDOW));
+        Update update = withinWindow
+                ? new Update().inc("mfa.failedAttempts", 1)
+                : new Update().set("mfa.failedAttempts", 1).set("mfa.failedWindowStart", LocalDateTime.now());
+        this.mongoTemplate.updateFirst(
+                Query.query(Criteria.where("showToken").is(showToken)), update, Show.class);
     }
 
-    private void clearFailures(String showToken) {
-        this.failedAttempts.remove(showToken);
+    // Fold the failure-counter clear into a caller's atomic update.
+    private void clearFailures(Update update) {
+        update.unset("mfa.failedAttempts").unset("mfa.failedWindowStart");
+    }
+
+    // Clear the counters on an in-memory config that the caller will persist
+    // wholesale (confirm/regenerate/disable full writes).
+    private void resetFailureCounters(MfaConfig mfa) {
+        if (mfa != null) {
+            mfa.setFailedAttempts(null);
+            mfa.setFailedWindowStart(null);
+        }
     }
 }

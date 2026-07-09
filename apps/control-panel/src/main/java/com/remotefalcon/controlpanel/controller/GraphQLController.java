@@ -52,8 +52,10 @@ public class GraphQLController {
         return graphQLMutationService.verifyEmail(showToken);
     }
 
+    // No @RequiresAccess: the caller presents a scoped password-reset token
+    // (rejected by isJwtValid as a session), which resetPassword validates
+    // itself via authUtil.validatePasswordResetToken — mirroring verifyMfa.
     @MutationMapping
-    @RequiresAccess
     public Boolean resetPassword() {
         return this.graphQLMutationService.resetPassword();
     }

@@ -35,10 +35,23 @@ public class AuthUtil {
   @Value("${mfa.pending-token-minutes:5}")
   Integer mfaPendingTokenMinutes;
 
-  // 2FA PRD §8.1 — claim marking a token as an MFA-pending challenge.
-  // Such a token authorizes ONLY the verifyMfa step; isJwtValid and
-  // isAdminJwtValid reject it outright so it can never be replayed
-  // against @RequiresAccess/@RequiresAdminAccess resolvers.
+  // Token scoping is by ISSUER, not by a claim the consumer must remember
+  // to check. A session token carries SESSION_ISSUER; the two limited-scope
+  // tokens (MFA challenge, password-reset capability) carry their own
+  // issuers. Because isJwtValid/isAdminJwtValid require SESSION_ISSUER, a
+  // scoped token is rejected structurally as a session — no per-resolver
+  // claim check to forget (which is exactly how a scoped token could
+  // otherwise leak into a full session; cf. the password-reset path).
+  private static final String SESSION_ISSUER = "remotefalcon";
+  private static final String MFA_PENDING_ISSUER = "remotefalcon-mfa-pending";
+  private static final String PASSWORD_RESET_ISSUER = "remotefalcon-password-reset";
+
+  // A password-reset capability token authorizes ONLY the resetPassword
+  // mutation and is short-lived; it is NOT a login session.
+  private static final int PASSWORD_RESET_TOKEN_MINUTES = 30;
+
+  // 2FA PRD §8.1 — retained on the MFA-pending token for readability/audit,
+  // but the load-bearing discriminator is MFA_PENDING_ISSUER.
   private static final String MFA_PENDING_CLAIM = "mfa-pending";
 
   private final ThreadLocal<TokenDTO> tokenHolder = new ThreadLocal<>();
@@ -52,7 +65,7 @@ public class AuthUtil {
     try {
       Algorithm algorithm = Algorithm.HMAC256(jwtSignKey);
       return JWT.create().withClaim("user-data", jwtPayload)
-              .withIssuer("remotefalcon")
+              .withIssuer(SESSION_ISSUER)
               .withExpiresAt(Date.from(ZonedDateTime.now().plusDays(30).toInstant()))
               .sign(algorithm);
     } catch (JWTCreationException e) {
@@ -63,19 +76,61 @@ public class AuthUtil {
 
   // 2FA PRD §8.1 — short-lived challenge token minted by signIn for
   // enrolled accounts instead of the 30-day service token. Carries only
-  // showToken (no user-data authorization payload).
+  // showToken (no user-data authorization payload) and MFA_PENDING_ISSUER,
+  // so it is rejected as a session token.
   public String signMfaPendingJwt(Show show) {
     try {
       Algorithm algorithm = Algorithm.HMAC256(jwtSignKey);
       return JWT.create()
               .withClaim(MFA_PENDING_CLAIM, true)
               .withClaim("showToken", show.getShowToken())
-              .withIssuer("remotefalcon")
+              .withIssuer(MFA_PENDING_ISSUER)
               .withExpiresAt(Date.from(ZonedDateTime.now().plusMinutes(mfaPendingTokenMinutes).toInstant()))
               .sign(algorithm);
     } catch (JWTCreationException e) {
       log.error("Error creating MFA pending JWT", e);
       return null;
+    }
+  }
+
+  // Password-reset capability token minted by verifyPasswordResetLink.
+  // Scoped to the resetPassword mutation via PASSWORD_RESET_ISSUER (rejected
+  // as a session) and short-lived — a full 30-day session token here would
+  // let an enrolled account bypass its second factor entirely.
+  public String signPasswordResetJwt(Show show) {
+    try {
+      Algorithm algorithm = Algorithm.HMAC256(jwtSignKey);
+      return JWT.create()
+              .withClaim("showToken", show.getShowToken())
+              .withIssuer(PASSWORD_RESET_ISSUER)
+              .withExpiresAt(Date.from(ZonedDateTime.now().plusMinutes(PASSWORD_RESET_TOKEN_MINUTES).toInstant()))
+              .sign(algorithm);
+    } catch (JWTCreationException e) {
+      log.error("Error creating password-reset JWT", e);
+      return null;
+    }
+  }
+
+  /**
+   * Validates the Bearer token as a password-reset capability token and
+   * returns its showToken. Throws UNAUTHORIZED for anything invalid/expired.
+   */
+  public String validatePasswordResetToken(HttpServletRequest httpServletRequest) {
+    try {
+      String token = this.getTokenFromRequest(httpServletRequest);
+      if (StringUtils.isEmpty(token)) {
+        throw new RuntimeException(StatusResponse.UNAUTHORIZED.name());
+      }
+      Algorithm algorithm = Algorithm.HMAC256(jwtSignKey);
+      JWTVerifier verifier = JWT.require(algorithm).withIssuer(PASSWORD_RESET_ISSUER).build();
+      DecodedJWT decodedJWT = verifier.verify(token);
+      String showToken = decodedJWT.getClaim("showToken").asString();
+      if (StringUtils.isEmpty(showToken)) {
+        throw new RuntimeException(StatusResponse.UNAUTHORIZED.name());
+      }
+      return showToken;
+    } catch (JWTVerificationException | InvalidJwtException e) {
+      throw new RuntimeException(StatusResponse.UNAUTHORIZED.name());
     }
   }
 
@@ -92,11 +147,8 @@ public class AuthUtil {
         throw new RuntimeException(StatusResponse.MFA_CHALLENGE_EXPIRED.name());
       }
       Algorithm algorithm = Algorithm.HMAC256(jwtSignKey);
-      JWTVerifier verifier = JWT.require(algorithm).withIssuer("remotefalcon").build();
+      JWTVerifier verifier = JWT.require(algorithm).withIssuer(MFA_PENDING_ISSUER).build();
       DecodedJWT decodedJWT = verifier.verify(token);
-      if (!Boolean.TRUE.equals(decodedJWT.getClaim(MFA_PENDING_CLAIM).asBoolean())) {
-        throw new RuntimeException(StatusResponse.MFA_CHALLENGE_EXPIRED.name());
-      }
       String showToken = decodedJWT.getClaim("showToken").asString();
       if (StringUtils.isEmpty(showToken)) {
         throw new RuntimeException(StatusResponse.MFA_CHALLENGE_EXPIRED.name());
@@ -137,13 +189,11 @@ public class AuthUtil {
         throw new InvalidJwtException();
       }
       Algorithm algorithm = Algorithm.HMAC256(jwtSignKey);
-      JWTVerifier verifier = JWT.require(algorithm).withIssuer("remotefalcon").build();
-      DecodedJWT decodedJWT = verifier.verify(token);
-      // 2FA PRD §8.2 — an MFA-pending challenge token must never pass as
-      // a session token, or the second factor could be skipped entirely.
-      if (Boolean.TRUE.equals(decodedJWT.getClaim(MFA_PENDING_CLAIM).asBoolean())) {
-        throw new InvalidJwtException();
-      }
+      // 2FA PRD §8.2 — requiring SESSION_ISSUER structurally rejects the
+      // MFA-pending challenge and password-reset tokens (distinct issuers),
+      // so a limited-scope token can never pass as a session.
+      JWTVerifier verifier = JWT.require(algorithm).withIssuer(SESSION_ISSUER).build();
+      verifier.verify(token);
       setTokenDTO(getJwtPayload());
       return true;
     } catch (JWTVerificationException e) {
@@ -158,12 +208,9 @@ public class AuthUtil {
         throw new InvalidJwtException();
       }
       Algorithm algorithm = Algorithm.HMAC256(jwtSignKey);
-      JWTVerifier verifier = JWT.require(algorithm).withIssuer("remotefalcon").build();
-      DecodedJWT decodedJWT = verifier.verify(token);
-      // 2FA PRD §8.2 — same pending-token rejection as isJwtValid.
-      if (Boolean.TRUE.equals(decodedJWT.getClaim(MFA_PENDING_CLAIM).asBoolean())) {
-        throw new InvalidJwtException();
-      }
+      // See isJwtValid: SESSION_ISSUER rejects scoped tokens structurally.
+      JWTVerifier verifier = JWT.require(algorithm).withIssuer(SESSION_ISSUER).build();
+      verifier.verify(token);
       TokenDTO tokenDTO = setTokenDTO(getJwtPayload());
       return tokenDTO.getShowRole() == ShowRole.ADMIN;
     } catch (JWTVerificationException e) {

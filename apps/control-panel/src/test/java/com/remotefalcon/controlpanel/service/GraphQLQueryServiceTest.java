@@ -316,14 +316,18 @@ class GraphQLQueryServiceTest {
     // ---- verifyPasswordResetLink ----
 
     @Test
-    void verifyPasswordResetLink_setsServiceToken_whenLinkValid() {
+    void verifyPasswordResetLink_setsScopedResetToken_notSession_whenLinkValid() {
         Show show = Show.builder().showToken(SHOW_TOKEN).build();
         when(showRepository.findByPasswordResetLinkAndPasswordResetExpiryGreaterThan(
                 org.mockito.ArgumentMatchers.eq("link"), any())).thenReturn(Optional.of(show));
-        when(authUtil.signJwt(show)).thenReturn("reset-jwt");
+        when(authUtil.signPasswordResetJwt(show)).thenReturn("reset-jwt");
 
         Show r = service.verifyPasswordResetLink("link");
+
+        // Must mint the scoped password-reset token, NOT a full session token
+        // (which would let an enrolled account skip its second factor).
         assertThat(r.getServiceToken()).isEqualTo("reset-jwt");
+        verify(authUtil, never()).signJwt(any(Show.class));
     }
 
     @Test

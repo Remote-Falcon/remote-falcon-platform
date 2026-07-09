@@ -188,7 +188,11 @@ public class GraphQLMutationService {
     }
 
     public Boolean resetPassword() {
-        Optional<Show> show = this.showRepository.findByShowToken(authUtil.getTokenDTO().getShowToken());
+        // Authorized by the scoped password-reset capability token (not a
+        // @RequiresAccess session), validated here the same way verifyMfa
+        // validates the MFA-pending token.
+        String showToken = this.authUtil.validatePasswordResetToken(this.authUtil.getCurrentRequest());
+        Optional<Show> show = this.showRepository.findByShowToken(showToken);
         if(show.isEmpty()) {
             throw new RuntimeException(StatusResponse.UNAUTHORIZED.name());
         }

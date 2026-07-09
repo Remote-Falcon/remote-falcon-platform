@@ -30,4 +30,10 @@ public class MfaConfig {
     // A code only verifies at a step strictly greater than this, so a
     // captured code cannot be replayed inside its 30s validity window.
     private Long lastUsedTimeStep;
+    // 2FA SR-3 — brute-force throttle, persisted (not in-JVM) so the cap
+    // holds across control-panel replicas and survives restarts. Count of
+    // consecutive failed verifications within the current window, and the
+    // window's start. Cleared on any success.
+    private Integer failedAttempts;
+    private LocalDateTime failedWindowStart;
 }

@@ -109,16 +109,17 @@ public final class JwtFactory {
 
     /**
      * 2FA — an MFA-pending challenge token as minted by
-     * {@code AuthUtil#signMfaPendingJwt(Show)}: correct issuer and signature,
+     * {@code AuthUtil#signMfaPendingJwt(Show)}: the dedicated
+     * {@code remotefalcon-mfa-pending} issuer and signature,
      * {@code mfa-pending: true}, a bare {@code showToken} claim, NO
-     * {@code user-data} payload. Valid ONLY for the verifyMfa step;
-     * negative-path tests use it to prove every protected resolver
-     * rejects it.
+     * {@code user-data} payload. Valid ONLY for the verifyMfa step; the
+     * distinct issuer is what makes every protected resolver reject it (the
+     * session verifier requires the {@code remotefalcon} issuer).
      */
     public static String mfaPendingControlPanel(String showToken) {
         Instant now = Instant.now();
         return Jwts.builder()
-                .issuer("remotefalcon")
+                .issuer("remotefalcon-mfa-pending")
                 .claim("mfa-pending", true)
                 .claim("showToken", showToken)
                 .issuedAt(Date.from(now))

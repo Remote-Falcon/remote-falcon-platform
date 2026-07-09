@@ -68,10 +68,17 @@ public class GraphQLQueryService {
                 // marker MfaConfig makes the derived mfaEnabled field true,
                 // which is the UI's signal to show the code step.
                 if (show.getMfa() != null && Boolean.TRUE.equals(show.getMfa().getEnabled())) {
+                    String pendingToken = this.authUtil.signMfaPendingJwt(show);
+                    if (pendingToken == null) {
+                        // Challenge token failed to mint — surface an error
+                        // rather than returning a stub with a null token,
+                        // which would silently dead-end the UI at the code step.
+                        throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());
+                    }
                     Show pendingChallenge = Show.builder()
                             .mfa(MfaConfig.builder().enabled(true).build())
                             .build();
-                    pendingChallenge.setServiceToken(this.authUtil.signMfaPendingJwt(show));
+                    pendingChallenge.setServiceToken(pendingToken);
                     return pendingChallenge;
                 }
                 return this.completeSignIn(show, ipAddress);
@@ -167,7 +174,13 @@ public class GraphQLQueryService {
     public Show verifyPasswordResetLink(String passwordResetLink) {
         Optional<Show> show = this.showRepository.findByPasswordResetLinkAndPasswordResetExpiryGreaterThan(passwordResetLink, LocalDateTime.now());
         if(show.isPresent()) {
-            String jwt = this.authUtil.signJwt(show.get());
+            // Mint a scoped, short-lived password-reset capability token —
+            // NOT a full 30-day session. A session token here would let an
+            // MFA-enrolled account (or anyone who completes the reset) obtain
+            // a logged-in session without ever presenting the second factor.
+            // The user still signs in normally (through the MFA gate) after
+            // resetting; this token authorizes only the resetPassword mutation.
+            String jwt = this.authUtil.signPasswordResetJwt(show.get());
             show.get().setServiceToken(jwt);
             return show.get();
         }

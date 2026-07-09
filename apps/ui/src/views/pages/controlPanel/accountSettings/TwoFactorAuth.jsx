@@ -134,12 +134,17 @@ const TwoFactorAuth = () => {
 
   const copySecret = async () => {
     if (!enrollment?.secret) return;
-    if ('clipboard' in navigator) {
+    // Only the async Clipboard API can copy a string we hand it;
+    // document.execCommand('copy') copies the DOM selection and ignores its
+    // argument, so there's no working fallback — and the secret is already
+    // shown on screen for manual entry. Toast only on a real copy.
+    if (!navigator.clipboard) return;
+    try {
       await navigator.clipboard.writeText(enrollment.secret);
-    } else {
-      document.execCommand('copy', true, enrollment.secret);
+      showAlert(dispatch, { message: 'Secret Copied' });
+    } catch {
+      showAlert(dispatch, { message: 'Could not copy — the secret is shown above for manual entry', alert: 'warning' });
     }
-    showAlert(dispatch, { message: 'Secret Copied' });
   };
 
   const downloadRecoveryCodes = () => {

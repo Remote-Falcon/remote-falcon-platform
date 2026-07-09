@@ -30,6 +30,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import javax.crypto.spec.SecretKeySpec;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Stream;
@@ -146,6 +147,16 @@ class MfaServiceTest {
         return (MfaConfig) set;
     }
 
+    private Update captureUpdate() {
+        ArgumentCaptor<Update> updateCaptor = ArgumentCaptor.forClass(Update.class);
+        verify(mongoTemplate, atLeastOnce()).updateFirst(any(), updateCaptor.capture(), eq(Show.class));
+        return updateCaptor.getValue();
+    }
+
+    private org.bson.Document updateOperator(Update update, String operator) {
+        return update.getUpdateObject().get(operator, org.bson.Document.class);
+    }
+
     // ---- startMfaEnrollment ----
 
     @Test
@@ -201,11 +212,12 @@ class MfaServiceTest {
         assertThat(persisted.getEnrolledDate()).isNotNull();
         assertThat(persisted.getPendingSince()).isNull();
         assertThat(persisted.getLastUsedTimeStep()).isPositive();
-        // Stored codes are bcrypt hashes matching the returned plaintext.
+        // Stored codes are bcrypt hashes of the NORMALIZED (dash-less) plaintext,
+        // so a code typed with or without the display hyphen both verify.
         assertThat(persisted.getRecoveryCodes()).hasSize(10);
         BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
-        assertThat(encoder.matches(recoveryCodes.getRecoveryCodes().get(0),
-                persisted.getRecoveryCodes().get(0))).isTrue();
+        String returned = recoveryCodes.getRecoveryCodes().get(0);
+        assertThat(encoder.matches(returned.replace("-", ""), persisted.getRecoveryCodes().get(0))).isTrue();
         assertThat(persisted.getRecoveryCodes().get(0)).startsWith("$2");
     }
 
@@ -215,7 +227,9 @@ class MfaServiceTest {
 
         assertThatThrownBy(() -> mfaService.confirmMfaEnrollment(wrongCode()))
                 .hasMessage(StatusResponse.INVALID_MFA_CODE.name());
-        verify(mongoTemplate, never()).updateFirst(any(), any(), eq(Show.class));
+        // A wrong confirm code records a failure (persisted counter) but must
+        // NOT enable MFA — no whole-object mfa write.
+        assertThat(updateOperator(captureUpdate(), "$set")).doesNotContainKey("mfa");
     }
 
     @Test
@@ -247,7 +261,10 @@ class MfaServiceTest {
 
         assertThat(result).isSameAs(show);
         verify(graphQLQueryService).completeSignIn(show, "198.51.100.7");
-        assertThat(capturePersistedMfa().getLastUsedTimeStep()).isPositive();
+        // Replay floor advanced atomically via $max (not a full-object rewrite
+        // that could lower it under a concurrent write).
+        Object step = updateOperator(captureUpdate(), "$max").get("mfa.lastUsedTimeStep");
+        assertThat((Long) step).isPositive();
     }
 
     @Test
@@ -266,19 +283,20 @@ class MfaServiceTest {
     void verifyMfa_withRecoveryCode_consumesIt() {
         Show show = showWithMfaEnabled();
         BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
-        show.getMfa().setRecoveryCodes(List.of(
-                encoder.encode("AAAAA-BBBBB"), encoder.encode("CCCCC-DDDDD")));
+        // Stored hashes are of the NORMALIZED (dash-less) form.
+        String hashA = encoder.encode("AAAAABBBBB");
+        String hashC = encoder.encode("CCCCCDDDDD");
+        show.getMfa().setRecoveryCodes(List.of(hashA, hashC));
         HttpServletRequest request = stubPendingChallenge(show);
         when(clientUtil.getClientIp(request)).thenReturn("198.51.100.7");
         when(graphQLQueryService.completeSignIn(show, "198.51.100.7")).thenReturn(show);
 
-        // Lowercase input verifies (codes are normalized) and the matched
-        // hash is removed — single use.
+        // Lowercase + hyphenated input normalizes and verifies; the matched
+        // hash is $pull-ed atomically (single use, race-safe).
         mfaService.verifyMfa("aaaaa-bbbbb");
 
-        MfaConfig persisted = capturePersistedMfa();
-        assertThat(persisted.getRecoveryCodes()).hasSize(1);
-        assertThat(encoder.matches("CCCCC-DDDDD", persisted.getRecoveryCodes().get(0))).isTrue();
+        Object pulled = updateOperator(captureUpdate(), "$pull").get("mfa.recoveryCodes");
+        assertThat(pulled).isEqualTo(hashA);
     }
 
     @Test
@@ -292,17 +310,43 @@ class MfaServiceTest {
     }
 
     @Test
-    void verifyMfa_rateLimits_afterRepeatedFailures() {
+    void verifyMfa_rateLimits_whenPersistedCounterAtCap() {
+        Show show = showWithMfaEnabled();
+        // Persisted counter (survives replicas/restarts) is at the cap within
+        // a live window — even a CORRECT code is refused.
+        show.getMfa().setFailedAttempts(MfaService.MAX_FAILED_ATTEMPTS);
+        show.getMfa().setFailedWindowStart(LocalDateTime.now());
+        stubPendingChallenge(show);
+
+        assertThatThrownBy(() -> mfaService.verifyMfa(codeAt(0)))
+                .hasMessage(StatusResponse.MFA_RATE_LIMITED.name());
+        verify(graphQLQueryService, never()).completeSignIn(any(), any());
+    }
+
+    @Test
+    void verifyMfa_recordsPersistedFailure_onWrongCode() {
         Show show = showWithMfaEnabled();
         stubPendingChallenge(show);
 
-        for (int i = 0; i < MfaService.MAX_FAILED_ATTEMPTS; i++) {
-            assertThatThrownBy(() -> mfaService.verifyMfa(wrongCode()))
-                    .hasMessage(StatusResponse.INVALID_MFA_CODE.name());
-        }
-        // Even a CORRECT code is refused while the account is locked.
-        assertThatThrownBy(() -> mfaService.verifyMfa(codeAt(0)))
-                .hasMessage(StatusResponse.MFA_RATE_LIMITED.name());
+        assertThatThrownBy(() -> mfaService.verifyMfa(wrongCode()))
+                .hasMessage(StatusResponse.INVALID_MFA_CODE.name());
+        // First failure of a fresh window: persists count=1 + window start.
+        org.bson.Document set = updateOperator(captureUpdate(), "$set");
+        assertThat(set.get("mfa.failedAttempts")).isEqualTo(1);
+        assertThat(set.get("mfa.failedWindowStart")).isNotNull();
+    }
+
+    @Test
+    void verifyMfa_incrementsPersistedFailure_withinLiveWindow() {
+        Show show = showWithMfaEnabled();
+        show.getMfa().setFailedAttempts(2);
+        show.getMfa().setFailedWindowStart(LocalDateTime.now());
+        stubPendingChallenge(show);
+
+        assertThatThrownBy(() -> mfaService.verifyMfa(wrongCode()))
+                .hasMessage(StatusResponse.INVALID_MFA_CODE.name());
+        // Within the live window the count is bumped atomically via $inc.
+        assertThat(updateOperator(captureUpdate(), "$inc").get("mfa.failedAttempts")).isEqualTo(1);
     }
 
     @Test
@@ -337,7 +381,9 @@ class MfaServiceTest {
 
         assertThatThrownBy(() -> mfaService.disableMfa(null))
                 .hasMessage(StatusResponse.UNAUTHORIZED.name());
-        verify(mongoTemplate, never()).updateFirst(any(), any(), eq(Show.class));
+        // A wrong password now records a failure (throttling the password
+        // branch), but must NOT disable MFA — no whole-object mfa write.
+        assertThat(updateOperator(captureUpdate(), "$set")).doesNotContainKey("mfa");
     }
 
     @Test
