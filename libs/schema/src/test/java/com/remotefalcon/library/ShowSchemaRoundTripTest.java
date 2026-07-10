@@ -9,8 +9,10 @@ import com.remotefalcon.library.enums.LocationCheckMethod;
 import com.remotefalcon.library.enums.NotificationType;
 import com.remotefalcon.library.enums.ShowRole;
 import com.remotefalcon.library.enums.ViewerControlMode;
+import com.remotefalcon.library.enums.MfaMethod;
 import com.remotefalcon.library.models.ActiveViewer;
 import com.remotefalcon.library.models.ApiAccess;
+import com.remotefalcon.library.models.MfaConfig;
 import com.remotefalcon.library.models.NotificationModel;
 import com.remotefalcon.library.models.NotificationPreference;
 import com.remotefalcon.library.models.Preference;
@@ -252,6 +254,19 @@ class ShowSchemaRoundTripTest {
                 .deleted(false)
                 .build();
 
+        // 2FA PRD §6 — mfa added 2026-07-07. Values mirror what the
+        // control-panel persists: AES-GCM ciphertext for the secret and
+        // bcrypt hashes for recovery codes (never plaintext).
+        MfaConfig mfaConfig = MfaConfig.builder()
+                .enabled(true)
+                .method(MfaMethod.TOTP)
+                .secret("base64-aes-gcm-ciphertext")
+                .recoveryCodes(List.of("$2a$10$hash-one", "$2a$10$hash-two"))
+                .enrolledDate(FIXED_TIME)
+                .pendingSince(FIXED_TIME)
+                .lastUsedTimeStep(58000000L)
+                .build();
+
         return Show.builder()
                 .id("show-id-1")
                 .showToken("test-show-token")
@@ -292,6 +307,8 @@ class ShowSchemaRoundTripTest {
                 .requestLeaderSequence("leader-req-seq")
                 .voteLeaderSequence("leader-vote-seq")
                 .nextPsaOverride("psa-1")
+                // 2FA PRD §6 — round-trip coverage for the mfa config.
+                .mfa(mfaConfig)
                 // serviceToken intentionally left null -- it's @JsonIgnore'd
                 // and a non-null value would never round-trip cleanly.
                 .build();

@@ -27,9 +27,13 @@ import AnimateButton from '../../../../ui-component/extended/AnimateButton';
 const JWTLogin = ({ ...others }) => {
   const theme = useTheme();
 
-  const { login } = useAuth();
+  const { login, mfaChallenge, verifyMfa, cancelMfaChallenge } = useAuth();
 
   const [showPassword, setShowPassword] = useState(false);
+  const [mfaCode, setMfaCode] = useState('');
+  const [useRecoveryCode, setUseRecoveryCode] = useState(false);
+  const [isVerifyingMfa, setIsVerifyingMfa] = useState(false);
+
   const handleClickShowPassword = () => {
     setShowPassword(!showPassword);
   };
@@ -37,6 +41,94 @@ const JWTLogin = ({ ...others }) => {
   const handleMouseDownPassword = (event) => {
     event.preventDefault();
   };
+
+  const submitMfaCode = async (event) => {
+    event.preventDefault();
+    if (!mfaCode.trim() || isVerifyingMfa) {
+      return;
+    }
+    setIsVerifyingMfa(true);
+    await verifyMfa(mfaCode.trim());
+    setIsVerifyingMfa(false);
+  };
+
+  const backToSignIn = () => {
+    setMfaCode('');
+    setUseRecoveryCode(false);
+    cancelMfaChallenge();
+  };
+
+  // Two-phase sign-in: while an MFA challenge is pending the code step
+  // renders in place of the email/password form (same route, so the
+  // GuestGuard redirect only fires once verifyMfa flips isLoggedIn).
+  if (mfaChallenge) {
+    return (
+      <form noValidate onSubmit={submitMfaCode} {...others}>
+        <Typography variant="body2" sx={{ mb: 2 }}>
+          {useRecoveryCode
+            ? 'Enter one of your recovery codes.'
+            : 'Enter the 6-digit code from your authenticator app.'}
+        </Typography>
+        <FormControl fullWidth sx={{ ...theme.typography.customInput, mt: 0, mb: 2.5 }}>
+          <InputLabel htmlFor="outlined-adornment-mfa-code">{useRecoveryCode ? 'Recovery Code' : 'Authentication Code'}</InputLabel>
+          <OutlinedInput
+            id="outlined-adornment-mfa-code"
+            type="text"
+            value={mfaCode}
+            name="mfaCode"
+            label={useRecoveryCode ? 'Recovery Code' : 'Authentication Code'}
+            autoFocus
+            onChange={(e) => setMfaCode(e?.target?.value)}
+            inputProps={
+              useRecoveryCode
+                ? { autoComplete: 'off', placeholder: 'XXXXX-XXXXX' }
+                : { autoComplete: 'one-time-code', inputMode: 'numeric', pattern: '[0-9]*', maxLength: 6 }
+            }
+          />
+        </FormControl>
+        <Grid container alignItems="center" justifyContent="space-between">
+          <Grid item>
+            <Typography
+              variant="subtitle1"
+              color="secondary"
+              onClick={() => {
+                setMfaCode('');
+                setUseRecoveryCode(!useRecoveryCode);
+              }}
+              sx={{ textDecoration: 'none', cursor: 'pointer' }}
+            >
+              {useRecoveryCode ? 'Use an authenticator code instead' : 'Use a recovery code instead'}
+            </Typography>
+          </Grid>
+          <Grid item>
+            <Typography
+              variant="subtitle1"
+              color="secondary"
+              onClick={backToSignIn}
+              sx={{ textDecoration: 'none', cursor: 'pointer' }}
+            >
+              Back to sign in
+            </Typography>
+          </Grid>
+        </Grid>
+        <Box sx={{ mt: 2 }}>
+          {isVerifyingMfa ? (
+            <Grid item xs={12}>
+              <Grid item container direction="column" alignItems="center" xs={12}>
+                <CircularProgress color="secondary" />
+              </Grid>
+            </Grid>
+          ) : (
+            <AnimateButton>
+              <Button color="secondary" disabled={!mfaCode.trim()} fullWidth size="large" type="submit" variant="contained">
+                Verify
+              </Button>
+            </AnimateButton>
+          )}
+        </Box>
+      </form>
+    );
+  }
 
   return (
     <Formik

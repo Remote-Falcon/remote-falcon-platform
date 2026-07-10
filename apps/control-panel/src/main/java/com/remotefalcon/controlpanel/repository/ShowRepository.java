@@ -155,4 +155,22 @@ public interface ShowRepository extends MongoRepository<Show, String> {
             fields = "{ 'stats': 0, 'viewerSessions': 0, 'showNotifications': 0, " +
                      "'heartbeatGaps': 0, 'versionChanges': 0 }")
     Optional<Show> findByEmailCollationForAuth(String email);
+
+    // 2FA verifyMfa — completes a pending sign-in by showToken (carried in
+    // the MFA-pending challenge JWT). Same exclusions as
+    // findByEmailCollationForAuth so the verifyMfa response is shaped
+    // identically to a signIn response. Read-only: bookkeeping is an atomic
+    // updateFirst, never a save() of this projection.
+    @Query(value = "{ 'showToken': ?0 }",
+            fields = "{ 'stats': 0, 'viewerSessions': 0, 'showNotifications': 0, " +
+                     "'heartbeatGaps': 0, 'versionChanges': 0 }")
+    Optional<Show> findByShowTokenForAuth(String showToken);
+
+    // 2FA management (enroll/confirm/disable/regenerate) — loads only the
+    // identity + credential fields those flows touch. Read-only: MFA writes
+    // are atomic updateFirst on the single `mfa` field.
+    @Query(value = "{ 'showToken': ?0 }",
+            fields = "{ 'showToken': 1, 'email': 1, 'password': 1, 'showName': 1, " +
+                     "'showSubdomain': 1, 'showRole': 1, 'mfa': 1 }")
+    Optional<Show> findByShowTokenForMfa(String showToken);
 }

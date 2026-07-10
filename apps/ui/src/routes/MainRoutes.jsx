@@ -34,6 +34,7 @@ const UserProfile = Loadable(lazy(() => import('../views/pages/controlPanel/acco
 const Account = Loadable(lazy(() => import('../views/pages/controlPanel/accountSettings/Account')));
 const Notifications = Loadable(lazy(() => import('../views/pages/controlPanel/accountSettings/Notifications')));
 const ChangePassword = Loadable(lazy(() => import('../views/pages/controlPanel/accountSettings/ChangePassword')));
+const TwoFactorAuth = Loadable(lazy(() => import('../views/pages/controlPanel/accountSettings/TwoFactorAuth')));
 
 const ViewerPageTemplates = Loadable(lazy(() => import('../views/pages/controlPanel/viewerPageTemplates')));
 const FreeTemplates = Loadable(lazy(() => import('../views/pages/controlPanel/viewerPageTemplates/FreeTemplates')));
@@ -76,7 +77,8 @@ const MainRoutes = {
         { path: 'profile', element: <UserProfile /> },
         { path: 'account', element: <Account /> },
         { path: 'notifications', element: <Notifications /> },
-        { path: 'password', element: <ChangePassword /> }
+        { path: 'password', element: <ChangePassword /> },
+        { path: 'two-factor', element: <TwoFactorAuth /> }
       ]
     },
     {

@@ -69,6 +69,28 @@ spec:
             secretKeyRef:
               name: remote-falcon-control-panel
               key: jwt-user
+        # 2FA (PRD 2FA-TOTP) — AES-GCM key for TOTP secrets at rest,
+        # deliberately distinct from jwt-user. optional:true so pods keep
+        # starting before the key is added to the Secret; until it exists,
+        # startMfaEnrollment returns MFA_NOT_CONFIGURED and nothing else
+        # changes. Add via:
+        #   kubectl -n remote-falcon patch secret remote-falcon-control-panel \
+        #     -p "{\"stringData\":{\"mfa-secret-key\":\"$(openssl rand -base64 32)\"}}"
+        - name: MFA_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: remote-falcon-control-panel
+              key: mfa-secret-key
+              optional: true
+        # Rotation only: previous mfa-secret-key value(s), comma-separated, so
+        # existing enrollments still decrypt while rotating. Set the old key
+        # here, run the adminRotateMfaKeys mutation, then remove it and restart.
+        - name: MFA_SECRET_KEY_RETIRED
+          valueFrom:
+            secretKeyRef:
+              name: remote-falcon-control-panel
+              key: mfa-secret-key-retired
+              optional: true
         - name: CLIENT_HEADER
           valueFrom:
             secretKeyRef:

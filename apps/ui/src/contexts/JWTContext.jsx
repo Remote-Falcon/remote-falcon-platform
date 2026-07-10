@@ -1,6 +1,6 @@
 import { Buffer } from 'buffer';
 
-import { createContext, useEffect } from 'react';
+import { createContext, useEffect, useState } from 'react';
 import { usePostHog } from 'posthog-js/react';
 
 import { useLazyQuery, useMutation, useApolloClient } from '@apollo/client';
@@ -15,7 +15,7 @@ import Loader from '../ui-component/Loader';
 import axios from '../utils/axios';
 import { StatusResponse } from '../utils/enum';
 import { SIGN_UP, VERIFY_EMAIL, FORGOT_PASSWORD, RESET_PASSWORD } from '../utils/graphql/controlPanel/mutations';
-import { SIGN_IN, GET_SHOW } from '../utils/graphql/controlPanel/queries';
+import { SIGN_IN, GET_SHOW, VERIFY_MFA } from '../utils/graphql/controlPanel/queries';
 import { trackPosthogEvent } from '../utils/analytics/posthog';
 import { showAlert } from '../views/pages/globalPageHelpers';
 
@@ -78,9 +78,17 @@ export const JWTProvider = ({ children }) => {
   const [signInQuery] = useLazyQuery(SIGN_IN, {
     fetchPolicy: 'network-only'
   });
+  const [verifyMfaQuery] = useLazyQuery(VERIFY_MFA, {
+    fetchPolicy: 'network-only'
+  });
   const [getShowQuery] = useLazyQuery(GET_SHOW, {
     fetchPolicy: 'network-only'
   });
+
+  // MFA-pending token from a signIn against a 2FA-enabled account. Held in
+  // React state ONLY — it must never reach localStorage or setSession; it is
+  // solely valid for the verifyMfa query and expires in ~5 minutes.
+  const [mfaChallenge, setMfaChallenge] = useState(null);
 
   const logout = () => {
     client.clearStore();
@@ -144,6 +152,30 @@ export const JWTProvider = ({ children }) => {
     init();
   }, [dispatch]);
 
+  const completeSignIn = (show) => {
+    setSession(show?.serviceToken);
+    const showData = { ...show };
+    showData.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    dispatch(
+      startLoginAction({
+        ...showData
+      })
+    );
+    // See identify() note above — no email to PostHog.
+    try {
+      if (posthog && showData?.showSubdomain) {
+        posthog.identify(showData.showSubdomain, {
+          showName: showData?.showName,
+          showRole: showData?.showRole
+        });
+      }
+    } catch (_) {}
+    trackPosthogEvent('signin', {
+      show_name: showData?.showName,
+      show_role: showData?.showRole
+    });
+  };
+
   const login = async (email, password) => {
     await signInQuery({
       context: {
@@ -153,27 +185,14 @@ export const JWTProvider = ({ children }) => {
         }
       },
       onCompleted: (data) => {
-        setSession(data?.signIn?.serviceToken);
-        const showData = { ...data?.signIn };
-        showData.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-        dispatch(
-          startLoginAction({
-            ...showData
-          })
-        );
-        // See identify() note above — no email to PostHog.
-        try {
-          if (posthog && showData?.showSubdomain) {
-            posthog.identify(showData.showSubdomain, {
-              showName: showData?.showName,
-              showRole: showData?.showRole
-            });
-          }
-        } catch (_) {}
-        trackPosthogEvent('signin', {
-          show_name: showData?.showName,
-          show_role: showData?.showRole
-        });
+        if (data?.signIn?.mfaEnabled === true) {
+          // Stub Show: serviceToken is the 5-minute MFA-pending token. Do
+          // NOT setSession or flip isLoggedIn — the challenge step renders
+          // in place of the password form until verifyMfa succeeds.
+          setMfaChallenge(data?.signIn?.serviceToken);
+          return;
+        }
+        completeSignIn(data?.signIn);
       },
       onError: (error) => {
         if (error?.message === StatusResponse.UNAUTHORIZED) {
@@ -187,6 +206,40 @@ export const JWTProvider = ({ children }) => {
         }
       }
     });
+  };
+
+  const verifyMfa = async (code) => {
+    await verifyMfaQuery({
+      context: {
+        headers: {
+          authorization: `Bearer ${mfaChallenge}`,
+          Route: 'Control-Panel'
+        }
+      },
+      variables: {
+        code
+      },
+      onCompleted: (data) => {
+        setMfaChallenge(null);
+        completeSignIn(data?.verifyMfa);
+      },
+      onError: (error) => {
+        if (error?.message === StatusResponse.INVALID_MFA_CODE) {
+          showAlert(dispatch, { message: 'Invalid code, try again', alert: 'warning' });
+        } else if (error?.message === StatusResponse.MFA_RATE_LIMITED) {
+          showAlert(dispatch, { message: 'Too many attempts — wait 15 minutes and try again', alert: 'warning' });
+        } else if (error?.message === StatusResponse.MFA_CHALLENGE_EXPIRED) {
+          setMfaChallenge(null);
+          showAlert(dispatch, { message: 'Sign-in expired, enter your password again', alert: 'warning' });
+        } else {
+          showAlert(dispatch, { alert: 'error' });
+        }
+      }
+    });
+  };
+
+  const cancelMfaChallenge = () => {
+    setMfaChallenge(null);
   };
 
   const register = async (showName, email, password, firstName, lastName) => {
@@ -308,7 +361,10 @@ export const JWTProvider = ({ children }) => {
         verifyEmail,
         register,
         sendResetPassword,
-        resetPassword
+        resetPassword,
+        mfaChallenge,
+        verifyMfa,
+        cancelMfaChallenge
       }}
     >
       {children}

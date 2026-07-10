@@ -18,6 +18,135 @@ export const SIGN_IN = gql`
       playingNow
       playingNext
       serviceToken
+      mfaEnabled
+      apiAccess {
+        apiAccessActive
+        apiAccessToken
+      }
+      userProfile {
+        firstName
+        lastName
+        facebookUrl
+        youtubeUrl
+        lastTokenResetDate
+      }
+      preferences {
+        viewerControlEnabled
+        viewerPageViewOnly
+        viewerControlMode
+        resetVotes
+        jukeboxDepth
+        locationCheckMethod
+        showLatitude
+        showLongitude
+        allowedRadius
+        checkIfVoted
+        checkIfRequested
+        psaEnabled
+        psaFrequency
+        jukeboxRequestLimit
+        locationCode
+        hideSequenceCount
+        makeItSnow
+        managePsa
+        playAllPsas
+        sequencesPlayed
+        pageTitle
+        pageIconUrl
+        showOnMap
+        selfHostedRedirectUrl
+        blockedViewerIps
+        notificationPreferences {
+          enableFppHeartbeat
+          fppHeartbeatIfControlEnabled
+          fppHeartbeatRenotifyAfterMinutes
+          fppHeartbeatLastNotification
+        }
+        analyticsBetaOptIn
+      }
+      sequences {
+        name
+        key
+        displayName
+        duration
+        visible
+        index
+        order
+        imageUrl
+        active
+        visibilityCount
+        type
+        group
+        category
+        artist
+      }
+      sequenceGroups {
+        name
+        visibilityCount
+      }
+      psaSequences {
+        name
+        order
+        lastPlayed
+        enabled
+      }
+      requestLeaderSequence
+      voteLeaderSequence
+      nextPsaOverride
+      pages {
+        name
+        active
+        html
+        pageId
+        updatedAt
+      }
+      requests {
+        sequence {
+          name
+        }
+        position
+        ownerRequested
+      }
+      votes {
+        sequence {
+          name
+        }
+        votes
+        lastVoteTime
+        ownerVoted
+      }
+      activeViewers {
+        ipAddress
+        visitDateTime
+      }
+    }
+  }
+`;
+
+// TOTP 2FA step two. Called with the short-lived MFA-pending token from
+// signIn as a per-call Bearer header — that token is only valid for this
+// query and must never be stored. Accepts a 6-digit TOTP code or a
+// recovery code (XXXXX-XXXXX) and returns the full Show with the real
+// 30-day serviceToken; the selection mirrors SIGN_IN.
+export const VERIFY_MFA = gql`
+  query ($code: String!) @api(name: controlPanel) {
+    verifyMfa(code: $code) {
+      showToken
+      email
+      showName
+      showSubdomain
+      emailVerified
+      createdDate
+      lastLoginDate
+      expireDate
+      pluginVersion
+      fppVersion
+      lastLoginIp
+      showRole
+      playingNow
+      playingNext
+      serviceToken
+      mfaEnabled
       apiAccess {
         apiAccessActive
         apiAccessToken
@@ -148,6 +277,7 @@ export const GET_SHOW = gql`
       playingNow
       playingNext
       serviceToken
+      mfaEnabled
       apiAccess {
         apiAccessActive
         apiAccessToken
@@ -447,6 +577,7 @@ export const GET_SHOW_BY_SHOW_NAME = gql`
       showRole
       playingNow
       playingNext
+      mfaEnabled
       apiAccess {
         apiAccessActive
         apiAccessToken
