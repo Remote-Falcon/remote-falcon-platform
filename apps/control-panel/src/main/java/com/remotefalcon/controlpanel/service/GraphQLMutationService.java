@@ -3,6 +3,7 @@ package com.remotefalcon.controlpanel.service;
 import com.mailersend.sdk.MailerSendResponse;
 import com.remotefalcon.controlpanel.repository.NotificationRepository;
 import com.remotefalcon.controlpanel.repository.ShowRepository;
+import com.remotefalcon.controlpanel.response.RotateShowTokenResponse;
 import com.remotefalcon.controlpanel.util.AuthUtil;
 import com.remotefalcon.controlpanel.util.ClientUtil;
 import com.remotefalcon.controlpanel.util.EmailUtil;
@@ -155,10 +156,12 @@ public class GraphQLMutationService {
         Optional<Show> show = this.showRepository.findByShowToken(showToken);
         if(show.isEmpty()) {
             return showToken;
-        }else {
-            validateShowToken(RandomUtil.generateToken(25));
         }
-        return null;
+        // Collision with an existing show (unique index idx_showToken) —
+        // regenerate. Previously this branch dropped the regenerated value
+        // and returned null; a collision is practically impossible with 25
+        // secure-random alphanumeric chars, which is why it never bit.
+        return validateShowToken(RandomUtil.generateToken(25));
     }
 
     public Boolean forgotPassword(String email) {
@@ -286,6 +289,41 @@ public class GraphQLMutationService {
             show.get().getApiAccess().setApiAccessSecret(secretKey);
             this.showRepository.save(show.get());
             return secretKey;
+        }
+        throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());
+    }
+
+    /**
+     * Rotate the show's {@code showToken} — the FPP/xSchedule plugin
+     * credential ({@code showtoken} header on every plugins-api request)
+     * AND the identity claim inside the control-panel session JWT.
+     *
+     * <p>Two consequences drive the shape of this method:
+     * <ul>
+     *   <li>The caller's current JWT dies the moment the new token
+     *   persists, so a re-issued JWT (signed with the new token) is
+     *   minted BEFORE saving and returned for the UI to hot-swap. If
+     *   signing fails, nothing is persisted — a rotation without a
+     *   replacement session would strand the user.</li>
+     *   <li>The user's FPP plugin(s) keep sending the old token and 404
+     *   until the new value is manually pasted into the plugin config.
+     *   That's unavoidable server-side; the UI warns before rotating.</li>
+     * </ul>
+     */
+    public RotateShowTokenResponse rotateShowToken() {
+        Optional<Show> show = this.showRepository.findByShowToken(authUtil.getTokenDTO().getShowToken());
+        if(show.isPresent()) {
+            String newShowToken = this.validateShowToken(RandomUtil.generateToken(25));
+            show.get().setShowToken(newShowToken);
+            String serviceToken = this.authUtil.signJwt(show.get());
+            if(serviceToken == null) {
+                throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());
+            }
+            this.showRepository.save(show.get());
+            return RotateShowTokenResponse.builder()
+                    .showToken(newShowToken)
+                    .serviceToken(serviceToken)
+                    .build();
         }
         throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());
     }

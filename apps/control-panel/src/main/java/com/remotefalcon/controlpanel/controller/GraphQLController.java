@@ -2,6 +2,7 @@ package com.remotefalcon.controlpanel.controller;
 
 import com.remotefalcon.controlpanel.aop.RequiresAccess;
 import com.remotefalcon.controlpanel.aop.RequiresAdminAccess;
+import com.remotefalcon.controlpanel.response.RotateShowTokenResponse;
 import com.remotefalcon.controlpanel.response.ShowsOnAMap;
 import com.remotefalcon.library.documents.Notification;
 import com.remotefalcon.library.documents.Show;
@@ -74,6 +75,19 @@ public class GraphQLController {
     @RequiresAccess
     public String refreshApiSecret() {
         return this.graphQLMutationService.refreshApiSecret();
+    }
+
+    /**
+     * Rotate the show's FPP-plugin credential ({@code showToken}) and
+     * re-issue the session JWT in the same payload — the caller's current
+     * JWT carries the old token as its identity claim and is invalid the
+     * moment the rotation persists. See
+     * {@link GraphQLMutationService#rotateShowToken()}.
+     */
+    @MutationMapping
+    @RequiresAccess
+    public RotateShowTokenResponse rotateShowToken() {
+        return this.graphQLMutationService.rotateShowToken();
     }
 
     @MutationMapping

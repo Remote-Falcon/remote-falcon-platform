@@ -7,6 +7,13 @@ type Mutation {
     updateUserProfile(userProfile: UserProfileInput!): Boolean
     requestApiAccess: ApiAccess
     refreshApiSecret: String
+    # Rotate the show's showToken (the FPP/xSchedule plugin credential and
+    # the identity claim in the control-panel session JWT). Returns the new
+    # token plus a re-issued serviceToken the UI must hot-swap into the
+    # session — the caller's current JWT is dead once the rotation persists.
+    # The user's FPP plugin(s) 404 until the new token is pasted into the
+    # plugin config; the UI warns before firing this.
+    rotateShowToken: RotateShowTokenPayload
     deleteAccount: Boolean
     updateShow(email: String!, showName: String!): Boolean
     updatePreferences(preferences: PreferenceInput!): Boolean
