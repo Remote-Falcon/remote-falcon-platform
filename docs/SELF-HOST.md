@@ -251,6 +251,11 @@ https://yourdomain.com/remote-falcon-plugins-api
 Also update your show token to one issued by your self-hosted control-panel
 (it's in `Settings` → `Show Info` after you sign up).
 
+The same rule applies any time the token changes: if you **Rotate Token**
+in Account Settings (e.g. after the token leaks), the plugin keeps sending
+the old token and stops syncing until you paste the new one into each
+FPP/xSchedule plugin's settings.
+
 If you installed the plugin via `fpp_install.sh`, you'll also need to update
 the Apache CSP allowlist on the FPP to include your domain. See the plugin
 repo's README for the one-time edit.

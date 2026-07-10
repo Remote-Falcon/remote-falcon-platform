@@ -94,6 +94,21 @@ export const REFRESH_API_SECRET = gql`
   }
 `;
 
+// Rotates the show's FPP-plugin credential. Returns the new showToken plus
+// a re-issued serviceToken that MUST be hot-swapped into the session before
+// any further requests — the current JWT's identity claim (the old
+// showToken) stops resolving the moment the rotation persists. That's also
+// why this deliberately has no refetchQueries: a GET_SHOW refetch would race
+// the swap and fire with the dead token.
+export const ROTATE_SHOW_TOKEN = gql`
+  mutation @api(name: controlPanel) {
+    rotateShowToken {
+      showToken
+      serviceToken
+    }
+  }
+`;
+
 export const DELETE_ACCOUNT = gql`
   mutation @api(name: controlPanel) {
     deleteAccount

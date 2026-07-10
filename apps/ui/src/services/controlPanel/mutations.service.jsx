@@ -105,6 +105,34 @@ export const refreshApiSecretService = (refreshApiSecretMutation, callback) => {
   });
 };
 
+// Deliberately NO refetchQueries here (unlike refreshApiSecretService): the
+// mutation kills the caller's current JWT, so an automatic GET_SHOW refetch
+// would race the session hot-swap and fire with the dead token. The caller
+// swaps the session first (setSession(serviceToken)), then updates state.
+export const rotateShowTokenService = (rotateShowTokenMutation, callback) => {
+  rotateShowTokenMutation({
+    context: {
+      headers: {
+        Route: 'Control-Panel'
+      }
+    },
+    onCompleted: (data) => {
+      callback({
+        success: true,
+        showToken: data?.rotateShowToken?.showToken,
+        serviceToken: data?.rotateShowToken?.serviceToken,
+        toast: { message: 'Show Token Rotated' }
+      });
+    },
+    onError: () => {
+      callback({
+        success: false,
+        toast: { alert: 'error', message: 'Failed to rotate Show Token' }
+      });
+    }
+  });
+};
+
 export const savePagesService = (updatedPages, updatePagesMutation, callback) => {
   // The getShow query selects pageId + updatedAt on each Page (server-managed,
   // added 2026-05-24 for the RF Page Builder integration). PageInput

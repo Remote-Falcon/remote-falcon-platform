@@ -74,6 +74,14 @@ type ApiAccess {
     apiAccessActive: Boolean
 }
 
+# Payload for rotateShowToken: the fresh showToken (for the FPP re-paste)
+# and a re-issued session JWT signed with it (the old JWT's identity claim
+# no longer resolves once the rotation persists).
+type RotateShowTokenPayload {
+    showToken: String
+    serviceToken: String
+}
+
 type UserProfile {
     firstName: String
     lastName: String
