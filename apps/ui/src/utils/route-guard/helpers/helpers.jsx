@@ -55,7 +55,12 @@ export const isExternalViewer = () => {
   if(swapCP && !isSubdomainCP()) {
     return true;
   }else if(!swapCP) {
-    return !!subdomain;
+    // A non-empty subdomain means "viewer" UNLESS that subdomain is the control
+    // panel's own label. Without the isSubdomainCP() guard, a configurable CP
+    // label (issue #151 — e.g. control.example.com) is treated as a show and
+    // redirected to /remote-falcon, so the control panel never loads. This must
+    // stay in agreement with isSubdomainCP(): the CP host is never a viewer.
+    return !!subdomain && !isSubdomainCP();
   }
 };
 

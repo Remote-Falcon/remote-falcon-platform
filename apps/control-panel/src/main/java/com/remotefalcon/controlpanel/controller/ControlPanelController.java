@@ -22,11 +22,6 @@ public class ControlPanelController {
     return this.controlPanelService.gitHubIssues();
   }
 
-  @GetMapping(value = "/controlPanel/getJwt")
-  public ResponseEntity<String> getJwt() {
-    return this.controlPanelService.getJwt();
-  }
-
   @PostMapping(value = "/controlPanel/image")
   @RequiresAccess
   public ResponseEntity<String> uploadImage(@RequestParam("file") MultipartFile file) {

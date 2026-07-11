@@ -5,6 +5,10 @@ type NotificationPage {
 
 type Query {
     signIn: Show
+    # 2FA — completes a pending sign-in. The MFA-pending challenge token
+    # (minted by signIn for enrolled accounts) rides the Bearer header;
+    # code is a 6-digit TOTP code or a recovery code.
+    verifyMfa(code: String!): Show
     verifyPasswordResetLink(passwordResetLink: String!): Show
     getShow: Show
     dashboardLiveStats(startDate: Long!, endDate: Long!, timezone: String = "America/Chicago"): DashboardLiveStats

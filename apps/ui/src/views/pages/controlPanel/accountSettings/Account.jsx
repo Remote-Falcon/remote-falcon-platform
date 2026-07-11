@@ -10,15 +10,27 @@ import { useTheme } from '@mui/material/styles';
 import MainCard from '../../../../ui-component/cards/MainCard';
 import RFLoadingButton from '../../../../ui-component/RFLoadingButton';
 
+import { setSession } from '../../../../contexts/JWTContext';
 import useAuth from '../../../../hooks/useAuth';
-import { deleteAccountService, requestApiAccessService, refreshApiSecretService } from '../../../../services/controlPanel/mutations.service';
+import {
+  deleteAccountService,
+  requestApiAccessService,
+  refreshApiSecretService,
+  rotateShowTokenService
+} from '../../../../services/controlPanel/mutations.service';
 import { useDispatch, useSelector } from '../../../../store';
 import { setShow } from '../../../../store/slices/show';
 import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
-import { DELETE_ACCOUNT, REQUEST_API_ACCESS, REFRESH_API_SECRET } from '../../../../utils/graphql/controlPanel/mutations';
+import {
+  DELETE_ACCOUNT,
+  REQUEST_API_ACCESS,
+  REFRESH_API_SECRET,
+  ROTATE_SHOW_TOKEN
+} from '../../../../utils/graphql/controlPanel/mutations';
 import { showAlert } from '../../globalPageHelpers';
 import DeleteAccountModal from './DeleteAccount.modal';
 import RefreshApiSecretModal from './RefreshApiSecret.modal';
+import RotateShowTokenModal from './RotateShowToken.modal';
 
 const Account = () => {
   const theme = useTheme();
@@ -37,8 +49,12 @@ const Account = () => {
   const [refreshedSecret, setRefreshedSecret] = useState(null);
   const [refreshSecretOpen, setRefreshSecretOpen] = useState(false);
 
+  const [isRotatingToken, setIsRotatingToken] = useState(false);
+  const [rotateTokenOpen, setRotateTokenOpen] = useState(false);
+
   const [requestApiAccessMutation] = useMutation(REQUEST_API_ACCESS);
   const [refreshApiSecretMutation] = useMutation(REFRESH_API_SECRET);
+  const [rotateShowTokenMutation] = useMutation(ROTATE_SHOW_TOKEN);
   const [deleteAccountMutation] = useMutation(DELETE_ACCOUNT);
 
   const copyShowToken = async () => {
@@ -104,6 +120,34 @@ const Account = () => {
     });
   };
 
+  const rotateShowToken = () => {
+    setIsRotatingToken(true);
+    rotateShowTokenService(rotateShowTokenMutation, (response) => {
+      if (response?.success && response?.serviceToken) {
+        // Hot-swap the session FIRST: the old JWT's identity claim (the old
+        // showToken) stops resolving the moment the rotation persists, so
+        // every subsequent request must carry the re-issued JWT.
+        setSession(response.serviceToken);
+        dispatch(
+          setShow({
+            ...show,
+            showToken: response.showToken
+          })
+        );
+        // Reveal the new token so the user can immediately copy it into
+        // their FPP/xSchedule plugin settings — their plugins are dead
+        // until they do.
+        setShowShowToken(true);
+        trackPosthogEvent('show_token_rotated');
+      } else {
+        trackPosthogEvent('show_token_rotate_failed', { reason: response?.toast?.message });
+      }
+      showAlert(dispatch, response?.toast);
+      setIsRotatingToken(false);
+      setRotateTokenOpen(false);
+    });
+  };
+
   const handleDeleteAccount = () => {
     setIsDeletingAccount(true);
     deleteAccountService(deleteAccountMutation, (response) => {
@@ -132,6 +176,8 @@ const Account = () => {
                 This is your Show Token that will be used in the FPP or xSchedule plugins.
                 <br />
                 Treat this token like a password, as it allows FPP and xSchedule to communicate with your show page!
+                <br />
+                If your token is ever exposed, rotate it — then paste the new token into each plugin&apos;s settings.
               </Typography>
             </Grid>
             <Grid item xs={12} md={6} lg={4}>
@@ -154,6 +200,11 @@ const Account = () => {
                   <ContentCopyTwoToneIcon />
                 </IconButton>
               </Tooltip>
+              <Grid item xs={12} sx={{ mt: 1 }}>
+                <RFLoadingButton loading={isRotatingToken} onClick={() => setRotateTokenOpen(true)} color="secondary">
+                  Rotate Token
+                </RFLoadingButton>
+              </Grid>
             </Grid>
           </Grid>
         </CardActions>
@@ -290,6 +341,19 @@ const Account = () => {
           handleClose={() => setRefreshSecretOpen(false)}
           refreshSecret={refreshApiSecret}
           isRefreshing={isRefreshingSecret}
+        />
+      </Modal>
+      <Modal
+        open={rotateTokenOpen}
+        onClose={() => setRotateTokenOpen(false)}
+        aria-labelledby="rotate-token-modal-title"
+        aria-describedby="rotate-token-modal-description"
+      >
+        <RotateShowTokenModal
+          theme={theme}
+          handleClose={() => setRotateTokenOpen(false)}
+          rotateToken={rotateShowToken}
+          isRotating={isRotatingToken}
         />
       </Modal>
     </Grid>

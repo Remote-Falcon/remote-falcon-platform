@@ -121,6 +121,25 @@ page is entirely client-side; the spec additionally waits for the rendered
 the pre-hydration "show URL unavailable" empty state. No extra seed state is
 required beyond an authenticated show with a resolvable public URL.
 
+## Two-Factor Auth — new shots added 2026-07-10
+
+Shots 16–18 cover the Two-Factor Auth tab that shipped with the 2FA
+release. All three are full-page captures taken from a single lifecycle
+test in `two-factor.screenshot.ts`:
+
+| # | Shot name | Component file | Element | `data-testid` |
+|---|---|---|---|---|
+| 16 | `two-factor-auth` | `apps/ui/src/views/pages/controlPanel/accountSettings/TwoFactorAuth.jsx` | outer `<Grid item>` | `two-factor-root` |
+| 17 | `two-factor-setup` | same file | (same anchor; QR readiness via existing `mfa-qr` testid) | `two-factor-root` / `mfa-qr` |
+| 18 | `two-factor-recovery-codes` | same file | (same anchor, post-enable state) | `two-factor-root` |
+
+The spec computes a real TOTP code from the on-screen manual-entry secret
+(`utils/totp.ts`) to complete enrollment, captures the one-time recovery
+codes section, then **disables 2FA through the re-auth modal** so the
+shared fixture user is clean for the next project/run. `mfa-qr` predates
+this spec (it's the QR mount point in the component) and is reused as the
+enrollment-readiness anchor.
+
 ## Cross-reference
 
 - PRD source: **Appendix B** of

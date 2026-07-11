@@ -14,7 +14,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.client.RestTemplate;
@@ -46,29 +45,6 @@ public class ControlPanelService {
       });
     }
     return ResponseEntity.ok(ghIssue);
-  }
-
-  public ResponseEntity<String> getJwt() {
-    String[] basicAuthCredentials = this.authUtil.getBasicAuthCredentials(this.authUtil.getCurrentRequest());
-    if (basicAuthCredentials != null) {
-      String email = basicAuthCredentials[0];
-      String password = basicAuthCredentials[1];
-      Optional<Show> optionalShow = this.showRepository.findByEmailCollation(email);
-      if (optionalShow.isEmpty()) {
-        throw new RuntimeException(StatusResponse.SHOW_NOT_FOUND.name());
-      }
-      Show show = optionalShow.get();
-      BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
-      boolean passwordsMatch = passwordEncoder.matches(password, show.getPassword());
-      if (passwordsMatch) {
-        if (!show.getEmailVerified()) {
-          throw new RuntimeException(StatusResponse.EMAIL_NOT_VERIFIED.name());
-        }
-        String jwt = this.authUtil.signJwt(show);
-        return ResponseEntity.ok(jwt);
-      }
-    }
-    throw new RuntimeException(StatusResponse.UNAUTHORIZED.name());
   }
 
   public ResponseEntity<String> uploadImage(MultipartFile file) {

@@ -80,6 +80,13 @@ public class Show extends PanacheMongoEntity {
     // boundary (out-of-band from cadence) and then clears. Null = no override.
     private String nextPsaOverride;
 
+    // 2FA PRD §6.2 — opt-in TOTP second factor. @Ignore keeps the whole
+    // config (encrypted secret + hashed recovery codes) out of the viewer /
+    // plugins-api GraphQL schemas; only control-panel exposes a derived
+    // mfaEnabled boolean. BSON persistence is unaffected by @Ignore.
+    @Ignore
+    private MfaConfig mfa;
+
     @BsonIgnore
     private String serviceToken;
 }

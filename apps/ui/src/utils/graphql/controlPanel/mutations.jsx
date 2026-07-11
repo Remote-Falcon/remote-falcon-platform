@@ -30,6 +30,48 @@ export const UPDATE_PASSWORD = gql`
   }
 `;
 
+// TOTP 2FA enrollment + management. startMfaEnrollment mints the shared
+// secret; confirmMfaEnrollment activates 2FA and returns the recovery
+// codes EXACTLY ONCE. disableMfa / regenerateRecoveryCodes re-auth with
+// EITHER the current password (base64 `Password` header, same as
+// UPDATE_PASSWORD) OR a current TOTP code via the `code` arg.
+export const START_MFA_ENROLLMENT = gql`
+  mutation @api(name: controlPanel) {
+    startMfaEnrollment {
+      otpauthUri
+      secret
+    }
+  }
+`;
+
+export const CONFIRM_MFA_ENROLLMENT = gql`
+  mutation ($code: String!) @api(name: controlPanel) {
+    confirmMfaEnrollment(code: $code) {
+      recoveryCodes
+    }
+  }
+`;
+
+export const DISABLE_MFA = gql`
+  mutation ($code: String) @api(name: controlPanel) {
+    disableMfa(code: $code)
+  }
+`;
+
+export const REGENERATE_RECOVERY_CODES = gql`
+  mutation ($code: String) @api(name: controlPanel) {
+    regenerateRecoveryCodes(code: $code) {
+      recoveryCodes
+    }
+  }
+`;
+
+export const ADMIN_RESET_MFA = gql`
+  mutation ($showSubdomain: String!) @api(name: controlPanel) {
+    adminResetMfa(showSubdomain: $showSubdomain)
+  }
+`;
+
 export const UPDATE_USER_PROFILE = gql`
   mutation ($userProfile: UserProfileInput!) @api(name: controlPanel) {
     updateUserProfile(userProfile: $userProfile)
@@ -49,6 +91,21 @@ export const REQUEST_API_ACCESS = gql`
 export const REFRESH_API_SECRET = gql`
   mutation @api(name: controlPanel) {
     refreshApiSecret
+  }
+`;
+
+// Rotates the show's FPP-plugin credential. Returns the new showToken plus
+// a re-issued serviceToken that MUST be hot-swapped into the session before
+// any further requests — the current JWT's identity claim (the old
+// showToken) stops resolving the moment the rotation persists. That's also
+// why this deliberately has no refetchQueries: a GET_SHOW refetch would race
+// the swap and fire with the dead token.
+export const ROTATE_SHOW_TOKEN = gql`
+  mutation @api(name: controlPanel) {
+    rotateShowToken {
+      showToken
+      serviceToken
+    }
   }
 `;
 
