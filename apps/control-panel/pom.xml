@@ -112,6 +112,19 @@
             <artifactId>java-jwt</artifactId>
             <version>3.18.3</version>
         </dependency>
+        <!--
+            2FA (PRD 2FA-TOTP) — RFC 6238 TOTP generation/verification.
+            Chosen over dev.samstevens.totp deliberately: zero transitive
+            deps, no reflection, pure javax.crypto.Mac — safe in the GraalVM
+            native image with no reachability metadata. The enrollment QR is
+            rendered CLIENT-side from the otpauth:// URI, so no server-side
+            image codec (ZXing/AWT) is ever needed.
+        -->
+        <dependency>
+            <groupId>com.eatthepath</groupId>
+            <artifactId>java-otp</artifactId>
+            <version>0.4.0</version>
+        </dependency>
 
         <!--
             libs/auth — shared launch JWT signer/verifier for the RF Page

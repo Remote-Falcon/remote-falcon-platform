@@ -34,13 +34,52 @@ type Show {
 
     showNotifications: [ShowNotification]
 
+    # 2FA — derived boolean resolved via @SchemaMapping; the underlying
+    # MfaConfig (encrypted secret, hashed recovery codes) is never exposed.
+    # On a signIn response, true means serviceToken is a 5-minute
+    # MFA-pending challenge token and the client must call verifyMfa.
+    mfaEnabled: Boolean
+
     serviceToken: String
+}
+
+# 2FA — provisioning data returned by startMfaEnrollment (QR + manual
+# entry). The base32 secret appears here exactly once.
+type MfaEnrollment {
+    otpauthUri: String!
+    secret: String!
+}
+
+# 2FA — plaintext recovery codes, returned exactly once on
+# confirmMfaEnrollment / regenerateRecoveryCodes.
+type MfaRecoveryCodes {
+    recoveryCodes: [String!]!
+}
+
+# 2FA — outcome of an adminRotateMfaKeys run. reencrypted + alreadyOnPrimary
+# + failed == totalSecrets. failed counts secrets no configured key could
+# decrypt (left untouched). On a dryRun nothing is written and reencrypted is
+# how many WOULD be rotated.
+type MfaKeyRotationResult {
+    totalSecrets: Int
+    reencrypted: Int
+    alreadyOnPrimary: Int
+    failed: Int
+    dryRun: Boolean
 }
 
 type ApiAccess {
     apiAccessToken: String
     apiAccessSecret: String
     apiAccessActive: Boolean
+}
+
+# Payload for rotateShowToken: the fresh showToken (for the FPP re-paste)
+# and a re-issued session JWT signed with it (the old JWT's identity claim
+# no longer resolves once the rotation persists).
+type RotateShowTokenPayload {
+    showToken: String
+    serviceToken: String
 }
 
 type UserProfile {

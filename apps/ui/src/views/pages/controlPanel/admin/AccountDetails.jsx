@@ -1,7 +1,9 @@
 import { useState } from 'react';
 
 import { useMutation, useLazyQuery } from '@apollo/client';
-import { Grid, CardActions, Divider, Typography, Stack, TextField, Button } from '@mui/material';
+import CloseIcon from '@mui/icons-material/Close';
+import { Grid, CardActions, CardContent, Divider, Typography, Stack, TextField, Button, Modal, IconButton } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 import Autocomplete from '@mui/material/Autocomplete';
 import _ from 'lodash';
 import { JsonEditor } from 'json-edit-react';
@@ -12,21 +14,26 @@ import { setShow } from '../../../../store/slices/show';
 import MainCard from '../../../../ui-component/cards/MainCard';
 import { useDispatch } from '../../../../store';
 import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
-import { ADMIN_UPDATE_SHOW } from '../../../../utils/graphql/controlPanel/mutations';
+import { adminResetMfaService } from '../../../../services/controlPanel/mutations.service';
+import { ADMIN_UPDATE_SHOW, ADMIN_RESET_MFA } from '../../../../utils/graphql/controlPanel/mutations';
 import { GET_SHOW_BY_SHOW_NAME, IMPERSONATE, GET_SHOW, GET_SHOWS_AUTO_SUGGEST } from '../../../../utils/graphql/controlPanel/queries';
 import { showAlert } from '../../globalPageHelpers';
 
 const AccountDetails = () => {
+  const theme = useTheme();
   const dispatch = useDispatch();
   const navigate = useNavigate();
 
   const [showSearchValue, setShowSearchValue] = useState('');
   const [showOptions, setShowOptions] = useState([]);
   const [selectedShow, setSelectedShow] = useState({});
+  const [resetMfaOpen, setResetMfaOpen] = useState(false);
+  const [isResettingMfa, setIsResettingMfa] = useState(false);
   const hasSelectedShow = !_.isEmpty(selectedShow);
 
   const [showByShowNameQuery] = useLazyQuery(GET_SHOW_BY_SHOW_NAME);
   const [adminUpdateShowMutation] = useMutation(ADMIN_UPDATE_SHOW);
+  const [adminResetMfaMutation] = useMutation(ADMIN_RESET_MFA);
   const [impersonateQuery] = useLazyQuery(IMPERSONATE);
   const [getShowQuery] = useLazyQuery(GET_SHOW);
   const [getShowsAutoSuggestQuery] = useLazyQuery(GET_SHOWS_AUTO_SUGGEST);
@@ -140,6 +147,21 @@ const AccountDetails = () => {
     }
   };
 
+  const resetMfa = () => {
+    setIsResettingMfa(true);
+    adminResetMfaService(selectedShow?.showSubdomain, adminResetMfaMutation, (response) => {
+      if (response?.success) {
+        trackPosthogEvent('admin_mfa_reset', {
+          target_show_subdomain: selectedShow?.showSubdomain
+        });
+        setSelectedShow({ ...selectedShow, mfaEnabled: false });
+      }
+      showAlert(dispatch, response?.toast);
+      setIsResettingMfa(false);
+      setResetMfaOpen(false);
+    });
+  };
+
   const editStuff = (newValue) => {
     adminUpdateShowMutation({
       context: {
@@ -205,6 +227,16 @@ const AccountDetails = () => {
                 {hasSelectedShow && (
                   <Button variant="contained" onClick={impersonate}>Impersonate</Button>
                 )}
+                {hasSelectedShow && (
+                  <Button
+                    variant="outlined"
+                    color="error"
+                    disabled={!selectedShow?.mfaEnabled}
+                    onClick={() => setResetMfaOpen(true)}
+                  >
+                    Reset 2FA
+                  </Button>
+                )}
               </Stack>
             </Grid>
           </Grid>
@@ -224,6 +256,57 @@ const AccountDetails = () => {
         </CardActions>
         <Divider />
       </MainCard>
+      <Modal
+        open={resetMfaOpen}
+        onClose={() => setResetMfaOpen(false)}
+        aria-labelledby="reset-mfa-modal-title"
+        aria-describedby="reset-mfa-modal-description"
+      >
+        <MainCard
+          sx={{
+            position: 'absolute',
+            width: { xs: 280, lg: 450 },
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)'
+          }}
+          title="Reset Two-Factor Authentication"
+          content={false}
+          secondary={
+            <IconButton onClick={() => setResetMfaOpen(false)} size="large">
+              <CloseIcon fontSize="small" />
+            </IconButton>
+          }
+        >
+          <CardContent>
+            <Typography variant="body2" sx={{ mt: 2 }}>
+              This removes two-factor authentication from {selectedShow?.showName}, letting the owner sign in with just their
+              password. Only do this after verifying the request is legitimate (lockout recovery). Continue?
+            </Typography>
+          </CardContent>
+          <Divider />
+          <CardActions>
+            <Grid container alignItems="center" justifyContent="space-between" spacing={2}>
+              <Grid item>
+                <Button variant="contained" size="large" onClick={() => setResetMfaOpen(false)}>
+                  Cancel
+                </Button>
+              </Grid>
+              <Grid item>
+                <Button
+                  variant="contained"
+                  size="large"
+                  disabled={isResettingMfa}
+                  sx={{ background: theme.palette.error.main, '&:hover': { background: theme.palette.error.dark } }}
+                  onClick={resetMfa}
+                >
+                  Reset 2FA
+                </Button>
+              </Grid>
+            </Grid>
+          </CardActions>
+        </MainCard>
+      </Modal>
     </Grid>
   );
 };

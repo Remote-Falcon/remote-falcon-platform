@@ -27,5 +27,13 @@ export const StatusResponse = {
   OWNER_REQUESTED: 'OWNER_REQUESTED',
   // PSA-v2 PR-5 — raised by updatePsaEnabled / setNextPsaOverride
   // when the name doesn't match any PSA in Show.psaSequences[].
-  INVALID_PSA_NAME: 'INVALID_PSA_NAME'
+  INVALID_PSA_NAME: 'INVALID_PSA_NAME',
+  // TOTP 2FA — raised by verifyMfa / confirmMfaEnrollment / disableMfa /
+  // regenerateRecoveryCodes.
+  INVALID_MFA_CODE: 'INVALID_MFA_CODE',
+  MFA_RATE_LIMITED: 'MFA_RATE_LIMITED',
+  MFA_CHALLENGE_EXPIRED: 'MFA_CHALLENGE_EXPIRED',
+  MFA_ALREADY_ENABLED: 'MFA_ALREADY_ENABLED',
+  MFA_NOT_ENABLED: 'MFA_NOT_ENABLED',
+  MFA_NOT_CONFIGURED: 'MFA_NOT_CONFIGURED'
 };

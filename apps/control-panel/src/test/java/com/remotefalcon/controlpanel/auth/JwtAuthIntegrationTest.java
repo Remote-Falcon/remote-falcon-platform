@@ -188,6 +188,18 @@ class JwtAuthIntegrationTest {
     }
 
     @Test
+    void protectedEndpoint_rejects_mfaPendingChallengeToken() throws Exception {
+        // 2FA PRD §8.2 — the MFA-pending token signIn mints for enrolled
+        // accounts has a valid signature and issuer, but must never pass a
+        // @RequiresAccess resolver: it authorizes ONLY the verifyMfa step.
+        // If this test fails, password-only authentication reaches every
+        // protected endpoint and the second factor is decorative.
+        String token = JwtFactory.mfaPendingControlPanel("mfa-pending-show");
+        assertRejectedAsInvalidJwt(() -> mockMvc.perform(get(PROTECTED_ENDPOINT)
+                .header("Authorization", "Bearer " + token)));
+    }
+
+    @Test
     void protectedEndpoint_rejects_withWrongIssuer() throws Exception {
         // AuthUtil#isJwtValid builds the verifier with .withIssuer("remotefalcon"),
         // so a token signed with the right key but the wrong issuer is rejected.

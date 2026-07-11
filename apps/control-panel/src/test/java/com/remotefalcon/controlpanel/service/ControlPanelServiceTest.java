@@ -9,7 +9,6 @@ import com.remotefalcon.controlpanel.util.AuthUtil;
 import com.remotefalcon.controlpanel.util.S3Util;
 import com.remotefalcon.library.documents.Show;
 import com.remotefalcon.library.enums.StatusResponse;
-import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -19,13 +18,10 @@ import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 
@@ -42,8 +38,6 @@ import static org.mockito.Mockito.when;
  * Unit tests for {@link ControlPanelService}. Covers:
  *  - {@code gitHubIssues}: rewrites the per-issue {@code type} based on the
  *    presence of a "bug" label;
- *  - {@code getJwt}: REST sibling of the GraphQL signIn — same bcrypt /
- *    email-verified contract, returns a 200 with the JWT;
  *  - {@code uploadImage} / {@code downloadImage} / {@code deleteImage} /
  *    {@code getImages}: delegate to {@link S3Util} after looking up the show.
  */
@@ -108,79 +102,6 @@ class ControlPanelServiceTest {
         ResponseEntity<List<GitHubIssueResponse>> r = service.gitHubIssues();
         assertThat(r.getStatusCodeValue()).isEqualTo(200);
         assertThat(r.getBody()).isNull();
-    }
-
-    // ---- getJwt ----
-
-    private static String basicHeader(String email, String pw) {
-        return "Basic " + Base64.getEncoder().encodeToString((email + ":" + pw).getBytes(StandardCharsets.UTF_8));
-    }
-
-    @Test
-    void getJwt_returnsToken_onCorrectPasswordAndVerifiedEmail() {
-        String hashed = new BCryptPasswordEncoder().encode("pw");
-        Show show = Show.builder().showToken(SHOW_TOKEN).password(hashed)
-                .emailVerified(true).email("u@x.com").build();
-
-        HttpServletRequest req = org.mockito.Mockito.mock(HttpServletRequest.class);
-        when(authUtil.getCurrentRequest()).thenReturn(req);
-        when(authUtil.getBasicAuthCredentials(req)).thenReturn(new String[]{"u@x.com", "pw"});
-        when(showRepository.findByEmailCollation("u@x.com")).thenReturn(Optional.of(show));
-        when(authUtil.signJwt(show)).thenReturn("fake-jwt");
-
-        ResponseEntity<String> r = service.getJwt();
-        assertThat(r.getStatusCodeValue()).isEqualTo(200);
-        assertThat(r.getBody()).isEqualTo("fake-jwt");
-    }
-
-    @Test
-    void getJwt_throwsEmailNotVerified_whenPasswordOkButNotVerified() {
-        String hashed = new BCryptPasswordEncoder().encode("pw");
-        Show show = Show.builder().showToken(SHOW_TOKEN).password(hashed).emailVerified(false).build();
-        HttpServletRequest req = org.mockito.Mockito.mock(HttpServletRequest.class);
-        when(authUtil.getCurrentRequest()).thenReturn(req);
-        when(authUtil.getBasicAuthCredentials(req)).thenReturn(new String[]{"u@x.com", "pw"});
-        when(showRepository.findByEmailCollation("u@x.com")).thenReturn(Optional.of(show));
-
-        assertThatThrownBy(() -> service.getJwt())
-                .isInstanceOf(RuntimeException.class)
-                .hasMessage(StatusResponse.EMAIL_NOT_VERIFIED.name());
-    }
-
-    @Test
-    void getJwt_throwsShowNotFound_whenEmailMissing() {
-        HttpServletRequest req = org.mockito.Mockito.mock(HttpServletRequest.class);
-        when(authUtil.getCurrentRequest()).thenReturn(req);
-        when(authUtil.getBasicAuthCredentials(req)).thenReturn(new String[]{"x@x.com", "pw"});
-        when(showRepository.findByEmailCollation("x@x.com")).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> service.getJwt())
-                .isInstanceOf(RuntimeException.class)
-                .hasMessage(StatusResponse.SHOW_NOT_FOUND.name());
-    }
-
-    @Test
-    void getJwt_throwsUnauthorized_whenPasswordMismatch() {
-        String hashed = new BCryptPasswordEncoder().encode("real");
-        Show show = Show.builder().showToken(SHOW_TOKEN).password(hashed).emailVerified(true).build();
-        HttpServletRequest req = org.mockito.Mockito.mock(HttpServletRequest.class);
-        when(authUtil.getCurrentRequest()).thenReturn(req);
-        when(authUtil.getBasicAuthCredentials(req)).thenReturn(new String[]{"u@x.com", "wrong"});
-        when(showRepository.findByEmailCollation("u@x.com")).thenReturn(Optional.of(show));
-
-        assertThatThrownBy(() -> service.getJwt())
-                .isInstanceOf(RuntimeException.class)
-                .hasMessage(StatusResponse.UNAUTHORIZED.name());
-    }
-
-    @Test
-    void getJwt_throwsUnauthorized_whenNoBasicAuth() {
-        HttpServletRequest req = org.mockito.Mockito.mock(HttpServletRequest.class);
-        when(authUtil.getCurrentRequest()).thenReturn(req);
-        when(authUtil.getBasicAuthCredentials(req)).thenReturn(null);
-        assertThatThrownBy(() -> service.getJwt())
-                .isInstanceOf(RuntimeException.class)
-                .hasMessage(StatusResponse.UNAUTHORIZED.name());
     }
 
     // ---- uploadImage ----
