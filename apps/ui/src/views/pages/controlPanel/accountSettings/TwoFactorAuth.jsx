@@ -152,7 +152,7 @@ const TwoFactorAuth = () => {
   };
 
   return (
-    <Grid item xs={12}>
+    <Grid item xs={12} data-testid="two-factor-root">
       <MainCard content={false}>
         <Divider />
         <CardActions>
