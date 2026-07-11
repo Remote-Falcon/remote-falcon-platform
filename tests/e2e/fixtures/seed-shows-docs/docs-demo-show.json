@@ -246,6 +246,15 @@
     { "name": "Pop", "visibilityCount": 0 }
   ],
 
+  "categories": [
+    { "name": "Rock", "requestLimit": 0, "antiConsecutive": true, "displayOrder": 0 },
+    { "name": "Traditional", "requestLimit": 0, "antiConsecutive": false, "displayOrder": 1 },
+    { "name": "Pop", "requestLimit": 5, "antiConsecutive": false, "displayOrder": 2 },
+    { "name": "Jazz", "requestLimit": 3, "antiConsecutive": true, "displayOrder": 3 },
+    { "name": "Latin", "requestLimit": 0, "antiConsecutive": false, "displayOrder": 4 },
+    { "name": "Spooky", "requestLimit": 2, "antiConsecutive": false, "displayOrder": 5 }
+  ],
+
   "requests": [
     {
       "sequence": {

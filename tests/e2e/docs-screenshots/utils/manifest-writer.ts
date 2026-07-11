@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { dirname, resolve } from 'path';
 
 // In-process manifest accumulator for the docs-screenshots tier.
@@ -12,6 +12,14 @@ import { dirname, resolve } from 'path';
 // would be empty when it's invoked. The simplest robust shape is to persist
 // after every append — last write wins, the JSON is sorted/deterministic,
 // and there's no cross-process coordination to get wrong.
+//
+// Why merge-from-disk on first write: workers:1 keeps one process for a clean
+// run, but Playwright REPLACES the worker process after any test failure. The
+// replacement starts with an empty Map; without merging, its first append
+// would clobber every entry the dead worker had already flushed (observed
+// 2026-07-11: a failing spec left a 5-entry manifest for a 20-shot run).
+// global-setup deletes the manifest at run start, so merging never resurrects
+// entries from a previous run — only from earlier workers of the same run.
 //
 // Entries are deduplicated by name (two themes produce two PNGs but only one
 // manifest entry — the name is theme-agnostic). When the same name is
@@ -39,9 +47,29 @@ const MANIFEST_THEMES: ManifestMetadata['themes'] = ['light', 'dark'];
 // Module-scope singleton. Playwright runs each project in the same Node
 // process when serialized (workers: 1 for the docs tier), so the in-memory
 // accumulator naturally aggregates across screenshots-light + screenshots-dark.
+// Seeded from the on-disk manifest on first use — see merge note above.
 const entries = new Map<string, ManifestEntry>();
+let seededFromDisk = false;
+
+const seedFromDiskOnce = (): void => {
+  if (seededFromDisk) return;
+  seededFromDisk = true;
+  const outPath = manifestOutputPath();
+  if (!existsSync(outPath)) return;
+  try {
+    const existing = JSON.parse(readFileSync(outPath, 'utf-8'));
+    for (const entry of existing?.screenshots ?? []) {
+      if (entry?.name && !entries.has(entry.name)) {
+        entries.set(entry.name, entry);
+      }
+    }
+  } catch {
+    // Unparseable manifest — start fresh rather than fail the run.
+  }
+};
 
 export const appendManifestEntry = (entry: ManifestEntry): void => {
+  seedFromDiskOnce();
   entries.set(entry.name, entry);
   writeManifest();
 };
