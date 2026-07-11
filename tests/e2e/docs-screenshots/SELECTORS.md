@@ -140,6 +140,39 @@ shared fixture user is clean for the next project/run. `mfa-qr` predates
 this spec (it's the QR mount point in the component) and is reused as the
 enrollment-readiness anchor.
 
+## Categories — new shot added 2026-07-11 (Show Fairness release)
+
+Shot 19 (`sequences-categories`) covers the Categories management tab that
+shipped with the Show Fairness epic (#125).
+
+| # | Shot name | Component file | Element | `data-testid` |
+|---|---|---|---|---|
+| 19 | `sequences-categories` | `apps/ui/src/views/pages/controlPanel/sequences/Categories.jsx` | outer `<Box>` | `sequences-categories-root` |
+
+Full-page capture anchored on `sequences-categories-root` (the testid
+shipped with the feature itself). The spec additionally waits for a seeded
+category name ("Traditional") to render so it never captures the empty
+"no categories yet" state. Seed dependency: the top-level `categories[]`
+array in `docs-demo-show.json` — six first-class categories whose names
+match the seed sequences' `category` strings, with varied `requestLimit`
+and `antiConsecutive` values so every column shows real data. This same
+seed addition populates the category chips/column on the existing
+`sequences-list` shot.
+
+Not captured from this release (deliberate): the Voting/Safeguards settings
+fields (settings docs are text-only; no testids exist in
+`VotingSettings.jsx` / `InteractionSettings.jsx`) and the public viewer
+page's votes-left countdown and unavailable-song gray-out (the pipeline
+only drives authed `/control-panel/*` routes; a public-viewer capture path
+is a future enhancement).
+
+> **Table drift note:** the "Per-shot testid table" above predates the
+> PSA Quick-Play (`dashboard-psa-quick-play`) and Special Roles
+> (`sequences-special-roles` — anchors `special-roles-tab` / `psa-table`)
+> shots, which are documented in their specs. Counting those, the pipeline
+> produced 20 named shots before this addendum; with `sequences-categories`,
+> 21 (verified against the run manifest, 2026-07-11).
+
 ## Cross-reference
 
 - PRD source: **Appendix B** of
