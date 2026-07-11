@@ -24,6 +24,31 @@ export const deleteAccountService = (deleteAccountMutation, callback) => {
   });
 };
 
+// forceNextSongService (#167) — force a song to play next, stat-neutral.
+// Pass null to cancel a pending override.
+export const forceNextSongService = (name, forceNextSongMutation, callback) => {
+  forceNextSongMutation({
+    context: {
+      headers: {
+        Route: 'Control-Panel'
+      }
+    },
+    variables: { name: name ?? null },
+    onCompleted: () => {
+      callback({
+        success: true,
+        toast: name ? { message: `${name} will play next` } : { message: 'Forced song cleared' }
+      });
+    },
+    onError: () => {
+      callback({
+        success: false,
+        toast: { alert: 'error', message: name ? `Could not force ${name} to play next` : 'Could not clear the forced song' }
+      });
+    }
+  });
+};
+
 export const playSequenceFromControlPanelService = (sequence, playSequenceFromControlPanelMutation, callback) => {
   playSequenceFromControlPanelMutation({
     context: {
@@ -400,6 +425,31 @@ export const saveSequenceGroupsService = (updatedSequenceGroups, updateSequenceG
       });
     }
     // refetchQueries: [{ query: GET_SHOW, awaitRefetchQueries: true }]
+  });
+};
+
+export const saveCategoriesService = (updatedCategories, updateCategoriesMutation, callback) => {
+  updateCategoriesMutation({
+    context: {
+      headers: {
+        Route: 'Control-Panel'
+      }
+    },
+    variables: {
+      categories: updatedCategories
+    },
+    onCompleted: () => {
+      callback({
+        success: true,
+        toast: { message: 'Category Saved' }
+      });
+    },
+    onError: () => {
+      callback({
+        success: false,
+        toast: { alert: 'error' }
+      });
+    }
   });
 };
 

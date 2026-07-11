@@ -160,6 +160,13 @@ public class GraphQLController {
         return this.graphQLMutationService.setNextPsaOverride(name);
     }
 
+    // #167 — force any active song to play next, stat-neutral. Null cancels.
+    @MutationMapping
+    @RequiresAccess
+    public Boolean forceNextSong(@Argument String name) {
+        return this.graphQLMutationService.forceNextSong(name);
+    }
+
     // PSA-v2 PR-5 (Q6) — leader sequence dropdowns on the Special
     // Roles tab. Each leader has its own mutation so the UI can save
     // the two fields independently without re-sending the other.
@@ -185,6 +192,12 @@ public class GraphQLController {
     @RequiresAccess
     public Boolean updateSequenceGroups(@Argument List<SequenceGroup> sequenceGroups) {
         return this.graphQLMutationService.updateSequenceGroups(sequenceGroups);
+    }
+
+    @MutationMapping
+    @RequiresAccess
+    public Boolean updateCategories(@Argument List<Category> categories) {
+        return this.graphQLMutationService.updateCategories(categories);
     }
 
     @MutationMapping

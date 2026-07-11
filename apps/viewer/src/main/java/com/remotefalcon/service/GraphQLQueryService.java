@@ -1,6 +1,7 @@
 package com.remotefalcon.service;
 
 import com.remotefalcon.library.enums.ViewerControlMode;
+import com.remotefalcon.library.models.Preference;
 import com.remotefalcon.library.models.Request;
 import com.remotefalcon.library.models.Sequence;
 import com.remotefalcon.library.models.SequenceGroup;
@@ -8,21 +9,33 @@ import com.remotefalcon.library.models.ViewerPage;
 import com.remotefalcon.library.quarkus.entity.Show;
 import com.remotefalcon.library.util.PluginQueueHelper;
 import com.remotefalcon.repository.ShowRepository;
+import com.remotefalcon.repository.VoteEventRepository;
+import com.remotefalcon.util.ClientUtil;
+import io.vertx.ext.web.RoutingContext;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import lombok.extern.jbosslog.JBossLog;
 import org.apache.commons.lang3.StringUtils;
 
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 @JBossLog
 @ApplicationScoped
 public class GraphQLQueryService {
   @Inject
   ShowRepository showRepository;
+
+  @Inject
+  VoteEventRepository voteEventRepository;
+
+  @Inject
+  RoutingContext context;
 
   public Show getShow(String showSubdomain) {
     // Use optimized query that excludes stats and sensitive fields
@@ -45,6 +58,60 @@ public class GraphQLQueryService {
       existingShow.setRequests(this.stripOperatorInjectedRequests(existingShow));
     }
     return show.orElse(null);
+  }
+
+  // #162 — must match VOTE_SESSION_GAP_HOURS in GraphQLMutationService. Kept as a
+  // local copy because the constant is private to the mutation service and they
+  // live in different files; the two MUST stay in sync so the countdown rolls the
+  // session window on exactly the same gap the enforcement path does.
+  private static final long VOTE_SESSION_GAP_HOURS = 6L;
+
+  /**
+   * #162 — how many votes this viewer has left in the current show session, for
+   * the "X of N votes left this show" countdown. Returns {@code null} (→ the UI
+   * shows nothing) when no daily limit is configured or this IP is voting-exempt
+   * (#156).
+   *
+   * <p>The count is session-scoped and applies the SAME gap-roll the enforcement
+   * path uses ({@code resolveVotingWindowStart} in GraphQLMutationService): if
+   * there is no window yet, no last-counted vote, or the last counted vote was
+   * more than {@link #VOTE_SESSION_GAP_HOURS} ago (a new show-night the operator
+   * never explicitly re-enabled), the effective window rolls forward to "now" so
+   * zero votes are counted and the full limit is returned — matching the server,
+   * which rolls the window and ALLOWS the first vote of the new night rather than
+   * counting yesterday's. Otherwise it counts votes since votingWindowStartedAt
+   * as today's. Same identity (viewerId first, else IP) and same UTC clock basis
+   * as enforcement. This is read-only — it never mutates or persists the window.
+   * Called on page load + after each vote, not on the polled getShow, so the
+   * count read stays off the hot path.
+   */
+  public Integer votesRemaining(String showSubdomain, String viewerId) {
+    Optional<Show> show = this.showRepository.findByShowSubdomainForViewer(showSubdomain);
+    if (show.isEmpty() || show.get().getPreferences() == null) {
+      return null;
+    }
+    Preference prefs = show.get().getPreferences();
+    Integer limit = prefs.getDailyVoteLimit();
+    if (limit == null || limit == 0) {
+      return null; // no cap configured → no countdown
+    }
+    String clientIp = ClientUtil.getClientIP(context);
+    Set<String> exemptIps = prefs.getVotingExemptIps();
+    if (exemptIps != null && clientIp != null && exemptIps.contains(clientIp)) {
+      return null; // #156 exempt → effectively unlimited, hide the countdown
+    }
+    // Replicate resolveVotingWindowStart's gap-roll read-only: a null window,
+    // null last-counted vote, or a stale last vote (> gap) is a new session →
+    // nothing counted yet → full allowance. Same UTC basis as enforcement.
+    LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+    LocalDateTime window = prefs.getVotingWindowStartedAt();
+    LocalDateTime lastVote = prefs.getLastVoteCountedAt();
+    boolean newSession = window == null || lastVote == null
+        || lastVote.isBefore(now.minusHours(VOTE_SESSION_GAP_HOURS));
+    long used = newSession
+        ? 0L // window rolls to now on a new show-night → full allowance
+        : this.voteEventRepository.countVotesSince(show.get().id, viewerId, clientIp, window);
+    return (int) Math.max(0L, (long) limit - used);
   }
 
   private List<Request> stripOperatorInjectedRequests(Show show) {
@@ -167,7 +234,15 @@ public class GraphQLQueryService {
   private List<Sequence> sortAndFilterSequences(List<Sequence> sequences) {
     sequences.sort(Comparator.comparing(Sequence::getOrder));
     return sequences.stream()
-        .filter(sequence -> sequence.getVisibilityCount() == 0)
+        // #73 — keep a non-grouped sequence even while on the hide-after-play
+        // cooldown (visibilityCount > 0) so the viewer page can gray it out
+        // instead of vanishing it; nightly-capped songs already carry
+        // visibilityCount 0 and pass through. Grouped members stay filtered — a
+        // group's availability is driven by the group's own visibilityCount
+        // (replaceSequencesWithSequenceGroups), so un-hiding a member here would
+        // only churn which member represents the group.
+        .filter(sequence -> sequence.getVisibilityCount() == 0
+            || StringUtils.isEmpty(sequence.getGroup()))
         .filter(Sequence::getActive)
         // A sequence with no FPP playlist index can't actually play: the
         // plugin's Insert-Playlist call to FPPD requires a numeric index,

@@ -175,6 +175,7 @@ export const VERIFY_MFA = gql`
         jukeboxRequestLimit
         locationCode
         hideSequenceCount
+        nightlyPlayLimit
         makeItSnow
         managePsa
         playAllPsas
@@ -184,6 +185,13 @@ export const VERIFY_MFA = gql`
         showOnMap
         selfHostedRedirectUrl
         blockedViewerIps
+        dailyVoteLimit
+        votingExemptIps
+        statsExcludedIps
+        additionalGpsLocations {
+          latitude
+          longitude
+        }
         notificationPreferences {
           enableFppHeartbeat
           fppHeartbeatIfControlEnabled
@@ -211,6 +219,13 @@ export const VERIFY_MFA = gql`
       sequenceGroups {
         name
         visibilityCount
+      }
+      categories {
+        name
+        requestLimit
+        antiConsecutive
+        color
+        displayOrder
       }
       psaSequences {
         name
@@ -306,6 +321,7 @@ export const GET_SHOW = gql`
         jukeboxRequestLimit
         locationCode
         hideSequenceCount
+        nightlyPlayLimit
         makeItSnow
         managePsa
         playAllPsas
@@ -315,6 +331,13 @@ export const GET_SHOW = gql`
         showOnMap
         selfHostedRedirectUrl
         blockedViewerIps
+        dailyVoteLimit
+        votingExemptIps
+        statsExcludedIps
+        additionalGpsLocations {
+          latitude
+          longitude
+        }
         notificationPreferences {
           enableFppHeartbeat
           fppHeartbeatIfControlEnabled
@@ -342,6 +365,13 @@ export const GET_SHOW = gql`
       sequenceGroups {
         name
         visibilityCount
+      }
+      categories {
+        name
+        requestLimit
+        antiConsecutive
+        color
+        displayOrder
       }
       psaSequences {
         name
@@ -605,6 +635,7 @@ export const GET_SHOW_BY_SHOW_NAME = gql`
         jukeboxRequestLimit
         locationCode
         hideSequenceCount
+        nightlyPlayLimit
         makeItSnow
         managePsa
         playAllPsas
@@ -634,6 +665,13 @@ export const GET_SHOW_BY_SHOW_NAME = gql`
       sequenceGroups {
         name
         visibilityCount
+      }
+      categories {
+        name
+        requestLimit
+        antiConsecutive
+        color
+        displayOrder
       }
       psaSequences {
         name

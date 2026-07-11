@@ -45,67 +45,69 @@ describe('defaultProcessingInstructions', () => {
 describe('processingInstructions', () => {
   const pnd = fakePnd;
 
-  it('returns 14 entries (every dynamic node blanked) when viewerControlEnabled is false', () => {
+  // Counts include the #162 {VOTES_REMAINING} node added to every branch.
+  it('returns 15 entries (every dynamic node blanked) when viewerControlEnabled is false', () => {
     const result = processingInstructions(pnd, false);
+    expect(result).toHaveLength(15);
+    allEntriesShaped(result);
+  });
+
+  it('returns 13 entries in JUKEBOX mode with GEO location', () => {
+    const result = processingInstructions(
+      pnd,
+      true,
+      ViewerControlMode.JUKEBOX,
+      LocationCheckMethod.GEO,
+      'seqs',
+      'reqs',
+      'now',
+      'next',
+      3,
+      'CODE',
+      'timer'
+    );
+    expect(result).toHaveLength(13);
+    allEntriesShaped(result);
+  });
+
+  it('returns 13 entries in JUKEBOX mode when location check is CODE (locationCode blanked)', () => {
+    const result = processingInstructions(
+      pnd,
+      true,
+      ViewerControlMode.JUKEBOX,
+      LocationCheckMethod.CODE,
+      'seqs',
+      'reqs',
+      'now',
+      'next',
+      3,
+      'CODE',
+      'timer'
+    );
+    expect(result).toHaveLength(13);
+    allEntriesShaped(result);
+  });
+
+  it('returns 14 entries in VOTING mode with GEO location', () => {
+    const result = processingInstructions(
+      pnd,
+      true,
+      ViewerControlMode.VOTING,
+      LocationCheckMethod.GEO,
+      'seqs',
+      null,
+      'now',
+      'next',
+      0,
+      'CODE',
+      'timer',
+      '2 of 5 votes left this show'
+    );
     expect(result).toHaveLength(14);
     allEntriesShaped(result);
   });
 
-  it('returns 12 entries in JUKEBOX mode with GEO location', () => {
-    const result = processingInstructions(
-      pnd,
-      true,
-      ViewerControlMode.JUKEBOX,
-      LocationCheckMethod.GEO,
-      'seqs',
-      'reqs',
-      'now',
-      'next',
-      3,
-      'CODE',
-      'timer'
-    );
-    expect(result).toHaveLength(12);
-    allEntriesShaped(result);
-  });
-
-  it('returns 12 entries in JUKEBOX mode when location check is CODE (locationCode blanked)', () => {
-    const result = processingInstructions(
-      pnd,
-      true,
-      ViewerControlMode.JUKEBOX,
-      LocationCheckMethod.CODE,
-      'seqs',
-      'reqs',
-      'now',
-      'next',
-      3,
-      'CODE',
-      'timer'
-    );
-    expect(result).toHaveLength(12);
-    allEntriesShaped(result);
-  });
-
-  it('returns 13 entries in VOTING mode with GEO location', () => {
-    const result = processingInstructions(
-      pnd,
-      true,
-      ViewerControlMode.VOTING,
-      LocationCheckMethod.GEO,
-      'seqs',
-      null,
-      'now',
-      'next',
-      0,
-      'CODE',
-      'timer'
-    );
-    expect(result).toHaveLength(13);
-    allEntriesShaped(result);
-  });
-
-  it('returns 13 entries in VOTING mode when location check is CODE', () => {
+  it('returns 14 entries in VOTING mode when location check is CODE', () => {
     const result = processingInstructions(
       pnd,
       true,
@@ -119,7 +121,7 @@ describe('processingInstructions', () => {
       'CODE',
       'timer'
     );
-    expect(result).toHaveLength(13);
+    expect(result).toHaveLength(14);
     allEntriesShaped(result);
   });
 });
@@ -134,7 +136,10 @@ describe('viewerPageMessageElements', () => {
       'alreadyVoted',
       'alreadyRequested',
       'requestFailed',
-      'invalidLocationCode'
+      'invalidLocationCode',
+      // #162 daily vote cap + #73/#163 nightly cap / cooldown feedback ids.
+      'dailyVoteLimitReached',
+      'sequenceUnavailable'
     ];
     expect(Object.keys(viewerPageMessageElements).sort()).toEqual(expected.sort());
   });

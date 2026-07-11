@@ -16,8 +16,9 @@ import java.util.concurrent.TimeUnit;
  * ADR-1 + ADR-5.
  *
  * <ul>
- *   <li>{@code {showId, ip, votedAt}} compound — turns the #162 daily-cap count
- *       and the #164/#168 lookups into an index scan.</li>
+ *   <li>{@code {showId, ip, votedAt}} and {@code {showId, viewerId, votedAt}}
+ *       compounds — turn the #162 daily-cap count (keyed by IP or viewerId per
+ *       ADR-2) and the #164/#168 lookups into index scans.</li>
  *   <li>{@code {expireAt}} TTL with {@code expireAfterSeconds=0} — each document's
  *       own {@code expireAt} drives deletion, enabling per-show / per-tier
  *       retention (ADR-5).</li>
@@ -37,6 +38,8 @@ public class VoteEventIndexInitializer {
     try {
       voteEventRepository.mongoCollection()
           .createIndex(Indexes.ascending("showId", "ip", "votedAt"));
+      voteEventRepository.mongoCollection()
+          .createIndex(Indexes.ascending("showId", "viewerId", "votedAt"));
       voteEventRepository.mongoCollection()
           .createIndex(Indexes.ascending("expireAt"), new IndexOptions().expireAfter(0L, TimeUnit.SECONDS));
       LOG.info("voteEvent indexes ensured");

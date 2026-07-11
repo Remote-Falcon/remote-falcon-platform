@@ -23,6 +23,11 @@ public class ShowRepository implements PanacheMongoRepository<Show> {
   // Christmas show season for the funnel analytics that consume this data.
   private static final long REJECTED_REQUESTS_RETENTION_DAYS = 30L;
 
+  // PRD-009 #132 / ADR-5 — 90-day rolling retention for the high-volume embedded
+  // stat arrays (stats.page/voting/jukebox), bounding the Show document under
+  // Mongo's 16 MB limit. The voteEvent collection has its own TTL index.
+  private static final long STATS_RETENTION_DAYS = 90L;
+
   public Optional<Show> findByShowSubdomain(String showSubdomain) {
     return find("showSubdomain", showSubdomain).firstResultOptional();
   }
@@ -119,6 +124,7 @@ public class ShowRepository implements PanacheMongoRepository<Show> {
   }
 
   public void appendJukeboxStat(String showSubdomain, Stat.Jukebox stat) {
+    this.pruneStatArray(showSubdomain, "stats.jukebox");
     mongoCollection().updateOne(Filters.eq("showSubdomain", showSubdomain), Updates.push("stats.jukebox", stat));
   }
 
@@ -134,12 +140,23 @@ public class ShowRepository implements PanacheMongoRepository<Show> {
     mongoCollection().updateOne(filter, Updates.push("stats.rejectedRequests", stat));
   }
 
+  // PRD-009 #132 / ADR-5 — prune stat entries older than the retention window.
+  // Separate update from the push: Mongo rejects $pull and $push on the same
+  // field path in one op (same constraint as appendRejectedRequestStat).
+  private void pruneStatArray(String showSubdomain, String statArrayPath) {
+    mongoCollection().updateOne(
+        Filters.eq("showSubdomain", showSubdomain),
+        Updates.pull(statArrayPath, Filters.lt("dateTime", LocalDateTime.now().minusDays(STATS_RETENTION_DAYS))));
+  }
+
   public void appendPageStat(String showSubdomain, Stat.Page stat) {
+    this.pruneStatArray(showSubdomain, "stats.page");
     mongoCollection().updateOne(Filters.eq("showSubdomain", showSubdomain), Updates.push("stats.page", stat));
   }
 
   public void incrementVoteAndAppendVoter(String showSubdomain, String sequenceName, String voterIp, java.time.LocalDateTime voteTime, Stat.Voting votingStat) {
     if (votingStat != null) {
+      this.pruneStatArray(showSubdomain, "stats.voting");
       mongoCollection().updateOne(
           Filters.and(
               Filters.eq("showSubdomain", showSubdomain),
@@ -169,6 +186,7 @@ public class ShowRepository implements PanacheMongoRepository<Show> {
 
   public void addNewVoteAndStat(String showSubdomain, com.remotefalcon.library.models.Vote vote, Stat.Voting votingStat) {
     if (votingStat != null) {
+      this.pruneStatArray(showSubdomain, "stats.voting");
       mongoCollection().updateOne(
           Filters.eq("showSubdomain", showSubdomain),
           Updates.combine(
@@ -185,18 +203,33 @@ public class ShowRepository implements PanacheMongoRepository<Show> {
   }
 
   public void incrementSequenceGroupVoteAndAppendVoter(String showSubdomain, String groupName, String voterIp, java.time.LocalDateTime voteTime, Stat.Voting votingStat) {
-    mongoCollection().updateOne(
-        Filters.and(
-            Filters.eq("showSubdomain", showSubdomain),
-            Filters.eq("votes.sequenceGroup.name", groupName)
-        ),
-        Updates.combine(
-            Updates.inc("votes.$.votes", 1),
-            Updates.push("votes.$.viewersVoted", voterIp),
-            Updates.set("votes.$.lastVoteTime", voteTime),
-            Updates.push("stats.voting", votingStat)
-        )
-    );
+    if (votingStat != null) {
+      this.pruneStatArray(showSubdomain, "stats.voting");
+      mongoCollection().updateOne(
+          Filters.and(
+              Filters.eq("showSubdomain", showSubdomain),
+              Filters.eq("votes.sequenceGroup.name", groupName)
+          ),
+          Updates.combine(
+              Updates.inc("votes.$.votes", 1),
+              Updates.push("votes.$.viewersVoted", voterIp),
+              Updates.set("votes.$.lastVoteTime", voteTime),
+              Updates.push("stats.voting", votingStat)
+          )
+      );
+    } else {
+      mongoCollection().updateOne(
+          Filters.and(
+              Filters.eq("showSubdomain", showSubdomain),
+              Filters.eq("votes.sequenceGroup.name", groupName)
+          ),
+          Updates.combine(
+              Updates.inc("votes.$.votes", 1),
+              Updates.push("votes.$.viewersVoted", voterIp),
+              Updates.set("votes.$.lastVoteTime", voteTime)
+          )
+      );
+    }
   }
 
   public void updateActiveViewer(String showSubdomain, String ipAddress, String viewerId, java.time.LocalDateTime visitTime) {
@@ -320,7 +353,22 @@ public class ShowRepository implements PanacheMongoRepository<Show> {
     );
   }
 
+  // #162 — persist the votes-left session window + last-vote marker after a
+  // counted vote. windowStartedAt anchors the cap/countdown count; lastVoteCountedAt
+  // drives the new-show-night gap rollover (parallel to #163's lastPlayCountedAt).
+  public void updateVotingWindow(String showSubdomain, java.time.LocalDateTime windowStartedAt,
+                                 java.time.LocalDateTime lastVoteCountedAt) {
+    mongoCollection().updateOne(
+        Filters.eq("showSubdomain", showSubdomain),
+        Updates.combine(
+            Updates.set("preferences.votingWindowStartedAt", windowStartedAt),
+            Updates.set("preferences.lastVoteCountedAt", lastVoteCountedAt)
+        )
+    );
+  }
+
   public void appendRequestAndJukeboxStat(String showSubdomain, Request request, Stat.Jukebox stat) {
+    this.pruneStatArray(showSubdomain, "stats.jukebox");
     mongoCollection().updateOne(
         Filters.eq("showSubdomain", showSubdomain),
         Updates.combine(
@@ -332,6 +380,7 @@ public class ShowRepository implements PanacheMongoRepository<Show> {
 
   public void appendMultipleRequestsAndJukeboxStat(String showSubdomain, java.util.List<Request> requests,
       Stat.Jukebox stat) {
+    this.pruneStatArray(showSubdomain, "stats.jukebox");
     mongoCollection().updateOne(
         Filters.eq("showSubdomain", showSubdomain),
         Updates.combine(
@@ -349,11 +398,16 @@ public class ShowRepository implements PanacheMongoRepository<Show> {
   }
 
   public long appendPageStatIfNotOwner(String showSubdomain, String clientIp, Stat.Page stat) {
-    // Only append stat if clientIp is different from lastLoginIp (owner's IP)
+    this.pruneStatArray(showSubdomain, "stats.page");
+    // Append the page stat only if clientIp is neither the owner's lastLoginIp
+    // nor on the operator's stats-excluded list (#168). $ne on an array field
+    // matches when the array does not contain the value (and when it's absent),
+    // so legacy shows without statsExcludedIps still record normally.
     var result = mongoCollection().updateOne(
         Filters.and(
             Filters.eq("showSubdomain", showSubdomain),
-            Filters.ne("lastLoginIp", clientIp)
+            Filters.ne("lastLoginIp", clientIp),
+            Filters.ne("preferences.statsExcludedIps", clientIp)
         ),
         Updates.push("stats.page", stat)
     );

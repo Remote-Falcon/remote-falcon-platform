@@ -34,6 +34,8 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.*;
+import java.util.function.BiConsumer;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
@@ -392,6 +394,18 @@ public class GraphQLMutationService {
             } else {
                 preferences.setWrappedShareToken(existingToken);
             }
+            // #163 — lastPlayCountedAt is the plugins-api nightly-reset clock,
+            // written on play and never by the operator (not in PreferenceInput).
+            // Preserve it from the existing doc so a settings save doesn't null it
+            // and spuriously reset every song's nightly tally mid-show.
+            preferences.setLastPlayCountedAt(current == null ? null : current.getLastPlayCountedAt());
+            // #162 — votingWindowStartedAt and lastVoteCountedAt are the parallel
+            // server-managed vote-window clocks, written by the viewer on votes and
+            // never by the operator (not in PreferenceInput). Preserve them too so a
+            // settings save doesn't null them and silently reset every viewer's
+            // daily-vote cap + "votes left" countdown to full mid-show.
+            preferences.setVotingWindowStartedAt(current == null ? null : current.getVotingWindowStartedAt());
+            preferences.setLastVoteCountedAt(current == null ? null : current.getLastVoteCountedAt());
             show.get().setPreferences(preferences);
             this.showRepository.save(show.get());
             return true;
@@ -626,6 +640,91 @@ public class GraphQLMutationService {
         return true;
     }
 
+    // #167 — force-to-top vote value, above the group-winner (2099), leader
+    // (2001), and PSA (2000) sentinels so a forced song always wins the next
+    // selection. >= SYSTEM_VOTE_FLOOR, so it's systemInjected and stays out of
+    // viewer-facing tallies.
+    private static final int FORCE_TO_TOP_VOTES = 2100;
+
+    /**
+     * #167 — force an operator-chosen song to play next, stat-neutral. Mirrors
+     * the PSA "Play Next" override ({@link #setNextPsaOverride}) but for any
+     * active sequence: injects a top-priority {@code ownerOverride} vote (voting)
+     * plus a front-of-queue request (jukebox), reusing the OVERRIDE marker so the
+     * cancel/dedup paths find it. The override bypasses the #109/#163/#73 rules
+     * (it's systemInjected) and records no vote win — plugins-api skips the
+     * {@code votingWin} stat and the leader for {@code ownerOverride} winners,
+     * and jukebox plays of operator-injected requests record no jukebox stat.
+     * A blank {@code name} cancels a pending override.
+     */
+    public Boolean forceNextSong(String name) {
+        String showToken = authUtil.getTokenDTO().getShowToken();
+        Show s = this.showRepository.findByShowToken(showToken)
+                .orElseThrow(() -> new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name()));
+        Query query = Query.query(Criteria.where("showToken").is(showToken));
+
+        // Cancel pending: drop the OVERRIDE request + override vote. There's one
+        // "next override" slot, shared with the PSA override.
+        if (StringUtils.isBlank(name)) {
+            this.mongoTemplate.updateFirst(query, new Update()
+                    .pull("requests", new Document("viewerRequested", OVERRIDE_REQUEST_MARKER))
+                    .pull("votes", new Document("ownerOverride", true)), Show.class);
+            return true;
+        }
+
+        // Validate: must be an active sequence on the FPP-synced list.
+        Optional<Sequence> sequenceMatch = (s.getSequences() == null) ? Optional.empty() : s.getSequences().stream()
+                .filter(seq -> seq != null && StringUtils.equalsIgnoreCase(seq.getName(), name)
+                        && Boolean.TRUE.equals(seq.getActive()))
+                .findFirst();
+        if (sequenceMatch.isEmpty()) {
+            throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());
+        }
+        Sequence seq = sequenceMatch.get();
+
+        // Single-shot dedup: pull any prior override request + vote so repeated
+        // clicks don't pile up ($pull and $push can't touch the same path in one
+        // update, so the push is a second step).
+        this.mongoTemplate.updateFirst(query, new Update()
+                .pull("requests", new Document("viewerRequested", OVERRIDE_REQUEST_MARKER))
+                .pull("votes", new Document("ownerOverride", true)), Show.class);
+
+        // Inject the override. ownerOverride=true so the cancel/dedup paths find it.
+        Update inject = new Update().push("votes", Vote.builder()
+                .sequence(seq)
+                .ownerVoted(false)
+                .ownerOverride(true)
+                .systemInjected(true)
+                .lastVoteTime(LocalDateTime.now())
+                .votes(FORCE_TO_TOP_VOTES)
+                .build());
+
+        ViewerControlMode mode = s.getPreferences() != null ? s.getPreferences().getViewerControlMode() : null;
+        if (mode != ViewerControlMode.VOTING) {
+            // JUKEBOX (default): front of queue (min existing non-override position - 1).
+            int position = 1;
+            if (s.getRequests() != null) {
+                Optional<Integer> minPosition = s.getRequests().stream()
+                        .filter(r -> r != null
+                                && !StringUtils.equals(r.getViewerRequested(), OVERRIDE_REQUEST_MARKER))
+                        .map(Request::getPosition)
+                        .filter(Objects::nonNull)
+                        .min(Integer::compareTo);
+                if (minPosition.isPresent()) {
+                    position = minPosition.get() - 1;
+                }
+            }
+            inject.push("requests", Request.builder()
+                    .sequence(seq)
+                    .ownerRequested(false)
+                    .viewerRequested(OVERRIDE_REQUEST_MARKER)
+                    .position(position)
+                    .build());
+        }
+        this.mongoTemplate.updateFirst(query, inject, Show.class);
+        return true;
+    }
+
     // PSA-v2 PR-5 (Q6) — leader sequence played right before each
     // viewer-requested song. Null/empty clears the field. We don't
     // validate that the name matches an FPP sequence today — the
@@ -657,6 +756,28 @@ public class GraphQLMutationService {
     public Boolean updateSequences(List<Sequence> sequences) {
         Optional<Show> show = this.showRepository.findByShowToken(authUtil.getTokenDTO().getShowToken());
         if(show.isPresent()) {
+            // #163 — playsToday is the plugins-api per-song nightly counter,
+            // written on play and never by the operator (not in the sequence
+            // input). The full-array replace below would null it for every song,
+            // so preserve each incoming sequence's value from the existing doc by
+            // matching on name (case-insensitive, consistent with the rest of the
+            // codebase). Net-new sequences with no prior match keep their value.
+            List<Sequence> existingSequences = show.get().getSequences();
+            Map<String, Integer> playsTodayByName = existingSequences == null
+                    ? Map.of()
+                    : existingSequences.stream()
+                            .filter(seq -> seq != null && seq.getName() != null && seq.getPlaysToday() != null)
+                            .collect(Collectors.toMap(
+                                    seq -> seq.getName().toLowerCase(Locale.ROOT),
+                                    Sequence::getPlaysToday,
+                                    (a, b) -> a));
+            for (Sequence incoming : sequences) {
+                if (incoming == null || incoming.getName() == null) continue;
+                Integer existingPlaysToday = playsTodayByName.get(incoming.getName().toLowerCase(Locale.ROOT));
+                if (existingPlaysToday != null) {
+                    incoming.setPlaysToday(existingPlaysToday);
+                }
+            }
             Set<Sequence> sequencesSet = new HashSet<>(sequences);
             show.get().setSequences(sequencesSet.stream().toList());
             this.showRepository.save(show.get());
@@ -665,10 +786,67 @@ public class GraphQLMutationService {
         throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());
     }
 
+    private <T> List<String> namesOf(List<T> items, Function<T, String> getName) {
+        if (items == null) {
+            return List.of();
+        }
+        return items.stream().filter(Objects::nonNull).map(getName).filter(Objects::nonNull).toList();
+    }
+
+    // #128 — cascade-clear on delete. When a category/group is removed (present
+    // in the existing list but absent from the incoming one), blank the matching
+    // reference on its member sequences so the delete doesn't leave orphans.
+    // Orphaned sequence.group memberships otherwise VANISH from the viewer
+    // (replaceSequencesWithSequenceGroups drops a grouped sequence whose group
+    // has no entity); orphaned categories lose their managed limit. Free-text
+    // labels never promoted to an entity (not in the existing list) are
+    // preserved. Renames stay client-side — the membership update follows this
+    // save, so a renamed entry briefly clears here and is re-set to the new name.
+    private void clearRemovedMemberships(Show show, Collection<String> existingNames,
+            Collection<String> incomingNames, Function<Sequence, String> getRef,
+            BiConsumer<Sequence, String> setRef) {
+        Set<String> incoming = incomingNames.stream().filter(Objects::nonNull)
+                .map(name -> name.toLowerCase(Locale.ROOT)).collect(Collectors.toSet());
+        Set<String> removed = existingNames.stream().filter(Objects::nonNull)
+                .map(name -> name.toLowerCase(Locale.ROOT))
+                .filter(name -> !incoming.contains(name)).collect(Collectors.toSet());
+        if (removed.isEmpty() || show.getSequences() == null) {
+            return;
+        }
+        show.getSequences().stream().filter(Objects::nonNull).forEach(seq -> {
+            String ref = getRef.apply(seq);
+            if (ref != null && removed.contains(ref.toLowerCase(Locale.ROOT))) {
+                setRef.accept(seq, null);
+            }
+        });
+    }
+
     public Boolean updateSequenceGroups(List<SequenceGroup> sequenceGroups) {
         Optional<Show> show = this.showRepository.findByShowToken(authUtil.getTokenDTO().getShowToken());
         if(show.isPresent()) {
+            // #128 — cascade-clear sequence.group for any group removed in this update.
+            this.clearRemovedMemberships(show.get(),
+                    this.namesOf(show.get().getSequenceGroups(), SequenceGroup::getName),
+                    this.namesOf(sequenceGroups, SequenceGroup::getName),
+                    Sequence::getGroup, Sequence::setGroup);
             show.get().setSequenceGroups(sequenceGroups);
+            this.showRepository.save(show.get());
+            return true;
+        }
+        throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());
+    }
+
+    // PRD-009 #128, ADR-3 — full-array replace, mirroring updateSequenceGroups,
+    // with a server-side cascade-clear of Sequence.category on category delete.
+    public Boolean updateCategories(List<Category> categories) {
+        Optional<Show> show = this.showRepository.findByShowToken(authUtil.getTokenDTO().getShowToken());
+        if(show.isPresent()) {
+            // #128 — cascade-clear sequence.category for any category removed here.
+            this.clearRemovedMemberships(show.get(),
+                    this.namesOf(show.get().getCategories(), Category::getName),
+                    this.namesOf(categories, Category::getName),
+                    Sequence::getCategory, Sequence::setCategory);
+            show.get().setCategories(categories);
             this.showRepository.save(show.get());
             return true;
         }

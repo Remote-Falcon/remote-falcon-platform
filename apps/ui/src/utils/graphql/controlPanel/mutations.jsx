@@ -178,6 +178,15 @@ export const SET_NEXT_PSA_OVERRIDE = gql`
   }
 `;
 
+// FORCE_NEXT_SONG (#167) — force any active song to play next, stat-neutral
+// (top-priority ownerOverride injection; doesn't inflate vote stats). Pass
+// null to cancel a pending override.
+export const FORCE_NEXT_SONG = gql`
+  mutation ($name: String) @api(name: controlPanel) {
+    forceNextSong(name: $name)
+  }
+`;
+
 export const SET_REQUEST_LEADER_SEQUENCE = gql`
   mutation ($name: String) @api(name: controlPanel) {
     setRequestLeaderSequence(name: $name)
@@ -199,6 +208,12 @@ export const UPDATE_SEQUENCES = gql`
 export const UPDATE_SEQUENCE_GROUPS = gql`
   mutation ($sequenceGroups: [SequenceGroupInput]!) @api(name: controlPanel) {
     updateSequenceGroups(sequenceGroups: $sequenceGroups)
+  }
+`;
+
+export const UPDATE_CATEGORIES = gql`
+  mutation ($categories: [CategoryInput]!) @api(name: controlPanel) {
+    updateCategories(categories: $categories)
   }
 `;
 

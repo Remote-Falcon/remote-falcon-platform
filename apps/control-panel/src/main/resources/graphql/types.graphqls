@@ -17,6 +17,7 @@ type Show {
     preferences: Preference
     sequences: [Sequence]
     sequenceGroups: [SequenceGroup]
+    categories: [Category]
     psaSequences: [PsaSequence]
     pages: [Page]
     requests: [Request]
@@ -100,13 +101,18 @@ type Preference {
     showLatitude: Float
     showLongitude: Float
     allowedRadius: Float
+    additionalGpsLocations: [GpsLocation]
     checkIfVoted: Boolean
     checkIfRequested: Boolean
     psaEnabled: Boolean
     psaFrequency: Int
     jukeboxRequestLimit: Int
+    dailyVoteLimit: Int
     locationCode: Int
     hideSequenceCount: Int
+    # #163 per-night play cap — max times any single song plays per show-night
+    # (0/null = off). Enforced at play-selection in plugins-api.
+    nightlyPlayLimit: Int
     makeItSnow: Boolean
     managePsa: Boolean
     sequencesPlayed: Int
@@ -115,6 +121,8 @@ type Preference {
     showOnMap: Boolean
     selfHostedRedirectUrl: String
     blockedViewerIps: [String]
+    votingExemptIps: [String]
+    statsExcludedIps: [String]
     notificationPreferences: NotificationPreference
     analyticsBetaOptIn: Boolean
     wrappedPublic: Boolean
@@ -151,6 +159,19 @@ type Sequence {
 type SequenceGroup {
     name: String
     visibilityCount: Int
+}
+
+type GpsLocation {
+    latitude: Float
+    longitude: Float
+}
+
+type Category {
+    name: String
+    requestLimit: Int
+    antiConsecutive: Boolean
+    color: String
+    displayOrder: Int
 }
 
 type Request {

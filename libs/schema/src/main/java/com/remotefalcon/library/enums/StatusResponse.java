@@ -11,7 +11,12 @@ public enum StatusResponse {
   QUEUE_FULL,
   INVALID_LOCATION,
   SEQUENCE_REQUESTED,
+  // #73 — the named sequence is temporarily unavailable: on the hide-after-play
+  // cooldown (visibilityCount > 0) or at its #163 nightly play cap. The viewer
+  // page grays these out; this is the server-side guard for clients that don't.
+  SEQUENCE_UNAVAILABLE,
   ALREADY_VOTED,
+  DAILY_VOTE_LIMIT_REACHED,
   ALREADY_REQUESTED,
   OWNER_REQUESTED,
   NAUGHTY,

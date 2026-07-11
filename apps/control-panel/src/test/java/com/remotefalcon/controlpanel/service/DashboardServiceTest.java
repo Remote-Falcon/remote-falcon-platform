@@ -519,6 +519,49 @@ class DashboardServiceTest {
     }
 
     @Test
+    void dashboardLiveStats_votesCastToday_excludesPriorEveningVotesStampedInUtc() {
+        // Regression for the #135 "votes cast today" shift (grinnallfamilylights):
+        // voting stats are stamped server-side with LocalDateTime.now() on a UTC
+        // JVM, so a vote cast at 9pm the PREVIOUS evening (America/Chicago) is
+        // stored as an early-morning UTC wall-clock reading. The old converter
+        // re-labelled those raw UTC digits as local time, counting last night's
+        // votes as "today". The fixed converter interprets them as UTC and
+        // converts by instant, so they fall on the correct local day.
+        ZoneOffset utc = ZoneOffset.UTC;
+        LocalDate today = ZonedDateTime.now(TZ_ID).toLocalDate();
+        // Two votes from YESTERDAY evening in America/Chicago, stored as the UTC
+        // wall-clock of that real instant (what the viewer service persists).
+        LocalDateTime yesterday9pm = LocalDateTime.ofInstant(
+                today.minusDays(1).atTime(21, 0).atZone(TZ_ID).toInstant(), utc);
+        LocalDateTime yesterday1030pm = LocalDateTime.ofInstant(
+                today.minusDays(1).atTime(22, 30).atZone(TZ_ID).toInstant(), utc);
+        // One vote from TODAY midday.
+        LocalDateTime todayNoon = LocalDateTime.ofInstant(
+                today.atTime(12, 0).atZone(TZ_ID).toInstant(), utc);
+
+        Show show = Show.builder().showToken(SHOW_TOKEN)
+                .votes(new ArrayList<>())
+                .sequences(new ArrayList<>())
+                .playingNow("").playingNext("").playingNextFromSchedule("")
+                .stats(Stat.builder()
+                        .jukebox(new ArrayList<>())
+                        .voting(new ArrayList<>(List.of(
+                                Stat.Voting.builder().name("Carol").dateTime(yesterday9pm).build(),
+                                Stat.Voting.builder().name("Wizards").dateTime(yesterday1030pm).build(),
+                                Stat.Voting.builder().name("Carol").dateTime(todayNoon).build())))
+                        .build())
+                .build();
+        stubAuth(SHOW_TOKEN);
+        when(showRepository.findByShowTokenForLiveStats(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        DashboardLiveStatsResponse r = service.dashboardLiveStats(0L, 0L, TZ);
+
+        // Only today's midday vote counts. Pre-fix this returned 3 — both
+        // prior-evening votes leaked across the local-midnight boundary.
+        assertThat(r.getTotalVotes()).isEqualTo(1);
+    }
+
+    @Test
     void dashboardLiveStats_throws_whenShowMissing() {
         stubAuth(SHOW_TOKEN);
         when(showRepository.findByShowTokenForLiveStats(SHOW_TOKEN)).thenReturn(Optional.empty());

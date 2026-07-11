@@ -81,6 +81,19 @@ const jukeboxQueueNode = (value) => ({
   }
 });
 
+// #162 — operator-placed {VOTES_REMAINING} variable. Filled with "X of N votes
+// left this show" in voting mode when a daily cap is set; empty otherwise (no
+// cap, jukebox mode, or a voting-exempt IP) so the slot collapses.
+const votesRemainingNode = (value) => ({
+  replaceChildren: true,
+  shouldProcessNode(node) {
+    return node && node.children && node.children[0] && node.children[0].data && node.children[0].data.trim() === '{VOTES_REMAINING}';
+  },
+  processNode() {
+    return value;
+  }
+});
+
 const afterHoursNode = (value) => ({
   replaceChildren: true,
   shouldProcessNode(node) {
@@ -171,7 +184,8 @@ export const processingInstructions = (
   nextSequence,
   queueDepth,
   locationCode,
-  nowPlayingTimer
+  nowPlayingTimer,
+  votesRemaining
 ) => {
   let processedNodes = [];
   if (!viewerControlEnabled) {
@@ -179,6 +193,7 @@ export const processingInstructions = (
       locationCodeNode(<></>),
       sequencesNode(<></>),
       votesNode(<></>),
+      votesRemainingNode(<></>),
       nowPlayingNode(<></>),
       nowPlayingTimerNode(<></>),
       nextSequenceNode(<></>),
@@ -195,6 +210,7 @@ export const processingInstructions = (
     processedNodes = [
       locationCodeNode(<>{locationCode}</>),
       sequencesNode(<>{sequences}</>),
+      votesRemainingNode(<></>),
       nowPlayingNode(<>{nowPlaying}</>),
       nowPlayingTimerNode(<>{nowPlayingTimer}</>),
       nextSequenceNode(<>{nextSequence}</>),
@@ -211,6 +227,7 @@ export const processingInstructions = (
       locationCodeNode(<>{locationCode}</>),
       sequencesNode(<>{sequences}</>),
       votesNode(<></>),
+      votesRemainingNode(<>{votesRemaining}</>),
       nowPlayingNode(<>{nowPlaying}</>),
       nowPlayingTimerNode(<>{nowPlayingTimer}</>),
       nextSequenceNode(<>{nextSequence}</>),
@@ -274,6 +291,25 @@ export const viewerPageMessageElements = {
     current: 'id="invalidLocationCode" style="display: none"',
     block: 'id="invalidLocationCode" style="display: block"',
     none: 'id="invalidLocationCode" style="display: none"'
+  },
+  // #162 — shown when the viewer has used up their daily vote allotment
+  // (server DAILY_VOTE_LIMIT_REACHED). Operator templates must add an
+  // id="dailyVoteLimitReached" element for this to render.
+  dailyVoteLimitReached: {
+    element: /id="dailyVoteLimitReached"/g,
+    current: 'id="dailyVoteLimitReached" style="display: none"',
+    block: 'id="dailyVoteLimitReached" style="display: block"',
+    none: 'id="dailyVoteLimitReached" style="display: none"'
+  },
+  // #73/#163 — shown when the viewer requests/votes a sequence that is on its
+  // hide-after-play cooldown or at its nightly play cap (server
+  // SEQUENCE_UNAVAILABLE). Operator templates must add an
+  // id="sequenceUnavailable" element for this to render.
+  sequenceUnavailable: {
+    element: /id="sequenceUnavailable"/g,
+    current: 'id="sequenceUnavailable" style="display: none"',
+    block: 'id="sequenceUnavailable" style="display: block"',
+    none: 'id="sequenceUnavailable" style="display: none"'
   }
 };
 

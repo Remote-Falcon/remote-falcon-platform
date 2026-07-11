@@ -8,6 +8,8 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.eclipse.microprofile.graphql.Type;
 
+import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Set;
 
 @Type
@@ -25,13 +27,35 @@ public class Preference {
     private Float showLatitude;
     private Float showLongitude;
     private Float allowedRadius;
+    private List<GpsLocation> additionalGpsLocations;
     private Boolean checkIfVoted;
     private Boolean checkIfRequested;
     private Boolean psaEnabled;
     private Integer psaFrequency;
     private Integer jukeboxRequestLimit;
+    private Integer dailyVoteLimit;
     private Integer locationCode;
     private Integer hideSequenceCount;
+    // #163 per-night play cap (PRD-009, ADR-3): max times any single song may
+    // play per show-night (0/null = off). Enforced at play-selection in
+    // plugins-api; the per-sequence tally lives on Sequence.playsToday and
+    // resets lazily on the first play of a new night.
+    private Integer nightlyPlayLimit;
+    // Timestamp of the last counted play — drives the #163 nightly reset.
+    // A multi-hour gap since this marks a new show-night (timezone-free; a
+    // calendar reset at midnight UTC would fall mid-show for US operators).
+    private LocalDateTime lastPlayCountedAt;
+    // #162 votes-left — session-anchored daily-vote window (PRD-009). The cap
+    // and the viewer "X of N votes left this show" countdown both count votes
+    // cast since votingWindowStartedAt rather than since a calendar day, so
+    // they're timezone-free (a UTC-midnight reset falls mid-show for US
+    // operators) and don't depend on the date/time foundation (PRD-011). The
+    // window rolls forward when the operator enables viewer control (plugins-api)
+    // or, as a fallback, on the first vote after a multi-hour gap — a new
+    // show-night. lastVoteCountedAt drives that gap test, exactly parallel to
+    // lastPlayCountedAt for #163.
+    private LocalDateTime votingWindowStartedAt;
+    private LocalDateTime lastVoteCountedAt;
     private Boolean makeItSnow;
     private Boolean managePsa;
     // PSA-v2 Q4 — when true, the cadence-tick PSA injection bursts ALL enabled
@@ -44,6 +68,8 @@ public class Preference {
     private Boolean showOnMap;
     private String selfHostedRedirectUrl;
     private Set<String> blockedViewerIps;
+    private Set<String> votingExemptIps;
+    private Set<String> statsExcludedIps;
     private NotificationPreference notificationPreferences;
     // PRD Phase 1 — beta opt-in for the experimental analytics views
     // (Audience tab Concurrent/Dwell/Returning/Regulars + future P2 work).

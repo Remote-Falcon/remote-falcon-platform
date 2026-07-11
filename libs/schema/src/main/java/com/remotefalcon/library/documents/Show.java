@@ -49,6 +49,7 @@ public class Show {
     private Preference preferences;
     private List<Sequence> sequences;
     private List<SequenceGroup> sequenceGroups;
+    private List<Category> categories;
     private List<PsaSequence> psaSequences;
     private List<ViewerPage> pages;
     private Stat stats;

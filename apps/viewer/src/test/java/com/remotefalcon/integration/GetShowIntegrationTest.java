@@ -111,9 +111,13 @@ class GetShowIntegrationTest {
         .post("/graphql")
         .then()
         .statusCode(200)
-        .body("data.getShow.sequences", hasSize(2))  // Only active sequences with visibilityCount = 0
+        // #73: active sequences, sorted by order. The non-grouped cooldown song
+        // ("Hidden Song", visibilityCount > 0) is now KEPT so the viewer page can
+        // gray it out; only the inactive song is filtered.
+        .body("data.getShow.sequences", hasSize(3))
         .body("data.getShow.sequences[0].name", equalTo("Jingle Bells"))
-        .body("data.getShow.sequences[1].name", equalTo("Silent Night"));
+        .body("data.getShow.sequences[1].name", equalTo("Silent Night"))
+        .body("data.getShow.sequences[2].name", equalTo("Hidden Song"));
   }
 
   @Test

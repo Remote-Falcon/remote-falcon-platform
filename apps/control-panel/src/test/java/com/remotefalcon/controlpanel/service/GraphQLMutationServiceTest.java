@@ -12,6 +12,7 @@ import com.remotefalcon.library.documents.Show;
 import com.remotefalcon.library.enums.NotificationType;
 import com.remotefalcon.library.enums.StatusResponse;
 import com.remotefalcon.library.enums.ViewerControlMode;
+import com.remotefalcon.library.models.Category;
 import com.remotefalcon.library.models.Preference;
 import com.remotefalcon.library.models.PsaSequence;
 import com.remotefalcon.library.models.Request;
@@ -424,6 +425,56 @@ class GraphQLMutationServiceTest {
                 .hasMessage(StatusResponse.UNEXPECTED_ERROR.name());
     }
 
+    @Test
+    void updatePreferences_preservesLastPlayCountedAt_andPersistsNightlyPlayLimit() {
+        // #163 — lastPlayCountedAt is the plugins-api nightly-reset clock, not in
+        // PreferenceInput, so the UI sends it null. The mutation must preserve the
+        // existing value (nulling it would reset every song's nightly tally
+        // mid-show), while the operator-set nightlyPlayLimit flows through.
+        stubAuth();
+        java.time.LocalDateTime clock = java.time.LocalDateTime.now().minusHours(2);
+        Show show = Show.builder().showToken(SHOW_TOKEN)
+                .preferences(Preference.builder().lastPlayCountedAt(clock).nightlyPlayLimit(1).build())
+                .build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        // As the UI sends it: nightlyPlayLimit set, lastPlayCountedAt absent.
+        Preference newPrefs = Preference.builder().nightlyPlayLimit(3).build();
+        service.updatePreferences(newPrefs);
+
+        assertThat(newPrefs.getLastPlayCountedAt()).isEqualTo(clock);
+        assertThat(show.getPreferences().getNightlyPlayLimit()).isEqualTo(3);
+    }
+
+    @Test
+    void updatePreferences_preservesVotingWindowClocks_andPersistsDailyVoteLimit() {
+        // #162 — votingWindowStartedAt and lastVoteCountedAt are the server-managed
+        // vote-window clocks written by the viewer on votes, not in PreferenceInput,
+        // so the UI sends them null. The mutation must preserve the existing values
+        // (nulling them would open a fresh window and reset every viewer's daily-vote
+        // cap + "votes left" countdown to full), while operator-set dailyVoteLimit
+        // flows through.
+        stubAuth();
+        java.time.LocalDateTime windowStart = java.time.LocalDateTime.now().minusHours(3);
+        java.time.LocalDateTime lastVote = java.time.LocalDateTime.now().minusMinutes(10);
+        Show show = Show.builder().showToken(SHOW_TOKEN)
+                .preferences(Preference.builder()
+                        .votingWindowStartedAt(windowStart)
+                        .lastVoteCountedAt(lastVote)
+                        .dailyVoteLimit(1)
+                        .build())
+                .build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        // As the UI sends it: dailyVoteLimit set, the #162 clocks absent.
+        Preference newPrefs = Preference.builder().dailyVoteLimit(5).build();
+        service.updatePreferences(newPrefs);
+
+        assertThat(newPrefs.getVotingWindowStartedAt()).isEqualTo(windowStart);
+        assertThat(newPrefs.getLastVoteCountedAt()).isEqualTo(lastVote);
+        assertThat(show.getPreferences().getDailyVoteLimit()).isEqualTo(5);
+    }
+
     // ---- updatePages / updatePsaSequences / updateSequences / updateSequenceGroups ----
 
     @Test
@@ -607,6 +658,87 @@ class GraphQLMutationServiceTest {
         verify(showRepository, never()).save(any(Show.class));
     }
 
+    // ---- #167 forceNextSong (arbitrary-song force-to-top, stat-neutral) ----
+
+    @Test
+    void forceNextSong_jukebox_injectsAtFront_withTopPriorityOverride() {
+        stubAuth();
+        Show show = Show.builder().showToken(SHOW_TOKEN)
+                .preferences(Preference.builder().viewerControlMode(ViewerControlMode.JUKEBOX).build())
+                .sequences(new ArrayList<>(List.of(
+                        Sequence.builder().name("Dedication").index(7).active(true).build())))
+                .requests(new ArrayList<>(List.of(
+                        Request.builder().position(2).sequence(Sequence.builder().name("Existing").build()).build())))
+                .votes(new ArrayList<>())
+                .build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        assertThat(service.forceNextSong("Dedication")).isTrue();
+
+        ArgumentCaptor<Update> updates = ArgumentCaptor.forClass(Update.class);
+        verify(mongoTemplate, times(2)).updateFirst(any(Query.class), updates.capture(), eq(Show.class));
+        Update inject = updates.getAllValues().get(1);
+        Request pushedRequest = (Request) op(inject, "$push").get("requests");
+        assertThat(pushedRequest.getViewerRequested()).isEqualTo("OVERRIDE");
+        assertThat(pushedRequest.getPosition()).isEqualTo(1); // min(2) - 1
+        Vote pushedVote = (Vote) op(inject, "$push").get("votes");
+        assertThat(pushedVote.getVotes()).isEqualTo(2100); // above group(2099)/leader(2001)/PSA(2000)
+        assertThat(pushedVote.getOwnerOverride()).isTrue();
+        verify(showRepository, never()).save(any(Show.class));
+    }
+
+    @Test
+    void forceNextSong_voting_addsTopPriorityOverrideVote_noRequest() {
+        stubAuth();
+        Show show = Show.builder().showToken(SHOW_TOKEN)
+                .preferences(Preference.builder().viewerControlMode(ViewerControlMode.VOTING).build())
+                .sequences(new ArrayList<>(List.of(
+                        Sequence.builder().name("Dedication").index(7).active(true).build())))
+                .requests(new ArrayList<>())
+                .votes(new ArrayList<>())
+                .build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        assertThat(service.forceNextSong("Dedication")).isTrue();
+
+        ArgumentCaptor<Update> updates = ArgumentCaptor.forClass(Update.class);
+        verify(mongoTemplate, times(2)).updateFirst(any(Query.class), updates.capture(), eq(Show.class));
+        Update inject = updates.getAllValues().get(1);
+        Vote pushedVote = (Vote) op(inject, "$push").get("votes");
+        assertThat(pushedVote.getVotes()).isEqualTo(2100);
+        assertThat(pushedVote.getSequence().getName()).isEqualTo("Dedication");
+        assertThat(pushedVote.getOwnerOverride()).isTrue();
+        assertThat(op(inject, "$push").containsKey("requests")).isFalse();
+    }
+
+    @Test
+    void forceNextSong_unknownOrInactiveSequence_throws() {
+        stubAuth();
+        Show show = Show.builder().showToken(SHOW_TOKEN)
+                .preferences(Preference.builder().viewerControlMode(ViewerControlMode.VOTING).build())
+                .sequences(new ArrayList<>(List.of(
+                        Sequence.builder().name("Inactive").index(1).active(false).build())))
+                .build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        assertThatThrownBy(() -> service.forceNextSong("Ghost")).isInstanceOf(RuntimeException.class);
+        assertThatThrownBy(() -> service.forceNextSong("Inactive")).isInstanceOf(RuntimeException.class);
+    }
+
+    @Test
+    void forceNextSong_blank_cancelsPendingOverride() {
+        stubAuth();
+        Show show = Show.builder().showToken(SHOW_TOKEN).build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        assertThat(service.forceNextSong(null)).isTrue();
+
+        ArgumentCaptor<Update> update = ArgumentCaptor.forClass(Update.class);
+        verify(mongoTemplate, times(1)).updateFirst(any(Query.class), update.capture(), eq(Show.class));
+        assertThat(op(update.getValue(), "$pull")).containsKey("requests");
+        assertThat(op(update.getValue(), "$pull")).containsKey("votes");
+    }
+
     @Test
     void setNextPsaOverride_replacesPriorOverride_onSecondCall_latestClickWins() {
         // Click PSA A → click PSA B. Single-shot: each call's dedup step pulls
@@ -754,6 +886,40 @@ class GraphQLMutationServiceTest {
     }
 
     @Test
+    void updateSequences_preservesPlaysToday_fromExistingByName() {
+        // #163 — playsToday is the plugins-api per-song nightly counter, not in the
+        // sequence input, so the UI sends it null. The full-array replace must
+        // preserve each song's existing value (matched case-insensitively by name)
+        // so saving the sequence list mid-show (e.g. assigning a category via the
+        // #128 Categories UI) doesn't reset every song's nightly tally. Net-new
+        // sequences with no prior match keep whatever they came in with (null).
+        stubAuth();
+        Show show = Show.builder().showToken(SHOW_TOKEN)
+                .sequences(new ArrayList<>(List.of(
+                        Sequence.builder().name("Carol").playsToday(3).build(),
+                        Sequence.builder().name("Sleigh").playsToday(1).build())))
+                .build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        // As the UI sends it: playsToday absent; "carol" differs in case to prove
+        // the match is case-insensitive; "Frosty" is net-new (no prior tally).
+        List<Sequence> incoming = new ArrayList<>(List.of(
+                Sequence.builder().name("carol").category("Christmas").build(),
+                Sequence.builder().name("Sleigh").category("Christmas").build(),
+                Sequence.builder().name("Frosty").category("Christmas").build()));
+        service.updateSequences(incoming);
+
+        // Build the lookup with a null-tolerant put (Collectors.toMap rejects the
+        // null playsToday that net-new "Frosty" legitimately carries).
+        java.util.Map<String, Integer> savedByName = new java.util.HashMap<>();
+        show.getSequences().forEach(s ->
+                savedByName.put(s.getName().toLowerCase(java.util.Locale.ROOT), s.getPlaysToday()));
+        assertThat(savedByName.get("carol")).isEqualTo(3);  // preserved (case-insensitive match)
+        assertThat(savedByName.get("sleigh")).isEqualTo(1); // preserved
+        assertThat(savedByName.get("frosty")).isNull();     // net-new, no prior tally
+    }
+
+    @Test
     void updateSequenceGroups_setsListAndSaves() {
         stubAuth();
         Show show = Show.builder().showToken(SHOW_TOKEN).build();
@@ -762,6 +928,63 @@ class GraphQLMutationServiceTest {
         List<SequenceGroup> groups = List.of(SequenceGroup.builder().name("g1").build());
         assertThat(service.updateSequenceGroups(groups)).isTrue();
         assertThat(show.getSequenceGroups()).isEqualTo(groups);
+    }
+
+    @Test
+    void updateCategories_setsListAndSaves() {
+        stubAuth();
+        Show show = Show.builder().showToken(SHOW_TOKEN).build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        List<Category> categories = List.of(Category.builder().name("Christmas").requestLimit(5).build());
+        assertThat(service.updateCategories(categories)).isTrue();
+        assertThat(show.getCategories()).isEqualTo(categories);
+    }
+
+    @Test
+    void updateCategories_deleteCategory_cascadeClearsOnlyRemovedMembers() {
+        stubAuth();
+        Sequence s1 = Sequence.builder().name("s1").category("Christmas").build();
+        Sequence s2 = Sequence.builder().name("s2").category("NonChristmas").build();
+        Sequence s3 = Sequence.builder().name("s3").category("Freetext").build(); // never a managed entity
+        Show show = Show.builder().showToken(SHOW_TOKEN)
+                .categories(new ArrayList<>(List.of(
+                        Category.builder().name("Christmas").build(),
+                        Category.builder().name("NonChristmas").build())))
+                .sequences(new ArrayList<>(List.of(s1, s2, s3)))
+                .build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        // Delete "NonChristmas" (incoming keeps only Christmas).
+        service.updateCategories(new ArrayList<>(List.of(Category.builder().name("Christmas").build())));
+
+        assertThat(s1.getCategory()).isEqualTo("Christmas"); // kept (still a category)
+        assertThat(s2.getCategory()).isNull();               // cascade-cleared (removed)
+        assertThat(s3.getCategory()).isEqualTo("Freetext");  // free-text label preserved
+        verify(showRepository).save(show);
+    }
+
+    @Test
+    void updateSequenceGroups_deleteGroup_cascadeClearsOnlyRemovedMembers() {
+        stubAuth();
+        Sequence s1 = Sequence.builder().name("s1").group("GroupA").build();
+        Sequence s2 = Sequence.builder().name("s2").group("GroupB").build();
+        Sequence s3 = Sequence.builder().name("s3").group("Freetext").build();
+        Show show = Show.builder().showToken(SHOW_TOKEN)
+                .sequenceGroups(new ArrayList<>(List.of(
+                        SequenceGroup.builder().name("GroupA").build(),
+                        SequenceGroup.builder().name("GroupB").build())))
+                .sequences(new ArrayList<>(List.of(s1, s2, s3)))
+                .build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        // Delete "GroupB" — its members must become ungrouped, not orphaned/vanished.
+        service.updateSequenceGroups(new ArrayList<>(List.of(SequenceGroup.builder().name("GroupA").build())));
+
+        assertThat(s1.getGroup()).isEqualTo("GroupA"); // kept
+        assertThat(s2.getGroup()).isNull();            // cascade-cleared
+        assertThat(s3.getGroup()).isEqualTo("Freetext"); // free-text label preserved
+        verify(showRepository).save(show);
     }
 
     // ---- deleteAccount ----
