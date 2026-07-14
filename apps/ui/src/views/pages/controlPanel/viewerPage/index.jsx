@@ -17,7 +17,6 @@ import {
   TextField
 } from '@mui/material';
 import { IconBrush, IconPlus } from '@tabler/icons-react';
-import { HtmlValidate } from 'html-validate';
 import _ from 'lodash';
 import { Link as RouterLink } from 'react-router-dom';
 
@@ -36,27 +35,10 @@ import { GET_SHOW } from '../../../../utils/graphql/controlPanel/queries';
 import { showAlert } from '../../globalPageHelpers';
 
 import EditorPane from './EditorPane';
+import { htmlValidator, isException } from './htmlValidator';
 import PageTabsBar from './PageTabsBar';
 import PreviewPane from './PreviewPane';
 import ProblemsPanel from './ProblemsPanel';
-
-// html-validate runs in the browser; messages whose `message` includes
-// any of these substrings are filtered out. They're either rules we
-// intentionally bend (inline styles, no end-tag for <br>) or noise from
-// owner-authored HTML that the platform doesn't enforce.
-const validationExceptions = [
-  'instructional-text',
-  'Trailing whitespace',
-  'Inline style is not allowed',
-  'End tag for <br> must be omitted',
-  'Anchor link must have a text describing its purpose',
-  'Expected omitted end tag <link> instead of self-closing element <link/>',
-  '<img> is missing required "alt" attribute',
-  'Expected omitted end tag <br> instead of self-closing element <br/>'
-];
-
-const htmlValidator = new HtmlValidate({ extends: ['html-validate:recommended'] });
-const isException = (message) => validationExceptions.some((ex) => message.includes(ex));
 
 // Max viewer pages per show. Local-env override matches the speeddial
 // behavior we're replacing.
