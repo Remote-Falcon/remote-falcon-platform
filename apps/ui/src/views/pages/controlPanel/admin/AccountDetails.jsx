@@ -14,6 +14,7 @@ import { setShow } from '../../../../store/slices/show';
 import MainCard from '../../../../ui-component/cards/MainCard';
 import { useDispatch } from '../../../../store';
 import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
+import safeStorage from '../../../../utils/safeStorage';
 import { adminResetMfaService } from '../../../../services/controlPanel/mutations.service';
 import { ADMIN_UPDATE_SHOW, ADMIN_RESET_MFA } from '../../../../utils/graphql/controlPanel/mutations';
 import { GET_SHOW_BY_SHOW_NAME, IMPERSONATE, GET_SHOW, GET_SHOWS_AUTO_SUGGEST } from '../../../../utils/graphql/controlPanel/queries';
@@ -123,7 +124,7 @@ const AccountDetails = () => {
 
       const showData = { ...showResult?.data?.getShow };
       if (!_.isEmpty(showData)) {
-        localStorage.setItem('isImpersonating', true);
+        safeStorage.setItem('isImpersonating', true);
         // Support audit: who impersonated whom and when. Actor is the
         // current posthog distinct_id (admin's identify from login);
         // target subdomain is captured as an event property.

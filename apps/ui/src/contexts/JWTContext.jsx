@@ -14,6 +14,7 @@ import { startLoginAction, startLogoutAction } from '../store/slices/show';
 import Loader from '../ui-component/Loader';
 import axios from '../utils/axios';
 import { StatusResponse } from '../utils/enum';
+import safeStorage from '../utils/safeStorage';
 import { SIGN_UP, VERIFY_EMAIL, FORGOT_PASSWORD, RESET_PASSWORD } from '../utils/graphql/controlPanel/mutations';
 import { SIGN_IN, GET_SHOW, VERIFY_MFA } from '../utils/graphql/controlPanel/queries';
 import { trackPosthogEvent } from '../utils/analytics/posthog';
@@ -29,32 +30,32 @@ const verifyToken = (serviceToken) => {
 
 export const setSession = (serviceToken) => {
   if (serviceToken) {
-    localStorage.setItem('serviceToken', serviceToken);
+    safeStorage.setItem('serviceToken', serviceToken);
     setGraphqlHeaders(serviceToken);
     axios.defaults.headers.common.Authorization = `Bearer ${serviceToken}`;
   } else {
-    localStorage.removeItem('serviceToken');
+    safeStorage.removeItem('serviceToken');
     setGraphqlHeaders(null);
     delete axios.defaults.headers.common.Authorization;
   }
 
-  const isImpersonating = localStorage.getItem('isImpersonating');
+  const isImpersonating = safeStorage.getItem('isImpersonating');
   if(isImpersonating) {
-    const impersonationServiceToken = window.localStorage.getItem('impersonationServiceToken');
+    const impersonationServiceToken = safeStorage.getItem('impersonationServiceToken');
     setImpersonationSession(impersonationServiceToken);
   }
 };
 
 export const setImpersonationSession = (serviceToken) => {
   if (serviceToken) {
-    localStorage.setItem('impersonationServiceToken', serviceToken);
+    safeStorage.setItem('impersonationServiceToken', serviceToken);
     setGraphqlHeaders(serviceToken);
     axios.defaults.headers.common.Authorization = `Bearer ${serviceToken}`;
   }
 }
 
 export const clearImpersonationSession = () => {
-  localStorage.removeItem('impersonationServiceToken');
+  safeStorage.removeItem('impersonationServiceToken');
 }
 
 const JWTContext = createContext(null);
@@ -103,7 +104,7 @@ export const JWTProvider = ({ children }) => {
   useEffect(() => {
     const init = () => {
       try {
-        const serviceToken = window.localStorage.getItem('serviceToken');
+        const serviceToken = safeStorage.getItem('serviceToken');
         if (serviceToken && verifyToken(serviceToken)) {
           setSession(serviceToken);
           getShowQuery({

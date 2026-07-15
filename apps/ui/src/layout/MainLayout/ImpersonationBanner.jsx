@@ -6,8 +6,9 @@ import { IconAlertTriangle } from '@tabler/icons-react';
 
 import { useSelector } from '../../store';
 import { trackPosthogEvent } from '../../utils/analytics/posthog';
+import safeStorage from '../../utils/safeStorage';
 
-const readImpersonating = () => !!localStorage.getItem('isImpersonating');
+const readImpersonating = () => !!safeStorage.getItem('isImpersonating');
 
 // Fixed amber/white instead of theme-derived. The theme's warning palette
 // is pale yellow (#ffe57f) in dark mode — white text on that fails AA.
@@ -44,8 +45,8 @@ const ImpersonationBanner = () => {
       source: 'banner',
       target_show_subdomain: show?.showSubdomain
     });
-    localStorage.removeItem('isImpersonating');
-    localStorage.removeItem('impersonationServiceToken');
+    safeStorage.removeItem('isImpersonating');
+    safeStorage.removeItem('impersonationServiceToken');
     window.location.reload();
   };
 
