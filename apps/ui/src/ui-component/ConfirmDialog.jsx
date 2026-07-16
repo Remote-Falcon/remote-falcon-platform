@@ -44,7 +44,7 @@ const ConfirmDialog = ({ confirm, onClose, confirmColor = 'error' }) => {
       )}
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
-        <Button color={confirmColor} variant="contained" onClick={handleConfirm}>
+        <Button color={confirm?.confirmColor || confirmColor} variant="contained" onClick={handleConfirm}>
           {confirm?.confirmLabel || 'Confirm'}
         </Button>
       </DialogActions>
@@ -57,6 +57,9 @@ ConfirmDialog.propTypes = {
     title: PropTypes.node.isRequired,
     message: PropTypes.node,
     confirmLabel: PropTypes.string,
+    // Per-confirm override of the button color — the default stays red for
+    // the destructive flows this dialog mostly serves.
+    confirmColor: PropTypes.string,
     action: PropTypes.func
   }),
   onClose: PropTypes.func.isRequired,

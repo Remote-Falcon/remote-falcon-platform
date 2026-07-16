@@ -72,6 +72,9 @@ import {
 } from '../../../../utils/graphql/controlPanel/mutations';
 import { showAlert } from '../../globalPageHelpers';
 
+import { BULK_LOOKUP_INTERVAL_MS } from '../../../../utils/bulkMetadataLookup';
+
+import BulkMetadataLookupDialog from './BulkMetadataLookupDialog';
 import EditableCell from './EditableCell';
 import SequenceMetadataLookup from './SequenceMetadataLookup';
 
@@ -241,6 +244,10 @@ const SequencesList = () => {
   // One popover instance serves all rows — only one can be open at a time.
   const [lookup, setLookup] = useState(null);
 
+  // Bulk metadata lookup (first-match + review): target list, or null when
+  // the dialog is closed. Targets only sequences missing artist or art.
+  const [bulkLookupTargets, setBulkLookupTargets] = useState(null);
+
   // Horizontal-scroll hints — the table can be wider than the viewport with
   // long image URLs. Checkbox/drag/actions/status are sticky-pinned on the
   // left; a chevron button + a caption hint signal that more columns exist.
@@ -274,6 +281,13 @@ const SequencesList = () => {
   }, [show?.categories, show?.sequences]);
 
   const rowKey = (s) => `${s?.name}-${s?.index}`;
+
+  // Sequences the bulk metadata lookup would target: anything missing artist
+  // or album art. Fill-only — existing values are never overwritten.
+  const metadataMissing = useMemo(
+    () => (show?.sequences || []).filter((s) => s && (!s.artist || !s.imageUrl)),
+    [show?.sequences]
+  );
 
   // Coalesced autosave: each cell-blur enqueues a patch; we collapse
   // multiple patches per row into one before writing the full sequences[].
@@ -853,6 +867,30 @@ const SequencesList = () => {
                 </IconButton>
               </Tooltip>
               <Menu anchorEl={bulkAnchor} open={Boolean(bulkAnchor)} onClose={() => setBulkAnchor(null)}>
+                <MenuItem
+                  disabled={metadataMissing.length === 0}
+                  onClick={() => {
+                    setBulkAnchor(null);
+                    const targets = metadataMissing.map((s) => ({
+                      key: rowKey(s),
+                      query: s.displayName || s.name || '',
+                      sequence: s
+                    }));
+                    const estimatedMinutes = Math.max(1, Math.round((targets.length * BULK_LOOKUP_INTERVAL_MS) / 60000));
+                    setConfirm({
+                      title: `Look up metadata for ${targets.length} ${targets.length === 1 ? 'sequence' : 'sequences'}?`,
+                      message:
+                        `Lookups are paced to respect Apple's rate limit, so this will take about ` +
+                        `${estimatedMinutes} ${estimatedMinutes === 1 ? 'minute' : 'minutes'}. You can cancel at any point, ` +
+                        `and you'll review every proposed match before anything is saved.`,
+                      confirmLabel: 'Start lookup',
+                      confirmColor: 'primary',
+                      action: () => setBulkLookupTargets(targets)
+                    });
+                  }}
+                >
+                  Look up missing metadata ({metadataMissing.length})
+                </MenuItem>
                 <MenuItem
                   disabled={inactiveCount === 0}
                   onClick={() => {
@@ -1445,6 +1483,35 @@ const SequencesList = () => {
           if (result.artworkUrl) {
             commitField(lookup.sequence, 'imageUrl', result.artworkUrl);
           }
+        }}
+      />
+
+      <BulkMetadataLookupDialog
+        open={Boolean(bulkLookupTargets)}
+        targets={bulkLookupTargets || []}
+        onClose={() => setBulkLookupTargets(null)}
+        onApply={(picked) => {
+          // Fill-only: a row was targeted because artist OR art was missing —
+          // only the missing side(s) get the looked-up value, curated data is
+          // never overwritten. Commits coalesce per row like manual edits.
+          let applied = 0;
+          picked.forEach(({ sequence, match }) => {
+            let touched = false;
+            if (!sequence.artist && match.artist) {
+              commitField(sequence, 'artist', match.artist);
+              touched = true;
+            }
+            if (!sequence.imageUrl && match.artworkUrl) {
+              commitField(sequence, 'imageUrl', match.artworkUrl);
+              touched = true;
+            }
+            if (touched) applied += 1;
+          });
+          trackPosthogEvent('sequence_metadata_bulk_applied', {
+            applied_count: applied,
+            candidate_count: bulkLookupTargets?.length || 0
+          });
+          showAlert(dispatch, { message: `Applied metadata to ${applied} ${applied === 1 ? 'sequence' : 'sequences'}` });
         }}
       />
     </Box>
