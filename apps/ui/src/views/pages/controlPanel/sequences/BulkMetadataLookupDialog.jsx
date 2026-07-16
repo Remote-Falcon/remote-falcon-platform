@@ -5,6 +5,7 @@ import {
   Box,
   Button,
   Checkbox,
+  Chip,
   Dialog,
   DialogActions,
   DialogContent,
@@ -16,6 +17,7 @@ import {
   TableCell,
   TableHead,
   TableRow,
+  TableSortLabel,
   Typography
 } from '@mui/material';
 import PropTypes from 'prop-types';
@@ -34,6 +36,14 @@ import ArtworkThumb from './ArtworkThumb';
 // — the parent resolves keys against the CURRENT sequences and owns the
 // fill-only commit (never overwrite an existing artist/art), so edits made
 // while the lookup ran are respected.
+//
+// The review header summarizes outcomes as clickable filter chips and the
+// columns sort, because at real catalog sizes (100+ sequences) a handful of
+// dimmed no-match rows disappear into the scroll — the owner needs to see
+// what the run did NOT find before applying.
+
+const STATUS_RANK = { matched: 0, nomatch: 1, failed: 2 };
+const rowStatus = (row) => (row.error ? 'failed' : row.match ? 'matched' : 'nomatch');
 
 const BulkMetadataLookupDialog = ({ open, targets, onClose, onApply }) => {
   const [phase, setPhase] = useState('running'); // 'running' | 'review'
@@ -41,6 +51,9 @@ const BulkMetadataLookupDialog = ({ open, targets, onClose, onApply }) => {
   const [rows, setRows] = useState([]);
   const [checked, setChecked] = useState(() => new Set());
   const [cancelled, setCancelled] = useState(false);
+  const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'matched' | 'nomatch' | 'failed'
+  const [orderBy, setOrderBy] = useState(null); // null (lookup order) | 'query' | 'match'
+  const [order, setOrder] = useState('asc');
   const abortRef = useRef(null);
 
   // Reset once the close transition finishes, so a reopen never paints a
@@ -51,6 +64,9 @@ const BulkMetadataLookupDialog = ({ open, targets, onClose, onApply }) => {
     setRows([]);
     setChecked(new Set());
     setCancelled(false);
+    setStatusFilter('all');
+    setOrderBy(null);
+    setOrder('asc');
   };
 
   useEffect(() => {
@@ -58,10 +74,7 @@ const BulkMetadataLookupDialog = ({ open, targets, onClose, onApply }) => {
 
     const controller = new AbortController();
     abortRef.current = controller;
-    setPhase('running');
-    setRows([]);
-    setChecked(new Set());
-    setCancelled(false);
+    resetForNextRun();
     setProgress({ done: 0, total: targets.length });
 
     runBulkLookup(
@@ -84,6 +97,41 @@ const BulkMetadataLookupDialog = ({ open, targets, onClose, onApply }) => {
   const matchedRows = rows.filter((r) => r.match);
   const applyCount = matchedRows.filter((r) => checked.has(r.key)).length;
   const estimatedMinutes = estimateBulkLookupMinutes(targets.length);
+
+  const counts = { all: rows.length, matched: 0, nomatch: 0, failed: 0 };
+  rows.forEach((r) => {
+    counts[rowStatus(r)] += 1;
+  });
+
+  const visibleRows = rows
+    .filter((r) => statusFilter === 'all' || rowStatus(r) === statusFilter)
+    .sort((a, b) => {
+      if (!orderBy) return 0; // lookup order
+      const dir = order === 'asc' ? 1 : -1;
+      if (orderBy === 'query') return dir * a.query.localeCompare(b.query);
+      // 'match': matched first, then alphabetical by proposed title
+      const rank = STATUS_RANK[rowStatus(a)] - STATUS_RANK[rowStatus(b)];
+      if (rank !== 0) return dir * rank;
+      return dir * (a.match?.title || '').localeCompare(b.match?.title || '');
+    });
+  const visibleMatched = visibleRows.filter((r) => r.match);
+  const visibleChecked = visibleMatched.filter((r) => checked.has(r.key)).length;
+
+  const handleSort = (column) => {
+    if (orderBy === column) {
+      setOrder(order === 'asc' ? 'desc' : 'asc');
+    } else {
+      setOrderBy(column);
+      setOrder('asc');
+    }
+  };
+
+  const filterChips = [
+    { value: 'all', label: 'All' },
+    { value: 'matched', label: 'Matched' },
+    { value: 'nomatch', label: 'No match' },
+    { value: 'failed', label: 'Failed' }
+  ].filter((c) => c.value === 'all' || counts[c.value] > 0);
 
   const toggle = (key) => {
     setChecked((prev) => {
@@ -126,9 +174,9 @@ const BulkMetadataLookupDialog = ({ open, targets, onClose, onApply }) => {
       {phase === 'review' && (
         <DialogContent sx={{ pt: 0 }}>
           <Typography variant="body2" sx={{ my: 1.5 }}>
-            {cancelled ? `Cancelled early — reviewing the ${rows.length} fetched so far. ` : ''}
-            First match per sequence. Uncheck anything that looks wrong; only missing fields are filled, existing values are never
-            overwritten.
+            {cancelled ? `You cancelled early — here's what was found before stopping. ` : ''}
+            Found matches for {counts.matched} of {rows.length} {rows.length === 1 ? 'sequence' : 'sequences'}. Keep the ones that look
+            right — only blank artist and album art fields are filled in, and anything you&apos;ve already entered stays untouched.
           </Typography>
           {rows.length === 0 && (
             <Typography variant="body2" sx={{ py: 2, textAlign: 'center', color: 'text.secondary' }}>
@@ -136,66 +184,112 @@ const BulkMetadataLookupDialog = ({ open, targets, onClose, onApply }) => {
             </Typography>
           )}
           {rows.length > 0 && (
-            <Box sx={{ maxHeight: 420, overflowY: 'auto' }}>
-              <Table size="small" stickyHeader>
-                <TableHead>
-                  <TableRow>
-                    <TableCell padding="checkbox">
-                      <Checkbox
-                        size="small"
-                        indeterminate={applyCount > 0 && applyCount < matchedRows.length}
-                        checked={matchedRows.length > 0 && applyCount === matchedRows.length}
-                        onChange={(e) =>
-                          setChecked(e.target.checked ? new Set(matchedRows.map((r) => r.key)) : new Set())
-                        }
-                        inputProps={{ 'aria-label': 'Select all matches' }}
-                      />
-                    </TableCell>
-                    <TableCell>Sequence</TableCell>
-                    <TableCell>Proposed match</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {rows.map((row) => (
-                    <TableRow key={row.key} hover={Boolean(row.match)} sx={{ opacity: row.match ? 1 : 0.55 }}>
-                      <TableCell padding="checkbox">
-                        <Checkbox
-                          size="small"
-                          disabled={!row.match}
-                          checked={checked.has(row.key)}
-                          onChange={() => toggle(row.key)}
-                          inputProps={{ 'aria-label': `Apply match for ${row.query}` }}
-                        />
-                      </TableCell>
-                      <TableCell sx={{ maxWidth: 180 }}>
-                        <Typography variant="body2" noWrap>
-                          {row.query}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        {row.match ? (
-                          <Stack direction="row" spacing={1} alignItems="center">
-                            <ArtworkThumb src={row.match.thumbnailUrl} alt={row.match.title} size={36} />
-                            <Box sx={{ minWidth: 0 }}>
-                              <Typography variant="body2" noWrap>
-                                {row.match.title}
+            <>
+              <Stack direction="row" spacing={1} sx={{ mb: 1.5, flexWrap: 'wrap' }}>
+                {filterChips.map((chip) => (
+                  <Chip
+                    key={chip.value}
+                    size="small"
+                    label={`${chip.label} (${chip.value === 'all' ? counts.all : counts[chip.value]})`}
+                    color={chip.value === 'failed' && counts.failed > 0 ? 'error' : chip.value === 'nomatch' ? 'warning' : 'default'}
+                    variant={statusFilter === chip.value ? 'filled' : 'outlined'}
+                    onClick={() => setStatusFilter(chip.value)}
+                  />
+                ))}
+              </Stack>
+              {visibleRows.length === 0 && (
+                <Typography variant="body2" sx={{ py: 2, textAlign: 'center', color: 'text.secondary' }}>
+                  No sequences in this filter.
+                </Typography>
+              )}
+              {visibleRows.length > 0 && (
+                <Box sx={{ maxHeight: 420, overflowY: 'auto' }}>
+                  <Table size="small" stickyHeader>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell padding="checkbox">
+                          <Checkbox
+                            size="small"
+                            disabled={visibleMatched.length === 0}
+                            indeterminate={visibleChecked > 0 && visibleChecked < visibleMatched.length}
+                            checked={visibleMatched.length > 0 && visibleChecked === visibleMatched.length}
+                            onChange={(e) =>
+                              // Scoped to the filtered view: selections outside the
+                              // current filter are preserved either way.
+                              setChecked((prev) => {
+                                const next = new Set(prev);
+                                visibleMatched.forEach((r) => (e.target.checked ? next.add(r.key) : next.delete(r.key)));
+                                return next;
+                              })
+                            }
+                            inputProps={{ 'aria-label': 'Select all matches' }}
+                          />
+                        </TableCell>
+                        <TableCell sortDirection={orderBy === 'query' ? order : false}>
+                          <TableSortLabel
+                            active={orderBy === 'query'}
+                            direction={orderBy === 'query' ? order : 'asc'}
+                            onClick={() => handleSort('query')}
+                          >
+                            Sequence
+                          </TableSortLabel>
+                        </TableCell>
+                        <TableCell sortDirection={orderBy === 'match' ? order : false}>
+                          <TableSortLabel
+                            active={orderBy === 'match'}
+                            direction={orderBy === 'match' ? order : 'asc'}
+                            onClick={() => handleSort('match')}
+                          >
+                            Proposed match
+                          </TableSortLabel>
+                        </TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {visibleRows.map((row) => (
+                        <TableRow key={row.key} hover={Boolean(row.match)} sx={{ opacity: row.match ? 1 : 0.55 }}>
+                          <TableCell padding="checkbox">
+                            <Checkbox
+                              size="small"
+                              disabled={!row.match}
+                              checked={checked.has(row.key)}
+                              onChange={() => toggle(row.key)}
+                              inputProps={{
+                                'aria-label': `Apply match for ${row.query}`
+                              }}
+                            />
+                          </TableCell>
+                          <TableCell sx={{ maxWidth: 180 }}>
+                            <Typography variant="body2" noWrap>
+                              {row.query}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>
+                            {row.match ? (
+                              <Stack direction="row" spacing={1} alignItems="center">
+                                <ArtworkThumb src={row.match.thumbnailUrl} alt={row.match.title} size={36} />
+                                <Box sx={{ minWidth: 0 }}>
+                                  <Typography variant="body2" noWrap>
+                                    {row.match.title}
+                                  </Typography>
+                                  <Typography variant="caption" sx={{ color: 'text.secondary' }} noWrap>
+                                    {row.match.artist}
+                                  </Typography>
+                                </Box>
+                              </Stack>
+                            ) : (
+                              <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                                {row.error ? 'Lookup failed' : 'No match found'}
                               </Typography>
-                              <Typography variant="caption" sx={{ color: 'text.secondary' }} noWrap>
-                                {row.match.artist}
-                              </Typography>
-                            </Box>
-                          </Stack>
-                        ) : (
-                          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                            {row.error ? 'Lookup failed' : 'No match found'}
-                          </Typography>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </Box>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </Box>
+              )}
+            </>
           )}
         </DialogContent>
       )}

@@ -84,6 +84,68 @@ describe('BulkMetadataLookupDialog', () => {
     expect(screen.getByText(/Apply 0 matches/).closest('button')).toBeDisabled();
   });
 
+  it('summarizes outcomes as chips and filters rows by status', async () => {
+    runBulkLookup.mockResolvedValue(rowsFromLookup);
+    const user = userEvent.setup();
+    render(<BulkMetadataLookupDialog open targets={targets} onClose={vi.fn()} onApply={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByText('All (3)')).toBeInTheDocument());
+    expect(screen.getByText('Matched (2)')).toBeInTheDocument();
+    expect(screen.getByText('No match (1)')).toBeInTheDocument();
+    expect(screen.queryByText(/Failed \(/)).not.toBeInTheDocument(); // hidden at zero
+
+    await user.click(screen.getByText('No match (1)'));
+    expect(screen.getByText('XMAS_UNKNOWN_01')).toBeInTheDocument();
+    expect(screen.queryByText('Wizards in Winter')).not.toBeInTheDocument();
+    // Apply stays global — filtering never silently changes the action.
+    expect(screen.getByText(/Apply 2 matches/)).toBeInTheDocument();
+
+    await user.click(screen.getByText('All (3)'));
+    // Appears as both the sequence name and the proposed match title.
+    expect(screen.getAllByText('Wizards in Winter').length).toBeGreaterThan(0);
+  });
+
+  it('sorts by sequence name when the column header is clicked', async () => {
+    runBulkLookup.mockResolvedValue(rowsFromLookup);
+    const user = userEvent.setup();
+    render(<BulkMetadataLookupDialog open targets={targets} onClose={vi.fn()} onApply={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByText(/Apply 2 matches/)).toBeInTheDocument());
+    await user.click(screen.getByText('Sequence'));
+
+    const labels = screen.getAllByLabelText(/Apply match for/).map((el) => el.getAttribute('aria-label'));
+    expect(labels).toEqual([
+      'Apply match for Carol of the Bells',
+      'Apply match for Wizards in Winter',
+      'Apply match for XMAS_UNKNOWN_01'
+    ]);
+
+    await user.click(screen.getByText('Sequence')); // toggle desc
+    const desc = screen.getAllByLabelText(/Apply match for/).map((el) => el.getAttribute('aria-label'));
+    expect(desc).toEqual([
+      'Apply match for XMAS_UNKNOWN_01',
+      'Apply match for Wizards in Winter',
+      'Apply match for Carol of the Bells'
+    ]);
+  });
+
+  it('scopes select-all to the filtered view without dropping other selections', async () => {
+    runBulkLookup.mockResolvedValue(rowsFromLookup);
+    const user = userEvent.setup();
+    render(<BulkMetadataLookupDialog open targets={targets} onClose={vi.fn()} onApply={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByText(/Apply 2 matches/)).toBeInTheDocument());
+
+    // Filter to matched rows only, uncheck them all via the header box…
+    await user.click(screen.getByText('Matched (2)'));
+    await user.click(screen.getByLabelText('Select all matches'));
+    expect(screen.getByText(/Apply 0 matches/)).toBeInTheDocument();
+
+    // …then re-check just one row and confirm the global count follows.
+    await user.click(screen.getByLabelText('Apply match for Carol of the Bells'));
+    expect(screen.getByText(/Apply 1 match$/)).toBeInTheDocument();
+  });
+
   it('shows lookup failures as non-applicable rows', async () => {
     runBulkLookup.mockResolvedValue([{ key: 'a-1', query: 'Carol of the Bells', match: null, error: 'iTunes search failed (503)' }]);
     render(
