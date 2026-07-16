@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { lookupITunes, toHdArtwork } from '../musicMetadata';
+import { cleanLookupQuery, lookupITunes, toHdArtwork } from '../musicMetadata';
 
 // The sequence-metadata lookup (PRD-remote-falcon-003) hits the iTunes
 // Search API browser-direct and commits artist + imageUrl onto a sequence.
@@ -45,6 +45,29 @@ describe('toHdArtwork', () => {
   it('returns null for missing input', () => {
     expect(toHdArtwork(null)).toBeNull();
     expect(toHdArtwork(undefined)).toBeNull();
+  });
+});
+
+describe('cleanLookupQuery', () => {
+  it('strips extension, separators, track numbers, and version tags from a raw filename', () => {
+    expect(cleanLookupQuery('01_wizards_in_winter_v2.fseq')).toBe('wizards in winter');
+    expect(cleanLookupQuery('12 - carol-of-the-bells.mp3')).toBe('carol of the bells');
+    expect(cleanLookupQuery('Feliz.Navidad.Version 3')).toBe('Feliz Navidad');
+  });
+
+  it('leaves already-clean display names essentially untouched', () => {
+    expect(cleanLookupQuery('Carol of the Bells')).toBe('Carol of the Bells');
+    expect(cleanLookupQuery('  Wizards in Winter  ')).toBe('Wizards in Winter');
+  });
+
+  it('does not strip numbers that are part of the title', () => {
+    expect(cleanLookupQuery('Christmas Eve 1914')).toBe('Christmas Eve 1914');
+  });
+
+  it('falls back to the trimmed original when cleaning would empty the query', () => {
+    expect(cleanLookupQuery('12345')).toBe('12345');
+    expect(cleanLookupQuery('')).toBe('');
+    expect(cleanLookupQuery(null)).toBe('');
   });
 });
 

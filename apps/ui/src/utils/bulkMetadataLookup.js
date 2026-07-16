@@ -11,6 +11,10 @@ import { lookupITunes } from './musicMetadata';
 
 export const BULK_LOOKUP_INTERVAL_MS = 3500;
 
+// Rounded whole-minute estimate for a full pass, floored at 1 — shared by
+// the confirm interstitial and the running dialog so they never disagree.
+export const estimateBulkLookupMinutes = (count) => Math.max(1, Math.round((count * BULK_LOOKUP_INTERVAL_MS) / 60000));
+
 // Abort-aware sleep: resolves early (never rejects) when the signal fires.
 const sleep = (ms, signal) =>
   new Promise((resolve) => {

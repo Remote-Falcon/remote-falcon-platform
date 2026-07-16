@@ -14,11 +14,12 @@ import {
   TextField,
   Typography
 } from '@mui/material';
-import { IconMusic, IconSearch } from '@tabler/icons-react';
+import { IconSearch } from '@tabler/icons-react';
 import PropTypes from 'prop-types';
 
 import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
 import { lookupITunes } from '../../../../utils/musicMetadata';
+import ArtworkThumb from './ArtworkThumb';
 
 // Metadata-lookup popover for the Sequences list (PRD-remote-falcon-003).
 //
@@ -30,42 +31,6 @@ import { lookupITunes } from '../../../../utils/musicMetadata';
 //
 // The search term is editable before/after the auto-search because raw
 // sequence names are often cryptic ("XMAS_01.fseq") and return nothing.
-
-const ArtworkThumb = ({ src, alt }) => {
-  if (!src) {
-    return (
-      <Box
-        sx={{
-          width: 44,
-          height: 44,
-          borderRadius: 1,
-          flexShrink: 0,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          bgcolor: (t) => (t.palette.mode === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)'),
-          color: 'text.disabled'
-        }}
-      >
-        <IconMusic size={20} stroke={1.5} />
-      </Box>
-    );
-  }
-  return (
-    <Box
-      component="img"
-      src={src}
-      alt={alt}
-      loading="lazy"
-      sx={{ width: 44, height: 44, borderRadius: 1, objectFit: 'cover', flexShrink: 0 }}
-    />
-  );
-};
-
-ArtworkThumb.propTypes = {
-  src: PropTypes.string,
-  alt: PropTypes.string
-};
 
 const SequenceMetadataLookup = ({ anchorEl, defaultQuery, onClose, onSelect }) => {
   const open = Boolean(anchorEl);

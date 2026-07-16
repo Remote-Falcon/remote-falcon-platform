@@ -72,7 +72,8 @@ import {
 } from '../../../../utils/graphql/controlPanel/mutations';
 import { showAlert } from '../../globalPageHelpers';
 
-import { BULK_LOOKUP_INTERVAL_MS } from '../../../../utils/bulkMetadataLookup';
+import { estimateBulkLookupMinutes } from '../../../../utils/bulkMetadataLookup';
+import { cleanLookupQuery } from '../../../../utils/musicMetadata';
 
 import BulkMetadataLookupDialog from './BulkMetadataLookupDialog';
 import EditableCell from './EditableCell';
@@ -873,10 +874,9 @@ const SequencesList = () => {
                     setBulkAnchor(null);
                     const targets = metadataMissing.map((s) => ({
                       key: rowKey(s),
-                      query: s.displayName || s.name || '',
-                      sequence: s
+                      query: cleanLookupQuery(s.displayName || s.name)
                     }));
-                    const estimatedMinutes = Math.max(1, Math.round((targets.length * BULK_LOOKUP_INTERVAL_MS) / 60000));
+                    const estimatedMinutes = estimateBulkLookupMinutes(targets.length);
                     setConfirm({
                       title: `Look up metadata for ${targets.length} ${targets.length === 1 ? 'sequence' : 'sequences'}?`,
                       message:
@@ -1474,7 +1474,7 @@ const SequencesList = () => {
 
       <SequenceMetadataLookup
         anchorEl={lookup?.anchorEl || null}
-        defaultQuery={lookup?.sequence?.displayName || lookup?.sequence?.name || ''}
+        defaultQuery={lookup ? cleanLookupQuery(lookup.sequence?.displayName || lookup.sequence?.name) : ''}
         onClose={() => setLookup(null)}
         onSelect={(result) => {
           // Both patches coalesce into one save for the row. Never blank an
@@ -1491,18 +1491,24 @@ const SequencesList = () => {
         targets={bulkLookupTargets || []}
         onClose={() => setBulkLookupTargets(null)}
         onApply={(picked) => {
-          // Fill-only: a row was targeted because artist OR art was missing —
-          // only the missing side(s) get the looked-up value, curated data is
-          // never overwritten. Commits coalesce per row like manual edits.
+          // Fill-only, against the CURRENT rows: keys are resolved on the
+          // live sequences (not the snapshot captured at menu-click), so a
+          // field the owner filled while the lookup ran is never overwritten.
+          // One persistSequences write, same as the other bulk operations —
+          // the toast only fires when the save actually succeeds.
+          const matchByKey = new Map(picked.map(({ key, match }) => [key, match]));
           let applied = 0;
-          picked.forEach(({ sequence, match }) => {
+          const updated = _.cloneDeep(show?.sequences || []);
+          updated.forEach((s) => {
+            const match = matchByKey.get(rowKey(s));
+            if (!match) return;
             let touched = false;
-            if (!sequence.artist && match.artist) {
-              commitField(sequence, 'artist', match.artist);
+            if (!s.artist && match.artist) {
+              s.artist = match.artist;
               touched = true;
             }
-            if (!sequence.imageUrl && match.artworkUrl) {
-              commitField(sequence, 'imageUrl', match.artworkUrl);
+            if (!s.imageUrl && match.artworkUrl) {
+              s.imageUrl = match.artworkUrl;
               touched = true;
             }
             if (touched) applied += 1;
@@ -1511,7 +1517,11 @@ const SequencesList = () => {
             applied_count: applied,
             candidate_count: bulkLookupTargets?.length || 0
           });
-          showAlert(dispatch, { message: `Applied metadata to ${applied} ${applied === 1 ? 'sequence' : 'sequences'}` });
+          if (applied > 0) {
+            persistSequences(updated, `Applied metadata to ${applied} ${applied === 1 ? 'sequence' : 'sequences'}`);
+          } else {
+            showAlert(dispatch, { message: 'Nothing to apply — those fields are already filled' });
+          }
         }}
       />
     </Box>

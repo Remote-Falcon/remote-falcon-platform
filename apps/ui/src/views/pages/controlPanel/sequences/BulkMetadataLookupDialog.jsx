@@ -18,10 +18,10 @@ import {
   TableRow,
   Typography
 } from '@mui/material';
-import { IconMusic } from '@tabler/icons-react';
 import PropTypes from 'prop-types';
 
-import { BULK_LOOKUP_INTERVAL_MS, runBulkLookup } from '../../../../utils/bulkMetadataLookup';
+import { estimateBulkLookupMinutes, runBulkLookup } from '../../../../utils/bulkMetadataLookup';
+import ArtworkThumb from './ArtworkThumb';
 
 // Bulk metadata lookup dialog (PRD-remote-falcon-003, bulk flow).
 //
@@ -30,45 +30,28 @@ import { BULK_LOOKUP_INTERVAL_MS, runBulkLookup } from '../../../../utils/bulkMe
 // hence progress + cancel, not a spinner), then a review table proposing the
 // FIRST match per sequence. Nothing commits until the owner applies; rows
 // default checked only when a match came back. Cancel mid-run keeps what was
-// fetched and drops straight into review. The parent owns the commit and the
-// fill-only semantics (never overwrite an existing artist/art).
-
-const Thumb = ({ src, alt }) => {
-  if (!src) {
-    return (
-      <Box
-        sx={{
-          width: 36,
-          height: 36,
-          borderRadius: 1,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          bgcolor: (t) => (t.palette.mode === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)'),
-          color: 'text.disabled',
-          flexShrink: 0
-        }}
-      >
-        <IconMusic size={16} stroke={1.5} />
-      </Box>
-    );
-  }
-  return <Box component="img" src={src} alt={alt} loading="lazy" sx={{ width: 36, height: 36, borderRadius: 1, objectFit: 'cover' }} />;
-};
-
-Thumb.propTypes = {
-  src: PropTypes.string,
-  alt: PropTypes.string
-};
+// fetched and drops straight into review. Apply hands back [{ key, match }]
+// — the parent resolves keys against the CURRENT sequences and owns the
+// fill-only commit (never overwrite an existing artist/art), so edits made
+// while the lookup ran are respected.
 
 const BulkMetadataLookupDialog = ({ open, targets, onClose, onApply }) => {
   const [phase, setPhase] = useState('running'); // 'running' | 'review'
   const [progress, setProgress] = useState({ done: 0, total: 0 });
-  const [currentQuery, setCurrentQuery] = useState('');
   const [rows, setRows] = useState([]);
   const [checked, setChecked] = useState(() => new Set());
   const [cancelled, setCancelled] = useState(false);
   const abortRef = useRef(null);
+
+  // Reset once the close transition finishes, so a reopen never paints a
+  // frame of the previous run's review table before the open-effect fires.
+  const resetForNextRun = () => {
+    setPhase('running');
+    setProgress({ done: 0, total: 0 });
+    setRows([]);
+    setChecked(new Set());
+    setCancelled(false);
+  };
 
   useEffect(() => {
     if (!open) return undefined;
@@ -80,16 +63,12 @@ const BulkMetadataLookupDialog = ({ open, targets, onClose, onApply }) => {
     setChecked(new Set());
     setCancelled(false);
     setProgress({ done: 0, total: targets.length });
-    setCurrentQuery(targets[0]?.query || '');
 
     runBulkLookup(
       targets.map(({ key, query }) => ({ key, query })),
       {
         signal: controller.signal,
-        onProgress: ({ done, total }) => {
-          setProgress({ done, total });
-          setCurrentQuery(targets[done]?.query || '');
-        }
+        onProgress: ({ done, total }) => setProgress({ done, total })
       }
     ).then((result) => {
       setRows(result);
@@ -101,10 +80,10 @@ const BulkMetadataLookupDialog = ({ open, targets, onClose, onApply }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  const targetByKey = new Map(targets.map((t) => [t.key, t]));
+  const currentQuery = phase === 'running' ? targets[progress.done]?.query || '' : '';
   const matchedRows = rows.filter((r) => r.match);
   const applyCount = matchedRows.filter((r) => checked.has(r.key)).length;
-  const estimatedMinutes = Math.max(1, Math.round((targets.length * BULK_LOOKUP_INTERVAL_MS) / 60000));
+  const estimatedMinutes = estimateBulkLookupMinutes(targets.length);
 
   const toggle = (key) => {
     setChecked((prev) => {
@@ -116,16 +95,18 @@ const BulkMetadataLookupDialog = ({ open, targets, onClose, onApply }) => {
   };
 
   const apply = () => {
-    const picked = matchedRows
-      .filter((r) => checked.has(r.key))
-      .map((r) => ({ sequence: targetByKey.get(r.key)?.sequence, match: r.match }))
-      .filter((r) => r.sequence);
-    onApply(picked);
+    onApply(matchedRows.filter((r) => checked.has(r.key)).map((r) => ({ key: r.key, match: r.match })));
     onClose();
   };
 
   return (
-    <Dialog open={open} onClose={phase === 'running' ? undefined : onClose} maxWidth="sm" fullWidth>
+    <Dialog
+      open={open}
+      onClose={phase === 'running' ? undefined : onClose}
+      maxWidth="sm"
+      fullWidth
+      TransitionProps={{ onExited: resetForNextRun }}
+    >
       <DialogTitle>Look up missing metadata</DialogTitle>
 
       {phase === 'running' && (
@@ -194,7 +175,7 @@ const BulkMetadataLookupDialog = ({ open, targets, onClose, onApply }) => {
                       <TableCell>
                         {row.match ? (
                           <Stack direction="row" spacing={1} alignItems="center">
-                            <Thumb src={row.match.thumbnailUrl} alt={row.match.title} />
+                            <ArtworkThumb src={row.match.thumbnailUrl} alt={row.match.title} size={36} />
                             <Box sx={{ minWidth: 0 }}>
                               <Typography variant="body2" noWrap>
                                 {row.match.title}
@@ -248,8 +229,7 @@ BulkMetadataLookupDialog.propTypes = {
   targets: PropTypes.arrayOf(
     PropTypes.shape({
       key: PropTypes.string.isRequired,
-      query: PropTypes.string.isRequired,
-      sequence: PropTypes.object.isRequired
+      query: PropTypes.string.isRequired
     })
   ).isRequired,
   onClose: PropTypes.func.isRequired,
