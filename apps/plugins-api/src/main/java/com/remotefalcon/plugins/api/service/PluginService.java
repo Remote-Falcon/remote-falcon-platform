@@ -35,6 +35,9 @@ public class PluginService {
   ShowContext showContext;
 
   @Inject
+  com.remotefalcon.plugins.api.repository.ShowRepository showRepository;
+
+  @Inject
   @ConfigProperty(name = "sequence.limit")
   int sequenceLimit;
 
@@ -1490,5 +1493,90 @@ public class PluginService {
     if (newGap != null) {
       Show.mongoCollection().updateOne(filter, Updates.push("heartbeatGaps", newGap));
     }
+  }
+
+  /**
+   * List the show's viewer pages (PRD-016). Feeds the FPP command dropdown
+   * for "Remote Falcon - Set Active Viewer Page".
+   *
+   * Both viewer-page methods re-fetch via findPagesMetaByShowToken: the
+   * request-scoped Show from ShowTokenFilter is loaded with `pages`
+   * projection-EXCLUDED (listener polls must not haul page HTML), so
+   * showContext.getShow().getPages() is always null here.
+   */
+  public ViewerPagesResponse viewerPages() {
+    Show show = this.showRepository.findPagesMetaByShowToken(showContext.getShow().getShowToken())
+        .orElse(showContext.getShow());
+    List<ViewerPageDetails> pages = Optional.ofNullable(show.getPages())
+        .orElse(Collections.emptyList())
+        .stream()
+        .filter(Objects::nonNull)
+        .filter(page -> StringUtils.isNotEmpty(page.getName()))
+        .map(page -> ViewerPageDetails.builder()
+            .name(page.getName())
+            .active(Boolean.TRUE.equals(page.getActive()))
+            .build())
+        .toList();
+    return ViewerPagesResponse.builder().pages(pages).build();
+  }
+
+  /**
+   * Make the named viewer page the live one (PRD-016 / issue #68). Matches
+   * case-insensitively (exact-case match preferred), then flips the active
+   * flags in a single targeted update via arrayFilters — never a full-array
+   * rewrite, so it can't clobber a concurrent control-panel updatePages or
+   * external-API page write.
+   */
+  public PluginResponse setActiveViewerPage(SetActiveViewerPageRequest request) {
+    String requested = request != null ? StringUtils.trimToEmpty(request.getPageName()) : "";
+    if (StringUtils.isEmpty(requested)) {
+      throw badRequest("pageName is required");
+    }
+    Show show = this.showRepository.findPagesMetaByShowToken(showContext.getShow().getShowToken())
+        .orElse(showContext.getShow());
+    List<ViewerPage> pages = Optional.ofNullable(show.getPages())
+        .orElse(Collections.emptyList())
+        .stream()
+        .filter(Objects::nonNull)
+        .filter(page -> StringUtils.isNotEmpty(page.getName()))
+        .toList();
+    if (pages.isEmpty()) {
+      LOG.warnf("setActiveViewerPage rejected for showToken=%s: show has no viewer pages", show.getShowToken());
+      throw badRequest("Show has no viewer pages");
+    }
+    ViewerPage match = pages.stream()
+        .filter(page -> page.getName().equals(requested))
+        .findFirst()
+        .orElseGet(() -> pages.stream()
+            .filter(page -> page.getName().equalsIgnoreCase(requested))
+            .findFirst()
+            .orElse(null));
+    if (match == null) {
+      String available = pages.stream().map(ViewerPage::getName).collect(Collectors.joining(", "));
+      LOG.warnf("setActiveViewerPage rejected for showToken=%s: no page named '%s' (available: %s)",
+          show.getShowToken(), requested, available);
+      throw badRequest("No viewer page named '" + requested + "'. Available: " + available);
+    }
+    Show.mongoCollection().updateOne(
+        Filters.eq("showToken", show.getShowToken()),
+        Updates.combine(
+            Updates.set("pages.$[match].active", true),
+            Updates.set("pages.$[others].active", false)
+        ),
+        new com.mongodb.client.model.UpdateOptions().arrayFilters(List.of(
+            Filters.eq("match.name", match.getName()),
+            Filters.ne("others.name", match.getName())
+        ))
+    );
+    Log.infof("setActiveViewerPage: '%s' is now the live page for %s", match.getName(), show.getShowToken());
+    return PluginResponse.builder().message("Success").build();
+  }
+
+  private WebApplicationException badRequest(String message) {
+    return new WebApplicationException(
+        Response.status(Response.Status.BAD_REQUEST)
+            .entity(PluginResponse.builder().message(message).build())
+            .build()
+    );
   }
 }

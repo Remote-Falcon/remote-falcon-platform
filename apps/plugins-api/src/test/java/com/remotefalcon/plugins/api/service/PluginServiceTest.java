@@ -30,6 +30,9 @@ class PluginServiceTest {
   @InjectMock
   ShowContext showContext;
 
+  @InjectMock
+  com.remotefalcon.plugins.api.repository.ShowRepository showRepository;
+
   private Show baseShow;
 
   @BeforeEach
@@ -1621,5 +1624,89 @@ class PluginServiceTest {
     assertNotEquals("Leader-Vote", resp.getWinningPlaylist()); // ...leader did NOT fire ahead of it...
     assertTrue(baseShow.getStats().getVotingWin().isEmpty(),  // ...and it's stat-neutral.
         "owner override must not record a vote win");
+  }
+
+  // ---------- PRD-016 / #68: viewerPages + setActiveViewerPage ----------
+
+  private void seedPages() {
+    baseShow.setPages(new ArrayList<>(List.of(
+        ViewerPage.builder().name("Main").active(true).html("<h1>main</h1>").build(),
+        ViewerPage.builder().name("Halloween").active(false).html("<h1>halloween</h1>").build(),
+        ViewerPage.builder().name("Christmas Eve").active(false).html("<h1>xmas</h1>").build()
+    )));
+    // The service re-fetches pages via the meta projection (the context Show
+    // normally has pages excluded — see ShowRepository.findByShowToken).
+    when(showRepository.findPagesMetaByShowToken("test-token")).thenReturn(Optional.of(baseShow));
+  }
+
+  @Test
+  void viewerPages_returnsNamesAndActiveFlags() {
+    seedPages();
+
+    ViewerPagesResponse resp = pluginService.viewerPages();
+
+    assertEquals(List.of("Main", "Halloween", "Christmas Eve"),
+        resp.getPages().stream().map(ViewerPageDetails::getName).toList());
+    assertEquals(List.of(true, false, false),
+        resp.getPages().stream().map(ViewerPageDetails::getActive).toList());
+  }
+
+  @Test
+  void viewerPages_noPages_returnsEmptyList() {
+    baseShow.setPages(null);
+
+    ViewerPagesResponse resp = pluginService.viewerPages();
+
+    assertTrue(resp.getPages().isEmpty());
+  }
+
+  @Test
+  void setActiveViewerPage_blankName_rejected() {
+    seedPages();
+
+    WebApplicationException ex = assertThrows(WebApplicationException.class,
+        () -> pluginService.setActiveViewerPage(SetActiveViewerPageRequest.builder().pageName("  ").build()));
+    assertEquals(400, ex.getResponse().getStatus());
+  }
+
+  @Test
+  void setActiveViewerPage_showWithoutPages_rejected() {
+    baseShow.setPages(new ArrayList<>());
+
+    WebApplicationException ex = assertThrows(WebApplicationException.class,
+        () -> pluginService.setActiveViewerPage(SetActiveViewerPageRequest.builder().pageName("Main").build()));
+    assertEquals(400, ex.getResponse().getStatus());
+  }
+
+  @Test
+  void setActiveViewerPage_unknownName_rejectedWithAvailableNames() {
+    seedPages();
+
+    WebApplicationException ex = assertThrows(WebApplicationException.class,
+        () -> pluginService.setActiveViewerPage(SetActiveViewerPageRequest.builder().pageName("Easter").build()));
+    assertEquals(400, ex.getResponse().getStatus());
+    PluginResponse body = (PluginResponse) ex.getResponse().getEntity();
+    assertTrue(body.getMessage().contains("Easter"));
+    assertTrue(body.getMessage().contains("Halloween"), "error should list the valid page names");
+  }
+
+  @Test
+  void setActiveViewerPage_exactName_succeeds() {
+    seedPages();
+
+    PluginResponse resp = pluginService.setActiveViewerPage(
+        SetActiveViewerPageRequest.builder().pageName("Halloween").build());
+
+    assertEquals("Success", resp.getMessage());
+  }
+
+  @Test
+  void setActiveViewerPage_caseInsensitiveMatch_succeeds() {
+    seedPages();
+
+    PluginResponse resp = pluginService.setActiveViewerPage(
+        SetActiveViewerPageRequest.builder().pageName("christmas eve").build());
+
+    assertEquals("Success", resp.getMessage());
   }
 }
