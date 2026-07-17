@@ -34,6 +34,7 @@ dependencies {
     testImplementation 'org.testcontainers:mongodb:1.20.4'
     testImplementation 'org.testcontainers:localstack:1.20.4'
     testImplementation 'org.assertj:assertj-core:3.26.3'
+    testImplementation 'io.quarkus:quarkus-jacoco'
 }
 
 group = 'com.remotefalcon'
@@ -47,6 +48,21 @@ java {
 test {
     systemProperty "java.util.logging.manager", "org.jboss.logmanager.LogManager"
     finalizedBy jacocoTestReport
+    // Capture @QuarkusTest coverage. Quarkus loads app classes in its own
+    // classloader, so the plain Gradle JaCoCo agent never fully attributes
+    // their execution — the resource package registered 0% and the service
+    // package under-read. The quarkus-jacoco extension instruments inside
+    // the QuarkusClassLoader and appends to the same data file the agent
+    // writes; the agent skips Quarkus-loaded classes to avoid double
+    // instrumentation. Same fix as plugins-api (#130); closes out #152.
+    jacoco {
+        excludeClassLoaders = ["*QuarkusClassLoader"]
+        destinationFile = layout.buildDirectory.file("jacoco-quarkus.exec").get().asFile
+    }
+    systemProperty "quarkus.jacoco.data-file", layout.buildDirectory.file("jacoco-quarkus.exec").get().asFile.absolutePath
+    systemProperty "quarkus.jacoco.reuse-data-file", "true"
+    // Skip the extension's own HTML report — jacocoTestReport is canonical.
+    systemProperty "quarkus.jacoco.report", "false"
 }
 
 jacoco {
@@ -55,6 +71,7 @@ jacoco {
 
 jacocoTestReport {
     dependsOn test
+    executionData.setFrom(layout.buildDirectory.file("jacoco-quarkus.exec"))
     reports {
         xml.required.set(true)
         csv.required.set(false)
@@ -64,26 +81,26 @@ jacocoTestReport {
 
 jacocoTestCoverageVerification {
     dependsOn jacocoTestReport
+    executionData.setFrom(layout.buildDirectory.file("jacoco-quarkus.exec"))
     violationRules {
         rule {
             element = 'PACKAGE'
-            // Scope corrected 2026-05-24: dropped `com.remotefalcon.resource`
-            // (Quarkus JAX-RS resource classes don't accumulate JaCoCo line
-            // coverage due to bytecode transformation — same root cause that
-            // hit account-archive's `repository` in PR #47). Methods are
-            // exercised through service-level integration tests; correctness
-            // gate is the test outcome, not the JaCoCo number.
+            // History: 2026-05-24 dropped `com.remotefalcon.resource` from
+            // scope (registered 0% — Quarkus classloader kept JaCoCo from
+            // attributing it) and lowered the service floor 80% → 65%
+            // (measured 67%).
             //
-            // Floor lowered from 80% → 65% on the service package: actual
-            // measured coverage is 67% (surfaced for the first time by PR #50
-            // when the libs/schema path filter triggered this service's CI
-            // post Phase C ratchet). 65% locks in current state with a small
-            // buffer; real coverage uplift to 80% tracked as a follow-up.
-            includes = ['com.remotefalcon.service']
+            // 2026-07-16 (#152 close-out): quarkus-jacoco capture (see the
+            // test block) made the numbers honest, which showed the resource
+            // package genuinely had no tests — added BackupResourceTest (HTTP
+            // level), BackupResourceUnitTest (guard + catch paths), and a
+            // restore round-trip. Measured after: service 94%, resource 100%.
+            // Floor restored to the original 80% on both packages.
+            includes = ['com.remotefalcon.service', 'com.remotefalcon.resource']
             limit {
                 counter = 'LINE'
                 value = 'COVEREDRATIO'
-                minimum = 0.65
+                minimum = 0.80
             }
         }
     }
