@@ -92,11 +92,10 @@ jacocoTestCoverageVerification {
             //
             // 2026-07-16 (#152 close-out): quarkus-jacoco capture (see the
             // test block) made the numbers honest, which showed the resource
-            // package genuinely had no tests — added BackupResourceTest and a
-            // restore round-trip. Measured after: service ~95%, resource ~87%
-            // (the trigger catch block is unreachable in practice —
-            // runArchiveProcess swallows its own exceptions). Floor restored
-            // to the original 80% on both packages.
+            // package genuinely had no tests — added BackupResourceTest (HTTP
+            // level), BackupResourceUnitTest (guard + catch paths), and a
+            // restore round-trip. Measured after: service 94%, resource 100%.
+            // Floor restored to the original 80% on both packages.
             includes = ['com.remotefalcon.service', 'com.remotefalcon.resource']
             limit {
                 counter = 'LINE'
