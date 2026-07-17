@@ -88,21 +88,21 @@ jacocoTestCoverageVerification {
             // (in-JVM Quarkus classloader), so heavily-tested service code
             // registered 0% and dragged the bundle ratio toward the floor.
             //
-            // 2026-07-16 (#130): the real fix landed — quarkus-jacoco now
-            // captures @QuarkusTest coverage (see the test block), so these
-            // numbers finally measure the actual test suite. Floors are kept
-            // at the old values in this commit purely to observe the first
-            // honest CI measurement; the ratchet-up to lock it in follows
-            // immediately. #152 tracks the same uplift for mongo-backup.
+            // 2026-07-16 (#130): fixed — quarkus-jacoco captures @QuarkusTest
+            // coverage (see the test block). First honest CI measurement:
+            // 87.6% line / 65.3% branch. Floors ratcheted to 80/60 (beats the
+            // original 60/60 target) with a small buffer for legitimately
+            // hard-to-cover additions. #152 tracks the same fix for
+            // mongo-backup.
             limit {
                 counter = 'LINE'
                 value = 'COVEREDRATIO'
-                minimum = 0.05
+                minimum = 0.80
             }
             limit {
                 counter = 'BRANCH'
                 value = 'COVEREDRATIO'
-                minimum = 0.01
+                minimum = 0.60
             }
         }
     }

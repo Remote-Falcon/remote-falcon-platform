@@ -15,7 +15,7 @@
 | Service | Stack | Test count | Coverage gate | CI enforces |
 |---|---|---:|---|:---:|
 | [`apps/viewer`](../apps/viewer) | Quarkus 21 native | 88 `@Test` | 60% line / 60% branch (JaCoCo) | ✓ |
-| [`apps/plugins-api`](../apps/plugins-api) | Quarkus 21 native | 115 `@Test` | 60% line / 60% branch (JaCoCo) | ✓ |
+| [`apps/plugins-api`](../apps/plugins-api) | Quarkus 21 native | 115 `@Test` | 80% line / 60% branch (JaCoCo, quarkus-jacoco capture) | ✓ |
 | [`apps/mongo-backup`](../apps/mongo-backup) | Quarkus 21 native | testcontainers + LocalStack | 80% line on `*.service.*` | ✓ |
 | [`apps/account-archive`](../apps/account-archive) | Quarkus 21 native | 9 `@Test` | 80% line on service + repository packages | ✓ |
 | [`apps/control-panel`](../apps/control-panel) | Spring Boot 3 native | 289 `@Test` | 76% line / 68% branch (JaCoCo, BUNDLE) | ✓ |
