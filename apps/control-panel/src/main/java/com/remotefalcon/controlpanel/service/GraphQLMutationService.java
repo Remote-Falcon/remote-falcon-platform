@@ -53,7 +53,7 @@ public class GraphQLMutationService {
     @Value("${auto-validate-email}")
     Boolean autoValidateEmail;
 
-    public Boolean signUp(String firstName, String lastName, String showName) {
+    public Boolean signUp(String firstName, String lastName, String showName, Boolean marketingOptIn) {
         String showSubdomain = showName.replaceAll("\\s", "").toLowerCase();
         var request = this.authUtil.getCurrentRequest();
         String[] basicAuthCredentials = this.authUtil.getBasicAuthCredentials(request);
@@ -70,7 +70,7 @@ public class GraphQLMutationService {
             String hashedPassword = passwordEncoder.encode(password);
 
             Show newShow = this.createDefaultShowDocument(firstName, lastName, showName, email,
-                    hashedPassword, showToken, showSubdomain, ipAddress);
+                    hashedPassword, showToken, showSubdomain, ipAddress, marketingOptIn);
 
             if(!autoValidateEmail) {
                 MailerSendResponse emailResponse = this.emailUtil.sendSignUpEmail(newShow);
@@ -87,9 +87,14 @@ public class GraphQLMutationService {
 
     private Show createDefaultShowDocument(String firstName, String lastName, String showName,
                                            String email, String password, String showToken,
-                                           String showSubdomain, String ipAddress) {
+                                           String showSubdomain, String ipAddress, Boolean marketingOptIn) {
         String defaultPageHtml = Optional.ofNullable(this.fetchDefaultPageHtml()).orElse("");
         return Show.builder()
+                // PRD-013 P0-1 — consent captured at signup. Null (old
+                // clients / self-host builds that never send the arg)
+                // coerces to false: consent is never assumed.
+                .marketingOptIn(Boolean.TRUE.equals(marketingOptIn))
+                .optInUpdatedAt(LocalDateTime.now())
                 .showToken(showToken)
                 .email(email)
                 .password(password)
@@ -240,6 +245,20 @@ public class GraphQLMutationService {
         Optional<Show> show = this.showRepository.findByShowToken(authUtil.getTokenDTO().getShowToken());
         if(show.isPresent()) {
             show.get().setUserProfile(userProfile);
+            this.showRepository.save(show.get());
+            return true;
+        }
+        throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());
+    }
+
+    // PRD-013 P0-1 — marketing/lifecycle email consent. Strict model (a):
+    // only marketingOptIn=true permits the UI to sync email to PostHog as
+    // a person property; the timestamp records when consent last changed.
+    public Boolean updateEmailPreference(Boolean marketingOptIn) {
+        Optional<Show> show = this.showRepository.findByShowToken(authUtil.getTokenDTO().getShowToken());
+        if(show.isPresent()) {
+            show.get().setMarketingOptIn(Boolean.TRUE.equals(marketingOptIn));
+            show.get().setOptInUpdatedAt(LocalDateTime.now());
             this.showRepository.save(show.get());
             return true;
         }

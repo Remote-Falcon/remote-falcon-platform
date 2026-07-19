@@ -1,5 +1,8 @@
 type Mutation {
-    signUp(firstName: String, lastName: String, showName: String!): Boolean
+    # marketingOptIn (PRD-013 P0-1): setup-tips/lifecycle email consent from
+    # the signup checkbox. Omitted/null (old clients, self-host builds that
+    # hide the checkbox) coerces to false server-side — consent never assumed.
+    signUp(firstName: String, lastName: String, showName: String!, marketingOptIn: Boolean): Boolean
     forgotPassword(email: String!): Boolean
     verifyEmail(showToken: String!): Boolean
     resetPassword: Boolean
@@ -24,6 +27,9 @@ type Mutation {
     # first to preview the counts without writing anything.
     adminRotateMfaKeys(dryRun: Boolean = false): MfaKeyRotationResult
     updateUserProfile(userProfile: UserProfileInput!): Boolean
+    # PRD-013 P0-1 — Account Settings marketing/lifecycle email consent
+    # toggle. Only true permits the UI to sync email to PostHog.
+    updateEmailPreference(marketingOptIn: Boolean!): Boolean
     requestApiAccess: ApiAccess
     refreshApiSecret: String
     # Rotate the show's showToken (the FPP/xSchedule plugin credential and

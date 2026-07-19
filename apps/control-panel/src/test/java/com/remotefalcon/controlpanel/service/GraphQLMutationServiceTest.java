@@ -115,7 +115,7 @@ class GraphQLMutationServiceTest {
         when(showRepository.findByShowToken(anyString())).thenReturn(Optional.empty());
         when(emailUtil.sendSignUpEmail(any(Show.class))).thenReturn(mailer(202));
 
-        Boolean ok = service.signUp("Matt", "S", "My Show");
+        Boolean ok = service.signUp("Matt", "S", "My Show", true);
 
         assertThat(ok).isTrue();
         ArgumentCaptor<Show> saved = ArgumentCaptor.forClass(Show.class);
@@ -124,6 +124,9 @@ class GraphQLMutationServiceTest {
         assertThat(s.getEmail()).isEqualTo("new@example.com");
         assertThat(s.getShowName()).isEqualTo("My Show");
         assertThat(s.getShowSubdomain()).isEqualTo("myshow");
+        // PRD-013 P0-1 — consent captured at signup.
+        assertThat(s.getMarketingOptIn()).isTrue();
+        assertThat(s.getOptInUpdatedAt()).isNotNull();
         // Auto-validate off — emailVerified mirrors that.
         assertThat(s.getEmailVerified()).isFalse();
         // Password is bcrypt-encoded.
@@ -145,7 +148,7 @@ class GraphQLMutationServiceTest {
         when(showRepository.findByShowToken(anyString())).thenReturn(Optional.empty());
         when(emailUtil.sendSignUpEmail(any(Show.class))).thenReturn(mailer(500));
 
-        assertThatThrownBy(() -> service.signUp("F", "L", "MyShow"))
+        assertThatThrownBy(() -> service.signUp("F", "L", "MyShow", false))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessage(StatusResponse.EMAIL_CANNOT_BE_SENT.name());
 
@@ -163,13 +166,16 @@ class GraphQLMutationServiceTest {
         when(showRepository.findByShowSubdomain(anyString())).thenReturn(Optional.empty());
         when(showRepository.findByShowToken(anyString())).thenReturn(Optional.empty());
 
-        Boolean ok = service.signUp("F", "L", "Auto");
+        // Null marketingOptIn (old client / self-host build that hides the
+        // checkbox) must coerce to false — consent is never assumed.
+        Boolean ok = service.signUp("F", "L", "Auto", null);
         assertThat(ok).isTrue();
 
         verify(emailUtil, never()).sendSignUpEmail(any(Show.class));
         ArgumentCaptor<Show> saved = ArgumentCaptor.forClass(Show.class);
         verify(showRepository).save(saved.capture());
         assertThat(saved.getValue().getEmailVerified()).isTrue();
+        assertThat(saved.getValue().getMarketingOptIn()).isFalse();
     }
 
     @Test
@@ -181,7 +187,7 @@ class GraphQLMutationServiceTest {
         when(showRepository.findByEmailCollation("dup@example.com"))
                 .thenReturn(Optional.of(Show.builder().build()));
 
-        assertThatThrownBy(() -> service.signUp("F", "L", "Dup"))
+        assertThatThrownBy(() -> service.signUp("F", "L", "Dup", false))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessage(StatusResponse.SHOW_EXISTS.name());
 
@@ -198,7 +204,7 @@ class GraphQLMutationServiceTest {
         when(showRepository.findByShowSubdomain("dupshow"))
                 .thenReturn(Optional.of(Show.builder().build()));
 
-        assertThatThrownBy(() -> service.signUp("F", "L", "Dup Show"))
+        assertThatThrownBy(() -> service.signUp("F", "L", "Dup Show", false))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessage(StatusResponse.SHOW_EXISTS.name());
     }
@@ -209,7 +215,7 @@ class GraphQLMutationServiceTest {
         when(authUtil.getCurrentRequest()).thenReturn(req);
         when(authUtil.getBasicAuthCredentials(req)).thenReturn(null);
 
-        assertThatThrownBy(() -> service.signUp("F", "L", "X"))
+        assertThatThrownBy(() -> service.signUp("F", "L", "X", false))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessage(StatusResponse.UNEXPECTED_ERROR.name());
     }
@@ -286,6 +292,40 @@ class GraphQLMutationServiceTest {
         stubAuth();
         when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.empty());
         assertThatThrownBy(() -> service.updateUserProfile(UserProfile.builder().build()))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage(StatusResponse.UNEXPECTED_ERROR.name());
+    }
+
+    // ---- updateEmailPreference (PRD-013 P0-1) ----
+
+    @Test
+    void updateEmailPreference_setsOptInAndTimestamp() {
+        stubAuth();
+        Show show = Show.builder().showToken(SHOW_TOKEN).marketingOptIn(false).build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        assertThat(service.updateEmailPreference(true)).isTrue();
+        assertThat(show.getMarketingOptIn()).isTrue();
+        assertThat(show.getOptInUpdatedAt()).isNotNull();
+        verify(showRepository).save(show);
+    }
+
+    @Test
+    void updateEmailPreference_optOut_setsFalse() {
+        stubAuth();
+        Show show = Show.builder().showToken(SHOW_TOKEN).marketingOptIn(true).build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        assertThat(service.updateEmailPreference(false)).isTrue();
+        assertThat(show.getMarketingOptIn()).isFalse();
+        verify(showRepository).save(show);
+    }
+
+    @Test
+    void updateEmailPreference_throwsUnexpected_whenShowMissing() {
+        stubAuth();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> service.updateEmailPreference(true))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessage(StatusResponse.UNEXPECTED_ERROR.name());
     }
