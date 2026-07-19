@@ -3,21 +3,55 @@ import { useCallback, useEffect, useState } from 'react';
 import { useMutation } from '@apollo/client';
 import { Grid, CardActions, Divider, Typography, Switch, Stack, TextField } from '@mui/material';
 import _ from 'lodash';
+import posthog from 'posthog-js';
 
 import MainCard from '../../../../ui-component/cards/MainCard';
 import StickyFormBar from '../../../../ui-component/StickyFormBar';
 import useAutoSave from '../../../../hooks/useAutoSave';
 import { useDispatch, useSelector } from '../../../../store';
 import { setShow } from '../../../../store/slices/show';
-import { UPDATE_PREFERENCES } from '../../../../utils/graphql/controlPanel/mutations';
+import { UPDATE_PREFERENCES, UPDATE_EMAIL_PREFERENCE } from '../../../../utils/graphql/controlPanel/mutations';
 import { showAlert } from '../../globalPageHelpers';
 import { savePreferencesService } from '../../../../services/controlPanel/mutations.service';
+
+// PRD-013 P0-5 — the marketing-email consent card only renders on hosted
+// builds (PostHog key baked in); self-hosted deployments have no email
+// stack, so a toggle would promise emails that never come.
+const isHostedBuild = !!import.meta.env.VITE_PUBLIC_POSTHOG_KEY;
 
 const Notifications = () => {
   const dispatch = useDispatch();
   const { show } = useSelector((state) => state.show);
 
   const [updatePreferencesMutation] = useMutation(UPDATE_PREFERENCES);
+  const [updateEmailPreferenceMutation, { loading: savingEmailPreference }] = useMutation(UPDATE_EMAIL_PREFERENCE);
+
+  // PRD-013 P0-5 — dedicated save path: marketingOptIn lives on the Show
+  // root (not preferences), so it doesn't ride the preferences autosave.
+  // On success, PostHog person state is enforced immediately rather than
+  // waiting for the next login's identify: opt-in syncs email, opt-out
+  // scrubs it (same $unset used by identifyShow in JWTContext).
+  const handleMarketingOptInChange = (optIn) => {
+    updateEmailPreferenceMutation({
+      variables: { marketingOptIn: optIn },
+      context: { headers: { Route: 'Control-Panel' } },
+      onCompleted: () => {
+        dispatch(setShow({ ...show, marketingOptIn: optIn }));
+        try {
+          if (optIn) {
+            posthog.setPersonProperties?.({ email: show?.email, marketingOptIn: true });
+          } else {
+            posthog.setPersonProperties?.({ marketingOptIn: false });
+            posthog.capture?.('email_consent_enforced', { $unset: ['email'] });
+          }
+        } catch (_) {}
+        showAlert(dispatch, { message: optIn ? 'Email tips enabled' : 'Email tips disabled' });
+      },
+      onError: () => {
+        showAlert(dispatch, { alert: 'error' });
+      }
+    });
+  };
 
   // Combined form state — notification fields nest under `notification`,
   // beta opt-in is a top-level boolean. The save handler maps them back
@@ -208,6 +242,36 @@ const Notifications = () => {
           <Divider />
         </MainCard>
       </Grid>
+
+      {/* PRD-013 P0-5 — marketing/lifecycle email consent (hosted builds only) */}
+      {isHostedBuild && (
+        <Grid item xs={12}>
+          <MainCard content={false}>
+            <Divider />
+            <CardActions>
+              <Grid container alignItems="center" justifyContent="space-between" spacing={2}>
+                <Grid item xs={12} md={6} lg={4}>
+                  <Typography variant="h4">Setup tips &amp; seasonal emails</Typography>
+                  <Typography component="div" variant="caption">
+                    Occasional setup help, feature tips, and seasonal reminders by email. Account emails
+                    (verification, password reset) are unaffected.
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} md={6} lg={4}>
+                  <Switch
+                    color="primary"
+                    checked={show?.marketingOptIn === true}
+                    disabled={savingEmailPreference}
+                    onChange={(_e, v) => handleMarketingOptInChange(v)}
+                    inputProps={{ 'aria-label': 'Setup tips and seasonal emails' }}
+                  />
+                </Grid>
+              </Grid>
+            </CardActions>
+            <Divider />
+          </MainCard>
+        </Grid>
+      )}
 
       <StickyFormBar status={status} />
     </>

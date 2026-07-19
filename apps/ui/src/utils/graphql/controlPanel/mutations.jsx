@@ -6,6 +6,13 @@ export const SIGN_UP = gql`
   }
 `;
 
+// PRD-013 P0-5 — Account Settings marketing/lifecycle email consent toggle.
+export const UPDATE_EMAIL_PREFERENCE = gql`
+  mutation ($marketingOptIn: Boolean!) @api(name: controlPanel) {
+    updateEmailPreference(marketingOptIn: $marketingOptIn)
+  }
+`;
+
 export const FORGOT_PASSWORD = gql`
   mutation ($email: String!) @api(name: controlPanel) {
     forgotPassword(email: $email)
