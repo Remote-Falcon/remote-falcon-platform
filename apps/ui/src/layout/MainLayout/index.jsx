@@ -4,6 +4,7 @@ import { AppBar, Box, Container, CssBaseline, Toolbar, useMediaQuery } from '@mu
 import { useTheme } from '@mui/material/styles';
 import { Outlet } from 'react-router-dom';
 
+import useActivationMilestone from '../../hooks/useActivationMilestone';
 import useConfig from '../../hooks/useConfig';
 import { useDispatch, useSelector } from '../../store';
 import { openDrawer } from '../../store/slices/menu';
@@ -27,6 +28,10 @@ const MainLayout = () => {
   const dispatch = useDispatch();
   const { drawerOpen } = useSelector((state) => state.menu);
   const { container } = useConfig();
+
+  // PRD-013 P0-3 — fires activation_completed on the show's first go-live,
+  // regardless of which surface flipped viewer control.
+  useActivationMilestone();
 
   React.useEffect(() => {
     dispatch(openDrawer(!matchDownMd));

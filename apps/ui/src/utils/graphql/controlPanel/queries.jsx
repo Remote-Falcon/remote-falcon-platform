@@ -8,6 +8,7 @@ export const SIGN_IN = gql`
       showName
       showSubdomain
       emailVerified
+      marketingOptIn
       createdDate
       lastLoginDate
       expireDate
@@ -136,6 +137,7 @@ export const VERIFY_MFA = gql`
       showName
       showSubdomain
       emailVerified
+      marketingOptIn
       createdDate
       lastLoginDate
       expireDate
@@ -282,6 +284,7 @@ export const GET_SHOW = gql`
       showName
       showSubdomain
       emailVerified
+      marketingOptIn
       createdDate
       lastLoginDate
       expireDate
@@ -598,6 +601,7 @@ export const GET_SHOW_BY_SHOW_NAME = gql`
       showName
       showSubdomain
       emailVerified
+      marketingOptIn
       createdDate
       lastLoginDate
       expireDate

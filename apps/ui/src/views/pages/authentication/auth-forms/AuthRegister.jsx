@@ -5,7 +5,9 @@ import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import {
   Box,
   Button,
+  Checkbox,
   FormControl,
+  FormControlLabel,
   FormHelperText,
   Grid,
   IconButton,
@@ -26,6 +28,13 @@ import AnimateButton from '../../../../ui-component/extended/AnimateButton';
 import { strengthColor, strengthIndicatorNumFunc } from '../../../../utils/password-strength';
 
 import { Environments } from '../../../../utils/enum';
+
+// PRD-013 P0-4 — the setup-tips consent checkbox only renders on hosted
+// builds (PostHog key baked in). Self-hosted builds have no email stack;
+// showing a checkbox that promises emails they'll never get would lie.
+// Without the key the value is never sent true — the server coerces the
+// omitted arg to false, so consent is never assumed.
+const isHostedBuild = !!import.meta.env.VITE_PUBLIC_POSTHOG_KEY;
 
 const AuthRegister = () => {
   const theme = useTheme();
@@ -60,6 +69,7 @@ const AuthRegister = () => {
           firstName: '',
           lastName: '',
           showName: '',
+          marketingOptIn: isHostedBuild,
           submit: null
         }}
         validationSchema={Yup.object().shape({
@@ -71,7 +81,14 @@ const AuthRegister = () => {
           password: Yup.string().max(255).required('Password is required')
         })}
         onSubmit={async (values) => {
-          await register(values.showName, values.email, values.password, values.firstName, values.lastName);
+          await register(
+            values.showName,
+            values.email,
+            values.password,
+            values.firstName,
+            values.lastName,
+            isHostedBuild && values.marketingOptIn
+          );
         }}
       >
         {({ errors, handleBlur, handleChange, handleSubmit, isSubmitting, touched, values }) => (
@@ -195,6 +212,26 @@ const AuthRegister = () => {
                 </Box>
               </FormControl>
             )}
+            {isHostedBuild && (
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    id="signup-marketing-opt-in"
+                    name="marketingOptIn"
+                    checked={values.marketingOptIn}
+                    onChange={handleChange}
+                    color="secondary"
+                  />
+                }
+                label={
+                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                    Send me setup tips and seasonal reminders (unsubscribe anytime)
+                  </Typography>
+                }
+                sx={{ mt: 0.5 }}
+              />
+            )}
+
             <Box sx={{ mt: 2 }}>
               {isSubmitting ? (
                 <Grid item xs={12}>

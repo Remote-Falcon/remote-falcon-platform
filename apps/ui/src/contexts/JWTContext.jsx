@@ -101,6 +101,37 @@ export const JWTProvider = ({ children }) => {
     dispatch(startLogoutAction());
   };
 
+  // Identify this user/show in PostHog using the showSubdomain as
+  // distinct_id. Email is PII to a third-party analytics provider
+  // (GDPR/CCPA) — strict consent model (a), PRD-013 P0-2: it is sent
+  // ONLY while marketingOptIn is true, and scrubbed on opt-out.
+  // lastLoginDate is always set: it's the recency anchor for
+  // dormant-user (re-engagement) audiences — PostHog batch audiences
+  // can't express behavioral "no event in N months", so they filter on
+  // this person property instead. Stamped client-side at identify time,
+  // which coincides with the backend's own lastLoginDate refresh.
+  const identifyShow = (showData) => {
+    try {
+      if (!posthog || !showData?.showSubdomain) return;
+      const optedIn = showData?.marketingOptIn === true;
+      const props = {
+        showName: showData?.showName,
+        showRole: showData?.showRole,
+        lastLoginDate: new Date().toISOString(),
+        marketingOptIn: optedIn
+      };
+      if (optedIn && showData?.email) {
+        props.email = showData.email;
+      }
+      posthog.identify(showData.showSubdomain, props);
+      if (showData?.marketingOptIn === false) {
+        // Explicit opt-out: remove any previously-synced email. (null =
+        // never asked — nothing was ever synced, so nothing to scrub.)
+        posthog.capture('email_consent_enforced', { $unset: ['email'] });
+      }
+    } catch (_) {}
+  };
+
   useEffect(() => {
     const init = () => {
       try {
@@ -121,18 +152,8 @@ export const JWTProvider = ({ children }) => {
                   ...showData
                 })
               );
-              // Identify this user/show in PostHog using the showSubdomain
-              // as distinct_id. Intentionally NOT sending email — PII to a
-              // third-party analytics provider, regulated (GDPR/CCPA), and
-              // not needed for analytics (showSubdomain is the user key).
-              try {
-                if (posthog && showData?.showSubdomain) {
-                  posthog.identify(showData.showSubdomain, {
-                    showName: showData?.showName,
-                    showRole: showData?.showRole
-                  });
-                }
-              } catch (_) {}
+              // See identifyShow above — consent-scoped PII posture.
+              identifyShow(showData);
             },
             onError: () => {
               logout();
@@ -162,15 +183,8 @@ export const JWTProvider = ({ children }) => {
         ...showData
       })
     );
-    // See identify() note above — no email to PostHog.
-    try {
-      if (posthog && showData?.showSubdomain) {
-        posthog.identify(showData.showSubdomain, {
-          showName: showData?.showName,
-          showRole: showData?.showRole
-        });
-      }
-    } catch (_) {}
+    // See identifyShow above — consent-scoped PII posture.
+    identifyShow(showData);
     trackPosthogEvent('signin', {
       show_name: showData?.showName,
       show_role: showData?.showRole
@@ -243,12 +257,15 @@ export const JWTProvider = ({ children }) => {
     setMfaChallenge(null);
   };
 
-  const register = async (showName, email, password, firstName, lastName) => {
+  const register = async (showName, email, password, firstName, lastName, marketingOptIn) => {
     await signUpMutation({
       variables: {
         showName,
         firstName,
-        lastName
+        lastName,
+        // PRD-013 P0-4 — consent from the signup checkbox. Coerced to a
+        // real boolean; the server treats null as false (never assumed).
+        marketingOptIn: marketingOptIn === true
       },
       context: {
         headers: {
