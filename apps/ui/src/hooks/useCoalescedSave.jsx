@@ -32,6 +32,7 @@ const useCoalescedSave = (save, { coalesceMs = 600, flashMs = 1500 } = {}) => {
   const queueRef = useRef([]);
   const timerRef = useRef(null);
   const flashRef = useRef(null);
+  const inFlightRef = useRef(Promise.resolve());
   // The save callback can change identity across renders; capture the
   // latest in a ref so the timer always calls the up-to-date one without
   // restarting the debounce window on every re-render.
@@ -45,22 +46,31 @@ const useCoalescedSave = (save, { coalesceMs = 600, flashMs = 1500 } = {}) => {
       clearTimeout(timerRef.current);
       timerRef.current = null;
     }
-    if (queueRef.current.length === 0) return;
-    const batch = queueRef.current;
-    queueRef.current = [];
-    setStatus('saving');
-    try {
-      await saveRef.current(batch);
-      setStatus('saved');
-      if (flashRef.current) clearTimeout(flashRef.current);
-      flashRef.current = setTimeout(() => setStatus('idle'), flashMs);
-    } catch (err) {
-      trackPosthogEvent('sequence_save_failed', {
-        error: err?.message,
-        operation: 'sequences_inline_edit'
-      });
-      setStatus('error');
-    }
+    // Serialize behind any save already in flight: `await flush()` must
+    // mean "every enqueued edit is settled", so a caller about to do its
+    // own full-array write (e.g. bulk metadata apply) can't race a save
+    // that left this function but hasn't resolved yet. Errors are handled
+    // inside the chained step, so the chain itself never rejects.
+    const run = inFlightRef.current.then(async () => {
+      if (queueRef.current.length === 0) return;
+      const batch = queueRef.current;
+      queueRef.current = [];
+      setStatus('saving');
+      try {
+        await saveRef.current(batch);
+        setStatus('saved');
+        if (flashRef.current) clearTimeout(flashRef.current);
+        flashRef.current = setTimeout(() => setStatus('idle'), flashMs);
+      } catch (err) {
+        trackPosthogEvent('sequence_save_failed', {
+          error: err?.message,
+          operation: 'sequences_inline_edit'
+        });
+        setStatus('error');
+      }
+    });
+    inFlightRef.current = run;
+    return run;
   }, [flashMs]);
 
   const enqueue = useCallback(

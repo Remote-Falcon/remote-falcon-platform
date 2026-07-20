@@ -36,6 +36,7 @@ import {
   IconGripVertical,
   IconLoader2,
   IconMovie,
+  IconMusicSearch,
   IconPlayerPlay,
   IconPlayerTrackNext,
   IconPlaylist,
@@ -55,12 +56,13 @@ import {
   saveSequenceGroupsService,
   saveSequencesService
 } from '../../../../services/controlPanel/mutations.service';
-import { useDispatch, useSelector } from '../../../../store';
+import { store, useDispatch, useSelector } from '../../../../store';
 import { setShow } from '../../../../store/slices/show';
 import ConfirmDialog from '../../../../ui-component/ConfirmDialog';
 import EmptyState from '../../../../ui-component/EmptyState';
 import MainCard from '../../../../ui-component/cards/MainCard';
 import useCoalescedSave from '../../../../hooks/useCoalescedSave';
+import useTableSort from '../../../../hooks/useTableSort';
 import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
 import {
   FORCE_NEXT_SONG,
@@ -71,7 +73,12 @@ import {
 } from '../../../../utils/graphql/controlPanel/mutations';
 import { showAlert } from '../../globalPageHelpers';
 
+import { estimateBulkLookupMinutes } from '../../../../utils/bulkMetadataLookup';
+import { cleanLookupQuery } from '../../../../utils/musicMetadata';
+
+import BulkMetadataLookupDialog from './BulkMetadataLookupDialog';
 import EditableCell from './EditableCell';
+import SequenceMetadataLookup from './SequenceMetadataLookup';
 
 // Status chip palette helper. Keeps the JSX tight.
 const STATUS_CHIP = {
@@ -206,8 +213,7 @@ const SequencesList = () => {
 
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
-  const [orderBy, setOrderBy] = useState('order');
-  const [order, setOrder] = useState('asc');
+  const { orderBy, order, requestSort, resetSort } = useTableSort('order', 'asc');
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(25);
   const [busy, setBusy] = useState(false);
@@ -234,6 +240,14 @@ const SequencesList = () => {
   const [categoryMenuAnchor, setCategoryMenuAnchor] = useState(null);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [creatingCategory, setCreatingCategory] = useState(false);
+
+  // Metadata-lookup popover target ({ anchorEl, sequence } or null).
+  // One popover instance serves all rows — only one can be open at a time.
+  const [lookup, setLookup] = useState(null);
+
+  // Bulk metadata lookup (first-match + review): target list, or null when
+  // the dialog is closed. Targets only sequences missing artist or art.
+  const [bulkLookupTargets, setBulkLookupTargets] = useState(null);
 
   // Horizontal-scroll hints — the table can be wider than the viewport with
   // long image URLs. Checkbox/drag/actions/status are sticky-pinned on the
@@ -269,11 +283,30 @@ const SequencesList = () => {
 
   const rowKey = (s) => `${s?.name}-${s?.index}`;
 
+  // Sequences the bulk metadata lookup would target: anything missing artist
+  // or album art. Fill-only; existing values are never overwritten. COMMAND
+  // and MEDIA rows are excluded: an FPP command or announcement file is not
+  // a song, and an iTunes first-match would attach a bogus artist/art to it.
+  const metadataMissing = useMemo(
+    () => (show?.sequences || []).filter((s) => s && !NON_SEQUENCE_BADGE[s.type] && (!s.artist || !s.imageUrl)),
+    [show?.sequences]
+  );
+
+  // One query builder for both lookup flows (single popover + bulk pass).
+  // A known artist joins the term so title-only queries for rows missing
+  // just the artwork disambiguate to the right recording, not whichever
+  // cover iTunes ranks first.
+  const lookupQueryFor = (s) => {
+    const base = cleanLookupQuery(s?.displayName || s?.name);
+    const artist = (s?.artist || '').trim();
+    return artist ? `${base} ${artist}` : base;
+  };
+
   // Coalesced autosave: each cell-blur enqueues a patch; we collapse
   // multiple patches per row into one before writing the full sequences[].
   // This is the on-blur + coalesce path the user picked over a debounced
   // keystroke save — see the notes in useCoalescedSave.jsx.
-  const { status: saveStatus, enqueue } = useCoalescedSave(
+  const { status: saveStatus, enqueue, flush } = useCoalescedSave(
     async (batch) => {
       // Collapse: per-rowKey, merge fields from all patches in arrival order.
       const merged = new Map();
@@ -448,8 +481,7 @@ const SequencesList = () => {
     setGroupFilter(null);
     setCategoryFilter(null);
     setSearch('');
-    setOrderBy('order');
-    setOrder('asc');
+    resetSort();
   };
 
   useEffect(() => {
@@ -482,23 +514,19 @@ const SequencesList = () => {
     el.scrollBy({ left: direction * Math.max(200, el.clientWidth * 0.5), behavior: 'smooth' });
   };
 
-  const handleRequestSort = (column) => {
-    if (orderBy === column) {
-      setOrder(order === 'asc' ? 'desc' : 'asc');
-    } else {
-      setOrderBy(column);
-      setOrder('asc');
-    }
-  };
-
   // Save helpers (used for non-editable bulk operations: reorder, delete,
   // toggle visibility/active for many at once).
-  const persistSequences = (updated, successMessage) => {
+  const persistSequences = (updated, successMessage, onSuccess) => {
     setBusy(true);
     saveSequencesService(updated, updateSequencesMutation, (response) => {
       if (response?.success) {
-        dispatch(setShow({ ...show, sequences: [...updated] }));
+        // Spread the store's CURRENT show, not this render's closure: the
+        // response can land after another save's dispatch (bulk apply
+        // awaits the coalesced flush first), and a stale spread would
+        // resurrect old top-level fields.
+        dispatch(setShow({ ...store.getState().show.show, sequences: [...updated] }));
         if (successMessage) showAlert(dispatch, { message: successMessage });
+        onSuccess?.();
       } else {
         showAlert(dispatch, response?.toast);
       }
@@ -848,6 +876,29 @@ const SequencesList = () => {
               </Tooltip>
               <Menu anchorEl={bulkAnchor} open={Boolean(bulkAnchor)} onClose={() => setBulkAnchor(null)}>
                 <MenuItem
+                  disabled={metadataMissing.length === 0}
+                  onClick={() => {
+                    setBulkAnchor(null);
+                    const targets = metadataMissing.map((s) => ({
+                      key: rowKey(s),
+                      query: lookupQueryFor(s)
+                    }));
+                    const estimatedMinutes = estimateBulkLookupMinutes(targets.length);
+                    setConfirm({
+                      title: `Look up metadata for ${targets.length} ${targets.length === 1 ? 'sequence' : 'sequences'}?`,
+                      message:
+                        `Lookups are paced to respect Apple's rate limit, so this will take about ` +
+                        `${estimatedMinutes} ${estimatedMinutes === 1 ? 'minute' : 'minutes'}. You can cancel at any point, ` +
+                        `and you'll review every proposed match before anything is saved.`,
+                      confirmLabel: 'Start lookup',
+                      confirmColor: 'primary',
+                      action: () => setBulkLookupTargets(targets)
+                    });
+                  }}
+                >
+                  Look up missing metadata ({metadataMissing.length})
+                </MenuItem>
+                <MenuItem
                   disabled={inactiveCount === 0}
                   onClick={() => {
                     setBulkAnchor(null);
@@ -1167,7 +1218,7 @@ const SequencesList = () => {
                         <TableSortLabel
                           active={orderBy === col.key}
                           direction={orderBy === col.key ? order : 'asc'}
-                          onClick={() => handleRequestSort(col.key)}
+                          onClick={() => requestSort(col.key)}
                         >
                           {col.label}
                         </TableSortLabel>
@@ -1293,11 +1344,24 @@ const SequencesList = () => {
                                     </Stack>
                                   </TableCell>
                                   <TableCell sx={{ minWidth: 180 }}>
-                                    <EditableCell
-                                      value={sequence.displayName}
-                                      onCommit={(v) => commitField(sequence, 'displayName', v)}
-                                      placeholder="Display name"
-                                    />
+                                    <Stack direction="row" alignItems="center" spacing={0.5}>
+                                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                                        <EditableCell
+                                          value={sequence.displayName}
+                                          onCommit={(v) => commitField(sequence, 'displayName', v)}
+                                          placeholder="Display name"
+                                        />
+                                      </Box>
+                                      <Tooltip title="Look up artist & album art">
+                                        <IconButton
+                                          size="small"
+                                          aria-label={`Look up metadata for ${sequence.displayName || sequence.name}`}
+                                          onClick={(e) => setLookup({ anchorEl: e.currentTarget, sequence })}
+                                        >
+                                          <IconMusicSearch size={16} stroke={1.75} />
+                                        </IconButton>
+                                      </Tooltip>
+                                    </Stack>
                                   </TableCell>
                                   <TableCell sx={{ minWidth: 140 }}>
                                     <EditableCell
@@ -1414,6 +1478,71 @@ const SequencesList = () => {
       </MainCard>
 
       <ConfirmDialog confirm={confirm} onClose={() => setConfirm(null)} />
+
+      <SequenceMetadataLookup
+        anchorEl={lookup?.anchorEl || null}
+        defaultQuery={lookup ? lookupQueryFor(lookup.sequence) : ''}
+        onClose={() => setLookup(null)}
+        onSelect={(result) => {
+          // Both patches coalesce into one save for the row. Never blank an
+          // existing image with a null artworkUrl (rare artless results).
+          commitField(lookup.sequence, 'artist', result.artist);
+          if (result.artworkUrl) {
+            commitField(lookup.sequence, 'imageUrl', result.artworkUrl);
+          }
+        }}
+      />
+
+      <BulkMetadataLookupDialog
+        open={Boolean(bulkLookupTargets)}
+        targets={bulkLookupTargets || []}
+        onClose={() => setBulkLookupTargets(null)}
+        onApply={async (picked) => {
+          // Fill-only, against the CURRENT rows. Two ordering guarantees:
+          // flush() first settles any pending/in-flight coalesced cell save
+          // (both paths write the full sequences[], so merging from a stale
+          // snapshot would let whichever write lands last silently revert
+          // the other), then the merge reads the store's post-flush state
+          // rather than this render's closure. The analytics event fires
+          // only after the save actually succeeds.
+          await flush();
+          const currentSequences = store.getState().show.show?.sequences || [];
+          const matchByKey = new Map(picked.map(({ key, match }) => [key, match]));
+          let applied = 0;
+          let lackedFields = 0;
+          const updated = _.cloneDeep(currentSequences);
+          updated.forEach((s) => {
+            const match = matchByKey.get(rowKey(s));
+            if (!match) return;
+            let touched = false;
+            if (!s.artist && match.artist) {
+              s.artist = match.artist;
+              touched = true;
+            }
+            if (!s.imageUrl && match.artworkUrl) {
+              s.imageUrl = match.artworkUrl;
+              touched = true;
+            }
+            if (touched) applied += 1;
+            else if (!s.artist || !s.imageUrl) lackedFields += 1;
+          });
+          if (applied > 0) {
+            persistSequences(updated, `Applied metadata to ${applied} ${applied === 1 ? 'sequence' : 'sequences'}`, () =>
+              trackPosthogEvent('sequence_metadata_bulk_applied', {
+                applied_count: applied,
+                candidate_count: bulkLookupTargets?.length || 0
+              })
+            );
+          } else if (lackedFields > 0) {
+            // Distinct from already-filled: the match came back without the
+            // field this row is missing (e.g. an artless result for a row
+            // that needed artwork). Re-running the same lookup won't help.
+            showAlert(dispatch, { message: 'Nothing to apply. The selected matches did not include the missing fields.' });
+          } else {
+            showAlert(dispatch, { message: 'Nothing to apply. Those fields are already filled.' });
+          }
+        }}
+      />
     </Box>
   );
 };
