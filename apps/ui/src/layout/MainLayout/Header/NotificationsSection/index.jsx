@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import * as React from 'react';
 
 import { useQuery } from '@apollo/client';
@@ -33,7 +33,7 @@ const NotificationsSection = () => {
   // view. Dismissal IS persisted; expansion is just "I'm reading this
   // right now."
   const [expandedSet, setExpandedSet] = useState(() => new Set());
-  const { dismissedSet, dismiss, dismissAll } = useDismissedNotifications();
+  const { dismissedSet, dismiss, dismissAll, prune } = useDismissedNotifications();
 
   // Poll-on-mount is fine for now — the bell badge doesn't need real-time
   // updates the way live stats do. TODO: bump to a poll interval if we
@@ -55,6 +55,15 @@ const NotificationsSection = () => {
       })
       .slice(0, MAX_ROWS);
   }, [data]);
+
+  // Prune dismissed uuids against the FULL server list (not the MAX_ROWS
+  // slice — a dismissal for a still-existing older notification must
+  // survive). Keeps localStorage from accumulating uuids of replaced or
+  // cleared notifications (FPP_HEALTH entries churn one uuid per outage).
+  useEffect(() => {
+    const list = Array.isArray(data?.getNotifications) ? data.getNotifications : null;
+    if (list) prune(list.map((n) => n?.uuid).filter(Boolean));
+  }, [data, prune]);
 
   const unreadUuids = useMemo(
     () => notifications.filter((n) => !dismissedSet.has(n.uuid)).map((n) => n.uuid),

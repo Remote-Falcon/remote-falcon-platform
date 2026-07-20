@@ -73,7 +73,22 @@ const useDismissedNotifications = () => {
     });
   }, []);
 
-  return { dismissedSet, dismiss, dismissAll };
+  // Drop dismissed uuids that no longer correspond to a live notification.
+  // Server-side notifications get replaced/cleared over time (FPP_HEALTH
+  // entries churn per outage), so without pruning the stored set grows
+  // unboundedly with uuids that can never match again.
+  const prune = useCallback((currentUuids) => {
+    if (!Array.isArray(currentUuids)) return;
+    const current = new Set(currentUuids.filter((u) => typeof u === 'string'));
+    setDismissedSet((prev) => {
+      const next = new Set(Array.from(prev).filter((u) => current.has(u)));
+      if (next.size === prev.size) return prev;
+      writeToStorage(next);
+      return next;
+    });
+  }, []);
+
+  return { dismissedSet, dismiss, dismissAll, prune };
 };
 
 export default useDismissedNotifications;
