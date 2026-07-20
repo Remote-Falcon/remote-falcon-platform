@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { cleanLookupQuery, lookupITunes, toHdArtwork } from '../musicMetadata';
+import { __resetLookupStateForTests, cleanLookupQuery, lookupITunes, toHdArtwork } from '../musicMetadata';
 
 // The sequence-metadata lookup (PRD-remote-falcon-003) hits the iTunes
 // Search API browser-direct and commits artist + imageUrl onto a sequence.
@@ -26,6 +26,12 @@ const mockFetchJson = (body, { ok = true, status = 200 } = {}) => {
   vi.stubGlobal('fetch', fetchMock);
   return fetchMock;
 };
+
+beforeEach(() => {
+  // lookupITunes keeps a module-level result cache + fetch-pacing clock;
+  // reset so each test's fetch mock is actually exercised.
+  __resetLookupStateForTests();
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -62,6 +68,18 @@ describe('cleanLookupQuery', () => {
 
   it('does not strip numbers that are part of the title', () => {
     expect(cleanLookupQuery('Christmas Eve 1914')).toBe('Christmas Eve 1914');
+  });
+
+  it('keeps a bare leading number with no separator (it is part of the title)', () => {
+    expect(cleanLookupQuery('12 Days of Christmas.fseq')).toBe('12 Days of Christmas');
+    expect(cleanLookupQuery('99 Luftballons')).toBe('99 Luftballons');
+    expect(cleanLookupQuery('8 Bit Christmas')).toBe('8 Bit Christmas');
+  });
+
+  it('strips a leading track number only when a separator follows it', () => {
+    expect(cleanLookupQuery('01 - Carol of the Bells')).toBe('Carol of the Bells');
+    expect(cleanLookupQuery('01.Carol of the Bells')).toBe('Carol of the Bells');
+    expect(cleanLookupQuery('01_Carol_of_the_Bells')).toBe('Carol of the Bells');
   });
 
   it('falls back to the trimmed original when cleaning would empty the query', () => {
@@ -136,5 +154,42 @@ describe('lookupITunes', () => {
   it('returns [] when the response has no results array', async () => {
     mockFetchJson({});
     expect(await lookupITunes('carol of the bells')).toEqual([]);
+  });
+
+  it('serves repeat lookups for the same term from cache without refetching', async () => {
+    const fetchMock = mockFetchJson({ resultCount: 1, results: [itunesResult()] });
+    const first = await lookupITunes('carol of the bells');
+    const second = await lookupITunes('Carol of the Bells'); // case-insensitive key
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(second).toBe(first);
+  });
+
+  it('passes an abort signal through to fetch and rejects when aborted', async () => {
+    const fetchMock = vi.fn((url, { signal }) => {
+      return new Promise((resolve, reject) => {
+        signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const controller = new AbortController();
+    const pending = lookupITunes('carol of the bells', { signal: controller.signal });
+    // Let the lookup reach fetch, then cancel: the composed signal must
+    // abort the in-flight request (this is what frees the bulk Cancel).
+    await Promise.resolve();
+    controller.abort();
+    await expect(pending).rejects.toThrow(/abort/i);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][1].signal).toBeDefined();
+  });
+
+  it('does not cache failures', async () => {
+    mockFetchJson({}, { ok: false, status: 503 });
+    await expect(lookupITunes('carol of the bells')).rejects.toThrow(/503/);
+    // Retry pays the pacing gap (~1s real time) but must refetch: the
+    // failure above must not have been cached.
+    const fetchMock = mockFetchJson({ resultCount: 1, results: [itunesResult()] });
+    const results = await lookupITunes('carol of the bells');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(results).toHaveLength(1);
   });
 });

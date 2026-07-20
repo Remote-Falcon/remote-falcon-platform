@@ -55,7 +55,7 @@ const SequenceMetadataLookup = ({ anchorEl, defaultQuery, onClose, onSelect }) =
       setSelectedIndex(found.length > 0 ? 0 : -1);
     } catch {
       if (searchIdRef.current !== searchId) return;
-      setError('Lookup failed — check your connection and try again.');
+      setError('Lookup failed. Check your connection and try again.');
       setResults(null);
     } finally {
       if (searchIdRef.current === searchId) setLoading(false);
@@ -63,6 +63,9 @@ const SequenceMetadataLookup = ({ anchorEl, defaultQuery, onClose, onSelect }) =
   };
 
   // Reset + auto-search each time the popover opens for a (new) row.
+  // `loading` must reset too: closing mid-search invalidates the searchId,
+  // which also skips the in-flight search's finally-reset, so a stale true
+  // would otherwise stick to the next open.
   useEffect(() => {
     if (!open) return;
     const term = (defaultQuery || '').trim();
@@ -70,6 +73,7 @@ const SequenceMetadataLookup = ({ anchorEl, defaultQuery, onClose, onSelect }) =
     setResults(null);
     setError(null);
     setSelectedIndex(-1);
+    setLoading(false);
     if (term) runSearch(term);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, defaultQuery]);
@@ -79,17 +83,21 @@ const SequenceMetadataLookup = ({ anchorEl, defaultQuery, onClose, onSelect }) =
     onClose();
   };
 
-  const useSelected = () => {
-    const picked = results?.[selectedIndex];
+  // Single commit path for both "Use selected" and double-click, so the
+  // analytics payload and the select-then-close sequence can never diverge.
+  const pick = (index) => {
+    const picked = results?.[index];
     if (!picked) return;
     trackPosthogEvent('sequence_metadata_lookup_used', {
-      result_index: selectedIndex,
+      result_index: index,
       result_count: results.length,
       query_length: query.trim().length
     });
     onSelect(picked);
     close();
   };
+
+  const useSelected = () => pick(selectedIndex);
 
   return (
     <Popover
@@ -113,7 +121,10 @@ const SequenceMetadataLookup = ({ anchorEl, defaultQuery, onClose, onSelect }) =
         onKeyDown={(e) => {
           if (e.key === 'Enter') {
             e.preventDefault();
-            runSearch(query);
+            // Mirror the search button's guard: no blank searches (they
+            // would render a misleading "No matches" for a search that
+            // never ran) and no overlapping searches.
+            if (query.trim() && !loading) runSearch(query);
           }
         }}
         InputProps={{
@@ -147,7 +158,7 @@ const SequenceMetadataLookup = ({ anchorEl, defaultQuery, onClose, onSelect }) =
 
         {!loading && !error && results?.length === 0 && (
           <Typography variant="body2" sx={{ py: 2, textAlign: 'center', color: 'text.secondary' }}>
-            No matches — try a different search term.
+            No matches. Try a different search term.
           </Typography>
         )}
 
@@ -159,16 +170,10 @@ const SequenceMetadataLookup = ({ anchorEl, defaultQuery, onClose, onSelect }) =
                 selected={index === selectedIndex}
                 onClick={() => setSelectedIndex(index)}
                 onDoubleClick={() => {
+                  // Double-click = pick this one; the state update above
+                  // hasn't flushed yet, so commit via the row's own index.
                   setSelectedIndex(index);
-                  // Double-click = pick this one; state update above hasn't
-                  // flushed yet, so commit from the row directly.
-                  trackPosthogEvent('sequence_metadata_lookup_used', {
-                    result_index: index,
-                    result_count: results.length,
-                    query_length: query.trim().length
-                  });
-                  onSelect(result);
-                  close();
+                  pick(index);
                 }}
                 sx={{ borderRadius: 1, gap: 1.25, alignItems: 'flex-start', py: 0.75 }}
               >

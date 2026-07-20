@@ -56,12 +56,13 @@ import {
   saveSequenceGroupsService,
   saveSequencesService
 } from '../../../../services/controlPanel/mutations.service';
-import { useDispatch, useSelector } from '../../../../store';
+import { store, useDispatch, useSelector } from '../../../../store';
 import { setShow } from '../../../../store/slices/show';
 import ConfirmDialog from '../../../../ui-component/ConfirmDialog';
 import EmptyState from '../../../../ui-component/EmptyState';
 import MainCard from '../../../../ui-component/cards/MainCard';
 import useCoalescedSave from '../../../../hooks/useCoalescedSave';
+import useTableSort from '../../../../hooks/useTableSort';
 import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
 import {
   FORCE_NEXT_SONG,
@@ -212,8 +213,7 @@ const SequencesList = () => {
 
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
-  const [orderBy, setOrderBy] = useState('order');
-  const [order, setOrder] = useState('asc');
+  const { orderBy, order, requestSort, resetSort } = useTableSort('order', 'asc');
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(25);
   const [busy, setBusy] = useState(false);
@@ -284,17 +284,29 @@ const SequencesList = () => {
   const rowKey = (s) => `${s?.name}-${s?.index}`;
 
   // Sequences the bulk metadata lookup would target: anything missing artist
-  // or album art. Fill-only — existing values are never overwritten.
+  // or album art. Fill-only; existing values are never overwritten. COMMAND
+  // and MEDIA rows are excluded: an FPP command or announcement file is not
+  // a song, and an iTunes first-match would attach a bogus artist/art to it.
   const metadataMissing = useMemo(
-    () => (show?.sequences || []).filter((s) => s && (!s.artist || !s.imageUrl)),
+    () => (show?.sequences || []).filter((s) => s && !NON_SEQUENCE_BADGE[s.type] && (!s.artist || !s.imageUrl)),
     [show?.sequences]
   );
+
+  // One query builder for both lookup flows (single popover + bulk pass).
+  // A known artist joins the term so title-only queries for rows missing
+  // just the artwork disambiguate to the right recording, not whichever
+  // cover iTunes ranks first.
+  const lookupQueryFor = (s) => {
+    const base = cleanLookupQuery(s?.displayName || s?.name);
+    const artist = (s?.artist || '').trim();
+    return artist ? `${base} ${artist}` : base;
+  };
 
   // Coalesced autosave: each cell-blur enqueues a patch; we collapse
   // multiple patches per row into one before writing the full sequences[].
   // This is the on-blur + coalesce path the user picked over a debounced
   // keystroke save — see the notes in useCoalescedSave.jsx.
-  const { status: saveStatus, enqueue } = useCoalescedSave(
+  const { status: saveStatus, enqueue, flush } = useCoalescedSave(
     async (batch) => {
       // Collapse: per-rowKey, merge fields from all patches in arrival order.
       const merged = new Map();
@@ -469,8 +481,7 @@ const SequencesList = () => {
     setGroupFilter(null);
     setCategoryFilter(null);
     setSearch('');
-    setOrderBy('order');
-    setOrder('asc');
+    resetSort();
   };
 
   useEffect(() => {
@@ -503,23 +514,19 @@ const SequencesList = () => {
     el.scrollBy({ left: direction * Math.max(200, el.clientWidth * 0.5), behavior: 'smooth' });
   };
 
-  const handleRequestSort = (column) => {
-    if (orderBy === column) {
-      setOrder(order === 'asc' ? 'desc' : 'asc');
-    } else {
-      setOrderBy(column);
-      setOrder('asc');
-    }
-  };
-
   // Save helpers (used for non-editable bulk operations: reorder, delete,
   // toggle visibility/active for many at once).
-  const persistSequences = (updated, successMessage) => {
+  const persistSequences = (updated, successMessage, onSuccess) => {
     setBusy(true);
     saveSequencesService(updated, updateSequencesMutation, (response) => {
       if (response?.success) {
-        dispatch(setShow({ ...show, sequences: [...updated] }));
+        // Spread the store's CURRENT show, not this render's closure: the
+        // response can land after another save's dispatch (bulk apply
+        // awaits the coalesced flush first), and a stale spread would
+        // resurrect old top-level fields.
+        dispatch(setShow({ ...store.getState().show.show, sequences: [...updated] }));
         if (successMessage) showAlert(dispatch, { message: successMessage });
+        onSuccess?.();
       } else {
         showAlert(dispatch, response?.toast);
       }
@@ -874,7 +881,7 @@ const SequencesList = () => {
                     setBulkAnchor(null);
                     const targets = metadataMissing.map((s) => ({
                       key: rowKey(s),
-                      query: cleanLookupQuery(s.displayName || s.name)
+                      query: lookupQueryFor(s)
                     }));
                     const estimatedMinutes = estimateBulkLookupMinutes(targets.length);
                     setConfirm({
@@ -1211,7 +1218,7 @@ const SequencesList = () => {
                         <TableSortLabel
                           active={orderBy === col.key}
                           direction={orderBy === col.key ? order : 'asc'}
-                          onClick={() => handleRequestSort(col.key)}
+                          onClick={() => requestSort(col.key)}
                         >
                           {col.label}
                         </TableSortLabel>
@@ -1474,7 +1481,7 @@ const SequencesList = () => {
 
       <SequenceMetadataLookup
         anchorEl={lookup?.anchorEl || null}
-        defaultQuery={lookup ? cleanLookupQuery(lookup.sequence?.displayName || lookup.sequence?.name) : ''}
+        defaultQuery={lookup ? lookupQueryFor(lookup.sequence) : ''}
         onClose={() => setLookup(null)}
         onSelect={(result) => {
           // Both patches coalesce into one save for the row. Never blank an
@@ -1490,15 +1497,20 @@ const SequencesList = () => {
         open={Boolean(bulkLookupTargets)}
         targets={bulkLookupTargets || []}
         onClose={() => setBulkLookupTargets(null)}
-        onApply={(picked) => {
-          // Fill-only, against the CURRENT rows: keys are resolved on the
-          // live sequences (not the snapshot captured at menu-click), so a
-          // field the owner filled while the lookup ran is never overwritten.
-          // One persistSequences write, same as the other bulk operations —
-          // the toast only fires when the save actually succeeds.
+        onApply={async (picked) => {
+          // Fill-only, against the CURRENT rows. Two ordering guarantees:
+          // flush() first settles any pending/in-flight coalesced cell save
+          // (both paths write the full sequences[], so merging from a stale
+          // snapshot would let whichever write lands last silently revert
+          // the other), then the merge reads the store's post-flush state
+          // rather than this render's closure. The analytics event fires
+          // only after the save actually succeeds.
+          await flush();
+          const currentSequences = store.getState().show.show?.sequences || [];
           const matchByKey = new Map(picked.map(({ key, match }) => [key, match]));
           let applied = 0;
-          const updated = _.cloneDeep(show?.sequences || []);
+          let lackedFields = 0;
+          const updated = _.cloneDeep(currentSequences);
           updated.forEach((s) => {
             const match = matchByKey.get(rowKey(s));
             if (!match) return;
@@ -1512,15 +1524,22 @@ const SequencesList = () => {
               touched = true;
             }
             if (touched) applied += 1;
-          });
-          trackPosthogEvent('sequence_metadata_bulk_applied', {
-            applied_count: applied,
-            candidate_count: bulkLookupTargets?.length || 0
+            else if (!s.artist || !s.imageUrl) lackedFields += 1;
           });
           if (applied > 0) {
-            persistSequences(updated, `Applied metadata to ${applied} ${applied === 1 ? 'sequence' : 'sequences'}`);
+            persistSequences(updated, `Applied metadata to ${applied} ${applied === 1 ? 'sequence' : 'sequences'}`, () =>
+              trackPosthogEvent('sequence_metadata_bulk_applied', {
+                applied_count: applied,
+                candidate_count: bulkLookupTargets?.length || 0
+              })
+            );
+          } else if (lackedFields > 0) {
+            // Distinct from already-filled: the match came back without the
+            // field this row is missing (e.g. an artless result for a row
+            // that needed artwork). Re-running the same lookup won't help.
+            showAlert(dispatch, { message: 'Nothing to apply. The selected matches did not include the missing fields.' });
           } else {
-            showAlert(dispatch, { message: 'Nothing to apply — those fields are already filled' });
+            showAlert(dispatch, { message: 'Nothing to apply. Those fields are already filled.' });
           }
         }}
       />

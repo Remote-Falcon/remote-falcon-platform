@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import * as React from 'react';
 
 import {
@@ -22,24 +22,24 @@ import {
 } from '@mui/material';
 import PropTypes from 'prop-types';
 
+import useTableSort from '../../../../hooks/useTableSort';
 import { estimateBulkLookupMinutes, runBulkLookup } from '../../../../utils/bulkMetadataLookup';
 import ArtworkThumb from './ArtworkThumb';
 
 // Bulk metadata lookup dialog (PRD-remote-falcon-003, bulk flow).
 //
 // Two phases: a rate-limited lookup pass with live progress (Apple caps the
-// iTunes Search API at ~20 calls/minute, so ~100 sequences take ~6 minutes —
+// iTunes Search API at ~20 calls/minute, so ~100 sequences take ~6 minutes,
 // hence progress + cancel, not a spinner), then a review table proposing the
 // FIRST match per sequence. Nothing commits until the owner applies; rows
 // default checked only when a match came back. Cancel mid-run keeps what was
-// fetched and drops straight into review. Apply hands back [{ key, match }]
-// — the parent resolves keys against the CURRENT sequences and owns the
-// fill-only commit (never overwrite an existing artist/art), so edits made
-// while the lookup ran are respected.
+// fetched and drops straight into review. Apply hands back [{ key, match }];
+// the parent resolves keys against the CURRENT sequences and owns the
+// fill-only commit (never overwrite an existing artist/art).
 //
 // The review header summarizes outcomes as clickable filter chips and the
 // columns sort, because at real catalog sizes (100+ sequences) a handful of
-// dimmed no-match rows disappear into the scroll — the owner needs to see
+// dimmed no-match rows disappear into the scroll. The owner needs to see
 // what the run did NOT find before applying.
 
 const STATUS_RANK = { matched: 0, nomatch: 1, failed: 2 };
@@ -47,26 +47,28 @@ const rowStatus = (row) => (row.error ? 'failed' : row.match ? 'matched' : 'noma
 
 const BulkMetadataLookupDialog = ({ open, targets, onClose, onApply }) => {
   const [phase, setPhase] = useState('running'); // 'running' | 'review'
-  const [progress, setProgress] = useState({ done: 0, total: 0 });
+  const [progress, setProgress] = useState({ done: 0, current: null });
   const [rows, setRows] = useState([]);
   const [checked, setChecked] = useState(() => new Set());
   const [cancelled, setCancelled] = useState(false);
   const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'matched' | 'nomatch' | 'failed'
-  const [orderBy, setOrderBy] = useState(null); // null (lookup order) | 'query' | 'match'
-  const [order, setOrder] = useState('asc');
+  const { orderBy, order, requestSort, resetSort } = useTableSort(); // null orderBy = lookup order
   const abortRef = useRef(null);
+  // Monotonic run id: a superseded run's promise settling late (StrictMode
+  // double-mount, a hung request finally timing out after cancel + reopen)
+  // must not clobber the active run's state.
+  const runIdRef = useRef(0);
 
   // Reset once the close transition finishes, so a reopen never paints a
   // frame of the previous run's review table before the open-effect fires.
   const resetForNextRun = () => {
     setPhase('running');
-    setProgress({ done: 0, total: 0 });
+    setProgress({ done: 0, current: null });
     setRows([]);
     setChecked(new Set());
     setCancelled(false);
     setStatusFilter('all');
-    setOrderBy(null);
-    setOrder('asc');
+    resetSort();
   };
 
   useEffect(() => {
@@ -74,16 +76,19 @@ const BulkMetadataLookupDialog = ({ open, targets, onClose, onApply }) => {
 
     const controller = new AbortController();
     abortRef.current = controller;
+    const runId = ++runIdRef.current;
     resetForNextRun();
-    setProgress({ done: 0, total: targets.length });
 
     runBulkLookup(
       targets.map(({ key, query }) => ({ key, query })),
       {
         signal: controller.signal,
-        onProgress: ({ done, total }) => setProgress({ done, total })
+        onProgress: ({ done, current }) => {
+          if (runIdRef.current === runId) setProgress({ done, current });
+        }
       }
     ).then((result) => {
+      if (runIdRef.current !== runId) return;
       setRows(result);
       setChecked(new Set(result.filter((r) => r.match && !r.error).map((r) => r.key)));
       setPhase('review');
@@ -93,38 +98,32 @@ const BulkMetadataLookupDialog = ({ open, targets, onClose, onApply }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  const currentQuery = phase === 'running' ? targets[progress.done]?.query || '' : '';
-  const matchedRows = rows.filter((r) => r.match);
-  const applyCount = matchedRows.filter((r) => checked.has(r.key)).length;
+  const matchedRows = useMemo(() => rows.filter((r) => r.match), [rows]);
+  const applyCount = useMemo(() => matchedRows.filter((r) => checked.has(r.key)).length, [matchedRows, checked]);
   const estimatedMinutes = estimateBulkLookupMinutes(targets.length);
 
-  const counts = { all: rows.length, matched: 0, nomatch: 0, failed: 0 };
-  rows.forEach((r) => {
-    counts[rowStatus(r)] += 1;
-  });
+  const counts = useMemo(() => {
+    const next = { all: rows.length, matched: 0, nomatch: 0, failed: 0 };
+    rows.forEach((r) => {
+      next[rowStatus(r)] += 1;
+    });
+    return next;
+  }, [rows]);
 
-  const visibleRows = rows
-    .filter((r) => statusFilter === 'all' || rowStatus(r) === statusFilter)
-    .sort((a, b) => {
-      if (!orderBy) return 0; // lookup order
-      const dir = order === 'asc' ? 1 : -1;
+  const visibleRows = useMemo(() => {
+    const filtered = rows.filter((r) => statusFilter === 'all' || rowStatus(r) === statusFilter);
+    if (!orderBy) return filtered; // lookup order
+    const dir = order === 'asc' ? 1 : -1;
+    return [...filtered].sort((a, b) => {
       if (orderBy === 'query') return dir * a.query.localeCompare(b.query);
       // 'match': matched first, then alphabetical by proposed title
       const rank = STATUS_RANK[rowStatus(a)] - STATUS_RANK[rowStatus(b)];
       if (rank !== 0) return dir * rank;
       return dir * (a.match?.title || '').localeCompare(b.match?.title || '');
     });
-  const visibleMatched = visibleRows.filter((r) => r.match);
-  const visibleChecked = visibleMatched.filter((r) => checked.has(r.key)).length;
-
-  const handleSort = (column) => {
-    if (orderBy === column) {
-      setOrder(order === 'asc' ? 'desc' : 'asc');
-    } else {
-      setOrderBy(column);
-      setOrder('asc');
-    }
-  };
+  }, [rows, statusFilter, orderBy, order]);
+  const visibleMatched = useMemo(() => visibleRows.filter((r) => r.match), [visibleRows]);
+  const visibleChecked = useMemo(() => visibleMatched.filter((r) => checked.has(r.key)).length, [visibleMatched, checked]);
 
   const filterChips = [
     { value: 'all', label: 'All' },
@@ -147,26 +146,32 @@ const BulkMetadataLookupDialog = ({ open, targets, onClose, onApply }) => {
     onClose();
   };
 
+  // Backdrop clicks and Escape must never discard a run's work: while
+  // running they are ignored outright, and in review they are ignored
+  // whenever unapplied matches are on the table (a stray click after a
+  // multi-minute pass would silently throw everything away). The explicit
+  // Close/Apply buttons call onClose directly, without a reason.
+  const handleDialogClose = (event, reason) => {
+    if (phase === 'running') return;
+    if (reason && matchedRows.length > 0) return;
+    onClose();
+  };
+
   return (
-    <Dialog
-      open={open}
-      onClose={phase === 'running' ? undefined : onClose}
-      maxWidth="sm"
-      fullWidth
-      TransitionProps={{ onExited: resetForNextRun }}
-    >
+    <Dialog open={open} onClose={handleDialogClose} maxWidth="sm" fullWidth TransitionProps={{ onExited: resetForNextRun }}>
       <DialogTitle>Look up missing metadata</DialogTitle>
 
       {phase === 'running' && (
         <DialogContent>
           <Typography variant="body2" sx={{ mb: 1.5 }}>
-            Searching iTunes for {progress.total} {progress.total === 1 ? 'sequence' : 'sequences'}… Lookups are paced to respect
-            Apple&apos;s rate limit (~{estimatedMinutes} min total). You can keep working — just leave this open.
+            Searching iTunes for {targets.length} {targets.length === 1 ? 'sequence' : 'sequences'}… Lookups are paced to respect
+            Apple&apos;s rate limit (~{estimatedMinutes} min total). Leave this dialog open until it finishes; closing it or navigating
+            away cancels the run.
           </Typography>
-          <LinearProgress variant="determinate" value={progress.total ? (progress.done / progress.total) * 100 : 0} sx={{ mb: 1 }} />
+          <LinearProgress variant="determinate" value={targets.length ? (progress.done / targets.length) * 100 : 0} sx={{ mb: 1 }} />
           <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-            {progress.done}/{progress.total}
-            {currentQuery ? ` — looking up “${currentQuery}”` : ''}
+            {progress.done}/{targets.length}
+            {progress.current ? ` (looking up “${progress.current}”)` : ''}
           </Typography>
         </DialogContent>
       )}
@@ -174,9 +179,9 @@ const BulkMetadataLookupDialog = ({ open, targets, onClose, onApply }) => {
       {phase === 'review' && (
         <DialogContent sx={{ pt: 0 }}>
           <Typography variant="body2" sx={{ my: 1.5 }}>
-            {cancelled ? `You cancelled early — here's what was found before stopping. ` : ''}
+            {cancelled ? `You cancelled early, so this is what was found before stopping. ` : ''}
             Found matches for {counts.matched} of {rows.length} {rows.length === 1 ? 'sequence' : 'sequences'}. Keep the ones that look
-            right — only blank artist and album art fields are filled in, and anything you&apos;ve already entered stays untouched.
+            right. Only blank artist and album art fields are filled in, and anything you&apos;ve already entered stays untouched.
           </Typography>
           {rows.length === 0 && (
             <Typography variant="body2" sx={{ py: 2, textAlign: 'center', color: 'text.secondary' }}>
@@ -229,7 +234,7 @@ const BulkMetadataLookupDialog = ({ open, targets, onClose, onApply }) => {
                           <TableSortLabel
                             active={orderBy === 'query'}
                             direction={orderBy === 'query' ? order : 'asc'}
-                            onClick={() => handleSort('query')}
+                            onClick={() => requestSort('query')}
                           >
                             Sequence
                           </TableSortLabel>
@@ -238,7 +243,7 @@ const BulkMetadataLookupDialog = ({ open, targets, onClose, onApply }) => {
                           <TableSortLabel
                             active={orderBy === 'match'}
                             direction={orderBy === 'match' ? order : 'asc'}
-                            onClick={() => handleSort('match')}
+                            onClick={() => requestSort('match')}
                           >
                             Proposed match
                           </TableSortLabel>

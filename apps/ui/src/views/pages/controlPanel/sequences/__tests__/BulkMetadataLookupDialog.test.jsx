@@ -155,4 +155,33 @@ describe('BulkMetadataLookupDialog', () => {
     await waitFor(() => expect(screen.getByText('Lookup failed')).toBeInTheDocument());
     expect(screen.getByText(/Apply 0 matches/).closest('button')).toBeDisabled();
   });
+
+  it('ignores Escape in review while unapplied matches are on the table, but honors the Close button', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    runBulkLookup.mockResolvedValue(rowsFromLookup);
+    render(<BulkMetadataLookupDialog open targets={targets} onClose={onClose} onApply={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText(/Apply 2 matches/)).toBeInTheDocument());
+
+    // A stray Escape (or backdrop click, which hits the same guarded
+    // onClose reason path) after a multi-minute run must not silently
+    // discard the proposals.
+    await user.keyboard('{Escape}');
+    expect(onClose).not.toHaveBeenCalled();
+
+    // Deliberate dismissal via the explicit button still works.
+    await user.click(screen.getByRole('button', { name: 'Close' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows Escape in review when the run produced no matches', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    runBulkLookup.mockResolvedValue([{ key: 'b-1', query: 'XMAS_UNKNOWN_01', match: null, error: null }]);
+    render(<BulkMetadataLookupDialog open targets={[targets[1]]} onClose={onClose} onApply={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText('No match found')).toBeInTheDocument());
+
+    await user.keyboard('{Escape}');
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
 });
