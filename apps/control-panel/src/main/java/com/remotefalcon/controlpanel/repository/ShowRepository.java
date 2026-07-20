@@ -42,7 +42,10 @@ public interface ShowRepository extends MongoRepository<Show, String> {
     Optional<Show> findByEmailCollation(String email);
 
     Optional<Show> findByPasswordResetLinkAndPasswordResetExpiryGreaterThan(String passwordResetLink, LocalDateTime passwordResetExpiry);
-    List<Show> findByPreferencesNotificationPreferencesEnableFppHeartbeatIsTrueAndLastFppHeartbeatBefore(LocalDateTime lastFppHeartbeat);
+    // Heartbeat-alert scan (idx_fppHeartbeat_enabled, partial). The Between
+    // bounds the outage age: older than the stale threshold, newer than the
+    // recent-outage window floor — shows dark for months never match.
+    List<Show> findByPreferencesNotificationPreferencesEnableFppHeartbeatIsTrueAndLastFppHeartbeatBetween(LocalDateTime after, LocalDateTime before);
     // Admin show-name autosuggest. Case-insensitive prefix match on
     // showName, index-backed by idx_showName (plain btree). Caller passes
     // PageRequest.of(0, 25) to cap the result set server-side. Returns

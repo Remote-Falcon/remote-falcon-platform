@@ -10,9 +10,16 @@ import org.springframework.stereotype.Service;
 public class ScheduledTaskController {
     private final ScheduledTaskService scheduledTaskService;
 
+    /**
+     * FPP plugin-health alerting (Account Settings → Notifications toggle).
+     * Enabled 2026-07-19 after shipping the flood guards in
+     * {@link ScheduledTaskService#fppHeartbeatTask()}: replace-not-append
+     * bell entries, clear-on-recovery, 24h TTL, and a 48h recent-outage
+     * window (prod had 296 opted-in shows, most dark for the season).
+     */
     @Scheduled(cron = "0 * * * * *")
     public void runTask() {
-        // scheduledTaskService.fppHeartbeatTask();
+        scheduledTaskService.fppHeartbeatTask();
     }
 
     /**
