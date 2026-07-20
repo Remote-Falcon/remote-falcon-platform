@@ -42,7 +42,7 @@ class ScheduledTaskServiceTest {
     @Mock private MongoTemplate mongoTemplate;
     @InjectMocks private ScheduledTaskService service;
 
-    private Show staleShow(NotificationPreference notificationPreference, boolean viewerControlEnabled) {
+    private Show staleShow(NotificationPreference notificationPreference, Boolean viewerControlEnabled) {
         return Show.builder()
                 .showToken("token-1")
                 .showName("Test Show")
@@ -66,7 +66,7 @@ class ScheduledTaskServiceTest {
                 .enableFppHeartbeat(true)
                 .fppHeartbeatRenotifyAfterMinutes(30)
                 .build(), true);
-        when(showRepository.findByPreferencesNotificationPreferencesEnableFppHeartbeatIsTrueAndLastFppHeartbeatBetween(
+        when(showRepository.findFppHeartbeatAlertCandidates(
                 any(LocalDateTime.class), any(LocalDateTime.class))).thenReturn(List.of(show));
 
         service.fppHeartbeatTask();
@@ -96,7 +96,7 @@ class ScheduledTaskServiceTest {
                 .fppHeartbeatRenotifyAfterMinutes(30)
                 .fppHeartbeatLastNotification(LocalDateTime.now().minusMinutes(10))
                 .build(), true);
-        when(showRepository.findByPreferencesNotificationPreferencesEnableFppHeartbeatIsTrueAndLastFppHeartbeatBetween(
+        when(showRepository.findFppHeartbeatAlertCandidates(
                 any(LocalDateTime.class), any(LocalDateTime.class))).thenReturn(List.of(show));
 
         service.fppHeartbeatTask();
@@ -111,7 +111,7 @@ class ScheduledTaskServiceTest {
                 .fppHeartbeatRenotifyAfterMinutes(30)
                 .fppHeartbeatLastNotification(LocalDateTime.now().minusMinutes(35))
                 .build(), true);
-        when(showRepository.findByPreferencesNotificationPreferencesEnableFppHeartbeatIsTrueAndLastFppHeartbeatBetween(
+        when(showRepository.findFppHeartbeatAlertCandidates(
                 any(LocalDateTime.class), any(LocalDateTime.class))).thenReturn(List.of(show));
 
         service.fppHeartbeatTask();
@@ -128,7 +128,7 @@ class ScheduledTaskServiceTest {
                 .fppHeartbeatRenotifyAfterMinutes(null)
                 .fppHeartbeatLastNotification(LocalDateTime.now().minusMinutes(10))
                 .build(), true);
-        when(showRepository.findByPreferencesNotificationPreferencesEnableFppHeartbeatIsTrueAndLastFppHeartbeatBetween(
+        when(showRepository.findFppHeartbeatAlertCandidates(
                 any(LocalDateTime.class), any(LocalDateTime.class))).thenReturn(List.of(show));
 
         service.fppHeartbeatTask();
@@ -144,7 +144,7 @@ class ScheduledTaskServiceTest {
                 .fppHeartbeatRenotifyAfterMinutes(30)
                 .fppHeartbeatIfControlEnabled(true)
                 .build(), false);
-        when(showRepository.findByPreferencesNotificationPreferencesEnableFppHeartbeatIsTrueAndLastFppHeartbeatBetween(
+        when(showRepository.findFppHeartbeatAlertCandidates(
                 any(LocalDateTime.class), any(LocalDateTime.class))).thenReturn(List.of(show));
 
         service.fppHeartbeatTask();
@@ -153,8 +153,96 @@ class ScheduledTaskServiceTest {
     }
 
     @Test
+    void notNPE_whenControlGateOnAndViewerControlNull() {
+        // viewerControlEnabled is a nullable Boolean; an unboxed !get() would
+        // abort the whole task (and both sweeps) every minute. Null must be
+        // treated as "control off" → suppressed, no exception.
+        Show show = staleShow(NotificationPreference.builder()
+                .enableFppHeartbeat(true)
+                .fppHeartbeatRenotifyAfterMinutes(30)
+                .fppHeartbeatIfControlEnabled(true)
+                .build(), null);
+        when(showRepository.findFppHeartbeatAlertCandidates(
+                any(LocalDateTime.class), any(LocalDateTime.class))).thenReturn(List.of(show));
+
+        service.fppHeartbeatTask();
+
+        verify(mongoTemplate, never()).updateFirst(any(Query.class), any(Update.class), eq(Show.class));
+    }
+
+    @Test
+    void renotifyZero_clampedToMinimum_noPerMinuteFlood() {
+        // The UI enforces >= 5 client-side only; a crafted GraphQL request can
+        // persist 0, which unclamped makes the guard always-false (per-minute
+        // re-alerts). Last notification 3 min ago + clamped floor 5 → suppressed.
+        Show show = staleShow(NotificationPreference.builder()
+                .enableFppHeartbeat(true)
+                .fppHeartbeatRenotifyAfterMinutes(0)
+                .fppHeartbeatLastNotification(LocalDateTime.now().minusMinutes(3))
+                .build(), true);
+        when(showRepository.findFppHeartbeatAlertCandidates(
+                any(LocalDateTime.class), any(LocalDateTime.class))).thenReturn(List.of(show));
+
+        service.fppHeartbeatTask();
+
+        verify(mongoTemplate, never()).updateFirst(any(Query.class), any(Update.class), eq(Show.class));
+    }
+
+    @Test
+    void uuidIsStablePerOutage_andChangesForNewOutage() {
+        // Dismissals are client-side by uuid: the uuid must survive renotify
+        // replacements within one outage (dismiss sticks) and change when a
+        // new outage begins (bell re-lights). Derived from showToken + the
+        // frozen lastFppHeartbeat.
+        LocalDateTime outageStart = LocalDateTime.now().minusMinutes(10);
+        NotificationPreference prefs = NotificationPreference.builder()
+                .enableFppHeartbeat(true)
+                .fppHeartbeatRenotifyAfterMinutes(5)
+                .build();
+        Show show = staleShow(prefs, true);
+        show.setLastFppHeartbeat(outageStart);
+        when(showRepository.findFppHeartbeatAlertCandidates(
+                any(LocalDateTime.class), any(LocalDateTime.class))).thenReturn(List.of(show));
+
+        service.fppHeartbeatTask();
+        service.fppHeartbeatTask();
+
+        ArgumentCaptor<Update> updates = ArgumentCaptor.forClass(Update.class);
+        verify(mongoTemplate, times(4)).updateFirst(any(Query.class), updates.capture(), eq(Show.class));
+        ShowNotification first = (ShowNotification) updates.getAllValues().get(1)
+                .getUpdateObject().get("$push", org.bson.Document.class).get("showNotifications");
+        ShowNotification second = (ShowNotification) updates.getAllValues().get(3)
+                .getUpdateObject().get("$push", org.bson.Document.class).get("showNotifications");
+        assertThat(first.getNotification().getUuid()).isEqualTo(second.getNotification().getUuid());
+
+        // New outage: heartbeat froze at a different instant → different uuid.
+        show.setLastFppHeartbeat(outageStart.plusHours(2));
+        service.fppHeartbeatTask();
+        ArgumentCaptor<Update> updates2 = ArgumentCaptor.forClass(Update.class);
+        verify(mongoTemplate, times(6)).updateFirst(any(Query.class), updates2.capture(), eq(Show.class));
+        ShowNotification third = (ShowNotification) updates2.getAllValues().get(5)
+                .getUpdateObject().get("$push", org.bson.Document.class).get("showNotifications");
+        assertThat(third.getNotification().getUuid()).isNotEqualTo(first.getNotification().getUuid());
+    }
+
+    @Test
+    void orphanPurge_isToggleAgnostic() {
+        // The nightly sweep must NOT filter on enableFppHeartbeat — its whole
+        // purpose is reaping alerts stranded by an opt-out.
+        when(mongoTemplate.updateMulti(any(Query.class), any(Update.class), eq(Show.class)))
+                .thenReturn(com.mongodb.client.result.UpdateResult.acknowledged(0, 0L, null));
+        service.purgeOrphanedFppHealthNotifications();
+
+        ArgumentCaptor<Query> query = ArgumentCaptor.forClass(Query.class);
+        verify(mongoTemplate).updateMulti(query.capture(), any(Update.class), eq(Show.class));
+        org.bson.Document q = query.getValue().getQueryObject();
+        assertThat(q).doesNotContainKey("preferences.notificationPreferences.enableFppHeartbeat");
+        assertThat(q.get("showNotifications", org.bson.Document.class)).containsKey("$elemMatch");
+    }
+
+    @Test
     void scanUsesRecentOutageWindowBounds() {
-        when(showRepository.findByPreferencesNotificationPreferencesEnableFppHeartbeatIsTrueAndLastFppHeartbeatBetween(
+        when(showRepository.findFppHeartbeatAlertCandidates(
                 any(LocalDateTime.class), any(LocalDateTime.class))).thenReturn(List.of());
 
         LocalDateTime before = LocalDateTime.now();
@@ -164,7 +252,7 @@ class ScheduledTaskServiceTest {
         ArgumentCaptor<LocalDateTime> floor = ArgumentCaptor.forClass(LocalDateTime.class);
         ArgumentCaptor<LocalDateTime> cutoff = ArgumentCaptor.forClass(LocalDateTime.class);
         verify(showRepository)
-                .findByPreferencesNotificationPreferencesEnableFppHeartbeatIsTrueAndLastFppHeartbeatBetween(
+                .findFppHeartbeatAlertCandidates(
                         floor.capture(), cutoff.capture());
         assertThat(floor.getValue())
                 .isAfterOrEqualTo(before.minusHours(ScheduledTaskService.HEARTBEAT_OUTAGE_WINDOW_HOURS))
@@ -176,7 +264,7 @@ class ScheduledTaskServiceTest {
 
     @Test
     void recoveryClearAndTtlSweep_alwaysRun() {
-        when(showRepository.findByPreferencesNotificationPreferencesEnableFppHeartbeatIsTrueAndLastFppHeartbeatBetween(
+        when(showRepository.findFppHeartbeatAlertCandidates(
                 any(LocalDateTime.class), any(LocalDateTime.class))).thenReturn(List.of());
 
         service.fppHeartbeatTask();

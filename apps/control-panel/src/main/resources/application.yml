@@ -3,6 +3,12 @@ spring:
     name: remote-falcon-control-panel
   main:
     web-application-type: servlet
+  task:
+    scheduling:
+      pool:
+        # Default is 1 thread, which serializes the every-minute FPP-health
+        # alert task behind the multi-minute 03:00 retention sweep.
+        size: 2
   data:
     mongodb:
       database: ${MONGO_DATABASE:remote-falcon}

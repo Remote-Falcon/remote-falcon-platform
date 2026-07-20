@@ -42,10 +42,21 @@ public interface ShowRepository extends MongoRepository<Show, String> {
     Optional<Show> findByEmailCollation(String email);
 
     Optional<Show> findByPasswordResetLinkAndPasswordResetExpiryGreaterThan(String passwordResetLink, LocalDateTime passwordResetExpiry);
-    // Heartbeat-alert scan (idx_fppHeartbeat_enabled, partial). The Between
-    // bounds the outage age: older than the stale threshold, newer than the
-    // recent-outage window floor — shows dark for months never match.
-    List<Show> findByPreferencesNotificationPreferencesEnableFppHeartbeatIsTrueAndLastFppHeartbeatBetween(LocalDateTime after, LocalDateTime before);
+    // Heartbeat-alert scan (idx_fppHeartbeat_enabled, partial; both $or arms
+    // carry a lastFppHeartbeat predicate so each can ride the index).
+    // Arm 1 is the ENTRY gate: outage older than the stale threshold but
+    // newer than the 48h floor — shows dark for months never START alerting.
+    // Arm 2 SUSTAINS a caught outage past the floor: the
+    // fppHeartbeatLastNotification marker (set on first alert, unset on
+    // recovery) keeps re-alerts flowing until the plugin actually returns.
+    // fields projection: the task reads a handful of scalars; without it each
+    // scan hydrates full ~130KB Show documents (stats arrays included).
+    @Query(value = "{ 'preferences.notificationPreferences.enableFppHeartbeat': true, $or: [ "
+            + "{ 'lastFppHeartbeat': { $gte: ?0, $lte: ?1 } }, "
+            + "{ 'lastFppHeartbeat': { $lt: ?1 }, 'preferences.notificationPreferences.fppHeartbeatLastNotification': { $exists: true } } ] }",
+            fields = "{ 'showToken': 1, 'showName': 1, 'lastFppHeartbeat': 1, "
+                    + "'preferences.notificationPreferences': 1, 'preferences.viewerControlEnabled': 1 }")
+    List<Show> findFppHeartbeatAlertCandidates(LocalDateTime outageWindowFloor, LocalDateTime staleCutoff);
     // Admin show-name autosuggest. Case-insensitive prefix match on
     // showName, index-backed by idx_showName (plain btree). Caller passes
     // PageRequest.of(0, 25) to cap the result set server-side. Returns

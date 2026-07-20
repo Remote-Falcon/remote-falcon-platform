@@ -1,8 +1,9 @@
 package com.remotefalcon.controlpanel.service;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.Date;
 import java.util.Iterator;
 import java.util.List;
@@ -10,9 +11,9 @@ import java.util.UUID;
 import java.util.stream.Stream;
 
 import com.remotefalcon.controlpanel.repository.ShowRepository;
+import com.remotefalcon.library.documents.Notification;
 import com.remotefalcon.library.documents.Show;
 import com.remotefalcon.library.enums.NotificationType;
-import com.remotefalcon.library.models.NotificationModel;
 import com.remotefalcon.library.models.NotificationPreference;
 import com.remotefalcon.library.models.ShowNotification;
 import lombok.RequiredArgsConstructor;
@@ -40,9 +41,15 @@ public class ScheduledTaskService {
     // audit 2026-07-19: 296 shows opted in, only 63 with a heartbeat in the
     // last 7 days — an instant wave of ~180 useless off-season alerts).
     static final long HEARTBEAT_OUTAGE_WINDOW_HOURS = 48L;
-    // The notification body promises deletion after 24 hours; this delivers it.
+    // Backstop only: an ACTIVE outage refreshes createdDate every renotify, so
+    // the TTL never reaps a live alert — it clears entries whose renotifies
+    // stopped (control-gate suppression, opt-out remnants).
     static final long FPP_HEALTH_TTL_HOURS = 24L;
     static final int DEFAULT_RENOTIFY_MINUTES = 30;
+    // Server-side floor. The Account Settings UI enforces >= 5 client-side
+    // only; an unclamped 0 (crafted GraphQL) turns the renotify guard
+    // always-false and floods the bell every minute.
+    static final int MIN_RENOTIFY_MINUTES = 5;
 
     private static final Document FPP_HEALTH_PULL =
             new Document("notification.type", NotificationType.FPP_HEALTH.name());
@@ -53,38 +60,43 @@ public class ScheduledTaskService {
         LocalDateTime outageWindowFloor = now.minusHours(HEARTBEAT_OUTAGE_WINDOW_HOURS);
 
         List<Show> showsToNotify = showRepository
-                .findByPreferencesNotificationPreferencesEnableFppHeartbeatIsTrueAndLastFppHeartbeatBetween(
-                        outageWindowFloor, staleCutoff);
+                .findFppHeartbeatAlertCandidates(outageWindowFloor, staleCutoff);
         showsToNotify.forEach(show -> {
             NotificationPreference prefs = show.getPreferences().getNotificationPreferences();
-            int renotifyMinutes = prefs.getFppHeartbeatRenotifyAfterMinutes() != null
-                    ? prefs.getFppHeartbeatRenotifyAfterMinutes()
-                    : DEFAULT_RENOTIFY_MINUTES;
+            int renotifyMinutes = Math.max(
+                    prefs.getFppHeartbeatRenotifyAfterMinutes() != null
+                            ? prefs.getFppHeartbeatRenotifyAfterMinutes()
+                            : DEFAULT_RENOTIFY_MINUTES,
+                    MIN_RENOTIFY_MINUTES);
             boolean shouldSendPush = true;
             if (prefs.getFppHeartbeatLastNotification() != null
                     && prefs.getFppHeartbeatLastNotification().isAfter(now.minusMinutes(renotifyMinutes - 1L))) {
                 shouldSendPush = false;
             }
-            if (prefs.getFppHeartbeatIfControlEnabled() != null
-                    && (prefs.getFppHeartbeatIfControlEnabled() && !show.getPreferences().getViewerControlEnabled())) {
+            if (Boolean.TRUE.equals(prefs.getFppHeartbeatIfControlEnabled())
+                    && !Boolean.TRUE.equals(show.getPreferences().getViewerControlEnabled())) {
                 shouldSendPush = false;
             }
             if (shouldSendPush) {
                 long minutesDiff = Duration.between(show.getLastFppHeartbeat(), now).toMinutes();
-                ShowNotification showNotification = ShowNotification.builder()
-                        .notification(NotificationModel.builder()
-                                .uuid(UUID.randomUUID().toString())
-                                .createdDate(now)
-                                .type(NotificationType.FPP_HEALTH)
-                                .subject("FPP Plugin Health")
-                                .preview("FPP Plugin last checked in " + minutesDiff + " minutes ago")
-                                .message("FPP Plugin last checked in " + minutesDiff
-                                        + " minutes ago. Either the plugin has been stopped or FPPD is not running."
-                                        + "\n\nThis notification will be deleted after 24 hours.")
-                                .build())
-                        .read(false)
-                        .deleted(false)
+                Notification notification = Notification.builder()
+                        .subject("FPP Plugin Health")
+                        .preview("FPP Plugin last checked in " + minutesDiff + " minutes ago")
+                        .message("FPP Plugin last checked in " + minutesDiff
+                                + " minutes ago. Either the plugin has been stopped or FPPD is not running."
+                                + "\n\nThis alert clears automatically when the plugin reconnects.")
                         .build();
+                notification.setType(NotificationType.FPP_HEALTH);
+                notification.setCreatedDate(now);
+                // Outage-stable uuid: derived from showToken + the FROZEN
+                // lastFppHeartbeat (it stops moving the moment the plugin
+                // dies), so every renotify of the same outage reuses one uuid
+                // and a client-side dismissal sticks until recovery. The next
+                // outage has a new lastFppHeartbeat → new uuid → bell re-lights.
+                notification.setUuid(UUID.nameUUIDFromBytes(
+                        (show.getShowToken() + "|" + show.getLastFppHeartbeat())
+                                .getBytes(StandardCharsets.UTF_8)).toString());
+                ShowNotification showNotification = GraphQLMutationService.toShowNotification(notification);
 
                 // Replace-not-append via targeted updates. A full showRepository.save()
                 // here would write back a stale copy of requests/votes mid-show and
@@ -114,16 +126,16 @@ public class ScheduledTaskService {
                         .unset("preferences.notificationPreferences.fppHeartbeatLastNotification"),
                 Show.class);
 
-        // TTL: drop FPP_HEALTH entries older than the promised 24 hours (covers
-        // outages that never recovered — e.g. show shut down for the season).
-        // The always-true lastFppHeartbeat range is load-bearing: without a
-        // predicate on the partial index's key this query COLLSCANs the whole
-        // show collection every minute (measured: 2,594 docs examined on the
-        // prod-shaped dev DB). Any show carrying an FPP_HEALTH entry has
-        // lastFppHeartbeat set — the alert scan requires it — so no candidates
-        // are excluded.
-        Date ttlCutoff = Date.from(now.minusHours(FPP_HEALTH_TTL_HOURS)
-                .atZone(ZoneId.systemDefault()).toInstant());
+        // TTL backstop: reap FPP_HEALTH entries whose createdDate stopped
+        // refreshing >24h ago (renotifies ceased: control-gate suppression or
+        // similar; live outages refresh createdDate every renotify and are
+        // never touched). The always-true lastFppHeartbeat range is
+        // load-bearing: without a predicate on the partial index's key this
+        // query COLLSCANs the whole show collection every minute (measured:
+        // 2,594 docs examined on the prod-shaped dev DB). ZoneOffset.UTC
+        // matches how DashboardService interprets these zone-naive stored
+        // LocalDateTimes — do not use the system default zone here.
+        Date ttlCutoff = Date.from(now.minusHours(FPP_HEALTH_TTL_HOURS).toInstant(ZoneOffset.UTC));
         mongoTemplate.updateMulti(
                 new Query(Criteria.where("preferences.notificationPreferences.enableFppHeartbeat").is(true)
                         .and("lastFppHeartbeat").lt(now.plusMinutes(1))
@@ -131,9 +143,32 @@ public class ScheduledTaskService {
                                 Criteria.where("notification.type").is(NotificationType.FPP_HEALTH.name())
                                         .and("notification.createdDate").lt(ttlCutoff))),
                 new Update().pull("showNotifications",
-                        new Document("notification.type", NotificationType.FPP_HEALTH.name())
+                        new Document(FPP_HEALTH_PULL)
                                 .append("notification.createdDate", new Document("$lt", ttlCutoff))),
                 Show.class);
+    }
+
+    /**
+     * Nightly toggle-agnostic sweep for orphaned FPP_HEALTH entries. The
+     * minute-cadence recovery/TTL sweeps require enableFppHeartbeat=true so
+     * they can ride the partial index; a show that opts OUT with an alert
+     * outstanding escapes both forever (and deleteNotification only targets
+     * the separate admin notification collection, so there is no other
+     * removal path). One unindexed pass per night is the deliberate price.
+     */
+    public void purgeOrphanedFppHealthNotifications() {
+        Date cutoff = Date.from(LocalDateTime.now().minusHours(FPP_HEALTH_TTL_HOURS).toInstant(ZoneOffset.UTC));
+        var result = mongoTemplate.updateMulti(
+                new Query(Criteria.where("showNotifications").elemMatch(
+                        Criteria.where("notification.type").is(NotificationType.FPP_HEALTH.name())
+                                .and("notification.createdDate").lt(cutoff))),
+                new Update().pull("showNotifications",
+                        new Document(FPP_HEALTH_PULL)
+                                .append("notification.createdDate", new Document("$lt", cutoff))),
+                Show.class);
+        if (result.getModifiedCount() > 0) {
+            log.info("Purged orphaned FPP_HEALTH notifications from {} shows", result.getModifiedCount());
+        }
     }
 
     /**

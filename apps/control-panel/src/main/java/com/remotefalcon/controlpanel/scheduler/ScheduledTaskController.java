@@ -34,5 +34,6 @@ public class ScheduledTaskController {
     public void purgeStaleStats() {
         scheduledTaskService.purgeStaleStatsForAllShows();
         scheduledTaskService.alarmOnOversizedShows();
+        scheduledTaskService.purgeOrphanedFppHealthNotifications();
     }
 }

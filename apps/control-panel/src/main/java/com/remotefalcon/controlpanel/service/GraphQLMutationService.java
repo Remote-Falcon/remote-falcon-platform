@@ -1038,7 +1038,22 @@ public class GraphQLMutationService {
         notification.setUuid(UUID.randomUUID().toString());
         notification.setCreatedDate(LocalDateTime.now());
         notification.setType(notificationType);
-        ShowNotification showNotification = ShowNotification.builder()
+        ShowNotification showNotification = toShowNotification(notification);
+        if(show.getShowNotifications() == null) {
+            show.setShowNotifications(new ArrayList<>());
+        }
+        show.getShowNotifications().add(showNotification);
+    }
+
+    /**
+     * Single mapping site from a Notification to the embedded bell entry.
+     * Every producer of showNotifications entries (this class and
+     * ScheduledTaskService's FPP_HEALTH path) must go through here so field
+     * additions (e.g. link) reach all notification types at once. Callers set
+     * uuid/createdDate/type on the Notification before calling.
+     */
+    public static ShowNotification toShowNotification(Notification notification) {
+        return ShowNotification.builder()
                 .notification(NotificationModel.builder()
                           .type(notification.getType())
                           .uuid(notification.getUuid())
@@ -1051,10 +1066,6 @@ public class GraphQLMutationService {
                 .read(false)
                 .deleted(false)
                 .build();
-        if(show.getShowNotifications() == null) {
-            show.setShowNotifications(new ArrayList<>());
-        }
-        show.getShowNotifications().add(showNotification);
     }
 
     public Boolean deleteNotification(String uuid) {
