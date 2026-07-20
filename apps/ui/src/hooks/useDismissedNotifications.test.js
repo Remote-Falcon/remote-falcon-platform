@@ -90,4 +90,35 @@ describe('useDismissedNotifications', () => {
     // array instead of a Set, this would silently double up.
     expect(stored).toEqual(['same-uuid']);
   });
+  it('prune drops uuids absent from the current notification list', () => {
+    const { result } = renderHook(() => useDismissedNotifications());
+
+    act(() => {
+      result.current.dismissAll(['live-1', 'dead-1', 'dead-2']);
+    });
+    act(() => {
+      result.current.prune(['live-1', 'never-dismissed']);
+    });
+
+    // Dismissals for live notifications survive; replaced/cleared uuids
+    // (FPP_HEALTH churns one per outage) are removed from memory AND storage.
+    expect(result.current.dismissedSet.has('live-1')).toBe(true);
+    expect(result.current.dismissedSet.has('dead-1')).toBe(false);
+    expect(result.current.dismissedSet.has('dead-2')).toBe(false);
+    expect(readStoredArray()).toEqual(['live-1']);
+  });
+
+  it('prune is a no-op when nothing is stale (no storage write churn)', () => {
+    const { result } = renderHook(() => useDismissedNotifications());
+
+    act(() => {
+      result.current.dismiss('a');
+    });
+    act(() => {
+      result.current.prune(['a', 'b']);
+    });
+
+    expect(result.current.dismissedSet.has('a')).toBe(true);
+    expect(readStoredArray()).toEqual(['a']);
+  });
 });

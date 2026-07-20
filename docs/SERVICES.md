@@ -81,6 +81,7 @@ This is the operator's map of the Remote Falcon stack: every service, what it do
 | **Ingress** | Host `remotefalcon.com`, path prefix `/remote-falcon-control-panel` (proxy body size: 3 MB) |
 | **Health probe** | `GET /remote-falcon-control-panel/actuator/health` |
 | **Talks to** | MongoDB, GitHub (PAT), SendGrid, S3 (DigitalOcean Spaces), OpenAI / "Wattson" |
+| **Scheduled tasks** | Every minute: FPP plugin-health bell alerts (enabled 2026-07-19; flood-guarded — replace-not-append, clear-on-recovery, 24h TTL, 48h recent-outage window; opt-in per show via Account Settings → Notifications). Nightly 03:00 UTC: stats retention sweep + oversized-document alarm |
 | **GH Actions secrets** | `DIGITALOCEAN_ACCESS_TOKEN` (no build-args) |
 | **In-cluster secret** | `remote-falcon-control-panel` — keys: `mongo-uri`, `github-pat`, `sendgrid-key`, `jwt-user`, `client-header`, `s3-endpoint`, `s3-accessKey`, `s3-secretKey`, `wattson-key`, `openai-model`, `max-output-tokens`, `mfa-secret-key` (optional — AES-GCM key for 2FA TOTP secrets at rest, distinct from `jwt-user`; until it's added, `startMfaEnrollment` returns `MFA_NOT_CONFIGURED` and everything else is unaffected) |
 
