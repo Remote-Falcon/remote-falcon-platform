@@ -104,7 +104,7 @@ const Notifications = () => {
 
   return (
     <>
-      <Grid item xs={12}>
+      <Grid item xs={12} data-testid="account-notifications-root">
         <MainCard content={false}>
           <Divider />
           <CardActions>
