@@ -39,8 +39,9 @@ public class GraphQLController {
     Mutations
      ********/
     @MutationMapping
-    public Boolean signUp(@Argument String firstName, @Argument String lastName, @Argument String showName) {
-        return graphQLMutationService.signUp(firstName, lastName, showName);
+    public Boolean signUp(@Argument String firstName, @Argument String lastName, @Argument String showName,
+                          @Argument Boolean marketingOptIn) {
+        return graphQLMutationService.signUp(firstName, lastName, showName, marketingOptIn);
     }
 
     @MutationMapping
@@ -71,6 +72,14 @@ public class GraphQLController {
     @RequiresAccess
     public Boolean updateUserProfile(@Argument UserProfile userProfile) {
         return this.graphQLMutationService.updateUserProfile(userProfile);
+    }
+
+    // PRD-013 P0-1 — marketing/lifecycle email consent toggle (Account
+    // Settings). Only true permits syncing email to PostHog client-side.
+    @MutationMapping
+    @RequiresAccess
+    public Boolean updateEmailPreference(@Argument Boolean marketingOptIn) {
+        return this.graphQLMutationService.updateEmailPreference(marketingOptIn);
     }
 
     @MutationMapping

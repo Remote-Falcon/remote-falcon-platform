@@ -1,12 +1,14 @@
 package com.remotefalcon.controlpanel.service;
 
 import com.mailersend.sdk.MailerSendResponse;
+import com.mongodb.client.result.UpdateResult;
 import com.remotefalcon.controlpanel.dto.TokenDTO;
 import com.remotefalcon.controlpanel.repository.NotificationRepository;
 import com.remotefalcon.controlpanel.repository.ShowRepository;
 import com.remotefalcon.controlpanel.util.AuthUtil;
 import com.remotefalcon.controlpanel.util.ClientUtil;
 import com.remotefalcon.controlpanel.util.EmailUtil;
+import com.remotefalcon.controlpanel.util.PostHogUtil;
 import com.remotefalcon.library.documents.Notification;
 import com.remotefalcon.library.documents.Show;
 import com.remotefalcon.library.enums.NotificationType;
@@ -76,6 +78,7 @@ class GraphQLMutationServiceTest {
     @Mock private ClientUtil clientUtil;
     @Mock private ViewerPageService viewerPageService;
     @Mock private MongoTemplate mongoTemplate;
+    @Mock private PostHogUtil postHogUtil;
 
     @InjectMocks private GraphQLMutationService service;
 
@@ -115,7 +118,7 @@ class GraphQLMutationServiceTest {
         when(showRepository.findByShowToken(anyString())).thenReturn(Optional.empty());
         when(emailUtil.sendSignUpEmail(any(Show.class))).thenReturn(mailer(202));
 
-        Boolean ok = service.signUp("Matt", "S", "My Show");
+        Boolean ok = service.signUp("Matt", "S", "My Show", true);
 
         assertThat(ok).isTrue();
         ArgumentCaptor<Show> saved = ArgumentCaptor.forClass(Show.class);
@@ -124,6 +127,9 @@ class GraphQLMutationServiceTest {
         assertThat(s.getEmail()).isEqualTo("new@example.com");
         assertThat(s.getShowName()).isEqualTo("My Show");
         assertThat(s.getShowSubdomain()).isEqualTo("myshow");
+        // PRD-013 P0-1 — consent captured at signup.
+        assertThat(s.getMarketingOptIn()).isTrue();
+        assertThat(s.getOptInUpdatedAt()).isNotNull();
         // Auto-validate off — emailVerified mirrors that.
         assertThat(s.getEmailVerified()).isFalse();
         // Password is bcrypt-encoded.
@@ -145,7 +151,7 @@ class GraphQLMutationServiceTest {
         when(showRepository.findByShowToken(anyString())).thenReturn(Optional.empty());
         when(emailUtil.sendSignUpEmail(any(Show.class))).thenReturn(mailer(500));
 
-        assertThatThrownBy(() -> service.signUp("F", "L", "MyShow"))
+        assertThatThrownBy(() -> service.signUp("F", "L", "MyShow", false))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessage(StatusResponse.EMAIL_CANNOT_BE_SENT.name());
 
@@ -163,13 +169,39 @@ class GraphQLMutationServiceTest {
         when(showRepository.findByShowSubdomain(anyString())).thenReturn(Optional.empty());
         when(showRepository.findByShowToken(anyString())).thenReturn(Optional.empty());
 
-        Boolean ok = service.signUp("F", "L", "Auto");
+        // Null marketingOptIn (old client / self-host build that hides the
+        // checkbox) must stay null: "never asked" is distinguishable from
+        // an explicit decline, and no consent-decision timestamp may be
+        // fabricated for a question that was never shown.
+        Boolean ok = service.signUp("F", "L", "Auto", null);
         assertThat(ok).isTrue();
 
         verify(emailUtil, never()).sendSignUpEmail(any(Show.class));
         ArgumentCaptor<Show> saved = ArgumentCaptor.forClass(Show.class);
         verify(showRepository).save(saved.capture());
         assertThat(saved.getValue().getEmailVerified()).isTrue();
+        assertThat(saved.getValue().getMarketingOptIn()).isNull();
+        assertThat(saved.getValue().getOptInUpdatedAt()).isNull();
+    }
+
+    @Test
+    void signUp_persistsExplicitDecline_withTimestamp() {
+        ReflectionTestUtils.setField(service, "autoValidateEmail", Boolean.TRUE);
+        HttpServletRequest req = org.mockito.Mockito.mock(HttpServletRequest.class);
+        when(authUtil.getCurrentRequest()).thenReturn(req);
+        when(authUtil.getBasicAuthCredentials(req)).thenReturn(new String[]{"a@b.c", "pw"});
+        when(clientUtil.getClientIp(req)).thenReturn("1.1.1.1");
+        when(showRepository.findByEmailCollation(anyString())).thenReturn(Optional.empty());
+        when(showRepository.findByShowSubdomain(anyString())).thenReturn(Optional.empty());
+        when(showRepository.findByShowToken(anyString())).thenReturn(Optional.empty());
+
+        assertThat(service.signUp("F", "L", "Declined", false)).isTrue();
+
+        ArgumentCaptor<Show> saved = ArgumentCaptor.forClass(Show.class);
+        verify(showRepository).save(saved.capture());
+        // An explicit decline IS a consent decision: false + timestamp.
+        assertThat(saved.getValue().getMarketingOptIn()).isFalse();
+        assertThat(saved.getValue().getOptInUpdatedAt()).isNotNull();
     }
 
     @Test
@@ -181,7 +213,7 @@ class GraphQLMutationServiceTest {
         when(showRepository.findByEmailCollation("dup@example.com"))
                 .thenReturn(Optional.of(Show.builder().build()));
 
-        assertThatThrownBy(() -> service.signUp("F", "L", "Dup"))
+        assertThatThrownBy(() -> service.signUp("F", "L", "Dup", false))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessage(StatusResponse.SHOW_EXISTS.name());
 
@@ -198,7 +230,7 @@ class GraphQLMutationServiceTest {
         when(showRepository.findByShowSubdomain("dupshow"))
                 .thenReturn(Optional.of(Show.builder().build()));
 
-        assertThatThrownBy(() -> service.signUp("F", "L", "Dup Show"))
+        assertThatThrownBy(() -> service.signUp("F", "L", "Dup Show", false))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessage(StatusResponse.SHOW_EXISTS.name());
     }
@@ -209,7 +241,7 @@ class GraphQLMutationServiceTest {
         when(authUtil.getCurrentRequest()).thenReturn(req);
         when(authUtil.getBasicAuthCredentials(req)).thenReturn(null);
 
-        assertThatThrownBy(() -> service.signUp("F", "L", "X"))
+        assertThatThrownBy(() -> service.signUp("F", "L", "X", false))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessage(StatusResponse.UNEXPECTED_ERROR.name());
     }
@@ -288,6 +320,67 @@ class GraphQLMutationServiceTest {
         assertThatThrownBy(() -> service.updateUserProfile(UserProfile.builder().build()))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessage(StatusResponse.UNEXPECTED_ERROR.name());
+    }
+
+    // ---- updateEmailPreference (PRD-013 P0-1) ----
+
+    @Test
+    void updateEmailPreference_optIn_targetedSetOfFlagAndTimestamp_noScrub() {
+        stubAuth();
+        when(mongoTemplate.updateFirst(any(Query.class), any(Update.class), eq(Show.class)))
+                .thenReturn(UpdateResult.acknowledged(1, 1L, null));
+
+        assertThat(service.updateEmailPreference(true)).isTrue();
+
+        // Targeted $set — never a full-document save (clobber hazard on
+        // multi-MB Show docs with concurrent writers).
+        ArgumentCaptor<Update> update = ArgumentCaptor.forClass(Update.class);
+        verify(mongoTemplate).updateFirst(any(Query.class), update.capture(), eq(Show.class));
+        Document set = update.getValue().getUpdateObject().get("$set", Document.class);
+        assertThat(set.getBoolean("marketingOptIn")).isTrue();
+        assertThat(set.get("optInUpdatedAt")).isNotNull();
+        verify(showRepository, never()).save(any(Show.class));
+        verify(postHogUtil, never()).scrubEmailConsent(anyString());
+    }
+
+    @Test
+    void updateEmailPreference_optOut_setsFalse_andScrubsServerSide() {
+        stubAuth();
+        when(mongoTemplate.updateFirst(any(Query.class), any(Update.class), eq(Show.class)))
+                .thenReturn(UpdateResult.acknowledged(1, 1L, null));
+        when(mongoTemplate.findOne(any(Query.class), eq(Show.class)))
+                .thenReturn(Show.builder().showToken(SHOW_TOKEN).showSubdomain("myshow").build());
+
+        assertThat(service.updateEmailPreference(false)).isTrue();
+
+        ArgumentCaptor<Update> update = ArgumentCaptor.forClass(Update.class);
+        verify(mongoTemplate).updateFirst(any(Query.class), update.capture(), eq(Show.class));
+        assertThat(update.getValue().getUpdateObject().get("$set", Document.class).getBoolean("marketingOptIn")).isFalse();
+        // Server-owned enforcement: the consent record's owner also scrubs
+        // the PostHog person, so a lost browser capture can't leave PII behind.
+        verify(postHogUtil).scrubEmailConsent("myshow");
+    }
+
+    @Test
+    void updateEmailPreference_optOut_skipsScrub_whenSubdomainUnavailable() {
+        stubAuth();
+        when(mongoTemplate.updateFirst(any(Query.class), any(Update.class), eq(Show.class)))
+                .thenReturn(UpdateResult.acknowledged(1, 1L, null));
+        when(mongoTemplate.findOne(any(Query.class), eq(Show.class))).thenReturn(null);
+
+        assertThat(service.updateEmailPreference(false)).isTrue();
+        verify(postHogUtil, never()).scrubEmailConsent(anyString());
+    }
+
+    @Test
+    void updateEmailPreference_throwsUnexpected_whenShowMissing() {
+        stubAuth();
+        when(mongoTemplate.updateFirst(any(Query.class), any(Update.class), eq(Show.class)))
+                .thenReturn(UpdateResult.acknowledged(0, 0L, null));
+        assertThatThrownBy(() -> service.updateEmailPreference(true))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage(StatusResponse.UNEXPECTED_ERROR.name());
+        verify(postHogUtil, never()).scrubEmailConsent(anyString());
     }
 
     // ---- updateShow ----

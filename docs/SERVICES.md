@@ -347,7 +347,7 @@ Empty remote — clones with `warning: You appear to have cloned an empty reposi
 | `OTEL_URI` | account-archive, mongo-backup *(viewer / plugins-api hardcode empty)* |
 | `VIEWER_JWT_KEY` | ui |
 | `GOOGLE_MAPS_KEY` | ui |
-| `PUBLIC_POSTHOG_KEY` | ui |
+| `PUBLIC_POSTHOG_KEY` | ui; control-panel reads the same value at runtime as `POSTHOG_API_KEY` (optional env, with optional `POSTHOG_HOST`) for the server-side email-consent scrub (PRD-013) — absent = silent no-op, so self-host needs nothing |
 | `GA_TRACKING_ID` | ui |
 | `MIXPANEL_KEY` | ui |
 | `CLARITY_PROJECT_ID` | ui |

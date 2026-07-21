@@ -7,6 +7,7 @@ import com.remotefalcon.controlpanel.response.RotateShowTokenResponse;
 import com.remotefalcon.controlpanel.util.AuthUtil;
 import com.remotefalcon.controlpanel.util.ClientUtil;
 import com.remotefalcon.controlpanel.util.EmailUtil;
+import com.remotefalcon.controlpanel.util.PostHogUtil;
 import com.remotefalcon.controlpanel.util.RandomUtil;
 import com.remotefalcon.library.documents.Notification;
 import com.remotefalcon.library.documents.Show;
@@ -49,11 +50,12 @@ public class GraphQLMutationService {
     private final ClientUtil clientUtil;
     private final ViewerPageService viewerPageService;
     private final MongoTemplate mongoTemplate;
+    private final PostHogUtil postHogUtil;
 
     @Value("${auto-validate-email}")
     Boolean autoValidateEmail;
 
-    public Boolean signUp(String firstName, String lastName, String showName) {
+    public Boolean signUp(String firstName, String lastName, String showName, Boolean marketingOptIn) {
         String showSubdomain = showName.replaceAll("\\s", "").toLowerCase();
         var request = this.authUtil.getCurrentRequest();
         String[] basicAuthCredentials = this.authUtil.getBasicAuthCredentials(request);
@@ -70,7 +72,7 @@ public class GraphQLMutationService {
             String hashedPassword = passwordEncoder.encode(password);
 
             Show newShow = this.createDefaultShowDocument(firstName, lastName, showName, email,
-                    hashedPassword, showToken, showSubdomain, ipAddress);
+                    hashedPassword, showToken, showSubdomain, ipAddress, marketingOptIn);
 
             if(!autoValidateEmail) {
                 MailerSendResponse emailResponse = this.emailUtil.sendSignUpEmail(newShow);
@@ -87,9 +89,17 @@ public class GraphQLMutationService {
 
     private Show createDefaultShowDocument(String firstName, String lastName, String showName,
                                            String email, String password, String showToken,
-                                           String showSubdomain, String ipAddress) {
+                                           String showSubdomain, String ipAddress, Boolean marketingOptIn) {
         String defaultPageHtml = Optional.ofNullable(this.fetchDefaultPageHtml()).orElse("");
         return Show.builder()
+                // PRD-013 P0-1 — consent captured at signup. Null (old
+                // clients / self-host builds that never render the checkbox)
+                // stays null: "never asked" must remain distinguishable from
+                // an explicit decline, and optInUpdatedAt only records real
+                // consent decisions. Consent is still never assumed — every
+                // consumer gates on marketingOptIn == true.
+                .marketingOptIn(marketingOptIn)
+                .optInUpdatedAt(marketingOptIn != null ? LocalDateTime.now() : null)
                 .showToken(showToken)
                 .email(email)
                 .password(password)
@@ -244,6 +254,37 @@ public class GraphQLMutationService {
             return true;
         }
         throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());
+    }
+
+    // PRD-013 P0-1 — marketing/lifecycle email consent. Strict model (a):
+    // only marketingOptIn=true permits email to live in PostHog as a
+    // person property; the timestamp records when consent last changed.
+    // Targeted $set rather than load-and-save: Show documents run to
+    // megabytes (stats arrays), and a full-document write here could
+    // clobber a concurrent writer (autosave, heartbeat) with a stale copy.
+    public Boolean updateEmailPreference(Boolean marketingOptIn) {
+        boolean optedIn = Boolean.TRUE.equals(marketingOptIn);
+        Query byToken = new Query(Criteria.where("showToken").is(authUtil.getTokenDTO().getShowToken()));
+        long matched = this.mongoTemplate.updateFirst(byToken, new Update()
+                .set("marketingOptIn", optedIn)
+                .set("optInUpdatedAt", LocalDateTime.now()), Show.class).getMatchedCount();
+        if (matched == 0) {
+            throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());
+        }
+        if (!optedIn) {
+            // The server owns the consent record, so it also owns the scrub:
+            // the browser's own $unset capture is best-effort (adblock, tab
+            // close, network), and an opted-out user who never logs in again
+            // would otherwise keep their email on the PostHog person forever.
+            // No-op when POSTHOG_API_KEY isn't configured (self-host).
+            Query subdomainOnly = new Query(Criteria.where("showToken").is(authUtil.getTokenDTO().getShowToken()));
+            subdomainOnly.fields().include("showSubdomain");
+            Show show = this.mongoTemplate.findOne(subdomainOnly, Show.class);
+            if (show != null && StringUtils.isNotBlank(show.getShowSubdomain())) {
+                this.postHogUtil.scrubEmailConsent(show.getShowSubdomain());
+            }
+        }
+        return true;
     }
 
     public ApiAccess requestApiAccess() {

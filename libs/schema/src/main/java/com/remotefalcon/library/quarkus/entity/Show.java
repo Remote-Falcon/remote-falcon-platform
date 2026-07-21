@@ -87,6 +87,14 @@ public class Show extends PanacheMongoEntity {
     @Ignore
     private MfaConfig mfa;
 
+    // PRD-013 P0-1 — marketing/lifecycle email consent (see documents/Show).
+    // @Ignore keeps consent out of the viewer / plugins-api GraphQL schemas;
+    // only control-panel reads or writes it. BSON persistence unaffected.
+    @Ignore
+    private Boolean marketingOptIn;
+    @Ignore
+    private LocalDateTime optInUpdatedAt;
+
     @BsonIgnore
     private String serviceToken;
 }
