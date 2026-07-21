@@ -54,6 +54,10 @@ after flipping show mode.)
 | 7 | `dashboard-now-playing` | `apps/ui/src/views/pages/controlPanel/dashboard/NowPlayingCard.jsx` | outer `<MainCard>` | `dashboard-now-playing` |
 | 8 | `dashboard-checklist` | `apps/ui/src/views/pages/controlPanel/dashboard/PreShowChecklist.jsx` | outer `<MainCard>` | `dashboard-checklist` |
 | 9 | `sequences-list` | `apps/ui/src/views/pages/controlPanel/sequences/SequencesList.jsx` | outermost component root | `sequences-list-root` |
+| — | `account-notifications` | `apps/ui/src/views/pages/controlPanel/accountSettings/Notifications.jsx` | outer `<Grid item>` (FPP Plugin Health card) | `account-notifications-root` |
+| — | `sequence-metadata-lookup-popover` | `apps/ui/src/views/pages/controlPanel/sequences/SequenceMetadataLookup.jsx` | Popover paper (element capture) | `sequence-metadata-lookup-popover` |
+| — | `bulk-metadata-lookup-dialog` | `apps/ui/src/views/pages/controlPanel/sequences/BulkMetadataLookupDialog.jsx` | Dialog paper (element capture) | `bulk-metadata-lookup-dialog` |
+| — | (interaction only, no shot) | `apps/ui/src/views/pages/controlPanel/sequences/SequencesList.jsx` | per-row lookup icon button | `sequence-metadata-lookup-button` |
 | 10 | `sequences-groups` | `apps/ui/src/views/pages/controlPanel/sequences/SequenceGroups.jsx` | outermost component root | `sequences-groups-root` |
 | 11 | `analytics` | `apps/ui/src/views/pages/controlPanel/analytics/index.jsx` | outer `<Box>` shell | `analytics-root` |
 | 12 | `image-hosting` | `apps/ui/src/views/pages/controlPanel/imageHosting/index.jsx` | outer `<Box>` | `image-hosting-root` |

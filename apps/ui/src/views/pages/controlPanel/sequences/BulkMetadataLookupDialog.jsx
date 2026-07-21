@@ -158,7 +158,14 @@ const BulkMetadataLookupDialog = ({ open, targets, onClose, onApply }) => {
   };
 
   return (
-    <Dialog open={open} onClose={handleDialogClose} maxWidth="sm" fullWidth TransitionProps={{ onExited: resetForNextRun }}>
+    <Dialog
+      open={open}
+      onClose={handleDialogClose}
+      maxWidth="sm"
+      fullWidth
+      TransitionProps={{ onExited: resetForNextRun }}
+      PaperProps={{ 'data-testid': 'bulk-metadata-lookup-dialog' }}
+    >
       <DialogTitle>Look up missing metadata</DialogTitle>
 
       {phase === 'running' && (

@@ -1355,6 +1355,7 @@ const SequencesList = () => {
                                       <Tooltip title="Look up artist & album art">
                                         <IconButton
                                           size="small"
+                                          data-testid="sequence-metadata-lookup-button"
                                           aria-label={`Look up metadata for ${sequence.displayName || sequence.name}`}
                                           onClick={(e) => setLookup({ anchorEl: e.currentTarget, sequence })}
                                         >

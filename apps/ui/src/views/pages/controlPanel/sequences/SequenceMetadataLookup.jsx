@@ -105,7 +105,7 @@ const SequenceMetadataLookup = ({ anchorEl, defaultQuery, onClose, onSelect }) =
       anchorEl={anchorEl}
       onClose={close}
       anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
-      slotProps={{ paper: { sx: { width: 380, p: 2 } } }}
+      slotProps={{ paper: { sx: { width: 380, p: 2 }, 'data-testid': 'sequence-metadata-lookup-popover' } }}
     >
       <Typography variant="subtitle2" sx={{ mb: 1 }}>
         Lookup artist &amp; album art
