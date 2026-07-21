@@ -1,8 +1,15 @@
 import { gql } from '@apollo/client';
 
 export const SIGN_UP = gql`
-  mutation ($firstName: String, $lastName: String, $showName: String!) @api(name: controlPanel) {
-    signUp(firstName: $firstName, lastName: $lastName, showName: $showName)
+  mutation ($firstName: String, $lastName: String, $showName: String!, $marketingOptIn: Boolean) @api(name: controlPanel) {
+    signUp(firstName: $firstName, lastName: $lastName, showName: $showName, marketingOptIn: $marketingOptIn)
+  }
+`;
+
+// PRD-013 P0-5 — Account Settings marketing/lifecycle email consent toggle.
+export const UPDATE_EMAIL_PREFERENCE = gql`
+  mutation ($marketingOptIn: Boolean!) @api(name: controlPanel) {
+    updateEmailPreference(marketingOptIn: $marketingOptIn)
   }
 `;
 

@@ -7,17 +7,38 @@ import _ from 'lodash';
 import MainCard from '../../../../ui-component/cards/MainCard';
 import StickyFormBar from '../../../../ui-component/StickyFormBar';
 import useAutoSave from '../../../../hooks/useAutoSave';
-import { useDispatch, useSelector } from '../../../../store';
+import { store, useDispatch, useSelector } from '../../../../store';
 import { setShow } from '../../../../store/slices/show';
-import { UPDATE_PREFERENCES } from '../../../../utils/graphql/controlPanel/mutations';
+import { UPDATE_PREFERENCES, UPDATE_EMAIL_PREFERENCE } from '../../../../utils/graphql/controlPanel/mutations';
 import { showAlert } from '../../globalPageHelpers';
-import { savePreferencesService } from '../../../../services/controlPanel/mutations.service';
+import { applyEmailConsent, isHostedBuild } from '../../../../utils/analytics/posthog';
+import { savePreferencesService, updateEmailPreferenceService } from '../../../../services/controlPanel/mutations.service';
+
 
 const Notifications = () => {
   const dispatch = useDispatch();
   const { show } = useSelector((state) => state.show);
 
   const [updatePreferencesMutation] = useMutation(UPDATE_PREFERENCES);
+  const [updateEmailPreferenceMutation, { loading: savingEmailPreference }] = useMutation(UPDATE_EMAIL_PREFERENCE);
+
+  // PRD-013 P0-5 — dedicated save path: marketingOptIn lives on the Show
+  // root (not preferences), so it doesn't ride the preferences autosave.
+  // On success, PostHog person state is enforced immediately via
+  // applyEmailConsent (one capture; the server also enforces opt-outs
+  // independently). The dispatch spreads the store's CURRENT show, not
+  // this render's closure — the preferences autosave on this same page
+  // dispatches its own setShow, and two stale spreads would clobber each
+  // other's fields.
+  const handleMarketingOptInChange = (optIn) => {
+    updateEmailPreferenceService(optIn, updateEmailPreferenceMutation, (response) => {
+      if (response?.success) {
+        dispatch(setShow({ ...store.getState().show.show, marketingOptIn: optIn }));
+        applyEmailConsent(optIn, store.getState().show.show?.email);
+      }
+      showAlert(dispatch, response?.toast);
+    });
+  };
 
   // Combined form state — notification fields nest under `notification`,
   // beta opt-in is a top-level boolean. The save handler maps them back
@@ -67,7 +88,8 @@ const Notifications = () => {
         });
         savePreferencesService(updatedPreferences, updatePreferencesMutation, (response) => {
           if (response?.success) {
-            dispatch(setShow({ ...show, preferences: updatedPreferences }));
+            // Spread the store's current show (see handleMarketingOptInChange).
+            dispatch(setShow({ ...store.getState().show.show, preferences: updatedPreferences }));
             resolve();
           } else {
             showAlert(dispatch, response?.toast);
@@ -208,6 +230,36 @@ const Notifications = () => {
           <Divider />
         </MainCard>
       </Grid>
+
+      {/* PRD-013 P0-5 — marketing/lifecycle email consent (hosted builds only) */}
+      {isHostedBuild && (
+        <Grid item xs={12}>
+          <MainCard content={false}>
+            <Divider />
+            <CardActions>
+              <Grid container alignItems="center" justifyContent="space-between" spacing={2}>
+                <Grid item xs={12} md={6} lg={4}>
+                  <Typography variant="h4">Setup tips &amp; seasonal emails</Typography>
+                  <Typography component="div" variant="caption">
+                    Occasional setup help, feature tips, and seasonal reminders by email. Account emails
+                    (verification, password reset) are unaffected.
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} md={6} lg={4}>
+                  <Switch
+                    color="primary"
+                    checked={show?.marketingOptIn === true}
+                    disabled={savingEmailPreference}
+                    onChange={(_e, v) => handleMarketingOptInChange(v)}
+                    inputProps={{ 'aria-label': 'Setup tips and seasonal emails' }}
+                  />
+                </Grid>
+              </Grid>
+            </CardActions>
+            <Divider />
+          </MainCard>
+        </Grid>
+      )}
 
       <StickyFormBar status={status} />
     </>

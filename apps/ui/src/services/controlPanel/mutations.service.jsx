@@ -268,6 +268,32 @@ export const savePsaSequencesService = (updatedPsaSequences, updatePsaSequencesM
 // setRequestLeaderSequenceService / setVoteLeaderSequenceService (Q6)
 // — leader dropdown saves. The "(none)" option clears the field by
 // passing null.
+// updateEmailPreferenceService (PRD-013 P0-5) — marketing-email consent
+// toggle. Single-boolean save in the updatePsaEnabledService shape; the
+// component owns the PostHog person-state enforcement on success.
+export const updateEmailPreferenceService = (marketingOptIn, updateEmailPreferenceMutation, callback) => {
+  updateEmailPreferenceMutation({
+    context: {
+      headers: {
+        Route: 'Control-Panel'
+      }
+    },
+    variables: { marketingOptIn },
+    onCompleted: () => {
+      callback({
+        success: true,
+        toast: { message: marketingOptIn ? 'Email tips enabled' : 'Email tips disabled' }
+      });
+    },
+    onError: () => {
+      callback({
+        success: false,
+        toast: { alert: 'error' }
+      });
+    }
+  });
+};
+
 export const updatePsaEnabledService = (name, enabled, updatePsaEnabledMutation, callback) => {
   updatePsaEnabledMutation({
     context: {
