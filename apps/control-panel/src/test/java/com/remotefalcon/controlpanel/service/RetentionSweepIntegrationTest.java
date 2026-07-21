@@ -79,7 +79,8 @@ class RetentionSweepIntegrationTest {
         mongoTemplate.dropCollection(Show.class);
         graphQLMutationService = new GraphQLMutationService(
                 emailUtil, authUtil, showRepository, notificationRepository,
-                clientUtil, new ViewerPageService(), mongoTemplate);
+                clientUtil, new ViewerPageService(), mongoTemplate,
+                new com.remotefalcon.controlpanel.util.PostHogUtil());
         // @Value("${auto-validate-email}") field — not relevant to purge logic but
         // populated to avoid null surprises if other code paths ever touch it.
         ReflectionTestUtils.setField(graphQLMutationService, "autoValidateEmail", Boolean.TRUE);

@@ -91,6 +91,13 @@ public class Show {
     // (every pre-existing document); only enabled=true changes sign-in.
     private MfaConfig mfa;
 
+    // PRD-013 P0-1 — marketing/lifecycle email consent. null = never asked
+    // (pre-existing documents; a one-off backfill sets verified shows to
+    // true at drip enable-time). Only true means email may be synced to
+    // PostHog as a person property (strict model (a)).
+    private Boolean marketingOptIn;
+    private LocalDateTime optInUpdatedAt;
+
     @JsonIgnore
     private String serviceToken;
 }

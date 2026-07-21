@@ -4,6 +4,9 @@ type Show {
     showName: String
     showSubdomain: String
     emailVerified: Boolean
+    # PRD-013 P0-1 — marketing/lifecycle email consent. Read by the UI to
+    # gate the consent-scoped PostHog email $set and the settings toggle.
+    marketingOptIn: Boolean
     createdDate: String
     lastLoginDate: String
     expireDate: String
