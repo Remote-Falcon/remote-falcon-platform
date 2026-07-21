@@ -17,7 +17,7 @@ import { StatusResponse } from '../utils/enum';
 import safeStorage from '../utils/safeStorage';
 import { SIGN_UP, VERIFY_EMAIL, FORGOT_PASSWORD, RESET_PASSWORD } from '../utils/graphql/controlPanel/mutations';
 import { SIGN_IN, GET_SHOW, VERIFY_MFA } from '../utils/graphql/controlPanel/queries';
-import { trackPosthogEvent } from '../utils/analytics/posthog';
+import { isImpersonationSession, trackPosthogEvent } from '../utils/analytics/posthog';
 import { showAlert } from '../views/pages/globalPageHelpers';
 
 const verifyToken = (serviceToken) => {
@@ -104,31 +104,42 @@ export const JWTProvider = ({ children }) => {
   // Identify this user/show in PostHog using the showSubdomain as
   // distinct_id. Email is PII to a third-party analytics provider
   // (GDPR/CCPA) — strict consent model (a), PRD-013 P0-2: it is sent
-  // ONLY while marketingOptIn is true, and scrubbed on opt-out.
+  // ONLY while marketingOptIn is true. Consent is tri-state on the
+  // person too: true syncs email, false is stamped WITHOUT email, and
+  // null (never asked) is omitted entirely so legacy shows stay
+  // distinguishable from explicit declines in PostHog audiences.
   // lastLoginDate is always set: it's the recency anchor for
   // dormant-user (re-engagement) audiences — PostHog batch audiences
   // can't express behavioral "no event in N months", so they filter on
   // this person property instead. Stamped client-side at identify time,
   // which coincides with the backend's own lastLoginDate refresh.
+  //
+  // Opt-out scrubbing deliberately does NOT happen here: it fires once
+  // at the actual opt-out transition (applyEmailConsent in the Account
+  // Settings toggle) and server-side in the mutation (PostHogUtil).
+  // A per-login scrub would emit a no-op event on every page load for
+  // every opted-out show, forever.
   const identifyShow = (showData) => {
     try {
       if (!posthog || !showData?.showSubdomain) return;
-      const optedIn = showData?.marketingOptIn === true;
+      // Impersonation sessions must never touch the target's person
+      // record: identify() here would stamp their lastLoginDate (breaking
+      // dormant-audience recency), merge the admin's device into their
+      // person, and pull their email into the admin's session.
+      if (isImpersonationSession()) return;
+      const { marketingOptIn, email, showName, showRole, showSubdomain } = showData;
       const props = {
-        showName: showData?.showName,
-        showRole: showData?.showRole,
-        lastLoginDate: new Date().toISOString(),
-        marketingOptIn: optedIn
+        showName,
+        showRole,
+        lastLoginDate: new Date().toISOString()
       };
-      if (optedIn && showData?.email) {
-        props.email = showData.email;
+      if (marketingOptIn === true) {
+        props.marketingOptIn = true;
+        if (email) props.email = email;
+      } else if (marketingOptIn === false) {
+        props.marketingOptIn = false;
       }
-      posthog.identify(showData.showSubdomain, props);
-      if (showData?.marketingOptIn === false) {
-        // Explicit opt-out: remove any previously-synced email. (null =
-        // never asked — nothing was ever synced, so nothing to scrub.)
-        posthog.capture('email_consent_enforced', { $unset: ['email'] });
-      }
+      posthog.identify(showSubdomain, props);
     } catch (_) {}
   };
 
@@ -263,9 +274,11 @@ export const JWTProvider = ({ children }) => {
         showName,
         firstName,
         lastName,
-        // PRD-013 P0-4 — consent from the signup checkbox. Coerced to a
-        // real boolean; the server treats null as false (never assumed).
-        marketingOptIn: marketingOptIn === true
+        // PRD-013 P0-4 — consent from the signup checkbox. Passed through
+        // untouched: true/false are real decisions, null means the
+        // checkbox never rendered (self-host) and the server preserves
+        // null as "never asked".
+        marketingOptIn
       },
       context: {
         headers: {

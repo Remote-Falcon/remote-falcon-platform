@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import * as React from 'react';
 
 import { Box, Chip, Divider, IconButton, Popover, Skeleton, Stack, Tooltip, Typography } from '@mui/material';
@@ -8,7 +8,7 @@ import moment from 'moment';
 import useDashboardLiveStats from '../../../../hooks/useDashboardLiveStats';
 import { useSelector } from '../../../../store';
 import MainCard from '../../../../ui-component/cards/MainCard';
-import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
+import { fireMilestoneOnce } from '../../../../utils/analytics/posthog';
 import safeStorage from '../../../../utils/safeStorage';
 
 // Dashboard FPP-plugin status card (V17 + V18-lite, PSA-v2 dashboard restructure).
@@ -86,23 +86,32 @@ const HealthRow = () => {
     [stats]
   );
 
-  // PRD-013 P0-3 — `plugin_connected` activation milestone. Fires exactly
-  // once, when the dashboard observes the show's FIRST heartbeat after
-  // having previously seen it never-connected. The seen-flag scopes the
-  // event to genuinely-new shows: established shows never render a
-  // never-connected state, so they never set the flag and never fire.
+  // PRD-013 P0-3 — `plugin_connected` activation milestone. Fires when the
+  // dashboard observes the show's FIRST heartbeat after having previously
+  // seen it never-connected; fireMilestoneOnce owns the dedupe (and skips
+  // impersonation). The seen-flag scopes the event to shows this browser
+  // watched go from never-connected to connected — a device-scoped
+  // heuristic by design: cross-device setups can miss it, and PostHog
+  // Workflows' per-person dedup backstops any refire. The effect keys on
+  // the primitive lastHeartbeatMs (the stats object gets a fresh identity
+  // every ~5s poll) and latches per subdomain so storage is touched once
+  // per state, not once per tick.
   const milestoneSubdomain = show?.showSubdomain;
+  const lastHeartbeatMs = stats?.lastHeartbeatMs ?? null;
+  const statsReady = !loading && !!stats;
+  const seenWrittenRef = useRef(null);
   useEffect(() => {
-    if (loading || !stats || !milestoneSubdomain) return;
+    if (!statsReady || !milestoneSubdomain) return;
     const seenKey = `rf_seen_never_connected_${milestoneSubdomain}`;
-    const firedKey = `rf_plugin_connected_fired_${milestoneSubdomain}`;
-    if (!stats.lastHeartbeatMs) {
-      safeStorage.setItem(seenKey, '1');
-    } else if (safeStorage.getItem(seenKey) && !safeStorage.getItem(firedKey)) {
-      safeStorage.setItem(firedKey, '1');
-      trackPosthogEvent('plugin_connected');
+    if (!lastHeartbeatMs) {
+      if (seenWrittenRef.current !== milestoneSubdomain) {
+        seenWrittenRef.current = milestoneSubdomain;
+        safeStorage.setItem(seenKey, '1');
+      }
+    } else if (safeStorage.getItem(seenKey)) {
+      fireMilestoneOnce('plugin_connected', milestoneSubdomain);
     }
-  }, [stats, loading, milestoneSubdomain]);
+  }, [lastHeartbeatMs, statsReady, milestoneSubdomain]);
 
   if (loading) {
     return <Skeleton variant="rectangular" height={120} sx={{ borderRadius: 1 }} />;

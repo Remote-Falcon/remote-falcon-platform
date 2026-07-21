@@ -23,6 +23,7 @@ import { useTheme } from '@mui/material/styles';
 import { Formik } from 'formik';
 import * as Yup from 'yup';
 
+import { isHostedBuild } from '../../../../utils/analytics/posthog';
 import useAuth from '../../../../hooks/useAuth';
 import AnimateButton from '../../../../ui-component/extended/AnimateButton';
 import { strengthColor, strengthIndicatorNumFunc } from '../../../../utils/password-strength';
@@ -34,7 +35,7 @@ import { Environments } from '../../../../utils/enum';
 // showing a checkbox that promises emails they'll never get would lie.
 // Without the key the value is never sent true — the server coerces the
 // omitted arg to false, so consent is never assumed.
-const isHostedBuild = !!import.meta.env.VITE_PUBLIC_POSTHOG_KEY;
+
 
 const AuthRegister = () => {
   const theme = useTheme();
@@ -69,7 +70,7 @@ const AuthRegister = () => {
           firstName: '',
           lastName: '',
           showName: '',
-          marketingOptIn: isHostedBuild,
+          marketingOptIn: false,
           submit: null
         }}
         validationSchema={Yup.object().shape({
@@ -87,7 +88,7 @@ const AuthRegister = () => {
             values.password,
             values.firstName,
             values.lastName,
-            isHostedBuild && values.marketingOptIn
+            isHostedBuild ? values.marketingOptIn : null
           );
         }}
       >
