@@ -1,12 +1,14 @@
 package com.remotefalcon.controlpanel.service;
 
 import com.mailersend.sdk.MailerSendResponse;
+import com.mongodb.client.result.UpdateResult;
 import com.remotefalcon.controlpanel.dto.TokenDTO;
 import com.remotefalcon.controlpanel.repository.NotificationRepository;
 import com.remotefalcon.controlpanel.repository.ShowRepository;
 import com.remotefalcon.controlpanel.util.AuthUtil;
 import com.remotefalcon.controlpanel.util.ClientUtil;
 import com.remotefalcon.controlpanel.util.EmailUtil;
+import com.remotefalcon.controlpanel.util.PostHogUtil;
 import com.remotefalcon.library.documents.Notification;
 import com.remotefalcon.library.documents.Show;
 import com.remotefalcon.library.enums.NotificationType;
@@ -76,6 +78,7 @@ class GraphQLMutationServiceTest {
     @Mock private ClientUtil clientUtil;
     @Mock private ViewerPageService viewerPageService;
     @Mock private MongoTemplate mongoTemplate;
+    @Mock private PostHogUtil postHogUtil;
 
     @InjectMocks private GraphQLMutationService service;
 
@@ -167,7 +170,9 @@ class GraphQLMutationServiceTest {
         when(showRepository.findByShowToken(anyString())).thenReturn(Optional.empty());
 
         // Null marketingOptIn (old client / self-host build that hides the
-        // checkbox) must coerce to false — consent is never assumed.
+        // checkbox) must stay null: "never asked" is distinguishable from
+        // an explicit decline, and no consent-decision timestamp may be
+        // fabricated for a question that was never shown.
         Boolean ok = service.signUp("F", "L", "Auto", null);
         assertThat(ok).isTrue();
 
@@ -175,7 +180,28 @@ class GraphQLMutationServiceTest {
         ArgumentCaptor<Show> saved = ArgumentCaptor.forClass(Show.class);
         verify(showRepository).save(saved.capture());
         assertThat(saved.getValue().getEmailVerified()).isTrue();
+        assertThat(saved.getValue().getMarketingOptIn()).isNull();
+        assertThat(saved.getValue().getOptInUpdatedAt()).isNull();
+    }
+
+    @Test
+    void signUp_persistsExplicitDecline_withTimestamp() {
+        ReflectionTestUtils.setField(service, "autoValidateEmail", Boolean.TRUE);
+        HttpServletRequest req = org.mockito.Mockito.mock(HttpServletRequest.class);
+        when(authUtil.getCurrentRequest()).thenReturn(req);
+        when(authUtil.getBasicAuthCredentials(req)).thenReturn(new String[]{"a@b.c", "pw"});
+        when(clientUtil.getClientIp(req)).thenReturn("1.1.1.1");
+        when(showRepository.findByEmailCollation(anyString())).thenReturn(Optional.empty());
+        when(showRepository.findByShowSubdomain(anyString())).thenReturn(Optional.empty());
+        when(showRepository.findByShowToken(anyString())).thenReturn(Optional.empty());
+
+        assertThat(service.signUp("F", "L", "Declined", false)).isTrue();
+
+        ArgumentCaptor<Show> saved = ArgumentCaptor.forClass(Show.class);
+        verify(showRepository).save(saved.capture());
+        // An explicit decline IS a consent decision: false + timestamp.
         assertThat(saved.getValue().getMarketingOptIn()).isFalse();
+        assertThat(saved.getValue().getOptInUpdatedAt()).isNotNull();
     }
 
     @Test
@@ -299,35 +325,62 @@ class GraphQLMutationServiceTest {
     // ---- updateEmailPreference (PRD-013 P0-1) ----
 
     @Test
-    void updateEmailPreference_setsOptInAndTimestamp() {
+    void updateEmailPreference_optIn_targetedSetOfFlagAndTimestamp_noScrub() {
         stubAuth();
-        Show show = Show.builder().showToken(SHOW_TOKEN).marketingOptIn(false).build();
-        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(mongoTemplate.updateFirst(any(Query.class), any(Update.class), eq(Show.class)))
+                .thenReturn(UpdateResult.acknowledged(1, 1L, null));
 
         assertThat(service.updateEmailPreference(true)).isTrue();
-        assertThat(show.getMarketingOptIn()).isTrue();
-        assertThat(show.getOptInUpdatedAt()).isNotNull();
-        verify(showRepository).save(show);
+
+        // Targeted $set — never a full-document save (clobber hazard on
+        // multi-MB Show docs with concurrent writers).
+        ArgumentCaptor<Update> update = ArgumentCaptor.forClass(Update.class);
+        verify(mongoTemplate).updateFirst(any(Query.class), update.capture(), eq(Show.class));
+        Document set = update.getValue().getUpdateObject().get("$set", Document.class);
+        assertThat(set.getBoolean("marketingOptIn")).isTrue();
+        assertThat(set.get("optInUpdatedAt")).isNotNull();
+        verify(showRepository, never()).save(any(Show.class));
+        verify(postHogUtil, never()).scrubEmailConsent(anyString());
     }
 
     @Test
-    void updateEmailPreference_optOut_setsFalse() {
+    void updateEmailPreference_optOut_setsFalse_andScrubsServerSide() {
         stubAuth();
-        Show show = Show.builder().showToken(SHOW_TOKEN).marketingOptIn(true).build();
-        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(mongoTemplate.updateFirst(any(Query.class), any(Update.class), eq(Show.class)))
+                .thenReturn(UpdateResult.acknowledged(1, 1L, null));
+        when(mongoTemplate.findOne(any(Query.class), eq(Show.class)))
+                .thenReturn(Show.builder().showToken(SHOW_TOKEN).showSubdomain("myshow").build());
 
         assertThat(service.updateEmailPreference(false)).isTrue();
-        assertThat(show.getMarketingOptIn()).isFalse();
-        verify(showRepository).save(show);
+
+        ArgumentCaptor<Update> update = ArgumentCaptor.forClass(Update.class);
+        verify(mongoTemplate).updateFirst(any(Query.class), update.capture(), eq(Show.class));
+        assertThat(update.getValue().getUpdateObject().get("$set", Document.class).getBoolean("marketingOptIn")).isFalse();
+        // Server-owned enforcement: the consent record's owner also scrubs
+        // the PostHog person, so a lost browser capture can't leave PII behind.
+        verify(postHogUtil).scrubEmailConsent("myshow");
+    }
+
+    @Test
+    void updateEmailPreference_optOut_skipsScrub_whenSubdomainUnavailable() {
+        stubAuth();
+        when(mongoTemplate.updateFirst(any(Query.class), any(Update.class), eq(Show.class)))
+                .thenReturn(UpdateResult.acknowledged(1, 1L, null));
+        when(mongoTemplate.findOne(any(Query.class), eq(Show.class))).thenReturn(null);
+
+        assertThat(service.updateEmailPreference(false)).isTrue();
+        verify(postHogUtil, never()).scrubEmailConsent(anyString());
     }
 
     @Test
     void updateEmailPreference_throwsUnexpected_whenShowMissing() {
         stubAuth();
-        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.empty());
+        when(mongoTemplate.updateFirst(any(Query.class), any(Update.class), eq(Show.class)))
+                .thenReturn(UpdateResult.acknowledged(0, 0L, null));
         assertThatThrownBy(() -> service.updateEmailPreference(true))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessage(StatusResponse.UNEXPECTED_ERROR.name());
+        verify(postHogUtil, never()).scrubEmailConsent(anyString());
     }
 
     // ---- updateShow ----
