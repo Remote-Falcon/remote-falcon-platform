@@ -1,8 +1,10 @@
 package com.remotefalcon.repository;
 
+import com.mongodb.client.model.Filters;
 import com.remotefalcon.entity.VoteEvent;
 import io.quarkus.mongodb.panache.PanacheMongoRepository;
 import jakarta.enterprise.context.ApplicationScoped;
+import org.bson.conversions.Bson;
 import org.bson.types.ObjectId;
 
 import java.time.LocalDateTime;
@@ -30,5 +32,22 @@ public class VoteEventRepository implements PanacheMongoRepository<VoteEvent> {
                      Float latitude, Float longitude) {
     persist(VoteEvent.of(showId, ip, viewerId, sequenceName, latitude, longitude,
         LocalDateTime.now(ZoneOffset.UTC), DEFAULT_RETENTION_DAYS));
+  }
+
+  /**
+   * Count this voter's votes since {@code since} — the #162 daily cap, anchored
+   * to the current show session (votingWindowStartedAt) rather than a calendar
+   * day, so it's timezone-free (see Preference.votingWindowStartedAt). Keyed by
+   * viewerId when present (opted-in shows), else by IP — the ADR-2 identity
+   * model. Served by the {showId,ip,votedAt} / {showId,viewerId,votedAt} indexes.
+   */
+  public long countVotesSince(ObjectId showId, String viewerId, String ip, LocalDateTime since) {
+    Bson identity = (viewerId != null && !viewerId.isEmpty())
+        ? Filters.eq("viewerId", viewerId)
+        : Filters.eq("ip", ip);
+    return mongoCollection().countDocuments(Filters.and(
+        Filters.eq("showId", showId),
+        identity,
+        Filters.gte("votedAt", since)));
   }
 }

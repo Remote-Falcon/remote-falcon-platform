@@ -3,17 +3,29 @@
   "lastFppHeartbeat": "2026-05-23T20:00:00",
   "pluginVersion": "3.4.1",
   "fppVersion": "7.5",
-
   "requestLeaderSequence": "Next Up Bumper",
   "voteLeaderSequence": "Crowd Winner Bumper",
   "nextPsaOverride": "Tune Your Radio",
-
   "psaSequences": [
-    { "name": "High Beams PSA", "order": 0, "lastPlayed": "2026-05-23T19:30:00", "enabled": true },
-    { "name": "Tune Your Radio", "order": 1, "lastPlayed": "2026-05-23T19:45:00", "enabled": true },
-    { "name": "Donations Welcome", "order": 2, "lastPlayed": "2026-05-23T17:30:00", "enabled": false }
+    {
+      "name": "High Beams PSA",
+      "order": 0,
+      "lastPlayed": "2026-05-23T19:30:00",
+      "enabled": true
+    },
+    {
+      "name": "Tune Your Radio",
+      "order": 1,
+      "lastPlayed": "2026-05-23T19:45:00",
+      "enabled": true
+    },
+    {
+      "name": "Donations Welcome",
+      "order": 2,
+      "lastPlayed": "2026-05-23T17:30:00",
+      "enabled": false
+    }
   ],
-
   "preferences": {
     "viewerControlEnabled": true,
     "viewerControlMode": "JUKEBOX",
@@ -26,7 +38,6 @@
     "showLatitude": 33.95246,
     "showLongitude": -117.58479
   },
-
   "sequences": [
     {
       "name": "wizards-in-winter",
@@ -65,7 +76,7 @@
       "visible": true,
       "index": 2,
       "order": 2,
-      "imageUrl": "",
+      "imageUrl": "https://is1-ssl.mzstatic.com/image/thumb/Music/docs-demo/600x600bb.jpg",
       "active": true,
       "visibilityCount": 0,
       "type": "SEQUENCE",
@@ -95,7 +106,7 @@
       "visible": true,
       "index": 4,
       "order": 4,
-      "imageUrl": "",
+      "imageUrl": "https://is1-ssl.mzstatic.com/image/thumb/Music/docs-demo/600x600bb.jpg",
       "active": true,
       "visibilityCount": 0,
       "type": "SEQUENCE",
@@ -125,7 +136,7 @@
       "visible": false,
       "index": 6,
       "order": 6,
-      "imageUrl": "",
+      "imageUrl": "https://is1-ssl.mzstatic.com/image/thumb/Music/docs-demo/600x600bb.jpg",
       "active": true,
       "visibilityCount": 0,
       "type": "SEQUENCE",
@@ -140,7 +151,7 @@
       "visible": true,
       "index": 7,
       "order": 7,
-      "imageUrl": "",
+      "imageUrl": "https://is1-ssl.mzstatic.com/image/thumb/Music/docs-demo/600x600bb.jpg",
       "active": false,
       "visibilityCount": 0,
       "type": "SEQUENCE",
@@ -170,7 +181,7 @@
       "visible": true,
       "index": 9,
       "order": 9,
-      "imageUrl": "",
+      "imageUrl": "https://is1-ssl.mzstatic.com/image/thumb/Music/docs-demo/600x600bb.jpg",
       "active": true,
       "visibilityCount": 0,
       "type": "SEQUENCE",
@@ -215,13 +226,13 @@
       "visible": false,
       "index": 12,
       "order": 12,
-      "imageUrl": "",
+      "imageUrl": "https://is1-ssl.mzstatic.com/image/thumb/Music/docs-demo/600x600bb.jpg",
       "active": true,
       "visibilityCount": 0,
       "type": "SEQUENCE",
       "group": "",
       "category": "",
-      "artist": ""
+      "artist": "Holtz Light Show"
     },
     {
       "name": "Crowd Winner Bumper",
@@ -230,22 +241,67 @@
       "visible": false,
       "index": 13,
       "order": 13,
-      "imageUrl": "",
+      "imageUrl": "https://is1-ssl.mzstatic.com/image/thumb/Music/docs-demo/600x600bb.jpg",
       "active": true,
       "visibilityCount": 0,
       "type": "SEQUENCE",
       "group": "",
       "category": "",
-      "artist": ""
+      "artist": "Holtz Light Show"
     }
   ],
-
   "sequenceGroups": [
-    { "name": "Classics", "visibilityCount": 0 },
-    { "name": "Halloween", "visibilityCount": 0 },
-    { "name": "Pop", "visibilityCount": 0 }
+    {
+      "name": "Classics",
+      "visibilityCount": 0
+    },
+    {
+      "name": "Halloween",
+      "visibilityCount": 0
+    },
+    {
+      "name": "Pop",
+      "visibilityCount": 0
+    }
   ],
-
+  "categories": [
+    {
+      "name": "Rock",
+      "requestLimit": 0,
+      "antiConsecutive": true,
+      "displayOrder": 0
+    },
+    {
+      "name": "Traditional",
+      "requestLimit": 0,
+      "antiConsecutive": false,
+      "displayOrder": 1
+    },
+    {
+      "name": "Pop",
+      "requestLimit": 5,
+      "antiConsecutive": false,
+      "displayOrder": 2
+    },
+    {
+      "name": "Jazz",
+      "requestLimit": 3,
+      "antiConsecutive": true,
+      "displayOrder": 3
+    },
+    {
+      "name": "Latin",
+      "requestLimit": 0,
+      "antiConsecutive": false,
+      "displayOrder": 4
+    },
+    {
+      "name": "Spooky",
+      "requestLimit": 2,
+      "antiConsecutive": false,
+      "displayOrder": 5
+    }
+  ],
   "requests": [
     {
       "sequence": {
@@ -311,16 +367,22 @@
       "ownerRequested": true
     }
   ],
-
   "votes": [
     {
       "sequence": {
         "name": "wizards-in-winter",
         "displayName": "Wizards in Winter"
       },
-      "sequenceGroup": { "name": "Classics", "visibilityCount": 0 },
+      "sequenceGroup": {
+        "name": "Classics",
+        "visibilityCount": 0
+      },
       "votes": 18,
-      "viewersVoted": ["viewer-a31b", "viewer-7f02", "viewer-c918"],
+      "viewersVoted": [
+        "viewer-a31b",
+        "viewer-7f02",
+        "viewer-c918"
+      ],
       "lastVoteTime": "2026-05-23T19:55:00",
       "ownerVoted": false
     },
@@ -329,9 +391,15 @@
         "name": "thriller",
         "displayName": "Thriller"
       },
-      "sequenceGroup": { "name": "Halloween", "visibilityCount": 0 },
+      "sequenceGroup": {
+        "name": "Halloween",
+        "visibilityCount": 0
+      },
       "votes": 12,
-      "viewersVoted": ["viewer-d445", "viewer-ee10"],
+      "viewersVoted": [
+        "viewer-d445",
+        "viewer-ee10"
+      ],
       "lastVoteTime": "2026-05-23T19:55:00",
       "ownerVoted": false
     },
@@ -340,14 +408,18 @@
         "name": "feliz-navidad",
         "displayName": "Feliz Navidad"
       },
-      "sequenceGroup": { "name": "Pop", "visibilityCount": 0 },
+      "sequenceGroup": {
+        "name": "Pop",
+        "visibilityCount": 0
+      },
       "votes": 7,
-      "viewersVoted": ["viewer-7f02"],
+      "viewersVoted": [
+        "viewer-7f02"
+      ],
       "lastVoteTime": "2026-05-23T19:55:00",
       "ownerVoted": false
     }
   ],
-
   "activeViewers": [
     {
       "ipAddress": "10.0.0.42",
@@ -365,7 +437,6 @@
       "visitDateTime": "2026-05-23T20:00:00"
     }
   ],
-
   "viewerSessions": [
     {
       "ip": "10.0.0.42",

@@ -29,4 +29,15 @@ test.describe('docs-screenshots: account settings', () => {
       state: 'default',
     });
   });
+
+  test('account-notifications', async ({ page }, testInfo) => {
+    await page.goto('/control-panel/account-settings/notifications');
+    await page
+      .locator('[data-testid="account-notifications-root"]')
+      .waitFor({ state: 'visible' });
+    await takeScreenshot(page, testInfo, 'fullPage', 'account-notifications', {
+      alt: 'Notifications tab with the FPP Plugin Health alert toggles and renotify controls',
+      state: 'default',
+    });
+  });
 });

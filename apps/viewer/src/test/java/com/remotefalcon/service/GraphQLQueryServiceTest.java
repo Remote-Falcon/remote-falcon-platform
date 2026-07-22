@@ -63,9 +63,11 @@ class GraphQLQueryServiceTest {
       Show show = mockShowWithBasicCollections();
       when(show.getPlayingNow()).thenReturn("song1");
 
-      // Sequences: one matches playing now, others filtered
+      // Sequences: one matches playing now, others handled per the filters
       Sequence s1 = mockSequence("song1", "Song One", 2, true, 0, null);
-      Sequence s2 = mockSequence("song2", "Song Two", 1, true, 1, null); // filtered by visibility
+      // #73: cooldown (visibilityCount > 0) but non-grouped — now KEPT so the
+      // viewer page can gray it out (previously filtered by visibility).
+      Sequence s2 = mockSequence("song2", "Song Two", 1, true, 1, null);
       Sequence s3 = mockSequence("song3", "Song Three", 3, false, 0, null); // filtered by active
       show.getSequences().add(s1);
       show.getSequences().add(s2);
@@ -97,12 +99,14 @@ class GraphQLQueryServiceTest {
       verify(show).setPlayingNext("Next Display");
       verify(show).setPlayingNextSequence(nextSeq);
 
-      // sequences processed: only s1 remains (filtered and sorted)
+      // sequences processed: s2 (cooldown, kept for #73 gray-out) + s1 remain,
+      // sorted by order (s2 order=1 first, s1 order=2); s3 filtered (inactive)
       ArgumentCaptor<List<Sequence>> captor = ArgumentCaptor.forClass(List.class);
       verify(show).setSequences(captor.capture());
       List<Sequence> processed = captor.getValue();
-      assertEquals(1, processed.size());
-      assertSame(s1, processed.get(0));
+      assertEquals(2, processed.size());
+      assertSame(s2, processed.get(0));
+      assertSame(s1, processed.get(1));
     }
 
     @Test

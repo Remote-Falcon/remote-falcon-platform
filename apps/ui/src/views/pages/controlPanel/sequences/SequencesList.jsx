@@ -36,7 +36,9 @@ import {
   IconGripVertical,
   IconLoader2,
   IconMovie,
+  IconMusicSearch,
   IconPlayerPlay,
+  IconPlayerTrackNext,
   IconPlaylist,
   IconPlus,
   IconSearch,
@@ -48,25 +50,35 @@ import _ from 'lodash';
 import { useSearchParams } from 'react-router-dom';
 
 import {
+  forceNextSongService,
   playSequenceFromControlPanelService,
+  saveCategoriesService,
   saveSequenceGroupsService,
   saveSequencesService
 } from '../../../../services/controlPanel/mutations.service';
-import { useDispatch, useSelector } from '../../../../store';
+import { store, useDispatch, useSelector } from '../../../../store';
 import { setShow } from '../../../../store/slices/show';
 import ConfirmDialog from '../../../../ui-component/ConfirmDialog';
 import EmptyState from '../../../../ui-component/EmptyState';
 import MainCard from '../../../../ui-component/cards/MainCard';
 import useCoalescedSave from '../../../../hooks/useCoalescedSave';
+import useTableSort from '../../../../hooks/useTableSort';
 import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
 import {
+  FORCE_NEXT_SONG,
   PLAY_SEQUENCE_FROM_CONTROL_PANEL,
+  UPDATE_CATEGORIES,
   UPDATE_SEQUENCES,
   UPDATE_SEQUENCE_GROUPS
 } from '../../../../utils/graphql/controlPanel/mutations';
 import { showAlert } from '../../globalPageHelpers';
 
+import { estimateBulkLookupMinutes } from '../../../../utils/bulkMetadataLookup';
+import { cleanLookupQuery } from '../../../../utils/musicMetadata';
+
+import BulkMetadataLookupDialog from './BulkMetadataLookupDialog';
 import EditableCell from './EditableCell';
+import SequenceMetadataLookup from './SequenceMetadataLookup';
 
 // Status chip palette helper. Keeps the JSX tight.
 const STATUS_CHIP = {
@@ -173,7 +185,9 @@ const SequencesList = () => {
 
   const [updateSequencesMutation] = useMutation(UPDATE_SEQUENCES);
   const [updateSequenceGroupsMutation] = useMutation(UPDATE_SEQUENCE_GROUPS);
+  const [updateCategoriesMutation] = useMutation(UPDATE_CATEGORIES);
   const [playSequenceFromControlPanelMutation] = useMutation(PLAY_SEQUENCE_FROM_CONTROL_PANEL);
+  const [forceNextSongMutation] = useMutation(FORCE_NEXT_SONG);
 
   // View state. Group filter is URL-encoded so the Groups tab can deep-link
   // ("show me everything in group X") and the link is shareable / back-button-friendly.
@@ -186,10 +200,20 @@ const SequencesList = () => {
     setSearchParams(sp, { replace: true });
   };
 
+  // Category filter mirrors the group filter — URL-encoded so the Categories
+  // tab can deep-link ("show me everything in category X") and the link is
+  // shareable / back-button-friendly.
+  const categoryFilter = searchParams.get('category') || null;
+  const setCategoryFilter = (next) => {
+    const sp = new URLSearchParams(searchParams);
+    if (next) sp.set('category', next);
+    else sp.delete('category');
+    setSearchParams(sp, { replace: true });
+  };
+
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
-  const [orderBy, setOrderBy] = useState('order');
-  const [order, setOrder] = useState('asc');
+  const { orderBy, order, requestSort, resetSort } = useTableSort('order', 'asc');
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(25);
   const [busy, setBusy] = useState(false);
@@ -212,6 +236,18 @@ const SequencesList = () => {
   // is created + assigned to the selection in one step.
   const [newGroupName, setNewGroupName] = useState('');
   const [creatingGroup, setCreatingGroup] = useState(false);
+  // Same inline create-and-assign flow for categories (see Set-category menu).
+  const [categoryMenuAnchor, setCategoryMenuAnchor] = useState(null);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [creatingCategory, setCreatingCategory] = useState(false);
+
+  // Metadata-lookup popover target ({ anchorEl, sequence } or null).
+  // One popover instance serves all rows — only one can be open at a time.
+  const [lookup, setLookup] = useState(null);
+
+  // Bulk metadata lookup (first-match + review): target list, or null when
+  // the dialog is closed. Targets only sequences missing artist or art.
+  const [bulkLookupTargets, setBulkLookupTargets] = useState(null);
 
   // Horizontal-scroll hints — the table can be wider than the viewport with
   // long image URLs. Checkbox/drag/actions/status are sticky-pinned on the
@@ -221,32 +257,56 @@ const SequencesList = () => {
 
   const totalCount = show?.sequences?.length || 0;
   const sequenceGroups = show?.sequenceGroups || [];
+  const categories = show?.categories || [];
 
   const groupOptions = useMemo(
     () => sequenceGroups.map((g) => ({ value: g?.name, label: g?.name })),
     [sequenceGroups]
   );
 
-  // Categories aren't a first-class collection on the show — they're a
-  // free-text field per sequence. We derive the dropdown options from the
-  // distinct categories currently in use so typing matches existing
-  // entries (with freeSolo letting the user add a brand-new one inline).
+  // Categories are now a first-class collection on the show (the Categories
+  // tab manages them), but legacy sequences may still carry a free-text
+  // category that was never registered. Merge both so the dropdown matches
+  // every value currently in use (with freeSolo letting the user add a brand-
+  // new one inline, which commitCategory registers as a first-class entry).
   const categoryOptions = useMemo(() => {
-    const distinct = new Set(
-      (show?.sequences || [])
-        .map((s) => (s?.category || '').trim())
-        .filter(Boolean)
-    );
+    const distinct = new Set();
+    (show?.categories || []).forEach((c) => {
+      if (c?.name) distinct.add(c.name);
+    });
+    (show?.sequences || []).forEach((s) => {
+      const c = (s?.category || '').trim();
+      if (c) distinct.add(c);
+    });
     return [...distinct].sort((a, b) => a.localeCompare(b)).map((c) => ({ value: c, label: c }));
-  }, [show?.sequences]);
+  }, [show?.categories, show?.sequences]);
 
   const rowKey = (s) => `${s?.name}-${s?.index}`;
+
+  // Sequences the bulk metadata lookup would target: anything missing artist
+  // or album art. Fill-only; existing values are never overwritten. COMMAND
+  // and MEDIA rows are excluded: an FPP command or announcement file is not
+  // a song, and an iTunes first-match would attach a bogus artist/art to it.
+  const metadataMissing = useMemo(
+    () => (show?.sequences || []).filter((s) => s && !NON_SEQUENCE_BADGE[s.type] && (!s.artist || !s.imageUrl)),
+    [show?.sequences]
+  );
+
+  // One query builder for both lookup flows (single popover + bulk pass).
+  // A known artist joins the term so title-only queries for rows missing
+  // just the artwork disambiguate to the right recording, not whichever
+  // cover iTunes ranks first.
+  const lookupQueryFor = (s) => {
+    const base = cleanLookupQuery(s?.displayName || s?.name);
+    const artist = (s?.artist || '').trim();
+    return artist ? `${base} ${artist}` : base;
+  };
 
   // Coalesced autosave: each cell-blur enqueues a patch; we collapse
   // multiple patches per row into one before writing the full sequences[].
   // This is the on-blur + coalesce path the user picked over a debounced
   // keystroke save — see the notes in useCoalescedSave.jsx.
-  const { status: saveStatus, enqueue } = useCoalescedSave(
+  const { status: saveStatus, enqueue, flush } = useCoalescedSave(
     async (batch) => {
       // Collapse: per-rowKey, merge fields from all patches in arrival order.
       const merged = new Map();
@@ -355,11 +415,43 @@ const SequencesList = () => {
     });
   };
 
+  // Per-row category commit. Mirrors commitGroup: typing a category that
+  // isn't yet a first-class entry registers it on show.categories (with
+  // default limits) so it appears on the Categories tab, then enqueues the
+  // sequence field patch. Existing-category case is a simple field commit.
+  const commitCategory = (sequence, raw) => {
+    const trimmed = (raw || '').trim();
+    if (!trimmed) {
+      commitField(sequence, 'category', null);
+      return;
+    }
+    const exists = categories.some((c) => c?.name === trimmed);
+    if (exists) {
+      commitField(sequence, 'category', trimmed);
+      return;
+    }
+    const updatedCategories = [...categories, { name: trimmed, requestLimit: 0, antiConsecutive: false }];
+    saveCategoriesService(updatedCategories, updateCategoriesMutation, (cResponse) => {
+      if (!cResponse?.success) {
+        showAlert(dispatch, cResponse?.toast);
+        return;
+      }
+      // Update Redux synchronously so the new category shows up in the
+      // dropdown options + chip filter + Categories tab immediately. The
+      // sequence-level patch goes through the coalesced save next tick.
+      dispatch(setShow({ ...show, categories: updatedCategories }));
+      commitField(sequence, 'category', trimmed);
+      showAlert(dispatch, { message: `Created category "${trimmed}"` });
+      trackPosthogEvent('sequence_category_created', { source: 'inline_row', category_name: trimmed });
+    });
+  };
+
   // Filtered + sorted view
   const filteredSequences = useMemo(() => {
     let list = show?.sequences || [];
     if (filter !== 'all') list = list.filter(FILTERS[filter].test);
     if (groupFilter) list = list.filter((s) => s.group === groupFilter);
+    if (categoryFilter) list = list.filter((s) => s.category === categoryFilter);
     if (search.trim()) {
       const needle = search.trim().toLowerCase();
       list = list.filter((s) =>
@@ -371,7 +463,7 @@ const SequencesList = () => {
     if (orderBy !== 'order') list = _.orderBy(list, [orderBy], [order]);
     else list = _.orderBy(list, ['order'], ['asc']);
     return list;
-  }, [show?.sequences, filter, groupFilter, search, orderBy, order]);
+  }, [show?.sequences, filter, groupFilter, categoryFilter, search, orderBy, order]);
 
   const pagedSequences = useMemo(
     () => filteredSequences.slice(page * rowsPerPage, (page + 1) * rowsPerPage),
@@ -379,7 +471,7 @@ const SequencesList = () => {
   );
 
   // Drag is meaningful only when nothing is masking the canonical order.
-  const dndEnabled = filter === 'all' && !groupFilter && !search && orderBy === 'order';
+  const dndEnabled = filter === 'all' && !groupFilter && !categoryFilter && !search && orderBy === 'order';
 
   // One-click escape hatch back to the dnd-enabled view — clears all four
   // pieces of view state at once so the user doesn't have to hunt for which
@@ -387,14 +479,14 @@ const SequencesList = () => {
   const resetFiltersAndSort = () => {
     setFilter('all');
     setGroupFilter(null);
+    setCategoryFilter(null);
     setSearch('');
-    setOrderBy('order');
-    setOrder('asc');
+    resetSort();
   };
 
   useEffect(() => {
     setPage(0);
-  }, [filter, groupFilter, search, rowsPerPage]);
+  }, [filter, groupFilter, categoryFilter, search, rowsPerPage]);
 
   useEffect(() => {
     const el = tableContainerRef.current;
@@ -422,23 +514,19 @@ const SequencesList = () => {
     el.scrollBy({ left: direction * Math.max(200, el.clientWidth * 0.5), behavior: 'smooth' });
   };
 
-  const handleRequestSort = (column) => {
-    if (orderBy === column) {
-      setOrder(order === 'asc' ? 'desc' : 'asc');
-    } else {
-      setOrderBy(column);
-      setOrder('asc');
-    }
-  };
-
   // Save helpers (used for non-editable bulk operations: reorder, delete,
   // toggle visibility/active for many at once).
-  const persistSequences = (updated, successMessage) => {
+  const persistSequences = (updated, successMessage, onSuccess) => {
     setBusy(true);
     saveSequencesService(updated, updateSequencesMutation, (response) => {
       if (response?.success) {
-        dispatch(setShow({ ...show, sequences: [...updated] }));
+        // Spread the store's CURRENT show, not this render's closure: the
+        // response can land after another save's dispatch (bulk apply
+        // awaits the coalesced flush first), and a stale spread would
+        // resurrect old top-level fields.
+        dispatch(setShow({ ...store.getState().show.show, sequences: [...updated] }));
         if (successMessage) showAlert(dispatch, { message: successMessage });
+        onSuccess?.();
       } else {
         showAlert(dispatch, response?.toast);
       }
@@ -488,6 +576,21 @@ const SequencesList = () => {
       sequence_artist: sequence?.artist
     });
     playSequenceFromControlPanelService(sequence, playSequenceFromControlPanelMutation, (response) => {
+      showAlert(dispatch, response?.toast);
+      setBusy(false);
+    });
+  };
+
+  // #167 — force a song to play next, stat-neutral (distinct from "Play now",
+  // which casts the operator's own counted vote/request). Top-priority override
+  // that wins outright and records no vote stat.
+  const forceNext = (sequence) => {
+    setBusy(true);
+    trackPosthogEvent('sequence_force_next', {
+      sequence_name: sequence?.name,
+      sequence_artist: sequence?.artist
+    });
+    forceNextSongService(sequence?.name, forceNextSongMutation, (response) => {
       showAlert(dispatch, response?.toast);
       setBusy(false);
     });
@@ -578,6 +681,56 @@ const SequencesList = () => {
         setNewGroupName('');
         setCreatingGroup(false);
         setGroupMenuAnchor(null);
+      });
+    });
+  };
+
+  const bulkSetCategory = (categoryName) => {
+    const updated = _.cloneDeep(show?.sequences || []);
+    updated.forEach((s) => {
+      if (selected.has(rowKey(s))) s.category = categoryName || null;
+    });
+    persistSequences(updated, `${selected.size} ${selected.size === 1 ? 'sequence' : 'sequences'} updated`);
+    setSelected(new Set());
+  };
+
+  // Create a new category, then bulk-assign the current selection to it.
+  // Sequential writes (categories first, then sequences) so a partial failure
+  // doesn't leave sequences pointing at a non-existent category.
+  const createCategoryAndAssign = () => {
+    const name = newCategoryName.trim();
+    if (!name) return;
+    if (categories.some((c) => c?.name === name)) {
+      showAlert(dispatch, { alert: 'error', message: `A category named "${name}" already exists.` });
+      return;
+    }
+    setCreatingCategory(true);
+    const updatedCategories = [...categories, { name, requestLimit: 0, antiConsecutive: false }];
+    saveCategoriesService(updatedCategories, updateCategoriesMutation, (cResponse) => {
+      if (!cResponse?.success) {
+        showAlert(dispatch, cResponse?.toast);
+        setCreatingCategory(false);
+        return;
+      }
+      const updatedSequences = _.cloneDeep(show?.sequences || []);
+      updatedSequences.forEach((s) => {
+        if (selected.has(rowKey(s))) s.category = name;
+      });
+      // Both writes land in one dispatch — sequential setShow calls would
+      // otherwise clobber categories via stale-closure show state.
+      saveSequencesService(updatedSequences, updateSequencesMutation, (sResponse) => {
+        if (sResponse?.success) {
+          dispatch(setShow({ ...show, categories: updatedCategories, sequences: updatedSequences }));
+          showAlert(dispatch, {
+            message: `Created "${name}" and assigned ${selected.size} ${selected.size === 1 ? 'sequence' : 'sequences'}`
+          });
+        } else {
+          showAlert(dispatch, sResponse?.toast);
+        }
+        setSelected(new Set());
+        setNewCategoryName('');
+        setCreatingCategory(false);
+        setCategoryMenuAnchor(null);
       });
     });
   };
@@ -690,6 +843,14 @@ const SequencesList = () => {
                   color="secondary"
                 />
               )}
+              {categoryFilter && (
+                <Chip
+                  label={`Category: ${categoryFilter}`}
+                  onDelete={() => setCategoryFilter(null)}
+                  size="small"
+                  color="secondary"
+                />
+              )}
               {!dndEnabled && (
                 <Tooltip title="Clears filters, search, and sort so you can drag-reorder">
                   <Chip
@@ -714,6 +875,29 @@ const SequencesList = () => {
                 </IconButton>
               </Tooltip>
               <Menu anchorEl={bulkAnchor} open={Boolean(bulkAnchor)} onClose={() => setBulkAnchor(null)}>
+                <MenuItem
+                  disabled={metadataMissing.length === 0}
+                  onClick={() => {
+                    setBulkAnchor(null);
+                    const targets = metadataMissing.map((s) => ({
+                      key: rowKey(s),
+                      query: lookupQueryFor(s)
+                    }));
+                    const estimatedMinutes = estimateBulkLookupMinutes(targets.length);
+                    setConfirm({
+                      title: `Look up metadata for ${targets.length} ${targets.length === 1 ? 'sequence' : 'sequences'}?`,
+                      message:
+                        `Lookups are paced to respect Apple's rate limit, so this will take about ` +
+                        `${estimatedMinutes} ${estimatedMinutes === 1 ? 'minute' : 'minutes'}. You can cancel at any point, ` +
+                        `and you'll review every proposed match before anything is saved.`,
+                      confirmLabel: 'Start lookup',
+                      confirmColor: 'primary',
+                      action: () => setBulkLookupTargets(targets)
+                    });
+                  }}
+                >
+                  Look up missing metadata ({metadataMissing.length})
+                </MenuItem>
                 <MenuItem
                   disabled={inactiveCount === 0}
                   onClick={() => {
@@ -837,6 +1021,83 @@ const SequencesList = () => {
                     startIcon={<IconPlus size={14} stroke={1.75} />}
                     disabled={!newGroupName.trim() || creatingGroup}
                     onClick={createGroupAndAssign}
+                    sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}
+                  >
+                    Create
+                  </Button>
+                </Stack>
+              </Box>
+            </Menu>
+            <Tooltip title="Assign all selected to a category">
+              <Button size="small" onClick={(e) => setCategoryMenuAnchor(e.currentTarget)}>
+                Set category…
+              </Button>
+            </Tooltip>
+            <Menu
+              open={Boolean(categoryMenuAnchor)}
+              anchorEl={categoryMenuAnchor}
+              onClose={() => {
+                setCategoryMenuAnchor(null);
+                setNewCategoryName('');
+              }}
+              slotProps={{ paper: { sx: { minWidth: 240 } } }}
+            >
+              {categories.length === 0 && (
+                <Typography
+                  variant="caption"
+                  sx={{ display: 'block', px: 2, py: 1, color: 'text.disabled', fontStyle: 'italic' }}
+                >
+                  No categories yet — add one below.
+                </Typography>
+              )}
+              {categories.length > 0 && (
+                <MenuItem onClick={() => { bulkSetCategory(null); setCategoryMenuAnchor(null); }}>
+                  <em>None</em>
+                </MenuItem>
+              )}
+              {categories.map((c) => (
+                <MenuItem key={c?.name} onClick={() => { bulkSetCategory(c?.name); setCategoryMenuAnchor(null); }}>
+                  {c?.name}
+                </MenuItem>
+              ))}
+              {/* Inline "create new category" form — mirrors the Set-group
+                  menu so the bulk-assign flow is self-contained even with no
+                  categories defined yet. */}
+              <Box
+                sx={{
+                  borderTop: categories.length > 0 ? '1px solid' : 'none',
+                  borderColor: 'divider',
+                  px: 1.5,
+                  py: 1.25
+                }}
+                onKeyDown={(e) => e.stopPropagation()}
+              >
+                <Typography
+                  variant="caption"
+                  sx={{ display: 'block', mb: 0.75, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.06em' }}
+                >
+                  Create new category
+                </Typography>
+                <Stack direction="row" spacing={0.75}>
+                  <TextField
+                    size="small"
+                    placeholder="Category name"
+                    value={newCategoryName}
+                    onChange={(e) => setNewCategoryName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') createCategoryAndAssign();
+                    }}
+                    autoFocus={categories.length === 0}
+                    disabled={creatingCategory}
+                    fullWidth
+                  />
+                  <Button
+                    size="small"
+                    variant="contained"
+                    startIcon={<IconPlus size={14} stroke={1.75} />}
+                    disabled={!newCategoryName.trim() || creatingCategory}
+                    onClick={createCategoryAndAssign}
+                    sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}
                   >
                     Create
                   </Button>
@@ -882,6 +1143,7 @@ const SequencesList = () => {
               onClick: () => {
                 setFilter('all');
                 setGroupFilter(null);
+                setCategoryFilter(null);
                 setSearch('');
               }
             }}
@@ -926,6 +1188,9 @@ const SequencesList = () => {
                 </Tooltip>
               </Stack>
             )}
+            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 0.5, px: 1 }}>
+              Drag rows to reorder — this is the order songs appear on your viewer page.
+            </Typography>
             <TableContainer ref={tableContainerRef}>
               <Table size="small" aria-label="sequences">
                 <TableHead sx={{ '& th,& td': { whiteSpace: 'nowrap' } }}>
@@ -953,7 +1218,7 @@ const SequencesList = () => {
                         <TableSortLabel
                           active={orderBy === col.key}
                           direction={orderBy === col.key ? order : 'asc'}
-                          onClick={() => handleRequestSort(col.key)}
+                          onClick={() => requestSort(col.key)}
                         >
                           {col.label}
                         </TableSortLabel>
@@ -1009,7 +1274,7 @@ const SequencesList = () => {
                                       </Box>
                                     </Tooltip>
                                   </TableCell>
-                                  <TableCell sx={{ width: 80, px: 1 }}>
+                                  <TableCell sx={{ width: 112, px: 1 }}>
                                     <Stack direction="row" spacing={0.25}>
                                       <Tooltip title="Play now">
                                         <span>
@@ -1021,6 +1286,19 @@ const SequencesList = () => {
                                             sx={{ color: 'success.main' }}
                                           >
                                             <IconPlayerPlay size={16} stroke={1.75} />
+                                          </IconButton>
+                                        </span>
+                                      </Tooltip>
+                                      <Tooltip title="Play next (force to top, not counted in stats)">
+                                        <span>
+                                          <IconButton
+                                            size="small"
+                                            aria-label="Play next (force to top)"
+                                            onClick={() => forceNext(sequence)}
+                                            disabled={!sequence.active}
+                                            sx={{ color: 'warning.main' }}
+                                          >
+                                            <IconPlayerTrackNext size={16} stroke={1.75} />
                                           </IconButton>
                                         </span>
                                       </Tooltip>
@@ -1066,11 +1344,25 @@ const SequencesList = () => {
                                     </Stack>
                                   </TableCell>
                                   <TableCell sx={{ minWidth: 180 }}>
-                                    <EditableCell
-                                      value={sequence.displayName}
-                                      onCommit={(v) => commitField(sequence, 'displayName', v)}
-                                      placeholder="Display name"
-                                    />
+                                    <Stack direction="row" alignItems="center" spacing={0.5}>
+                                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                                        <EditableCell
+                                          value={sequence.displayName}
+                                          onCommit={(v) => commitField(sequence, 'displayName', v)}
+                                          placeholder="Display name"
+                                        />
+                                      </Box>
+                                      <Tooltip title="Look up artist & album art">
+                                        <IconButton
+                                          size="small"
+                                          data-testid="sequence-metadata-lookup-button"
+                                          aria-label={`Look up metadata for ${sequence.displayName || sequence.name}`}
+                                          onClick={(e) => setLookup({ anchorEl: e.currentTarget, sequence })}
+                                        >
+                                          <IconMusicSearch size={16} stroke={1.75} />
+                                        </IconButton>
+                                      </Tooltip>
+                                    </Stack>
                                   </TableCell>
                                   <TableCell sx={{ minWidth: 140 }}>
                                     <EditableCell
@@ -1103,16 +1395,28 @@ const SequencesList = () => {
                                       />
                                     )}
                                   </TableCell>
-                                  <TableCell sx={{ minWidth: 120 }}>
-                                    <EditableCell
-                                      value={sequence.category}
-                                      variant="select"
-                                      options={categoryOptions}
-                                      freeSolo
-                                      emptyLabel="Add category…"
-                                      placeholder="Pick or type a new category"
-                                      onCommit={(v) => commitField(sequence, 'category', (v || '').trim() || null)}
-                                    />
+                                  <TableCell sx={{ minWidth: 140 }}>
+                                    {/* Category: read-only chip that filters on click; click-to-edit opens select */}
+                                    {sequence.category ? (
+                                      <Chip
+                                        label={sequence.category}
+                                        size="small"
+                                        variant="outlined"
+                                        onClick={() => setCategoryFilter(sequence.category)}
+                                        onDelete={() => commitField(sequence, 'category', null)}
+                                        sx={{ cursor: 'pointer' }}
+                                      />
+                                    ) : (
+                                      <EditableCell
+                                        value={sequence.category}
+                                        variant="select"
+                                        options={categoryOptions}
+                                        freeSolo
+                                        emptyLabel="Add category…"
+                                        placeholder="Pick or type a new category"
+                                        onCommit={(v) => commitCategory(sequence, v)}
+                                      />
+                                    )}
                                   </TableCell>
                                   <TableCell>
                                     <Switch
@@ -1175,6 +1479,71 @@ const SequencesList = () => {
       </MainCard>
 
       <ConfirmDialog confirm={confirm} onClose={() => setConfirm(null)} />
+
+      <SequenceMetadataLookup
+        anchorEl={lookup?.anchorEl || null}
+        defaultQuery={lookup ? lookupQueryFor(lookup.sequence) : ''}
+        onClose={() => setLookup(null)}
+        onSelect={(result) => {
+          // Both patches coalesce into one save for the row. Never blank an
+          // existing image with a null artworkUrl (rare artless results).
+          commitField(lookup.sequence, 'artist', result.artist);
+          if (result.artworkUrl) {
+            commitField(lookup.sequence, 'imageUrl', result.artworkUrl);
+          }
+        }}
+      />
+
+      <BulkMetadataLookupDialog
+        open={Boolean(bulkLookupTargets)}
+        targets={bulkLookupTargets || []}
+        onClose={() => setBulkLookupTargets(null)}
+        onApply={async (picked) => {
+          // Fill-only, against the CURRENT rows. Two ordering guarantees:
+          // flush() first settles any pending/in-flight coalesced cell save
+          // (both paths write the full sequences[], so merging from a stale
+          // snapshot would let whichever write lands last silently revert
+          // the other), then the merge reads the store's post-flush state
+          // rather than this render's closure. The analytics event fires
+          // only after the save actually succeeds.
+          await flush();
+          const currentSequences = store.getState().show.show?.sequences || [];
+          const matchByKey = new Map(picked.map(({ key, match }) => [key, match]));
+          let applied = 0;
+          let lackedFields = 0;
+          const updated = _.cloneDeep(currentSequences);
+          updated.forEach((s) => {
+            const match = matchByKey.get(rowKey(s));
+            if (!match) return;
+            let touched = false;
+            if (!s.artist && match.artist) {
+              s.artist = match.artist;
+              touched = true;
+            }
+            if (!s.imageUrl && match.artworkUrl) {
+              s.imageUrl = match.artworkUrl;
+              touched = true;
+            }
+            if (touched) applied += 1;
+            else if (!s.artist || !s.imageUrl) lackedFields += 1;
+          });
+          if (applied > 0) {
+            persistSequences(updated, `Applied metadata to ${applied} ${applied === 1 ? 'sequence' : 'sequences'}`, () =>
+              trackPosthogEvent('sequence_metadata_bulk_applied', {
+                applied_count: applied,
+                candidate_count: bulkLookupTargets?.length || 0
+              })
+            );
+          } else if (lackedFields > 0) {
+            // Distinct from already-filled: the match came back without the
+            // field this row is missing (e.g. an artless result for a row
+            // that needed artwork). Re-running the same lookup won't help.
+            showAlert(dispatch, { message: 'Nothing to apply. The selected matches did not include the missing fields.' });
+          } else {
+            showAlert(dispatch, { message: 'Nothing to apply. Those fields are already filled.' });
+          }
+        }}
+      />
     </Box>
   );
 };

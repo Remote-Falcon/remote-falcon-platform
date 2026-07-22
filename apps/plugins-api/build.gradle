@@ -32,6 +32,7 @@ dependencies {
     testImplementation 'io.quarkus:quarkus-junit5-mockito'
     testImplementation 'io.quarkus:quarkus-test-mongodb'
     testImplementation 'org.testcontainers:mongodb:1.19.8'
+    testImplementation 'io.quarkus:quarkus-jacoco'
 }
 
 group 'com.remotefalcon'
@@ -44,6 +45,22 @@ java {
 
 test {
     systemProperty "java.util.logging.manager", "org.jboss.logmanager.LogManager"
+    // Capture @QuarkusTest coverage. Quarkus loads app classes in its own
+    // classloader, so the plain Gradle JaCoCo agent never attributes their
+    // execution — service classes registered 0% no matter how many
+    // @QuarkusTest cases hit them (the reason the bundle floor sat at 5%).
+    // The quarkus-jacoco extension instruments inside the QuarkusClassLoader
+    // and appends to the same data file the agent writes for plain unit
+    // tests; the agent is told to skip Quarkus-loaded classes to avoid
+    // double instrumentation.
+    jacoco {
+        excludeClassLoaders = ["*QuarkusClassLoader"]
+        destinationFile = layout.buildDirectory.file("jacoco-quarkus.exec").get().asFile
+    }
+    systemProperty "quarkus.jacoco.data-file", layout.buildDirectory.file("jacoco-quarkus.exec").get().asFile.absolutePath
+    systemProperty "quarkus.jacoco.reuse-data-file", "true"
+    // Skip the extension's own HTML report — jacocoTestReport is canonical.
+    systemProperty "quarkus.jacoco.report", "false"
 }
 
 jacoco {
@@ -52,6 +69,7 @@ jacoco {
 
 jacocoTestReport {
     dependsOn test
+    executionData.setFrom(layout.buildDirectory.file("jacoco-quarkus.exec"))
     reports {
         xml.required.set(true)
         csv.required.set(false)
@@ -61,27 +79,30 @@ jacocoTestReport {
 
 jacocoTestCoverageVerification {
     dependsOn jacocoTestReport
+    executionData.setFrom(layout.buildDirectory.file("jacoco-quarkus.exec"))
     violationRules {
         rule {
-            // Floor matched to actual measured coverage on 2026-05-24.
-            // The previous 60%/60% gate was aspirational — declared in
-            // Sprint 1 but never actually enforced until a libs/schema
-            // change triggered this service's CI for the first time
-            // post Phase C ratchet (PR #50, surfaced via the path-filter
-            // on the Quarkus services). Real bundle coverage is ~6%/3%.
+            // History: the original 60%/60% Sprint 1 gate was re-baselined to
+            // 5%/2% on 2026-05-24 and BRANCH again to 1% on 2026-06-24 —
+            // each time because JaCoCo couldn't see @QuarkusTest coverage
+            // (in-JVM Quarkus classloader), so heavily-tested service code
+            // registered 0% and dragged the bundle ratio toward the floor.
             //
-            // 5%/2% locks in the current state so further regressions
-            // fail CI; real coverage uplift to the original 60%/60%
-            // target is multi-day work tracked as a follow-up issue.
+            // 2026-07-16 (#130): fixed — quarkus-jacoco captures @QuarkusTest
+            // coverage (see the test block). First honest CI measurement:
+            // 87.6% line / 65.3% branch. Floors ratcheted to 80/60 (beats the
+            // original 60/60 target) with a small buffer for legitimately
+            // hard-to-cover additions. #152 tracks the same fix for
+            // mongo-backup.
             limit {
                 counter = 'LINE'
                 value = 'COVEREDRATIO'
-                minimum = 0.05
+                minimum = 0.80
             }
             limit {
                 counter = 'BRANCH'
                 value = 'COVEREDRATIO'
-                minimum = 0.02
+                minimum = 0.60
             }
         }
     }

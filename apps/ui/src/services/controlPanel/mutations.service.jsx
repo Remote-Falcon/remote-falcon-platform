@@ -24,6 +24,31 @@ export const deleteAccountService = (deleteAccountMutation, callback) => {
   });
 };
 
+// forceNextSongService (#167) — force a song to play next, stat-neutral.
+// Pass null to cancel a pending override.
+export const forceNextSongService = (name, forceNextSongMutation, callback) => {
+  forceNextSongMutation({
+    context: {
+      headers: {
+        Route: 'Control-Panel'
+      }
+    },
+    variables: { name: name ?? null },
+    onCompleted: () => {
+      callback({
+        success: true,
+        toast: name ? { message: `${name} will play next` } : { message: 'Forced song cleared' }
+      });
+    },
+    onError: () => {
+      callback({
+        success: false,
+        toast: { alert: 'error', message: name ? `Could not force ${name} to play next` : 'Could not clear the forced song' }
+      });
+    }
+  });
+};
+
 export const playSequenceFromControlPanelService = (sequence, playSequenceFromControlPanelMutation, callback) => {
   playSequenceFromControlPanelMutation({
     context: {
@@ -102,6 +127,34 @@ export const refreshApiSecretService = (refreshApiSecretMutation, callback) => {
       });
     },
     refetchQueries: [{ query: GET_SHOW, awaitRefetchQueries: true }]
+  });
+};
+
+// Deliberately NO refetchQueries here (unlike refreshApiSecretService): the
+// mutation kills the caller's current JWT, so an automatic GET_SHOW refetch
+// would race the session hot-swap and fire with the dead token. The caller
+// swaps the session first (setSession(serviceToken)), then updates state.
+export const rotateShowTokenService = (rotateShowTokenMutation, callback) => {
+  rotateShowTokenMutation({
+    context: {
+      headers: {
+        Route: 'Control-Panel'
+      }
+    },
+    onCompleted: (data) => {
+      callback({
+        success: true,
+        showToken: data?.rotateShowToken?.showToken,
+        serviceToken: data?.rotateShowToken?.serviceToken,
+        toast: { message: 'Show Token Rotated' }
+      });
+    },
+    onError: () => {
+      callback({
+        success: false,
+        toast: { alert: 'error', message: 'Failed to rotate Show Token' }
+      });
+    }
   });
 };
 
@@ -215,6 +268,32 @@ export const savePsaSequencesService = (updatedPsaSequences, updatePsaSequencesM
 // setRequestLeaderSequenceService / setVoteLeaderSequenceService (Q6)
 // — leader dropdown saves. The "(none)" option clears the field by
 // passing null.
+// updateEmailPreferenceService (PRD-013 P0-5) — marketing-email consent
+// toggle. Single-boolean save in the updatePsaEnabledService shape; the
+// component owns the PostHog person-state enforcement on success.
+export const updateEmailPreferenceService = (marketingOptIn, updateEmailPreferenceMutation, callback) => {
+  updateEmailPreferenceMutation({
+    context: {
+      headers: {
+        Route: 'Control-Panel'
+      }
+    },
+    variables: { marketingOptIn },
+    onCompleted: () => {
+      callback({
+        success: true,
+        toast: { message: marketingOptIn ? 'Email tips enabled' : 'Email tips disabled' }
+      });
+    },
+    onError: () => {
+      callback({
+        success: false,
+        toast: { alert: 'error' }
+      });
+    }
+  });
+};
+
 export const updatePsaEnabledService = (name, enabled, updatePsaEnabledMutation, callback) => {
   updatePsaEnabledMutation({
     context: {
@@ -375,6 +454,31 @@ export const saveSequenceGroupsService = (updatedSequenceGroups, updateSequenceG
   });
 };
 
+export const saveCategoriesService = (updatedCategories, updateCategoriesMutation, callback) => {
+  updateCategoriesMutation({
+    context: {
+      headers: {
+        Route: 'Control-Panel'
+      }
+    },
+    variables: {
+      categories: updatedCategories
+    },
+    onCompleted: () => {
+      callback({
+        success: true,
+        toast: { message: 'Category Saved' }
+      });
+    },
+    onError: () => {
+      callback({
+        success: false,
+        toast: { alert: 'error' }
+      });
+    }
+  });
+};
+
 export const saveShowService = (updatedShow, updateShowMutation, callback) => {
   updateShowMutation({
     context: {
@@ -432,6 +536,185 @@ export const saveUserProfileService = (updatedUserProfile, updateUserProfileMuta
       });
     }
     // refetchQueries: [{ query: GET_SHOW, awaitRefetchQueries: true }]
+  });
+};
+
+// TOTP 2FA service helpers.
+//
+// disableMfaService / regenerateRecoveryCodesService re-auth with EITHER
+// the current password (base64 `Password` header, same convention as
+// updatePasswordService) OR a current TOTP code passed as the `code`
+// variable — exactly one of the two should be provided.
+export const startMfaEnrollmentService = (startMfaEnrollmentMutation, callback) => {
+  startMfaEnrollmentMutation({
+    context: {
+      headers: {
+        Route: 'Control-Panel'
+      }
+    },
+    onCompleted: (data) => {
+      callback({
+        success: true,
+        enrollment: data?.startMfaEnrollment
+      });
+    },
+    onError: (error) => {
+      if (error?.message === StatusResponse.MFA_NOT_CONFIGURED) {
+        callback({
+          success: false,
+          toast: { alert: 'warning', message: '2FA is not available on this deployment' }
+        });
+      } else if (error?.message === StatusResponse.MFA_ALREADY_ENABLED) {
+        callback({
+          success: false,
+          toast: { alert: 'warning', message: 'Two-factor authentication is already enabled' }
+        });
+      } else {
+        callback({
+          success: false,
+          toast: { alert: 'error' }
+        });
+      }
+    }
+  });
+};
+
+export const confirmMfaEnrollmentService = (code, confirmMfaEnrollmentMutation, callback) => {
+  confirmMfaEnrollmentMutation({
+    context: {
+      headers: {
+        Route: 'Control-Panel'
+      }
+    },
+    variables: {
+      code
+    },
+    onCompleted: (data) => {
+      callback({
+        success: true,
+        recoveryCodes: data?.confirmMfaEnrollment?.recoveryCodes,
+        toast: { message: 'Two-Factor Authentication Enabled' }
+      });
+    },
+    onError: (error) => {
+      if (error?.message === StatusResponse.INVALID_MFA_CODE) {
+        callback({
+          success: false,
+          toast: { alert: 'warning', message: 'Invalid code, try again' }
+        });
+      } else if (error?.message === StatusResponse.MFA_RATE_LIMITED) {
+        callback({
+          success: false,
+          toast: { alert: 'warning', message: 'Too many attempts — wait 15 minutes and try again' }
+        });
+      } else {
+        callback({
+          success: false,
+          toast: { alert: 'error' }
+        });
+      }
+    }
+  });
+};
+
+const mfaReauthErrorCallback = (error, callback) => {
+  if (error?.message === StatusResponse.UNAUTHORIZED) {
+    callback({
+      success: false,
+      toast: { alert: 'warning', message: 'Incorrect password' }
+    });
+  } else if (error?.message === StatusResponse.INVALID_MFA_CODE) {
+    callback({
+      success: false,
+      toast: { alert: 'warning', message: 'Invalid code, try again' }
+    });
+  } else if (error?.message === StatusResponse.MFA_RATE_LIMITED) {
+    callback({
+      success: false,
+      toast: { alert: 'warning', message: 'Too many attempts — wait 15 minutes and try again' }
+    });
+  } else {
+    callback({
+      success: false,
+      toast: { alert: 'error' }
+    });
+  }
+};
+
+export const disableMfaService = ({ password, code }, disableMfaMutation, callback) => {
+  const headers = { Route: 'Control-Panel' };
+  if (password) {
+    headers.Password = Buffer.from(password, 'binary').toString('base64');
+  }
+  disableMfaMutation({
+    context: {
+      headers
+    },
+    variables: {
+      code: code ?? null
+    },
+    onCompleted: () => {
+      callback({
+        success: true,
+        toast: { message: 'Two-Factor Authentication Disabled' }
+      });
+    },
+    onError: (error) => mfaReauthErrorCallback(error, callback)
+  });
+};
+
+export const regenerateRecoveryCodesService = ({ password, code }, regenerateRecoveryCodesMutation, callback) => {
+  const headers = { Route: 'Control-Panel' };
+  if (password) {
+    headers.Password = Buffer.from(password, 'binary').toString('base64');
+  }
+  regenerateRecoveryCodesMutation({
+    context: {
+      headers
+    },
+    variables: {
+      code: code ?? null
+    },
+    onCompleted: (data) => {
+      callback({
+        success: true,
+        recoveryCodes: data?.regenerateRecoveryCodes?.recoveryCodes,
+        toast: { message: 'Recovery Codes Regenerated' }
+      });
+    },
+    onError: (error) => mfaReauthErrorCallback(error, callback)
+  });
+};
+
+export const adminResetMfaService = (showSubdomain, adminResetMfaMutation, callback) => {
+  adminResetMfaMutation({
+    context: {
+      headers: {
+        Route: 'Control-Panel'
+      }
+    },
+    variables: {
+      showSubdomain
+    },
+    onCompleted: () => {
+      callback({
+        success: true,
+        toast: { message: 'Two-Factor Authentication Reset' }
+      });
+    },
+    onError: (error) => {
+      if (error?.message === StatusResponse.MFA_NOT_ENABLED) {
+        callback({
+          success: false,
+          toast: { alert: 'warning', message: 'Two-factor authentication is not enabled for that show' }
+        });
+      } else {
+        callback({
+          success: false,
+          toast: { alert: 'error' }
+        });
+      }
+    }
   });
 };
 

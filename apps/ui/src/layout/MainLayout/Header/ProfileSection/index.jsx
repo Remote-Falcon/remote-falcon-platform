@@ -22,6 +22,7 @@ import { VERSION } from '../../../../config';
 import useAuth from '../../../../hooks/useAuth';
 import { useSelector } from '../../../../store';
 import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
+import safeStorage from '../../../../utils/safeStorage';
 
 // v2 identity menu — slim popover that owns identity-only concerns.
 // Navigation (Account Settings, Tracker, Docs) lives in the sidebar now.
@@ -45,7 +46,7 @@ const ProfileSection = () => {
   }, [show?.email]);
 
   useEffect(() => {
-    setIsImpersonating(!!localStorage.getItem('isImpersonating'));
+    setIsImpersonating(!!safeStorage.getItem('isImpersonating'));
   }, [open]);
 
   const fullName = [show?.userProfile?.firstName, show?.userProfile?.lastName].filter(Boolean).join(' ') || show?.showName;
@@ -66,8 +67,8 @@ const ProfileSection = () => {
       source: 'profile_menu',
       target_show_subdomain: show?.showSubdomain
     });
-    localStorage.removeItem('isImpersonating');
-    localStorage.removeItem('impersonationServiceToken');
+    safeStorage.removeItem('isImpersonating');
+    safeStorage.removeItem('impersonationServiceToken');
     window.location.reload();
   };
 

@@ -80,6 +80,34 @@ if (import.meta.env.VITE_PUBLIC_POSTHOG_KEY) {
   posthog.opt_out_capturing?.();
 }
 
+// Vite fires `vite:preloadError` when a lazily-imported route chunk fails to
+// load — nearly always a visitor whose cached index.html points at an old
+// hashed chunk (e.g. index-BE45jv83.js) that 404s after a redeploy. One hard
+// reload pulls the current index.html and its chunk names. A sessionStorage
+// timestamp guards against an infinite reload loop when a chunk is genuinely
+// gone. Without this, the stale-chunk failure falls through to the root
+// boundary's "Something went wrong / Reload" — a worse experience for a
+// self-healing condition.
+window.addEventListener('vite:preloadError', (event) => {
+  const RELOAD_KEY = 'rf:last-chunk-reload';
+  try {
+    const now = Date.now();
+    const last = Number(window.sessionStorage.getItem(RELOAD_KEY) || 0);
+    // Still failing within 10s of our last reattempt → the chunk is genuinely
+    // gone; stop and let the error surface to the boundary instead of looping.
+    if (now - last < 10_000) {
+      return;
+    }
+    window.sessionStorage.setItem(RELOAD_KEY, String(now));
+  } catch {
+    // Storage unavailable (hardened privacy mode). Skip the auto-reload rather
+    // than risk a loop we can't guard.
+    return;
+  }
+  event.preventDefault();
+  window.location.reload();
+});
+
 const link = ApolloLink.from([
   new MultiAPILink({
     endpoints: {
@@ -163,12 +191,15 @@ function handleRootError(error) {
   // Backstop so the root boundary always reports to PostHog, even if the
   // autocapture wiring above misses (e.g. error thrown during render before
   // posthog finishes init).
+  //
+  // Use captureException (NOT capture('$exception', {...})): it runs the Error
+  // through posthog-js's parser and builds the normalized `$exception_list`
+  // that PostHog's error-tracking ingester requires. Hand-rolling a raw
+  // `$exception` event omits `$exception_list`, so every such report was
+  // rejected at ingestion ("serde error: missing field `$exception_list`").
+  // Pass the Error object itself so the stack/type can be extracted.
   try {
-    posthog.capture('$exception', {
-      error: error?.message,
-      stack: error?.stack,
-      source: 'root_boundary'
-    });
+    posthog.captureException(error, { source: 'root_boundary' });
   } catch {
     // Swallow: never let observability break the fallback.
   }

@@ -1,8 +1,15 @@
 import { gql } from '@apollo/client';
 
 export const SIGN_UP = gql`
-  mutation ($firstName: String, $lastName: String, $showName: String!) @api(name: controlPanel) {
-    signUp(firstName: $firstName, lastName: $lastName, showName: $showName)
+  mutation ($firstName: String, $lastName: String, $showName: String!, $marketingOptIn: Boolean) @api(name: controlPanel) {
+    signUp(firstName: $firstName, lastName: $lastName, showName: $showName, marketingOptIn: $marketingOptIn)
+  }
+`;
+
+// PRD-013 P0-5 — Account Settings marketing/lifecycle email consent toggle.
+export const UPDATE_EMAIL_PREFERENCE = gql`
+  mutation ($marketingOptIn: Boolean!) @api(name: controlPanel) {
+    updateEmailPreference(marketingOptIn: $marketingOptIn)
   }
 `;
 
@@ -30,6 +37,48 @@ export const UPDATE_PASSWORD = gql`
   }
 `;
 
+// TOTP 2FA enrollment + management. startMfaEnrollment mints the shared
+// secret; confirmMfaEnrollment activates 2FA and returns the recovery
+// codes EXACTLY ONCE. disableMfa / regenerateRecoveryCodes re-auth with
+// EITHER the current password (base64 `Password` header, same as
+// UPDATE_PASSWORD) OR a current TOTP code via the `code` arg.
+export const START_MFA_ENROLLMENT = gql`
+  mutation @api(name: controlPanel) {
+    startMfaEnrollment {
+      otpauthUri
+      secret
+    }
+  }
+`;
+
+export const CONFIRM_MFA_ENROLLMENT = gql`
+  mutation ($code: String!) @api(name: controlPanel) {
+    confirmMfaEnrollment(code: $code) {
+      recoveryCodes
+    }
+  }
+`;
+
+export const DISABLE_MFA = gql`
+  mutation ($code: String) @api(name: controlPanel) {
+    disableMfa(code: $code)
+  }
+`;
+
+export const REGENERATE_RECOVERY_CODES = gql`
+  mutation ($code: String) @api(name: controlPanel) {
+    regenerateRecoveryCodes(code: $code) {
+      recoveryCodes
+    }
+  }
+`;
+
+export const ADMIN_RESET_MFA = gql`
+  mutation ($showSubdomain: String!) @api(name: controlPanel) {
+    adminResetMfa(showSubdomain: $showSubdomain)
+  }
+`;
+
 export const UPDATE_USER_PROFILE = gql`
   mutation ($userProfile: UserProfileInput!) @api(name: controlPanel) {
     updateUserProfile(userProfile: $userProfile)
@@ -49,6 +98,21 @@ export const REQUEST_API_ACCESS = gql`
 export const REFRESH_API_SECRET = gql`
   mutation @api(name: controlPanel) {
     refreshApiSecret
+  }
+`;
+
+// Rotates the show's FPP-plugin credential. Returns the new showToken plus
+// a re-issued serviceToken that MUST be hot-swapped into the session before
+// any further requests — the current JWT's identity claim (the old
+// showToken) stops resolving the moment the rotation persists. That's also
+// why this deliberately has no refetchQueries: a GET_SHOW refetch would race
+// the swap and fire with the dead token.
+export const ROTATE_SHOW_TOKEN = gql`
+  mutation @api(name: controlPanel) {
+    rotateShowToken {
+      showToken
+      serviceToken
+    }
   }
 `;
 
@@ -121,6 +185,15 @@ export const SET_NEXT_PSA_OVERRIDE = gql`
   }
 `;
 
+// FORCE_NEXT_SONG (#167) — force any active song to play next, stat-neutral
+// (top-priority ownerOverride injection; doesn't inflate vote stats). Pass
+// null to cancel a pending override.
+export const FORCE_NEXT_SONG = gql`
+  mutation ($name: String) @api(name: controlPanel) {
+    forceNextSong(name: $name)
+  }
+`;
+
 export const SET_REQUEST_LEADER_SEQUENCE = gql`
   mutation ($name: String) @api(name: controlPanel) {
     setRequestLeaderSequence(name: $name)
@@ -142,6 +215,12 @@ export const UPDATE_SEQUENCES = gql`
 export const UPDATE_SEQUENCE_GROUPS = gql`
   mutation ($sequenceGroups: [SequenceGroupInput]!) @api(name: controlPanel) {
     updateSequenceGroups(sequenceGroups: $sequenceGroups)
+  }
+`;
+
+export const UPDATE_CATEGORIES = gql`
+  mutation ($categories: [CategoryInput]!) @api(name: controlPanel) {
+    updateCategories(categories: $categories)
   }
 `;
 

@@ -3,6 +3,12 @@ spring:
     name: remote-falcon-control-panel
   main:
     web-application-type: servlet
+  task:
+    scheduling:
+      pool:
+        # Default is 1 thread, which serializes the every-minute FPP-health
+        # alert task behind the multi-minute 03:00 retention sweep.
+        size: 2
   data:
     mongodb:
       database: ${MONGO_DATABASE:remote-falcon}
@@ -73,3 +79,19 @@ rfpb:
     secret: ${RF_RFPB_LAUNCH_SECRET:dev-launch-secret-32-chars-or-more!}
     ttl-seconds: ${RF_RFPB_LAUNCH_TTL_SECONDS:300}
   page-builder-url: ${RFPB_BASE_URL:https://rfpagebuilder.com}
+
+# 2FA (PRD 2FA-TOTP). secret-key encrypts TOTP secrets at rest (AES-GCM)
+# and is deliberately DISTINCT from the JWT signing key. It is OPTIONAL:
+# when unset, startMfaEnrollment returns MFA_NOT_CONFIGURED and nothing
+# else changes — deployments (esp. self-host) opt in by setting it.
+# Checked at call time, never via conditional beans (native-image strips
+# beans gated on runtime-only env — see issue #160).
+mfa:
+  secret-key: ${MFA_SECRET_KEY:}
+  # Zero or more previous secret-key values (comma-separated), kept ONLY so
+  # their stored ciphertext still decrypts across a key rotation. To rotate:
+  # set the new key as secret-key, move the old one here, run the
+  # adminRotateMfaKeys mutation to re-encrypt every secret onto the new key,
+  # then drop it from here. Never used to encrypt.
+  secret-key-retired: ${MFA_SECRET_KEY_RETIRED:}
+  pending-token-minutes: ${MFA_PENDING_TOKEN_MINUTES:5}

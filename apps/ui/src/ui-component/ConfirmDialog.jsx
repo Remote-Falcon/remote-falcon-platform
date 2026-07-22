@@ -26,8 +26,9 @@ import PropTypes from 'prop-types';
 //   <ConfirmDialog confirm={confirm} onClose={() => setConfirm(null)} />
 //
 // The dialog calls action() then clears itself; supports both sync and
-// async action handlers. Default confirm button is red (destructive).
-const ConfirmDialog = ({ confirm, onClose, confirmColor = 'error' }) => {
+// async action handlers. The confirm button defaults to red (destructive);
+// a non-destructive flow can set confirm.confirmColor per confirmation.
+const ConfirmDialog = ({ confirm, onClose }) => {
   const handleConfirm = async () => {
     const action = confirm?.action;
     onClose();
@@ -44,7 +45,7 @@ const ConfirmDialog = ({ confirm, onClose, confirmColor = 'error' }) => {
       )}
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
-        <Button color={confirmColor} variant="contained" onClick={handleConfirm}>
+        <Button color={confirm?.confirmColor || 'error'} variant="contained" onClick={handleConfirm}>
           {confirm?.confirmLabel || 'Confirm'}
         </Button>
       </DialogActions>
@@ -57,10 +58,12 @@ ConfirmDialog.propTypes = {
     title: PropTypes.node.isRequired,
     message: PropTypes.node,
     confirmLabel: PropTypes.string,
+    // Per-confirm override of the button color; the default stays red for
+    // the destructive flows this dialog mostly serves.
+    confirmColor: PropTypes.string,
     action: PropTypes.func
   }),
-  onClose: PropTypes.func.isRequired,
-  confirmColor: PropTypes.string
+  onClose: PropTypes.func.isRequired
 };
 
 export default ConfirmDialog;

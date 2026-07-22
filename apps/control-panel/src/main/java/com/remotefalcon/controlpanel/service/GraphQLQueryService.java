@@ -59,33 +59,65 @@ public class GraphQLQueryService {
                 if (!show.getEmailVerified()) {
                     throw new RuntimeException(StatusResponse.EMAIL_NOT_VERIFIED.name());
                 }
-                LocalDateTime now = LocalDateTime.now();
-                LocalDateTime expireDate = now.plusYears(2);
-                // Atomic field update instead of save(show). signIn now loads a
-                // PROJECTED Show (findByEmailCollationForAuth excludes stats +
-                // viewerSessions), so a full-document save() would WIPE those
-                // arrays. updateFirst also avoids the lost-update race where a
-                // login clobbers concurrent viewer/plugin writes to the same
-                // doc during a live show.
-                this.mongoTemplate.updateFirst(
-                        Query.query(Criteria.where("showToken").is(show.getShowToken())),
-                        new Update()
-                                .set("lastLoginDate", now)
-                                .set("expireDate", expireDate)
-                                .set("lastLoginIp", ipAddress),
-                        Show.class);
-                // Mirror the persisted values onto the response object and
-                // normalize it for the client (checkFields defaults preferences
-                // + empty collections). Not persisted beyond the update above.
-                show.setLastLoginDate(now);
-                show.setExpireDate(expireDate);
-                show.setLastLoginIp(ipAddress);
-                this.checkFields(show);
-                show.setServiceToken(this.authUtil.signJwt(show));
-                return show;
+                // 2FA PRD FR-6 — an enrolled account never gets a full
+                // service token from signIn. It gets a 5-minute MFA-pending
+                // challenge token (valid ONLY for verifyMfa; rejected by
+                // every protected resolver) on a STUB Show: no account data
+                // leaves the server until the second factor verifies, and
+                // post-login bookkeeping is deferred to verifyMfa. The
+                // marker MfaConfig makes the derived mfaEnabled field true,
+                // which is the UI's signal to show the code step.
+                if (show.getMfa() != null && Boolean.TRUE.equals(show.getMfa().getEnabled())) {
+                    String pendingToken = this.authUtil.signMfaPendingJwt(show);
+                    if (pendingToken == null) {
+                        // Challenge token failed to mint — surface an error
+                        // rather than returning a stub with a null token,
+                        // which would silently dead-end the UI at the code step.
+                        throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());
+                    }
+                    Show pendingChallenge = Show.builder()
+                            .mfa(MfaConfig.builder().enabled(true).build())
+                            .build();
+                    pendingChallenge.setServiceToken(pendingToken);
+                    return pendingChallenge;
+                }
+                return this.completeSignIn(show, ipAddress);
             }
         }
         throw new RuntimeException(StatusResponse.UNAUTHORIZED.name());
+    }
+
+    /**
+     * Post-authentication completion shared by signIn (password-only
+     * accounts) and MfaService.verifyMfa (second factor verified): persists
+     * login bookkeeping, normalizes the response object, and mints the full
+     * 30-day service token.
+     */
+    public Show completeSignIn(Show show, String ipAddress) {
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime expireDate = now.plusYears(2);
+        // Atomic field update instead of save(show). signIn now loads a
+        // PROJECTED Show (findByEmailCollationForAuth excludes stats +
+        // viewerSessions), so a full-document save() would WIPE those
+        // arrays. updateFirst also avoids the lost-update race where a
+        // login clobbers concurrent viewer/plugin writes to the same
+        // doc during a live show.
+        this.mongoTemplate.updateFirst(
+                Query.query(Criteria.where("showToken").is(show.getShowToken())),
+                new Update()
+                        .set("lastLoginDate", now)
+                        .set("expireDate", expireDate)
+                        .set("lastLoginIp", ipAddress),
+                Show.class);
+        // Mirror the persisted values onto the response object and
+        // normalize it for the client (checkFields defaults preferences
+        // + empty collections). Not persisted beyond the update above.
+        show.setLastLoginDate(now);
+        show.setExpireDate(expireDate);
+        show.setLastLoginIp(ipAddress);
+        this.checkFields(show);
+        show.setServiceToken(this.authUtil.signJwt(show));
+        return show;
     }
 
     public Show impersonateShow(String showSubdomain) {
@@ -142,7 +174,13 @@ public class GraphQLQueryService {
     public Show verifyPasswordResetLink(String passwordResetLink) {
         Optional<Show> show = this.showRepository.findByPasswordResetLinkAndPasswordResetExpiryGreaterThan(passwordResetLink, LocalDateTime.now());
         if(show.isPresent()) {
-            String jwt = this.authUtil.signJwt(show.get());
+            // Mint a scoped, short-lived password-reset capability token —
+            // NOT a full 30-day session. A session token here would let an
+            // MFA-enrolled account (or anyone who completes the reset) obtain
+            // a logged-in session without ever presenting the second factor.
+            // The user still signs in normally (through the MFA gate) after
+            // resetting; this token authorizes only the resetPassword mutation.
+            String jwt = this.authUtil.signPasswordResetJwt(show.get());
             show.get().setServiceToken(jwt);
             return show.get();
         }

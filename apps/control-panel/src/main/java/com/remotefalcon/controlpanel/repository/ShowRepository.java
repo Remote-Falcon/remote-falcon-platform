@@ -42,7 +42,21 @@ public interface ShowRepository extends MongoRepository<Show, String> {
     Optional<Show> findByEmailCollation(String email);
 
     Optional<Show> findByPasswordResetLinkAndPasswordResetExpiryGreaterThan(String passwordResetLink, LocalDateTime passwordResetExpiry);
-    List<Show> findByPreferencesNotificationPreferencesEnableFppHeartbeatIsTrueAndLastFppHeartbeatBefore(LocalDateTime lastFppHeartbeat);
+    // Heartbeat-alert scan (idx_fppHeartbeat_enabled, partial; both $or arms
+    // carry a lastFppHeartbeat predicate so each can ride the index).
+    // Arm 1 is the ENTRY gate: outage older than the stale threshold but
+    // newer than the 48h floor — shows dark for months never START alerting.
+    // Arm 2 SUSTAINS a caught outage past the floor: the
+    // fppHeartbeatLastNotification marker (set on first alert, unset on
+    // recovery) keeps re-alerts flowing until the plugin actually returns.
+    // fields projection: the task reads a handful of scalars; without it each
+    // scan hydrates full ~130KB Show documents (stats arrays included).
+    @Query(value = "{ 'preferences.notificationPreferences.enableFppHeartbeat': true, $or: [ "
+            + "{ 'lastFppHeartbeat': { $gte: ?0, $lte: ?1 } }, "
+            + "{ 'lastFppHeartbeat': { $lt: ?1 }, 'preferences.notificationPreferences.fppHeartbeatLastNotification': { $exists: true } } ] }",
+            fields = "{ 'showToken': 1, 'showName': 1, 'lastFppHeartbeat': 1, "
+                    + "'preferences.notificationPreferences': 1, 'preferences.viewerControlEnabled': 1 }")
+    List<Show> findFppHeartbeatAlertCandidates(LocalDateTime outageWindowFloor, LocalDateTime staleCutoff);
     // Admin show-name autosuggest. Case-insensitive prefix match on
     // showName, index-backed by idx_showName (plain btree). Caller passes
     // PageRequest.of(0, 25) to cap the result set server-side. Returns
@@ -156,4 +170,22 @@ public interface ShowRepository extends MongoRepository<Show, String> {
             fields = "{ 'stats': 0, 'viewerSessions': 0, 'showNotifications': 0, " +
                      "'heartbeatGaps': 0, 'versionChanges': 0 }")
     Optional<Show> findByEmailCollationForAuth(String email);
+
+    // 2FA verifyMfa — completes a pending sign-in by showToken (carried in
+    // the MFA-pending challenge JWT). Same exclusions as
+    // findByEmailCollationForAuth so the verifyMfa response is shaped
+    // identically to a signIn response. Read-only: bookkeeping is an atomic
+    // updateFirst, never a save() of this projection.
+    @Query(value = "{ 'showToken': ?0 }",
+            fields = "{ 'stats': 0, 'viewerSessions': 0, 'showNotifications': 0, " +
+                     "'heartbeatGaps': 0, 'versionChanges': 0 }")
+    Optional<Show> findByShowTokenForAuth(String showToken);
+
+    // 2FA management (enroll/confirm/disable/regenerate) — loads only the
+    // identity + credential fields those flows touch. Read-only: MFA writes
+    // are atomic updateFirst on the single `mfa` field.
+    @Query(value = "{ 'showToken': ?0 }",
+            fields = "{ 'showToken': 1, 'email': 1, 'password': 1, 'showName': 1, " +
+                     "'showSubdomain': 1, 'showRole': 1, 'mfa': 1 }")
+    Optional<Show> findByShowTokenForMfa(String showToken);
 }

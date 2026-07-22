@@ -4,6 +4,9 @@ type Show {
     showName: String
     showSubdomain: String
     emailVerified: Boolean
+    # PRD-013 P0-1 — marketing/lifecycle email consent. Read by the UI to
+    # gate the consent-scoped PostHog email $set and the settings toggle.
+    marketingOptIn: Boolean
     createdDate: String
     lastLoginDate: String
     expireDate: String
@@ -17,6 +20,7 @@ type Show {
     preferences: Preference
     sequences: [Sequence]
     sequenceGroups: [SequenceGroup]
+    categories: [Category]
     psaSequences: [PsaSequence]
     pages: [Page]
     requests: [Request]
@@ -34,13 +38,52 @@ type Show {
 
     showNotifications: [ShowNotification]
 
+    # 2FA — derived boolean resolved via @SchemaMapping; the underlying
+    # MfaConfig (encrypted secret, hashed recovery codes) is never exposed.
+    # On a signIn response, true means serviceToken is a 5-minute
+    # MFA-pending challenge token and the client must call verifyMfa.
+    mfaEnabled: Boolean
+
     serviceToken: String
+}
+
+# 2FA — provisioning data returned by startMfaEnrollment (QR + manual
+# entry). The base32 secret appears here exactly once.
+type MfaEnrollment {
+    otpauthUri: String!
+    secret: String!
+}
+
+# 2FA — plaintext recovery codes, returned exactly once on
+# confirmMfaEnrollment / regenerateRecoveryCodes.
+type MfaRecoveryCodes {
+    recoveryCodes: [String!]!
+}
+
+# 2FA — outcome of an adminRotateMfaKeys run. reencrypted + alreadyOnPrimary
+# + failed == totalSecrets. failed counts secrets no configured key could
+# decrypt (left untouched). On a dryRun nothing is written and reencrypted is
+# how many WOULD be rotated.
+type MfaKeyRotationResult {
+    totalSecrets: Int
+    reencrypted: Int
+    alreadyOnPrimary: Int
+    failed: Int
+    dryRun: Boolean
 }
 
 type ApiAccess {
     apiAccessToken: String
     apiAccessSecret: String
     apiAccessActive: Boolean
+}
+
+# Payload for rotateShowToken: the fresh showToken (for the FPP re-paste)
+# and a re-issued session JWT signed with it (the old JWT's identity claim
+# no longer resolves once the rotation persists).
+type RotateShowTokenPayload {
+    showToken: String
+    serviceToken: String
 }
 
 type UserProfile {
@@ -61,13 +104,18 @@ type Preference {
     showLatitude: Float
     showLongitude: Float
     allowedRadius: Float
+    additionalGpsLocations: [GpsLocation]
     checkIfVoted: Boolean
     checkIfRequested: Boolean
     psaEnabled: Boolean
     psaFrequency: Int
     jukeboxRequestLimit: Int
+    dailyVoteLimit: Int
     locationCode: Int
     hideSequenceCount: Int
+    # #163 per-night play cap — max times any single song plays per show-night
+    # (0/null = off). Enforced at play-selection in plugins-api.
+    nightlyPlayLimit: Int
     makeItSnow: Boolean
     managePsa: Boolean
     sequencesPlayed: Int
@@ -76,6 +124,8 @@ type Preference {
     showOnMap: Boolean
     selfHostedRedirectUrl: String
     blockedViewerIps: [String]
+    votingExemptIps: [String]
+    statsExcludedIps: [String]
     notificationPreferences: NotificationPreference
     analyticsBetaOptIn: Boolean
     wrappedPublic: Boolean
@@ -112,6 +162,19 @@ type Sequence {
 type SequenceGroup {
     name: String
     visibilityCount: Int
+}
+
+type GpsLocation {
+    latitude: Float
+    longitude: Float
+}
+
+type Category {
+    name: String
+    requestLimit: Int
+    antiConsecutive: Boolean
+    color: String
+    displayOrder: Int
 }
 
 type Request {

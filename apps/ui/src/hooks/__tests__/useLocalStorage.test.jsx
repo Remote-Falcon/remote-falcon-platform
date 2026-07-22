@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 
 import useLocalStorage from '../useLocalStorage';
@@ -69,5 +69,62 @@ describe('useLocalStorage', () => {
       dispatchStorage({ key: 'other', newValue: JSON.stringify('nope') });
     });
     expect(result.current[0]).toBe('orig');
+  });
+
+  it('falls back to the default when the stored value is corrupt JSON', () => {
+    window.localStorage.setItem('k6', '{not json');
+    const { result } = renderHook(() => useLocalStorage('k6', { count: 0 }));
+    expect(result.current[0]).toEqual({ count: 0 });
+  });
+
+  // Browsers with site data blocked (strict privacy settings, sandboxed
+  // iframes) throw a SecurityError on ANY access to window.localStorage —
+  // including the property read itself. The hook must degrade to plain
+  // in-memory state instead of crashing the tree (PostHog issue
+  // 019f5c1d-85a6: viewer pages failing to render for blocked-storage users).
+  describe('when localStorage access is blocked', () => {
+    let restore;
+
+    beforeEach(() => {
+      const original = Object.getOwnPropertyDescriptor(window, 'localStorage');
+      Object.defineProperty(window, 'localStorage', {
+        configurable: true,
+        get() {
+          throw new DOMException(
+            "Failed to read the 'localStorage' property from 'Window': Access is denied for this document.",
+            'SecurityError'
+          );
+        }
+      });
+      restore = () => Object.defineProperty(window, 'localStorage', original);
+    });
+
+    afterEach(() => {
+      restore();
+    });
+
+    it('mounts with the default value instead of throwing', () => {
+      const { result } = renderHook(() => useLocalStorage('k7', { count: 0 }));
+      expect(result.current[0]).toEqual({ count: 0 });
+    });
+
+    it('setter still updates in-memory state', () => {
+      const { result } = renderHook(() => useLocalStorage('k8', 1));
+      act(() => {
+        result.current[1]((prev) => prev + 10);
+      });
+      expect(result.current[0]).toBe(11);
+    });
+
+    it('survives a storage event without crashing', () => {
+      const { result } = renderHook(() => useLocalStorage('k9', 'orig'));
+      act(() => {
+        const evt = new Event('storage');
+        Object.defineProperty(evt, 'key', { value: 'k9' });
+        Object.defineProperty(evt, 'newValue', { value: JSON.stringify('next') });
+        window.dispatchEvent(evt);
+      });
+      expect(result.current[0]).toBe('orig');
+    });
   });
 });

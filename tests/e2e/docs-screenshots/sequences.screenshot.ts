@@ -4,9 +4,10 @@ import { signIn } from '../regression/helpers';
 import { FIXTURE_EMAIL, FIXTURE_PASSWORD } from './utils/fixtures';
 import { setupTheme, takeScreenshot } from './utils/screenshot-helper';
 
-// Shots 9–10: sequences routes.
-// Both authenticated, both full-page. The fixture show is seeded with
-// 8–12 sequences and ≥3 sequence groups per PRD Appendix A.3.
+// Sequences routes: list, groups, categories, special roles.
+// All authenticated, all full-page. The fixture show is seeded with
+// 8–12 sequences, ≥3 sequence groups, and 6 first-class categories
+// (matching the sequences' category strings) per PRD Appendix A.3.
 
 test.describe('docs-screenshots: sequences', () => {
   test.beforeEach(async ({ page }) => {
@@ -36,6 +37,23 @@ test.describe('docs-screenshots: sequences', () => {
       .waitFor({ state: 'visible' });
     await takeScreenshot(page, testInfo, 'fullPage', 'sequences-groups', {
       alt: 'Sequence groups page with the fixture show groups populated',
+      state: 'default',
+    });
+  });
+
+  test('sequences-categories', async ({ page }, testInfo) => {
+    await page.goto('/control-panel/sequences/categories');
+    await page
+      .locator('[data-testid="sequences-categories-root"]')
+      .waitFor({ state: 'visible' });
+    // Rows hydrate from the show query's categories[]. Wait for a seeded
+    // category name so we never capture the empty "no categories yet" state.
+    await page
+      .locator('[data-testid="sequences-categories-root"]')
+      .getByText('Traditional', { exact: true })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    await takeScreenshot(page, testInfo, 'fullPage', 'sequences-categories', {
+      alt: 'Categories tab with request limits, no-back-to-back toggles, and drag-to-reorder rows',
       state: 'default',
     });
   });

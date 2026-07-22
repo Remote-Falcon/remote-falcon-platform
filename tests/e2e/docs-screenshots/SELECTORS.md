@@ -54,6 +54,10 @@ after flipping show mode.)
 | 7 | `dashboard-now-playing` | `apps/ui/src/views/pages/controlPanel/dashboard/NowPlayingCard.jsx` | outer `<MainCard>` | `dashboard-now-playing` |
 | 8 | `dashboard-checklist` | `apps/ui/src/views/pages/controlPanel/dashboard/PreShowChecklist.jsx` | outer `<MainCard>` | `dashboard-checklist` |
 | 9 | `sequences-list` | `apps/ui/src/views/pages/controlPanel/sequences/SequencesList.jsx` | outermost component root | `sequences-list-root` |
+| — | `account-notifications` | `apps/ui/src/views/pages/controlPanel/accountSettings/Notifications.jsx` | outer `<Grid item>` (FPP Plugin Health card) | `account-notifications-root` |
+| — | `sequence-metadata-lookup-popover` | `apps/ui/src/views/pages/controlPanel/sequences/SequenceMetadataLookup.jsx` | Popover paper (element capture) | `sequence-metadata-lookup-popover` |
+| — | `bulk-metadata-lookup-dialog` | `apps/ui/src/views/pages/controlPanel/sequences/BulkMetadataLookupDialog.jsx` | Dialog paper (element capture) | `bulk-metadata-lookup-dialog` |
+| — | (interaction only, no shot) | `apps/ui/src/views/pages/controlPanel/sequences/SequencesList.jsx` | per-row lookup icon button | `sequence-metadata-lookup-button` |
 | 10 | `sequences-groups` | `apps/ui/src/views/pages/controlPanel/sequences/SequenceGroups.jsx` | outermost component root | `sequences-groups-root` |
 | 11 | `analytics` | `apps/ui/src/views/pages/controlPanel/analytics/index.jsx` | outer `<Box>` shell | `analytics-root` |
 | 12 | `image-hosting` | `apps/ui/src/views/pages/controlPanel/imageHosting/index.jsx` | outer `<Box>` | `image-hosting-root` |
@@ -120,6 +124,58 @@ page is entirely client-side; the spec additionally waits for the rendered
 `<canvas>` inside `qr-code-root` before capturing so the shot never catches
 the pre-hydration "show URL unavailable" empty state. No extra seed state is
 required beyond an authenticated show with a resolvable public URL.
+
+## Two-Factor Auth — new shots added 2026-07-10
+
+Shots 16–18 cover the Two-Factor Auth tab that shipped with the 2FA
+release. All three are full-page captures taken from a single lifecycle
+test in `two-factor.screenshot.ts`:
+
+| # | Shot name | Component file | Element | `data-testid` |
+|---|---|---|---|---|
+| 16 | `two-factor-auth` | `apps/ui/src/views/pages/controlPanel/accountSettings/TwoFactorAuth.jsx` | outer `<Grid item>` | `two-factor-root` |
+| 17 | `two-factor-setup` | same file | (same anchor; QR readiness via existing `mfa-qr` testid) | `two-factor-root` / `mfa-qr` |
+| 18 | `two-factor-recovery-codes` | same file | (same anchor, post-enable state) | `two-factor-root` |
+
+The spec computes a real TOTP code from the on-screen manual-entry secret
+(`utils/totp.ts`) to complete enrollment, captures the one-time recovery
+codes section, then **disables 2FA through the re-auth modal** so the
+shared fixture user is clean for the next project/run. `mfa-qr` predates
+this spec (it's the QR mount point in the component) and is reused as the
+enrollment-readiness anchor.
+
+## Categories — new shot added 2026-07-11 (Show Fairness release)
+
+Shot 19 (`sequences-categories`) covers the Categories management tab that
+shipped with the Show Fairness epic (#125).
+
+| # | Shot name | Component file | Element | `data-testid` |
+|---|---|---|---|---|
+| 19 | `sequences-categories` | `apps/ui/src/views/pages/controlPanel/sequences/Categories.jsx` | outer `<Box>` | `sequences-categories-root` |
+
+Full-page capture anchored on `sequences-categories-root` (the testid
+shipped with the feature itself). The spec additionally waits for a seeded
+category name ("Traditional") to render so it never captures the empty
+"no categories yet" state. Seed dependency: the top-level `categories[]`
+array in `docs-demo-show.json` — six first-class categories whose names
+match the seed sequences' `category` strings, with varied `requestLimit`
+and `antiConsecutive` values so every column shows real data. This same
+seed addition populates the category chips/column on the existing
+`sequences-list` shot.
+
+Not captured from this release (deliberate): the Voting/Safeguards settings
+fields (settings docs are text-only; no testids exist in
+`VotingSettings.jsx` / `InteractionSettings.jsx`) and the public viewer
+page's votes-left countdown and unavailable-song gray-out (the pipeline
+only drives authed `/control-panel/*` routes; a public-viewer capture path
+is a future enhancement).
+
+> **Table drift note:** the "Per-shot testid table" above predates the
+> PSA Quick-Play (`dashboard-psa-quick-play`) and Special Roles
+> (`sequences-special-roles` — anchors `special-roles-tab` / `psa-table`)
+> shots, which are documented in their specs. Counting those, the pipeline
+> produced 20 named shots before this addendum; with `sequences-categories`,
+> 21 (verified against the run manifest, 2026-07-11).
 
 ## Cross-reference
 

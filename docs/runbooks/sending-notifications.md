@@ -40,9 +40,9 @@ Mutation:
 ```graphql
 mutation CreateNotification {
   createNotification(notification: {
-    subject: "Remote Falcon v2.3 is live",
-    preview: "Notification bell, page templates refresh, viewer fixes.",
-    message: "v2.3 ships the in-app notification bell (you're looking at it), a refreshed page-template gallery, and three viewer fixes. Full release notes at https://docs.remotefalcon.com/release-notes/v2.3."
+    subject: "Two-Factor Authentication and Token Rotation are here",
+    preview: "Protect your sign-in with 2FA and rotate a leaked Show Token yourself.",
+    message: "You can now protect your account with two-factor authentication (Account Settings -> Two-Factor Auth) and rotate your Show Token on demand — no support ticket required. Full details on the blog: https://docs.remotefalcon.com/blog/2026-07-10-2fa-and-token-rotation"
   })
 }
 ```
@@ -59,10 +59,10 @@ curl -X POST https://remotefalcon.com/remote-falcon-control-panel/graphql \
     "query": "mutation($n: NotificationInput!) { createNotification(notification: $n) }",
     "variables": {
       "n": {
-        "subject": "Remote Falcon v2.3 is live",
-        "preview": "Notification bell, page templates refresh, viewer fixes.",
-        "message": "v2.3 ships the in-app notification bell, a refreshed page-template gallery, and three viewer fixes.",
-        "link": "https://docs.remotefalcon.com/release-notes/v2.3"
+        "subject": "Two-Factor Authentication and Token Rotation are here",
+        "preview": "Protect your sign-in with 2FA and rotate a leaked Show Token yourself.",
+        "message": "You can now protect your account with two-factor authentication and rotate your Show Token on demand — no support ticket required.",
+        "link": "https://docs.remotefalcon.com/blog/2026-07-10-2fa-and-token-rotation"
       }
     }
   }'
@@ -71,6 +71,8 @@ curl -X POST https://remotefalcon.com/remote-falcon-control-panel/graphql \
 Success: `{"data":{"createNotification":true}}`. The server stamps `uuid`, `createdDate`, and forces `type: ADMIN` — don't supply them.
 
 > **`link` field:** the bell renders this as a button on the notification row. If you set it, viewers click through to the link (opens in a new tab) and the row gets marked dismissed in their browser. If you omit it, the row is text-only.
+>
+> For release announcements, `link` points at the release's blog post on the docs site: `https://docs.remotefalcon.com/blog/<slug>`, where `<slug>` is the `slug:` frontmatter of the post in the docusaurus repo's `blog/YYYY-MM-DD-<slug>/index.md` (by convention the slug matches the folder name, e.g. `2026-07-10-2fa-and-token-rotation`). Publish the blog post (merge to `main`, wait for the DigitalOcean deploy) **before** firing the notification, so the link never 404s.
 
 ## Sending a per-show DM (USER, one show)
 
@@ -158,12 +160,13 @@ Users who already dismissed it (read state is browser-local) won't see it return
 
 No CronJob, no automation, no queue. Creation is 100% manual — to suspend, don't run the mutation.
 
-## Worked example: shipping v2.3
+## Worked example: shipping a release
 
-1. Log in as admin, grab `$TOKEN` from DevTools (see Auth).
-2. Run the ADMIN curl one-liner above with v2.3 subject/preview/message. Expect `{"data":{"createNotification":true}}`.
-3. Verify: `db.notification.find({}).sort({createdDate:-1}).limit(1)` returns a row with `type: "ADMIN"` and your subject.
-4. Open the control panel in an incognito window, log in, click the bell. Confirm the row appears with an unread dot.
+1. Confirm the release's blog post is live at `https://docs.remotefalcon.com/blog/<slug>` (merged to docusaurus `main` and deployed).
+2. Log in as admin, grab `$TOKEN` from DevTools (see Auth).
+3. Run the ADMIN curl one-liner above with the release's subject/preview/message and the blog URL as `link`. Expect `{"data":{"createNotification":true}}`.
+4. Verify: `db.notification.find({}).sort({createdDate:-1}).limit(1)` returns a row with `type: "ADMIN"` and your subject.
+5. Open the control panel in an incognito window, log in, click the bell. Confirm the row appears with an unread dot.
 
 If something's wrong, see "Removing a bad notification" above — `db.notification.deleteOne({uuid: "..."})` is idempotent and safe.
 

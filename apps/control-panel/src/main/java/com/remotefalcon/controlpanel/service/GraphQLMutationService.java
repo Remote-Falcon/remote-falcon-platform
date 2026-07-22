@@ -3,9 +3,11 @@ package com.remotefalcon.controlpanel.service;
 import com.mailersend.sdk.MailerSendResponse;
 import com.remotefalcon.controlpanel.repository.NotificationRepository;
 import com.remotefalcon.controlpanel.repository.ShowRepository;
+import com.remotefalcon.controlpanel.response.RotateShowTokenResponse;
 import com.remotefalcon.controlpanel.util.AuthUtil;
 import com.remotefalcon.controlpanel.util.ClientUtil;
 import com.remotefalcon.controlpanel.util.EmailUtil;
+import com.remotefalcon.controlpanel.util.PostHogUtil;
 import com.remotefalcon.controlpanel.util.RandomUtil;
 import com.remotefalcon.library.documents.Notification;
 import com.remotefalcon.library.documents.Show;
@@ -33,6 +35,8 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.*;
+import java.util.function.BiConsumer;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
@@ -46,11 +50,12 @@ public class GraphQLMutationService {
     private final ClientUtil clientUtil;
     private final ViewerPageService viewerPageService;
     private final MongoTemplate mongoTemplate;
+    private final PostHogUtil postHogUtil;
 
     @Value("${auto-validate-email}")
     Boolean autoValidateEmail;
 
-    public Boolean signUp(String firstName, String lastName, String showName) {
+    public Boolean signUp(String firstName, String lastName, String showName, Boolean marketingOptIn) {
         String showSubdomain = showName.replaceAll("\\s", "").toLowerCase();
         var request = this.authUtil.getCurrentRequest();
         String[] basicAuthCredentials = this.authUtil.getBasicAuthCredentials(request);
@@ -67,7 +72,7 @@ public class GraphQLMutationService {
             String hashedPassword = passwordEncoder.encode(password);
 
             Show newShow = this.createDefaultShowDocument(firstName, lastName, showName, email,
-                    hashedPassword, showToken, showSubdomain, ipAddress);
+                    hashedPassword, showToken, showSubdomain, ipAddress, marketingOptIn);
 
             if(!autoValidateEmail) {
                 MailerSendResponse emailResponse = this.emailUtil.sendSignUpEmail(newShow);
@@ -84,9 +89,17 @@ public class GraphQLMutationService {
 
     private Show createDefaultShowDocument(String firstName, String lastName, String showName,
                                            String email, String password, String showToken,
-                                           String showSubdomain, String ipAddress) {
+                                           String showSubdomain, String ipAddress, Boolean marketingOptIn) {
         String defaultPageHtml = Optional.ofNullable(this.fetchDefaultPageHtml()).orElse("");
         return Show.builder()
+                // PRD-013 P0-1 — consent captured at signup. Null (old
+                // clients / self-host builds that never render the checkbox)
+                // stays null: "never asked" must remain distinguishable from
+                // an explicit decline, and optInUpdatedAt only records real
+                // consent decisions. Consent is still never assumed — every
+                // consumer gates on marketingOptIn == true.
+                .marketingOptIn(marketingOptIn)
+                .optInUpdatedAt(marketingOptIn != null ? LocalDateTime.now() : null)
                 .showToken(showToken)
                 .email(email)
                 .password(password)
@@ -155,10 +168,12 @@ public class GraphQLMutationService {
         Optional<Show> show = this.showRepository.findByShowToken(showToken);
         if(show.isEmpty()) {
             return showToken;
-        }else {
-            validateShowToken(RandomUtil.generateToken(25));
         }
-        return null;
+        // Collision with an existing show (unique index idx_showToken) —
+        // regenerate. Previously this branch dropped the regenerated value
+        // and returned null; a collision is practically impossible with 25
+        // secure-random alphanumeric chars, which is why it never bit.
+        return validateShowToken(RandomUtil.generateToken(25));
     }
 
     public Boolean forgotPassword(String email) {
@@ -188,7 +203,11 @@ public class GraphQLMutationService {
     }
 
     public Boolean resetPassword() {
-        Optional<Show> show = this.showRepository.findByShowToken(authUtil.getTokenDTO().getShowToken());
+        // Authorized by the scoped password-reset capability token (not a
+        // @RequiresAccess session), validated here the same way verifyMfa
+        // validates the MFA-pending token.
+        String showToken = this.authUtil.validatePasswordResetToken(this.authUtil.getCurrentRequest());
+        Optional<Show> show = this.showRepository.findByShowToken(showToken);
         if(show.isEmpty()) {
             throw new RuntimeException(StatusResponse.UNAUTHORIZED.name());
         }
@@ -235,6 +254,37 @@ public class GraphQLMutationService {
             return true;
         }
         throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());
+    }
+
+    // PRD-013 P0-1 — marketing/lifecycle email consent. Strict model (a):
+    // only marketingOptIn=true permits email to live in PostHog as a
+    // person property; the timestamp records when consent last changed.
+    // Targeted $set rather than load-and-save: Show documents run to
+    // megabytes (stats arrays), and a full-document write here could
+    // clobber a concurrent writer (autosave, heartbeat) with a stale copy.
+    public Boolean updateEmailPreference(Boolean marketingOptIn) {
+        boolean optedIn = Boolean.TRUE.equals(marketingOptIn);
+        Query byToken = new Query(Criteria.where("showToken").is(authUtil.getTokenDTO().getShowToken()));
+        long matched = this.mongoTemplate.updateFirst(byToken, new Update()
+                .set("marketingOptIn", optedIn)
+                .set("optInUpdatedAt", LocalDateTime.now()), Show.class).getMatchedCount();
+        if (matched == 0) {
+            throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());
+        }
+        if (!optedIn) {
+            // The server owns the consent record, so it also owns the scrub:
+            // the browser's own $unset capture is best-effort (adblock, tab
+            // close, network), and an opted-out user who never logs in again
+            // would otherwise keep their email on the PostHog person forever.
+            // No-op when POSTHOG_API_KEY isn't configured (self-host).
+            Query subdomainOnly = new Query(Criteria.where("showToken").is(authUtil.getTokenDTO().getShowToken()));
+            subdomainOnly.fields().include("showSubdomain");
+            Show show = this.mongoTemplate.findOne(subdomainOnly, Show.class);
+            if (show != null && StringUtils.isNotBlank(show.getShowSubdomain())) {
+                this.postHogUtil.scrubEmailConsent(show.getShowSubdomain());
+            }
+        }
+        return true;
     }
 
     public ApiAccess requestApiAccess() {
@@ -286,6 +336,41 @@ public class GraphQLMutationService {
             show.get().getApiAccess().setApiAccessSecret(secretKey);
             this.showRepository.save(show.get());
             return secretKey;
+        }
+        throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());
+    }
+
+    /**
+     * Rotate the show's {@code showToken} — the FPP/xSchedule plugin
+     * credential ({@code showtoken} header on every plugins-api request)
+     * AND the identity claim inside the control-panel session JWT.
+     *
+     * <p>Two consequences drive the shape of this method:
+     * <ul>
+     *   <li>The caller's current JWT dies the moment the new token
+     *   persists, so a re-issued JWT (signed with the new token) is
+     *   minted BEFORE saving and returned for the UI to hot-swap. If
+     *   signing fails, nothing is persisted — a rotation without a
+     *   replacement session would strand the user.</li>
+     *   <li>The user's FPP plugin(s) keep sending the old token and 404
+     *   until the new value is manually pasted into the plugin config.
+     *   That's unavoidable server-side; the UI warns before rotating.</li>
+     * </ul>
+     */
+    public RotateShowTokenResponse rotateShowToken() {
+        Optional<Show> show = this.showRepository.findByShowToken(authUtil.getTokenDTO().getShowToken());
+        if(show.isPresent()) {
+            String newShowToken = this.validateShowToken(RandomUtil.generateToken(25));
+            show.get().setShowToken(newShowToken);
+            String serviceToken = this.authUtil.signJwt(show.get());
+            if(serviceToken == null) {
+                throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());
+            }
+            this.showRepository.save(show.get());
+            return RotateShowTokenResponse.builder()
+                    .showToken(newShowToken)
+                    .serviceToken(serviceToken)
+                    .build();
         }
         throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());
     }
@@ -350,6 +435,18 @@ public class GraphQLMutationService {
             } else {
                 preferences.setWrappedShareToken(existingToken);
             }
+            // #163 — lastPlayCountedAt is the plugins-api nightly-reset clock,
+            // written on play and never by the operator (not in PreferenceInput).
+            // Preserve it from the existing doc so a settings save doesn't null it
+            // and spuriously reset every song's nightly tally mid-show.
+            preferences.setLastPlayCountedAt(current == null ? null : current.getLastPlayCountedAt());
+            // #162 — votingWindowStartedAt and lastVoteCountedAt are the parallel
+            // server-managed vote-window clocks, written by the viewer on votes and
+            // never by the operator (not in PreferenceInput). Preserve them too so a
+            // settings save doesn't null them and silently reset every viewer's
+            // daily-vote cap + "votes left" countdown to full mid-show.
+            preferences.setVotingWindowStartedAt(current == null ? null : current.getVotingWindowStartedAt());
+            preferences.setLastVoteCountedAt(current == null ? null : current.getLastVoteCountedAt());
             show.get().setPreferences(preferences);
             this.showRepository.save(show.get());
             return true;
@@ -584,6 +681,91 @@ public class GraphQLMutationService {
         return true;
     }
 
+    // #167 — force-to-top vote value, above the group-winner (2099), leader
+    // (2001), and PSA (2000) sentinels so a forced song always wins the next
+    // selection. >= SYSTEM_VOTE_FLOOR, so it's systemInjected and stays out of
+    // viewer-facing tallies.
+    private static final int FORCE_TO_TOP_VOTES = 2100;
+
+    /**
+     * #167 — force an operator-chosen song to play next, stat-neutral. Mirrors
+     * the PSA "Play Next" override ({@link #setNextPsaOverride}) but for any
+     * active sequence: injects a top-priority {@code ownerOverride} vote (voting)
+     * plus a front-of-queue request (jukebox), reusing the OVERRIDE marker so the
+     * cancel/dedup paths find it. The override bypasses the #109/#163/#73 rules
+     * (it's systemInjected) and records no vote win — plugins-api skips the
+     * {@code votingWin} stat and the leader for {@code ownerOverride} winners,
+     * and jukebox plays of operator-injected requests record no jukebox stat.
+     * A blank {@code name} cancels a pending override.
+     */
+    public Boolean forceNextSong(String name) {
+        String showToken = authUtil.getTokenDTO().getShowToken();
+        Show s = this.showRepository.findByShowToken(showToken)
+                .orElseThrow(() -> new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name()));
+        Query query = Query.query(Criteria.where("showToken").is(showToken));
+
+        // Cancel pending: drop the OVERRIDE request + override vote. There's one
+        // "next override" slot, shared with the PSA override.
+        if (StringUtils.isBlank(name)) {
+            this.mongoTemplate.updateFirst(query, new Update()
+                    .pull("requests", new Document("viewerRequested", OVERRIDE_REQUEST_MARKER))
+                    .pull("votes", new Document("ownerOverride", true)), Show.class);
+            return true;
+        }
+
+        // Validate: must be an active sequence on the FPP-synced list.
+        Optional<Sequence> sequenceMatch = (s.getSequences() == null) ? Optional.empty() : s.getSequences().stream()
+                .filter(seq -> seq != null && StringUtils.equalsIgnoreCase(seq.getName(), name)
+                        && Boolean.TRUE.equals(seq.getActive()))
+                .findFirst();
+        if (sequenceMatch.isEmpty()) {
+            throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());
+        }
+        Sequence seq = sequenceMatch.get();
+
+        // Single-shot dedup: pull any prior override request + vote so repeated
+        // clicks don't pile up ($pull and $push can't touch the same path in one
+        // update, so the push is a second step).
+        this.mongoTemplate.updateFirst(query, new Update()
+                .pull("requests", new Document("viewerRequested", OVERRIDE_REQUEST_MARKER))
+                .pull("votes", new Document("ownerOverride", true)), Show.class);
+
+        // Inject the override. ownerOverride=true so the cancel/dedup paths find it.
+        Update inject = new Update().push("votes", Vote.builder()
+                .sequence(seq)
+                .ownerVoted(false)
+                .ownerOverride(true)
+                .systemInjected(true)
+                .lastVoteTime(LocalDateTime.now())
+                .votes(FORCE_TO_TOP_VOTES)
+                .build());
+
+        ViewerControlMode mode = s.getPreferences() != null ? s.getPreferences().getViewerControlMode() : null;
+        if (mode != ViewerControlMode.VOTING) {
+            // JUKEBOX (default): front of queue (min existing non-override position - 1).
+            int position = 1;
+            if (s.getRequests() != null) {
+                Optional<Integer> minPosition = s.getRequests().stream()
+                        .filter(r -> r != null
+                                && !StringUtils.equals(r.getViewerRequested(), OVERRIDE_REQUEST_MARKER))
+                        .map(Request::getPosition)
+                        .filter(Objects::nonNull)
+                        .min(Integer::compareTo);
+                if (minPosition.isPresent()) {
+                    position = minPosition.get() - 1;
+                }
+            }
+            inject.push("requests", Request.builder()
+                    .sequence(seq)
+                    .ownerRequested(false)
+                    .viewerRequested(OVERRIDE_REQUEST_MARKER)
+                    .position(position)
+                    .build());
+        }
+        this.mongoTemplate.updateFirst(query, inject, Show.class);
+        return true;
+    }
+
     // PSA-v2 PR-5 (Q6) — leader sequence played right before each
     // viewer-requested song. Null/empty clears the field. We don't
     // validate that the name matches an FPP sequence today — the
@@ -615,6 +797,28 @@ public class GraphQLMutationService {
     public Boolean updateSequences(List<Sequence> sequences) {
         Optional<Show> show = this.showRepository.findByShowToken(authUtil.getTokenDTO().getShowToken());
         if(show.isPresent()) {
+            // #163 — playsToday is the plugins-api per-song nightly counter,
+            // written on play and never by the operator (not in the sequence
+            // input). The full-array replace below would null it for every song,
+            // so preserve each incoming sequence's value from the existing doc by
+            // matching on name (case-insensitive, consistent with the rest of the
+            // codebase). Net-new sequences with no prior match keep their value.
+            List<Sequence> existingSequences = show.get().getSequences();
+            Map<String, Integer> playsTodayByName = existingSequences == null
+                    ? Map.of()
+                    : existingSequences.stream()
+                            .filter(seq -> seq != null && seq.getName() != null && seq.getPlaysToday() != null)
+                            .collect(Collectors.toMap(
+                                    seq -> seq.getName().toLowerCase(Locale.ROOT),
+                                    Sequence::getPlaysToday,
+                                    (a, b) -> a));
+            for (Sequence incoming : sequences) {
+                if (incoming == null || incoming.getName() == null) continue;
+                Integer existingPlaysToday = playsTodayByName.get(incoming.getName().toLowerCase(Locale.ROOT));
+                if (existingPlaysToday != null) {
+                    incoming.setPlaysToday(existingPlaysToday);
+                }
+            }
             Set<Sequence> sequencesSet = new HashSet<>(sequences);
             show.get().setSequences(sequencesSet.stream().toList());
             this.showRepository.save(show.get());
@@ -623,10 +827,67 @@ public class GraphQLMutationService {
         throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());
     }
 
+    private <T> List<String> namesOf(List<T> items, Function<T, String> getName) {
+        if (items == null) {
+            return List.of();
+        }
+        return items.stream().filter(Objects::nonNull).map(getName).filter(Objects::nonNull).toList();
+    }
+
+    // #128 — cascade-clear on delete. When a category/group is removed (present
+    // in the existing list but absent from the incoming one), blank the matching
+    // reference on its member sequences so the delete doesn't leave orphans.
+    // Orphaned sequence.group memberships otherwise VANISH from the viewer
+    // (replaceSequencesWithSequenceGroups drops a grouped sequence whose group
+    // has no entity); orphaned categories lose their managed limit. Free-text
+    // labels never promoted to an entity (not in the existing list) are
+    // preserved. Renames stay client-side — the membership update follows this
+    // save, so a renamed entry briefly clears here and is re-set to the new name.
+    private void clearRemovedMemberships(Show show, Collection<String> existingNames,
+            Collection<String> incomingNames, Function<Sequence, String> getRef,
+            BiConsumer<Sequence, String> setRef) {
+        Set<String> incoming = incomingNames.stream().filter(Objects::nonNull)
+                .map(name -> name.toLowerCase(Locale.ROOT)).collect(Collectors.toSet());
+        Set<String> removed = existingNames.stream().filter(Objects::nonNull)
+                .map(name -> name.toLowerCase(Locale.ROOT))
+                .filter(name -> !incoming.contains(name)).collect(Collectors.toSet());
+        if (removed.isEmpty() || show.getSequences() == null) {
+            return;
+        }
+        show.getSequences().stream().filter(Objects::nonNull).forEach(seq -> {
+            String ref = getRef.apply(seq);
+            if (ref != null && removed.contains(ref.toLowerCase(Locale.ROOT))) {
+                setRef.accept(seq, null);
+            }
+        });
+    }
+
     public Boolean updateSequenceGroups(List<SequenceGroup> sequenceGroups) {
         Optional<Show> show = this.showRepository.findByShowToken(authUtil.getTokenDTO().getShowToken());
         if(show.isPresent()) {
+            // #128 — cascade-clear sequence.group for any group removed in this update.
+            this.clearRemovedMemberships(show.get(),
+                    this.namesOf(show.get().getSequenceGroups(), SequenceGroup::getName),
+                    this.namesOf(sequenceGroups, SequenceGroup::getName),
+                    Sequence::getGroup, Sequence::setGroup);
             show.get().setSequenceGroups(sequenceGroups);
+            this.showRepository.save(show.get());
+            return true;
+        }
+        throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());
+    }
+
+    // PRD-009 #128, ADR-3 — full-array replace, mirroring updateSequenceGroups,
+    // with a server-side cascade-clear of Sequence.category on category delete.
+    public Boolean updateCategories(List<Category> categories) {
+        Optional<Show> show = this.showRepository.findByShowToken(authUtil.getTokenDTO().getShowToken());
+        if(show.isPresent()) {
+            // #128 — cascade-clear sequence.category for any category removed here.
+            this.clearRemovedMemberships(show.get(),
+                    this.namesOf(show.get().getCategories(), Category::getName),
+                    this.namesOf(categories, Category::getName),
+                    Sequence::getCategory, Sequence::setCategory);
+            show.get().setCategories(categories);
             this.showRepository.save(show.get());
             return true;
         }
@@ -771,6 +1032,11 @@ public class GraphQLMutationService {
         if(optionalShow.isPresent()) {
             show.setId(optionalShow.get().getId());
             show.setPassword(optionalShow.get().getPassword());
+            // mfa is not part of ShowInput (secrets never transit GraphQL),
+            // so like password it must be carried over from the stored
+            // document — otherwise any admin JSON edit would silently strip
+            // the user's second factor.
+            show.setMfa(optionalShow.get().getMfa());
             this.showRepository.save(show);
         }
         return true;
@@ -813,7 +1079,22 @@ public class GraphQLMutationService {
         notification.setUuid(UUID.randomUUID().toString());
         notification.setCreatedDate(LocalDateTime.now());
         notification.setType(notificationType);
-        ShowNotification showNotification = ShowNotification.builder()
+        ShowNotification showNotification = toShowNotification(notification);
+        if(show.getShowNotifications() == null) {
+            show.setShowNotifications(new ArrayList<>());
+        }
+        show.getShowNotifications().add(showNotification);
+    }
+
+    /**
+     * Single mapping site from a Notification to the embedded bell entry.
+     * Every producer of showNotifications entries (this class and
+     * ScheduledTaskService's FPP_HEALTH path) must go through here so field
+     * additions (e.g. link) reach all notification types at once. Callers set
+     * uuid/createdDate/type on the Notification before calling.
+     */
+    public static ShowNotification toShowNotification(Notification notification) {
+        return ShowNotification.builder()
                 .notification(NotificationModel.builder()
                           .type(notification.getType())
                           .uuid(notification.getUuid())
@@ -826,10 +1107,6 @@ public class GraphQLMutationService {
                 .read(false)
                 .deleted(false)
                 .build();
-        if(show.getShowNotifications() == null) {
-            show.setShowNotifications(new ArrayList<>());
-        }
-        show.getShowNotifications().add(showNotification);
     }
 
     public Boolean deleteNotification(String uuid) {

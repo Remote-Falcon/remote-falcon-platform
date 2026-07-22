@@ -1,7 +1,6 @@
 package com.remotefalcon.service;
 
 import com.remotefalcon.exception.CustomGraphQLExceptionResolver;
-import com.remotefalcon.library.enums.LocationCheckMethod;
 import com.remotefalcon.library.enums.StatusResponse;
 import com.remotefalcon.library.models.*;
 import com.remotefalcon.library.quarkus.entity.Show;
@@ -9,18 +8,27 @@ import com.remotefalcon.library.util.PluginQueueHelper;
 import com.remotefalcon.metrics.ViewerMetrics;
 import com.remotefalcon.repository.ShowRepository;
 import com.remotefalcon.repository.VoteEventRepository;
+import com.remotefalcon.rules.AlreadyRequestedRule;
+import com.remotefalcon.rules.AlreadyVotedRule;
+import com.remotefalcon.rules.BlockedIpRule;
+import com.remotefalcon.rules.DailyVoteLimitRule;
+import com.remotefalcon.rules.Decision;
+import com.remotefalcon.rules.EvaluationContext;
+import com.remotefalcon.rules.GeofenceRule;
+import com.remotefalcon.rules.QueueFullRule;
+import com.remotefalcon.rules.Rule;
+import com.remotefalcon.rules.RuleChain;
 import com.remotefalcon.util.ClientUtil;
-import com.remotefalcon.util.LocationUtil;
 import io.vertx.ext.web.RoutingContext;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import lombok.extern.jbosslog.JBossLog;
 import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.lang3.BooleanUtils;
 import org.apache.commons.lang3.StringUtils;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -40,6 +48,14 @@ public class GraphQLMutationService {
 
   @Inject
   ViewerMetrics viewerMetrics;
+
+  // PRD-009 ADR-4 — ordered enforcement chains. Vote and request share the
+  // blocked-IP and geofence rules; the per-voter / queue rules differ. First
+  // DENY short-circuits (see RuleChain).
+  private static final List<Rule> VOTE_RULES = List.of(
+      new BlockedIpRule(), new AlreadyVotedRule(), new DailyVoteLimitRule(), new GeofenceRule());
+  private static final List<Rule> REQUEST_RULES = List.of(
+      new BlockedIpRule(), new AlreadyRequestedRule(), new QueueFullRule(), new GeofenceRule());
 
   public Boolean insertViewerPageStats(String showSubdomain, LocalDateTime date, String viewerId) {
     String clientIp = ClientUtil.getClientIP(context);
@@ -142,26 +158,17 @@ public class GraphQLMutationService {
         log.errorf("Client IP not found or empty in addSequenceToQueue: showSubdomain=%s, name=%s", showSubdomain, name);
         throw new CustomGraphQLExceptionResolver(StatusResponse.UNEXPECTED_ERROR.name());
       }
-      if (this.isIpBlocked(clientIp, show.get())) {
-        this.logRejectedRequest(showSubdomain, name, viewerId, StatusResponse.NAUGHTY.name());
-        throw new CustomGraphQLExceptionResolver(StatusResponse.NAUGHTY.name());
-      }
-      if (this.hasViewerRequested(show.get(), clientIp)) {
-        this.logRejectedRequest(showSubdomain, name, viewerId, StatusResponse.ALREADY_REQUESTED.name());
-        throw new CustomGraphQLExceptionResolver(StatusResponse.ALREADY_REQUESTED.name());
-      }
-      if (this.isQueueFull(existingShow)) {
-        this.logRejectedRequest(showSubdomain, name, viewerId, StatusResponse.QUEUE_FULL.name());
-        throw new CustomGraphQLExceptionResolver(StatusResponse.QUEUE_FULL.name());
-      }
-      if (!this.isViewerPresent(existingShow, latitude, longitude)) {
-        this.logRejectedRequest(showSubdomain, name, viewerId, StatusResponse.INVALID_LOCATION.name());
-        throw new CustomGraphQLExceptionResolver(StatusResponse.INVALID_LOCATION.name());
+      Decision decision = RuleChain.firstDenial(REQUEST_RULES,
+          new EvaluationContext(existingShow, clientIp, viewerId, latitude, longitude, null));
+      if (decision.denied()) {
+        this.logRejectedRequest(showSubdomain, name, viewerId, decision.reason());
+        throw new CustomGraphQLExceptionResolver(decision.reason());
       }
       Optional<Sequence> requestedSequence = show.get().getSequences().stream()
           .filter(seq -> StringUtils.equalsIgnoreCase(seq.getName(), name))
           .findFirst();
       if (requestedSequence.isPresent()) {
+        this.checkIfSequenceUnavailable(show.get(), requestedSequence.get());
         this.checkIfSequenceRequested(show.get(), requestedSequence.get());
 
         // PSA-v2 PR-3 (Q6): leader sequence injection. If the show has a
@@ -324,21 +331,30 @@ public class GraphQLMutationService {
         log.errorf("Client IP not found or empty in voteForSequence: showSubdomain=%s, name=%s", showSubdomain, name);
         throw new CustomGraphQLExceptionResolver(StatusResponse.UNEXPECTED_ERROR.name());
       }
-      if (this.isIpBlocked(clientIp, existingShow)) {
-        throw new CustomGraphQLExceptionResolver(StatusResponse.NAUGHTY.name());
+      // #162 — only pay for the cap count read when a limit is configured,
+      // keeping the rule pure (the count is supplied via the context). The count
+      // is session-scoped: votes since votingWindowStartedAt, which rolls on a
+      // new show-night (gap) so it's timezone-free.
+      Integer dailyVoteLimit = existingShow.getPreferences().getDailyVoteLimit();
+      LocalDateTime votingWindowStart = null;
+      Long votesInWindow = null;
+      if (dailyVoteLimit != null && dailyVoteLimit > 0) {
+        votingWindowStart = this.resolveVotingWindowStart(existingShow);
+        votesInWindow = this.voteEventRepository.countVotesSince(existingShow.id, viewerId, clientIp, votingWindowStart);
       }
-      if (this.hasViewerVoted(existingShow, clientIp)) {
-        throw new CustomGraphQLExceptionResolver(StatusResponse.ALREADY_VOTED.name());
-      }
-      if (!this.isViewerPresent(existingShow, latitude, longitude)) {
-        throw new CustomGraphQLExceptionResolver(StatusResponse.INVALID_LOCATION.name());
+      Decision decision = RuleChain.firstDenial(VOTE_RULES,
+          new EvaluationContext(existingShow, clientIp, viewerId, latitude, longitude, votesInWindow));
+      if (decision.denied()) {
+        throw new CustomGraphQLExceptionResolver(decision.reason());
       }
       Optional<Sequence> requestedSequence = existingShow.getSequences().stream()
           .filter(seq -> StringUtils.equalsIgnoreCase(seq.getName(), name))
           .findFirst();
       if (requestedSequence.isPresent()) {
+        this.checkIfSequenceUnavailable(existingShow, requestedSequence.get());
         this.saveSequenceVote(existingShow, requestedSequence.get(), clientIp, viewerId, false);
         this.recordVoteEvent(existingShow, requestedSequence.get().getName(), clientIp, viewerId, latitude, longitude);
+        this.persistVotingWindow(existingShow, votingWindowStart);
         try {
           this.showRepository.upsertViewerSession(showSubdomain, clientIp, viewerId, LocalDateTime.now());
         } catch (Exception e) {
@@ -353,6 +369,7 @@ public class GraphQLMutationService {
         if (votedSequenceGroup.isPresent()) {
           this.saveSequenceGroupVote(existingShow, votedSequenceGroup.get(), clientIp, viewerId);
           this.recordVoteEvent(existingShow, votedSequenceGroup.get().getName(), clientIp, viewerId, latitude, longitude);
+          this.persistVotingWindow(existingShow, votingWindowStart);
           try {
             this.showRepository.upsertViewerSession(showSubdomain, clientIp, viewerId, LocalDateTime.now());
           } catch (Exception e) {
@@ -374,6 +391,15 @@ public class GraphQLMutationService {
   // call into the post-allow persistence step of the pipeline.
   private void recordVoteEvent(Show show, String sequenceName, String clientIp, String viewerId,
                                Float latitude, Float longitude) {
+    // #168/#162 — vote events are written for ALL voters, including operator
+    // stats-excluded IPs. "Exclude from stats" (#168) and "exempt from cap"
+    // (#156) are separate operator controls: voteEvent is only the #162 daily-cap
+    // counter (countVotesSince) plus the #165 audit store — it is NOT read by any
+    // operator-facing analytics (those use the embedded stats.voting array, which
+    // is already suppressed for excluded IPs in saveSequenceVote/GroupVote). So
+    // suppressing the row here would let an excluded-but-not-exempt IP bypass the
+    // daily cap; we record it so the cap still counts, accepting a test IP in the
+    // audit.
     try {
       this.voteEventRepository.record(show.id, clientIp, viewerId, sequenceName, latitude, longitude);
     } catch (Exception e) {
@@ -381,61 +407,47 @@ public class GraphQLMutationService {
     }
   }
 
-  private boolean isIpBlocked(String ipAddress, Show show) {
-    if (CollectionUtils.isNotEmpty(show.getPreferences().getBlockedViewerIps())) {
-      return show.getPreferences().getBlockedViewerIps().contains(ipAddress);
+  // #162 — a gap longer than this since the last counted vote marks a new show
+  // session, rolling the votes-left window. Same heuristic + constant intent as
+  // #163's NIGHTLY_RESET_GAP_HOURS so the vote-cap and play-cap "nights" agree.
+  private static final long VOTE_SESSION_GAP_HOURS = 6L;
+
+  // #163 — mirror of plugins-api PluginService.NIGHTLY_RESET_GAP_HOURS: a gap
+  // longer than this since the last counted play means playsToday is a stale
+  // tally from a prior night and must not gate availability. Kept equal to
+  // VOTE_SESSION_GAP_HOURS so vote-cap and play-cap "nights" stay aligned.
+  private static final long NIGHTLY_RESET_GAP_HOURS = 6L;
+
+  // #162 — resolve the current votes-left session window. Rolls forward (in
+  // memory; persisted by persistVotingWindow on a successful vote) when there's
+  // no window yet or the last counted vote was more than VOTE_SESSION_GAP_HOURS
+  // ago — i.e. a new show-night the operator never explicitly re-enabled.
+  // Fully UTC-explicit so it lines up with the UTC-stamped voteEvent.votedAt
+  // regardless of the (PRD-011) container zone.
+  private LocalDateTime resolveVotingWindowStart(Show show) {
+    var prefs = show.getPreferences();
+    LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+    LocalDateTime window = prefs.getVotingWindowStartedAt();
+    LocalDateTime lastVote = prefs.getLastVoteCountedAt();
+    if (window == null || lastVote == null || lastVote.isBefore(now.minusHours(VOTE_SESSION_GAP_HOURS))) {
+      window = now;
+      prefs.setVotingWindowStartedAt(window);
     }
-    return false;
+    return window;
   }
 
-  private Boolean hasViewerRequested(Show show, String ipAddress) {
-    if (BooleanUtils.isTrue(show.getPreferences().getCheckIfRequested())) {
-      return show.getRequests().stream()
-          .anyMatch(request -> StringUtils.equalsIgnoreCase(ipAddress, request.getViewerRequested()));
+  // #162 — persist the session window + last-vote marker after a counted vote
+  // (gated on a configured limit). Best-effort, mirroring recordVoteEvent: a
+  // failure here must never undo a vote that already succeeded.
+  private void persistVotingWindow(Show show, LocalDateTime windowStart) {
+    if (windowStart == null) {
+      return;
     }
-    return false;
-  }
-
-  private Boolean hasViewerVoted(Show show, String ipAddress) {
-    if (BooleanUtils.isTrue(show.getPreferences().getCheckIfVoted())) {
-      return show.getVotes().stream().anyMatch(vote -> vote.getViewersVoted().contains(ipAddress));
+    try {
+      this.showRepository.updateVotingWindow(show.getShowSubdomain(), windowStart, LocalDateTime.now(ZoneOffset.UTC));
+    } catch (Exception e) {
+      log.warnf("updateVotingWindow failed for showSubdomain=%s: %s", show.getShowSubdomain(), e.getMessage());
     }
-    return false;
-  }
-
-  private Boolean isQueueFull(Show show) {
-    // PSA-v2 Q3 (#49) — count only viewer-initiated requests against
-    // jukeboxDepth. PSAs and leader sequences (operator-policy injects)
-    // bypass the cap entirely: they're not viewer demand and shouldn't
-    // compete with viewers for the slots the setting is meant to govern.
-    // Previous behavior counted everything in the requests array, which
-    // silently halved viewer capacity at steady state when PSAs were
-    // interleaved (e.g., jukeboxDepth=5 + psaFrequency=3 produced ~2
-    // PSAs + ~3 viewer slots).
-    if (show.getPreferences().getJukeboxDepth() == null
-        || show.getPreferences().getJukeboxDepth() == 0) {
-      return false;
-    }
-    return PluginQueueHelper.countViewerRequests(show) >= show.getPreferences().getJukeboxDepth();
-  }
-
-  private Boolean isViewerPresent(Show show, Float latitude, Float longitude) {
-    if (show.getPreferences().getLocationCheckMethod() == LocationCheckMethod.GEO) {
-      if (latitude == null || longitude == null) {
-        return false;
-      }
-      if (show.getPreferences().getAllowedRadius() == null) {
-        log.errorf("GPS check enabled but allowedRadius is null for show: %s", show.getShowSubdomain());
-        return false;
-      }
-      Double distance = LocationUtil.asTheCrowFlies(
-          show.getPreferences().getShowLatitude(),
-          show.getPreferences().getShowLongitude(),
-          latitude,
-          longitude);
-      return distance <= show.getPreferences().getAllowedRadius();
-    }
-    return true;
   }
 
   // V15 — log a refused addSequenceToQueue attempt for the conversion funnel.
@@ -456,6 +468,41 @@ public class GraphQLMutationService {
     }
   }
 
+  /**
+   * #73 — rejects a request/vote for a sequence that can't currently play: it's
+   * on the hide-after-play cooldown ({@code visibilityCount > 0}) or has reached
+   * its #163 nightly play cap ({@code playsToday >= nightlyPlayLimit}). The
+   * viewer page grays these out, but this is the server-side guard so a client
+   * that doesn't (e.g. a custom page) can't queue or skew votes on a sequence
+   * that plugins-api would only skip at play-selection.
+   */
+  private void checkIfSequenceUnavailable(Show show, Sequence requestedSequence) {
+    Integer visibilityCount = requestedSequence.getVisibilityCount();
+    if (visibilityCount != null && visibilityCount > 0) {
+      this.logRejectedRequest(show.getShowSubdomain(), requestedSequence.getName(), null,
+          StatusResponse.SEQUENCE_UNAVAILABLE.name());
+      throw new CustomGraphQLExceptionResolver(StatusResponse.SEQUENCE_UNAVAILABLE.name());
+    }
+    Integer nightlyLimit = show.getPreferences().getNightlyPlayLimit();
+    Integer playsToday = requestedSequence.getPlaysToday();
+    // #163 — only trust playsToday while the tally belongs to the current
+    // show-night. At a new night's first selection playsToday still holds last
+    // night's counts until the first play records and resets them (the reset
+    // lives in plugins-api applyNightlyPlayCount, not on this read path). Mirror
+    // plugins-api's isNewShowNight gate exactly — same bare now() clock (the
+    // field's writer) + NIGHTLY_RESET_GAP_HOURS — so this guard can't reject a
+    // sequence that the play-selection path would happily play.
+    LocalDateTime lastPlayCounted = show.getPreferences().getLastPlayCountedAt();
+    boolean nightlyActive = nightlyLimit != null && nightlyLimit > 0
+        && lastPlayCounted != null
+        && !lastPlayCounted.isBefore(LocalDateTime.now().minusHours(NIGHTLY_RESET_GAP_HOURS));
+    if (nightlyActive && playsToday != null && playsToday >= nightlyLimit) {
+      this.logRejectedRequest(show.getShowSubdomain(), requestedSequence.getName(), null,
+          StatusResponse.SEQUENCE_UNAVAILABLE.name());
+      throw new CustomGraphQLExceptionResolver(StatusResponse.SEQUENCE_UNAVAILABLE.name());
+    }
+  }
+
   private void checkIfSequenceRequested(Show show, Sequence requestedSequence) {
     if (this.isRequestedSequencePlayingNow(show, requestedSequence)) {
       this.logRejectedRequest(show.getShowSubdomain(), requestedSequence.getName(), null, StatusResponse.SEQUENCE_REQUESTED.name());
@@ -466,6 +513,10 @@ public class GraphQLMutationService {
       throw new CustomGraphQLExceptionResolver(StatusResponse.SEQUENCE_REQUESTED.name());
     }
     if (this.isRequestedSequenceWithinRequestLimit(show, requestedSequence)) {
+      this.logRejectedRequest(show.getShowSubdomain(), requestedSequence.getName(), null, StatusResponse.SEQUENCE_REQUESTED.name());
+      throw new CustomGraphQLExceptionResolver(StatusResponse.SEQUENCE_REQUESTED.name());
+    }
+    if (this.isRequestedCategoryWithinRequestLimit(show, requestedSequence)) {
       this.logRejectedRequest(show.getShowSubdomain(), requestedSequence.getName(), null, StatusResponse.SEQUENCE_REQUESTED.name());
       throw new CustomGraphQLExceptionResolver(StatusResponse.SEQUENCE_REQUESTED.name());
     }
@@ -493,14 +544,50 @@ public class GraphQLMutationService {
       List<String> requestNamesLastToFirst = show.getRequests().stream()
           .filter(request -> request.getSequence() != null
               && PluginQueueHelper.isSongLike(show, request.getSequence().getName()))
-          .sorted(Comparator.comparing(Request::getPosition)
-              .reversed())
+          // Highest position (most recent) first; null positions sort last so a
+          // request with an unset position can't NPE the comparator (#72).
+          .sorted(Comparator.comparing(Request::getPosition,
+              Comparator.nullsLast(Comparator.reverseOrder())))
           .limit(show.getPreferences().getJukeboxRequestLimit())
           .map(request -> request.getSequence().getName())
           .toList();
       return requestNamesLastToFirst.contains(requestedSequence.getName());
     }
     return false;
+  }
+
+  // PRD-009 #72 — collective request limit for a category. If the requested
+  // sequence's category is a first-class Category with a requestLimit, deny when
+  // ANY member of that category is within the last `requestLimit` song-like
+  // requests — so a whole group (e.g. non-seasonal songs) is throttled together,
+  // not just each title individually. Uses the same song-like recent window as
+  // the per-sequence limit.
+  private Boolean isRequestedCategoryWithinRequestLimit(Show show, Sequence requestedSequence) {
+    String category = requestedSequence.getCategory();
+    if (StringUtils.isEmpty(category) || CollectionUtils.isEmpty(show.getCategories())) {
+      return false;
+    }
+    Optional<Category> matchingCategory = show.getCategories().stream()
+        .filter(c -> StringUtils.equalsIgnoreCase(c.getName(), category))
+        .findFirst();
+    if (matchingCategory.isEmpty() || matchingCategory.get().getRequestLimit() == null
+        || matchingCategory.get().getRequestLimit() == 0) {
+      return false;
+    }
+    List<String> recentRequestNames = show.getRequests().stream()
+        .filter(request -> request.getSequence() != null
+            && PluginQueueHelper.isSongLike(show, request.getSequence().getName()))
+        // Highest position (most recent) first; null positions sort last so a
+        // request with an unset position can't NPE the comparator (#72).
+        .sorted(Comparator.comparing(Request::getPosition,
+            Comparator.nullsLast(Comparator.reverseOrder())))
+        .limit(matchingCategory.get().getRequestLimit())
+        .map(request -> request.getSequence().getName())
+        .toList();
+    return show.getSequences().stream()
+        .filter(seq -> StringUtils.equalsIgnoreCase(seq.getCategory(), category))
+        .anyMatch(seq -> recentRequestNames.stream()
+            .anyMatch(name -> StringUtils.equalsIgnoreCase(name, seq.getName())));
   }
 
   private void saveSequenceRequest(String showSubdomain, Show show, Sequence requestedSequence, String ipAddress) {
@@ -576,22 +663,21 @@ public class GraphQLMutationService {
     LocalDateTime voteTime = LocalDateTime.now();
     String voterIp = StringUtils.isEmpty(ipAddress) ? "" : ipAddress;
 
-    if (sequenceVotes.isPresent()) {
-      // Existing vote: increment count, append voter, update time, and add stat
-      Stat.Voting votingStat = isGrouped ? null : Stat.Voting.builder()
-          .dateTime(voteTime)
-          .name(votedSequence.getName())
-          .viewerId(viewerId)
-          .build();
+    // Suppress the voting stat for grouped votes (existing behavior) and for
+    // operator stats-excluded IPs (#168). The vote itself still registers; only
+    // the analytics stat is skipped.
+    boolean suppressStat = isGrouped || isStatsExcluded(show, voterIp);
+    Stat.Voting votingStat = suppressStat ? null : Stat.Voting.builder()
+        .dateTime(voteTime)
+        .name(votedSequence.getName())
+        .viewerId(viewerId)
+        .build();
 
-      if (isGrouped) {
-        // For grouped votes, don't add voting stat
-        this.showRepository.incrementVoteAndAppendVoter(show.getShowSubdomain(), votedSequence.getName(), voterIp, voteTime, null);
-      } else {
-        this.showRepository.incrementVoteAndAppendVoter(show.getShowSubdomain(), votedSequence.getName(), voterIp, voteTime, votingStat);
-      }
+    if (sequenceVotes.isPresent()) {
+      // Existing vote: increment count, append voter, update time, and (unless suppressed) add stat
+      this.showRepository.incrementVoteAndAppendVoter(show.getShowSubdomain(), votedSequence.getName(), voterIp, voteTime, votingStat);
     } else {
-      // New vote: add vote entry and stat
+      // New vote: add vote entry and (unless suppressed) stat
       Vote newVote = Vote.builder()
           .sequence(votedSequence)
           .ownerVoted(false)
@@ -600,14 +686,15 @@ public class GraphQLMutationService {
           .votes(isGrouped ? 1001 : 1)
           .build();
 
-      Stat.Voting votingStat = isGrouped ? null : Stat.Voting.builder()
-          .dateTime(voteTime)
-          .name(votedSequence.getName())
-          .viewerId(viewerId)
-          .build();
-
       this.showRepository.addNewVoteAndStat(show.getShowSubdomain(), newVote, votingStat);
     }
+  }
+
+  // #168 — operator-managed list of IPs (their own test/record devices) whose
+  // interactions are kept out of statistics. Null/empty list = nobody excluded.
+  private static boolean isStatsExcluded(Show show, String ip) {
+    var excludedIps = show.getPreferences().getStatsExcludedIps();
+    return excludedIps != null && excludedIps.contains(ip);
   }
 
   private void saveSequenceGroupVote(Show show, SequenceGroup votedSequenceGroup, String ipAddress, String viewerId) {
@@ -617,14 +704,18 @@ public class GraphQLMutationService {
         .findFirst();
 
     LocalDateTime voteTime = LocalDateTime.now();
-    Stat.Voting votingStat = Stat.Voting.builder()
+    // Suppress the voting stat for operator stats-excluded IPs (#168), mirroring
+    // saveSequenceVote on the per-sequence path. The vote itself still registers;
+    // only the analytics stat is skipped so a test/record device voting for a
+    // group doesn't pollute voting analytics.
+    Stat.Voting votingStat = isStatsExcluded(show, ipAddress) ? null : Stat.Voting.builder()
         .dateTime(voteTime)
         .name(votedSequenceGroup.getName())
         .viewerId(viewerId)
         .build();
 
     if (sequenceVotes.isPresent()) {
-      // Existing vote: increment count, append voter, update time, and add stat
+      // Existing vote: increment count, append voter, update time, and (unless suppressed) add stat
       this.showRepository.incrementSequenceGroupVoteAndAppendVoter(
           show.getShowSubdomain(),
           votedSequenceGroup.getName(),
@@ -633,7 +724,7 @@ public class GraphQLMutationService {
           votingStat
       );
     } else {
-      // New vote: add vote entry and stat
+      // New vote: add vote entry and (unless suppressed) stat
       Vote newVote = Vote.builder()
           .sequenceGroup(votedSequenceGroup)
           .ownerVoted(false)

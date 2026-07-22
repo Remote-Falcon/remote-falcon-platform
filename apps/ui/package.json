@@ -37,7 +37,7 @@
     "md5": "^2.3.0",
     "moment": "^2.29.4",
     "moment-timezone": "^0.5.46",
-    "posthog-js": "^1.374.2",
+    "posthog-js": "^1.396.8",
     "prop-types": "^15.8.1",
     "qr-code-styling": "^1.9.2",
     "react": "^18.3.1",

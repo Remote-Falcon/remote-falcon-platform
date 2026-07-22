@@ -21,8 +21,9 @@ import { addSequenceToQueueService, voteForSequenceService } from '../../../serv
 import { getViewerId } from '../../../utils/viewerId';
 import { LocationCheckMethod, ViewerControlMode } from '../../../utils/enum';
 import { ADD_SEQUENCE_TO_QUEUE, INSERT_VIEWER_PAGE_STATS, VOTE_FOR_SEQUENCE } from '../../../utils/graphql/viewer/mutations';
-import { GET_ACTIVE_VIEWER_PAGE, GET_SHOW_FOR_VIEWER } from '../../../utils/graphql/viewer/queries';
+import { GET_ACTIVE_VIEWER_PAGE, GET_SHOW_FOR_VIEWER, VOTES_REMAINING } from '../../../utils/graphql/viewer/queries';
 import { showAlert } from '../globalPageHelpers';
+import { orderSequencesByCategory } from './helpers/categoryOrder';
 import { defaultProcessingInstructions, nextNowPlayingState, processingInstructions, viewerPageMessageElements } from './helpers/helpers';
 
 const ExternalViewerPage = () => {
@@ -42,9 +43,13 @@ const ExternalViewerPage = () => {
   const [messageDisplayTime] = useState(6000);
   const [nowPlaying, setNowPlaying] = useState(null);
   const [nowPlayingTimer, setNowPlayingTimer] = useState(0);
+  // #162 — votes this viewer has left in the current show session (null = no cap
+  // configured or exempt → the {VOTES_REMAINING} slot renders empty).
+  const [votesRemaining, setVotesRemaining] = useState(null);
 
   const [getShowQuery] = useLazyQuery(GET_SHOW_FOR_VIEWER);
   const [getActiveViewerPageQuery] = useLazyQuery(GET_ACTIVE_VIEWER_PAGE);
+  const [getVotesRemainingQuery] = useLazyQuery(VOTES_REMAINING);
   const [insertViewerPageStatsMutation] = useMutation(INSERT_VIEWER_PAGE_STATS);
   const [addSequenceToQueueMutation] = useMutation(ADD_SEQUENCE_TO_QUEUE);
   const [voteForSequenceMutation] = useMutation(VOTE_FOR_SEQUENCE);
@@ -76,6 +81,28 @@ const ExternalViewerPage = () => {
     }
   }, []);
 
+  // #162 — pull this viewer's remaining session votes for the {VOTES_REMAINING}
+  // slot. Called on load and after each vote (not on the 5s poll, to keep the
+  // count read off the hot path). `optedIn` decides the identity sent (viewerId
+  // vs IP-backstop) so the count matches what the server enforces. Returns null
+  // when no cap is set or the IP is exempt → the slot stays empty.
+  const refreshVotesRemaining = useCallback(
+    (optedIn) => {
+      getVotesRemainingQuery({
+        context: { headers: { Route: 'Viewer' } },
+        variables: {
+          showSubdomain: getSubdomain(),
+          viewerId: optedIn ? getViewerId() : null
+        },
+        fetchPolicy: 'network-only',
+        onCompleted: (data) => {
+          setVotesRemaining(data?.votesRemaining ?? null);
+        }
+      });
+    },
+    [getVotesRemainingQuery]
+  );
+
   const showViewerMessage = useCallback(
     (response) => {
       const errorMessage = response?.error?.graphQLErrors[0]?.extensions?.message;
@@ -103,6 +130,12 @@ const ExternalViewerPage = () => {
       } else if (errorMessage === 'ALREADY_REQUESTED') {
         viewerPageMessageElements.alreadyRequested.current = viewerPageMessageElements?.alreadyRequested?.block;
         trackPosthogEvent('viewer_interaction_result', { result: 'Viewer Already Requested' });
+      } else if (errorMessage === 'DAILY_VOTE_LIMIT_REACHED') {
+        viewerPageMessageElements.dailyVoteLimitReached.current = viewerPageMessageElements?.dailyVoteLimitReached?.block;
+        trackPosthogEvent('viewer_interaction_result', { result: 'Daily Vote Limit Reached' });
+      } else if (errorMessage === 'SEQUENCE_UNAVAILABLE') {
+        viewerPageMessageElements.sequenceUnavailable.current = viewerPageMessageElements?.sequenceUnavailable?.block;
+        trackPosthogEvent('viewer_interaction_result', { result: 'Sequence Unavailable' });
       } else {
         viewerPageMessageElements.requestFailed.current = viewerPageMessageElements?.requestFailed?.block;
         trackPosthogEvent('viewer_interaction_result', { result: 'Failed' });
@@ -215,6 +248,13 @@ const ExternalViewerPage = () => {
         show?.preferences?.analyticsBetaOptIn ? getViewerId() : null,
         (response) => {
           showViewerMessage(response);
+          if (response?.success) {
+            // #162 — optimistic decrement for snappy feedback, then reconcile
+            // with the server (covers the gap rollover, other tabs/devices on
+            // the same IP, and the exact authoritative count).
+            setVotesRemaining((prev) => (prev != null ? Math.max(0, prev - 1) : prev));
+            refreshVotesRemaining(show?.preferences?.analyticsBetaOptIn);
+          }
         }
       );
     },
@@ -228,7 +268,8 @@ const ExternalViewerPage = () => {
       viewerLongitude,
       setViewerLocation,
       enteredLocationCode,
-      showViewerMessage
+      showViewerMessage,
+      refreshVotesRemaining
     ]
   );
 
@@ -361,8 +402,36 @@ const ExternalViewerPage = () => {
     let playingNow = <>{show?.playingNow}</>;
     let playingNext = <>{show?.playingNext}</>;
 
-    _.map(show?.sequences, (sequence) => {
-      if (sequence.visible && sequence.visibilityCount === 0) {
+    // #73 — a sequence the viewer can't currently request/vote on (on the
+    // hide-after-play cooldown, or at its #163 nightly play cap) is rendered
+    // grayed-out and non-interactive instead of vanishing. Inline styling so it
+    // holds regardless of the operator's page CSS; the server-side
+    // SEQUENCE_UNAVAILABLE guard backs it up for clients that don't re-check.
+    const nightlyPlayLimit = show?.preferences?.nightlyPlayLimit;
+    // Nightly cap is per-song; skip it for group entries (which carry a
+    // representative member's playsToday). Cooldown (visibilityCount) applies to
+    // both — a group entry carries the group's own visibilityCount.
+    //
+    // The `!seq?.group` exemption mirrors the server: GraphQLMutationService's
+    // checkIfSequenceUnavailable (the SEQUENCE_UNAVAILABLE guard) runs ONLY on
+    // single-sequence requests/votes. The grouped branches of addSequenceToQueue
+    // and voteForSequence never call it, so the server never rejects a grouped
+    // request/vote on the nightly cap. Keeping the client exemption in sync means
+    // we don't gray out something the server would actually accept.
+    const isSequenceUnavailable = (seq) =>
+      (seq?.visibilityCount ?? 0) > 0 ||
+      (!seq?.group && nightlyPlayLimit > 0 && (seq?.playsToday ?? 0) >= nightlyPlayLimit);
+    const unavailableStyle = { opacity: 0.4, pointerEvents: 'none' };
+    const unavailableHint = (seq) => ((seq?.visibilityCount ?? 0) > 0 ? 'Available again soon' : 'Back next show');
+
+    // Category sections render in the operator's dashboard order. The walk below
+    // opens a section on first-encounter of a member, so reorder the sequences by
+    // category rank up front; uncategorized songs lead, everything else keeps its
+    // incoming (by-`order`) sequence order.
+    const orderedSequences = orderSequencesByCategory(show?.sequences, show?.categories);
+
+    _.map(orderedSequences, (sequence) => {
+      if (sequence.visible) {
         let sequenceImageElement = [<></>];
         if (sequence && sequence.imageUrl && sequence.imageUrl.replace(/\s/g, '').length) {
           const classname = `sequence-image sequence-image-${sequence.index}`;
@@ -450,7 +519,11 @@ const ExternalViewerPage = () => {
                 <>
                   <div
                     className={votingListClassname}
-                    onClick={(e) => show?.preferences?.viewerPageViewOnly ? _.noop() : voteForSequence(e)}
+                    style={isSequenceUnavailable(sequence) ? unavailableStyle : undefined}
+                    title={isSequenceUnavailable(sequence) ? unavailableHint(sequence) : undefined}
+                    onClick={(e) =>
+                      show?.preferences?.viewerPageViewOnly || isSequenceUnavailable(sequence) ? _.noop() : voteForSequence(e)
+                    }
                     data-key={sequence.name}
                     data-key-2={sequence.displayName}
                   >
@@ -495,7 +568,13 @@ const ExternalViewerPage = () => {
                       <>
                         <div
                           className={categorizedVotingListClassname}
-                          onClick={(e) => show?.preferences?.viewerPageViewOnly ? _.noop() : voteForSequence(e)}
+                          style={isSequenceUnavailable(categorizedSequence) ? unavailableStyle : undefined}
+                          title={isSequenceUnavailable(categorizedSequence) ? unavailableHint(categorizedSequence) : undefined}
+                          onClick={(e) =>
+                            show?.preferences?.viewerPageViewOnly || isSequenceUnavailable(categorizedSequence)
+                              ? _.noop()
+                              : voteForSequence(e)
+                          }
                           data-key={categorizedSequence.name}
                         >
                           {sequenceImageElement}
@@ -591,7 +670,11 @@ const ExternalViewerPage = () => {
               <>
                 <div
                   className={jukeboxListClassname}
-                  onClick={(e) => show?.preferences?.viewerPageViewOnly ? _.noop() : addSequenceToQueue(e)}
+                  style={isSequenceUnavailable(sequence) ? unavailableStyle : undefined}
+                  title={isSequenceUnavailable(sequence) ? unavailableHint(sequence) : undefined}
+                  onClick={(e) =>
+                    show?.preferences?.viewerPageViewOnly || isSequenceUnavailable(sequence) ? _.noop() : addSequenceToQueue(e)
+                  }
                   data-key={sequence.name}
                   data-key-2={sequence.displayName}
                 >
@@ -628,7 +711,13 @@ const ExternalViewerPage = () => {
                     <>
                       <div
                         className={categorizedJukeboxListClassname}
-                        onClick={(e) => show?.preferences?.viewerPageViewOnly ? _.noop() : addSequenceToQueue(e)}
+                        style={isSequenceUnavailable(categorizedSequence) ? unavailableStyle : undefined}
+                        title={isSequenceUnavailable(categorizedSequence) ? unavailableHint(categorizedSequence) : undefined}
+                        onClick={(e) =>
+                          show?.preferences?.viewerPageViewOnly || isSequenceUnavailable(categorizedSequence)
+                            ? _.noop()
+                            : addSequenceToQueue(e)
+                        }
                         data-key={categorizedSequence.name}
                       >
                         {sequenceImageElement}
@@ -698,6 +787,18 @@ const ExternalViewerPage = () => {
       </>
     );
 
+    // #162 — fill the {VOTES_REMAINING} slot only in voting mode with a cap set
+    // and a known count; the helper renders empty for the other branches.
+    const dailyVoteLimit = show?.preferences?.dailyVoteLimit ?? 0;
+    const votesRemainingElement =
+      show?.preferences?.viewerControlMode === ViewerControlMode.VOTING && dailyVoteLimit > 0 && votesRemaining != null ? (
+        <>
+          {votesRemaining} of {dailyVoteLimit} votes left this show
+        </>
+      ) : (
+        <></>
+      );
+
     instructions = processingInstructions(
       processNodeDefinitions,
       show?.preferences?.viewerControlEnabled,
@@ -710,7 +811,8 @@ const ExternalViewerPage = () => {
       // Already filtered server-side to viewer-visible requests only.
       show?.requests?.length,
       locationCodeElement,
-      formattedNowPlayingTimer
+      formattedNowPlayingTimer,
+      votesRemainingElement
     );
 
     const reactHtml = htmlToReactParser.parseWithInstructions(parsedViewerPage, isValidNode, instructions);
@@ -726,10 +828,13 @@ const ExternalViewerPage = () => {
     show?.preferences?.makeItSnow,
     show?.preferences?.viewerControlEnabled,
     show?.preferences?.viewerControlMode,
+    show?.preferences?.dailyVoteLimit,
     show?.requests?.length,
     show?.sequences,
+    show?.categories,
     voteForSequence,
-    nowPlayingTimer
+    nowPlayingTimer,
+    votesRemaining
   ]);
 
   const getActiveViewerPage = useCallback(() => {
@@ -801,6 +906,9 @@ const ExternalViewerPage = () => {
             orderSequencesForVoting(showData);
           }
           setShow(showData);
+          // #162 — seed the votes-left count on load so the {VOTES_REMAINING}
+          // slot is correct before the first vote.
+          refreshVotesRemaining(showData?.preferences?.analyticsBetaOptIn);
           getActiveViewerPage();
           if (showData?.preferences?.locationCheckMethod === LocationCheckMethod.GEO) {
             setViewerLocation();
@@ -836,7 +944,7 @@ const ExternalViewerPage = () => {
         showAlert(dispatch, { alert: 'error' });
       }
     }).then();
-  }, [dispatch, getShowQuery, getActiveViewerPage, orderSequencesForVoting, setViewerLocation, insertViewerPageStatsMutation]);
+  }, [dispatch, getShowQuery, getActiveViewerPage, orderSequencesForVoting, setViewerLocation, insertViewerPageStatsMutation, refreshVotesRemaining]);
 
   useEffect(() => {
     setLoading(true);

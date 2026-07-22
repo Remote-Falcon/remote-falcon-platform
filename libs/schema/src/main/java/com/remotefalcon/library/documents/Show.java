@@ -49,6 +49,7 @@ public class Show {
     private Preference preferences;
     private List<Sequence> sequences;
     private List<SequenceGroup> sequenceGroups;
+    private List<Category> categories;
     private List<PsaSequence> psaSequences;
     private List<ViewerPage> pages;
     private Stat stats;
@@ -85,6 +86,17 @@ public class Show {
     // PSA-v2 Q7 — operator-picked next PSA, fires once at the next sequence
     // boundary (out-of-band from cadence) and then clears. Null = no override.
     private String nextPsaOverride;
+
+    // 2FA PRD §6.2 — opt-in TOTP second factor. null = never enrolled
+    // (every pre-existing document); only enabled=true changes sign-in.
+    private MfaConfig mfa;
+
+    // PRD-013 P0-1 — marketing/lifecycle email consent. null = never asked
+    // (pre-existing documents; a one-off backfill sets verified shows to
+    // true at drip enable-time). Only true means email may be synced to
+    // PostHog as a person property (strict model (a)).
+    private Boolean marketingOptIn;
+    private LocalDateTime optInUpdatedAt;
 
     @JsonIgnore
     private String serviceToken;

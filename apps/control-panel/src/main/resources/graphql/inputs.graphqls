@@ -17,6 +17,7 @@ input ShowInput {
     preferences: PreferenceInput
     sequences: [SequenceInput]
     sequenceGroups: [SequenceGroupInput]
+    categories: [CategoryInput]
     psaSequences: [PsaSequenceInput]
     pages: [PageInput]
     requests: [RequestInput]
@@ -54,13 +55,17 @@ input PreferenceInput {
     showLatitude: Float
     showLongitude: Float
     allowedRadius: Float
+    additionalGpsLocations: [GpsLocationInput]
     checkIfVoted: Boolean
     checkIfRequested: Boolean
     psaEnabled: Boolean
     psaFrequency: Int
     jukeboxRequestLimit: Int
+    dailyVoteLimit: Int
     locationCode: Int
     hideSequenceCount: Int
+    # #163 per-night play cap (0/null = off).
+    nightlyPlayLimit: Int
     makeItSnow: Boolean
     managePsa: Boolean
     sequencesPlayed: Int
@@ -69,6 +74,8 @@ input PreferenceInput {
     showOnMap: Boolean
     selfHostedRedirectUrl: String
     blockedViewerIps: [String]
+    votingExemptIps: [String]
+    statsExcludedIps: [String]
     notificationPreferences: NotificationPreferenceInput
     analyticsBetaOptIn: Boolean
     wrappedPublic: Boolean
@@ -105,6 +112,19 @@ input SequenceInput {
 input SequenceGroupInput {
     name: String
     visibilityCount: Int
+}
+
+input GpsLocationInput {
+    latitude: Float
+    longitude: Float
+}
+
+input CategoryInput {
+    name: String
+    requestLimit: Int
+    antiConsecutive: Boolean
+    color: String
+    displayOrder: Int
 }
 
 input RequestInput {

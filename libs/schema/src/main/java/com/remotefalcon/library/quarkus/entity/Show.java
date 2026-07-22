@@ -44,6 +44,7 @@ public class Show extends PanacheMongoEntity {
     private Preference preferences;
     private List<Sequence> sequences;
     private List<SequenceGroup> sequenceGroups;
+    private List<Category> categories;
     private List<PsaSequence> psaSequences;
     private List<ViewerPage> pages;
     private Stat stats;
@@ -78,6 +79,21 @@ public class Show extends PanacheMongoEntity {
     // PSA-v2 Q7 — operator-picked next PSA, fires once at the next sequence
     // boundary (out-of-band from cadence) and then clears. Null = no override.
     private String nextPsaOverride;
+
+    // 2FA PRD §6.2 — opt-in TOTP second factor. @Ignore keeps the whole
+    // config (encrypted secret + hashed recovery codes) out of the viewer /
+    // plugins-api GraphQL schemas; only control-panel exposes a derived
+    // mfaEnabled boolean. BSON persistence is unaffected by @Ignore.
+    @Ignore
+    private MfaConfig mfa;
+
+    // PRD-013 P0-1 — marketing/lifecycle email consent (see documents/Show).
+    // @Ignore keeps consent out of the viewer / plugins-api GraphQL schemas;
+    // only control-panel reads or writes it. BSON persistence unaffected.
+    @Ignore
+    private Boolean marketingOptIn;
+    @Ignore
+    private LocalDateTime optInUpdatedAt;
 
     @BsonIgnore
     private String serviceToken;

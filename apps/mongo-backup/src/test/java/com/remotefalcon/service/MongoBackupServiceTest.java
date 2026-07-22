@@ -153,6 +153,30 @@ class MongoBackupServiceTest {
     }
 
     @Test
+    void restore_roundTripsBackupThroughS3() throws Exception {
+        // Create a real backup of the seeded show collection.
+        service.runArchiveProcess();
+        String backupKey = listAll().stream()
+                .map(S3Object::key)
+                .filter(k -> BACKUP_KEY_PATTERN.matcher(k).matches())
+                .findFirst()
+                .orElseThrow();
+        String filename = backupKey.substring("mongo-backups/".length());
+
+        // Wipe the collection, then restore from the S3 object.
+        var db = mongoClient.getDatabase("remote-falcon");
+        db.getCollection("show").drop();
+        assertThat(db.getCollection("show").countDocuments()).isZero();
+
+        service.restoreFromBackup(filename);
+
+        var restored = db.getCollection("show").find().first();
+        assertThat(restored).isNotNull();
+        assertThat(restored.getString("showSubdomain")).isEqualTo("test-show");
+        assertThat(restored.getString("email")).isEqualTo("fixture@remotefalcon.test");
+    }
+
+    @Test
     void s3Failure_logsWithoutCrashing() {
         // Drop the bucket so PutObject fails with NoSuchBucket. The service catches
         // all exceptions in runArchiveProcess and logs them; nothing should bubble.

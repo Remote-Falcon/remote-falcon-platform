@@ -26,4 +26,20 @@ public class ShowRepository implements PanacheMongoRepository<Show> {
     Show show = result.first();
     return Optional.ofNullable(show);
   }
+
+  /**
+   * Pages metadata only (name + active flag) for the viewer-page FPP command
+   * (PRD-016). findByShowToken() deliberately excludes `pages` so the
+   * high-frequency listener polls never haul viewer-page HTML; this targeted
+   * lookup includes the pages array but still leaves the HTML behind.
+   */
+  public Optional<Show> findPagesMetaByShowToken(String showToken) {
+    FindIterable<Show> result = mongoCollection()
+        .find(Filters.eq("showToken", showToken))
+        .projection(Projections.fields(
+            Projections.include("showToken", "pages.name", "pages.active")
+        ));
+
+    return Optional.ofNullable(result.first());
+  }
 }

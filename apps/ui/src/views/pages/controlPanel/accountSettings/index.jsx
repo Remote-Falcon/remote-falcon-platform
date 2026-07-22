@@ -10,7 +10,8 @@ export const accountSettingsRoutes = [
   { label: 'User Profile', to: '/control-panel/account-settings/profile' },
   { label: 'Account', to: '/control-panel/account-settings/account' },
   { label: 'Notifications', to: '/control-panel/account-settings/notifications' },
-  { label: 'Change Password', to: '/control-panel/account-settings/password' }
+  { label: 'Change Password', to: '/control-panel/account-settings/password' },
+  { label: 'Two-Factor Auth', to: '/control-panel/account-settings/two-factor' }
 ];
 
 const AccountSettings = () => (

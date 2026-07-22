@@ -8,6 +8,7 @@ export const SIGN_IN = gql`
       showName
       showSubdomain
       emailVerified
+      marketingOptIn
       createdDate
       lastLoginDate
       expireDate
@@ -18,6 +19,7 @@ export const SIGN_IN = gql`
       playingNow
       playingNext
       serviceToken
+      mfaEnabled
       apiAccess {
         apiAccessActive
         apiAccessToken
@@ -122,22 +124,20 @@ export const SIGN_IN = gql`
   }
 `;
 
-export const VERIFY_PASSWORD_RESET_LINK = gql`
-  query ($passwordResetLink: String!) @api(name: controlPanel) {
-    verifyPasswordResetLink(passwordResetLink: $passwordResetLink) {
-      serviceToken
-    }
-  }
-`;
-
-export const GET_SHOW = gql`
-  query @api(name: controlPanel) {
-    getShow {
+// TOTP 2FA step two. Called with the short-lived MFA-pending token from
+// signIn as a per-call Bearer header — that token is only valid for this
+// query and must never be stored. Accepts a 6-digit TOTP code or a
+// recovery code (XXXXX-XXXXX) and returns the full Show with the real
+// 30-day serviceToken; the selection mirrors SIGN_IN.
+export const VERIFY_MFA = gql`
+  query ($code: String!) @api(name: controlPanel) {
+    verifyMfa(code: $code) {
       showToken
       email
       showName
       showSubdomain
       emailVerified
+      marketingOptIn
       createdDate
       lastLoginDate
       expireDate
@@ -148,6 +148,7 @@ export const GET_SHOW = gql`
       playingNow
       playingNext
       serviceToken
+      mfaEnabled
       apiAccess {
         apiAccessActive
         apiAccessToken
@@ -176,6 +177,7 @@ export const GET_SHOW = gql`
         jukeboxRequestLimit
         locationCode
         hideSequenceCount
+        nightlyPlayLimit
         makeItSnow
         managePsa
         playAllPsas
@@ -185,6 +187,13 @@ export const GET_SHOW = gql`
         showOnMap
         selfHostedRedirectUrl
         blockedViewerIps
+        dailyVoteLimit
+        votingExemptIps
+        statsExcludedIps
+        additionalGpsLocations {
+          latitude
+          longitude
+        }
         notificationPreferences {
           enableFppHeartbeat
           fppHeartbeatIfControlEnabled
@@ -212,6 +221,160 @@ export const GET_SHOW = gql`
       sequenceGroups {
         name
         visibilityCount
+      }
+      categories {
+        name
+        requestLimit
+        antiConsecutive
+        color
+        displayOrder
+      }
+      psaSequences {
+        name
+        order
+        lastPlayed
+        enabled
+      }
+      requestLeaderSequence
+      voteLeaderSequence
+      nextPsaOverride
+      pages {
+        name
+        active
+        html
+        pageId
+        updatedAt
+      }
+      requests {
+        sequence {
+          name
+        }
+        position
+        ownerRequested
+      }
+      votes {
+        sequence {
+          name
+        }
+        votes
+        lastVoteTime
+        ownerVoted
+      }
+      activeViewers {
+        ipAddress
+        visitDateTime
+      }
+    }
+  }
+`;
+
+export const VERIFY_PASSWORD_RESET_LINK = gql`
+  query ($passwordResetLink: String!) @api(name: controlPanel) {
+    verifyPasswordResetLink(passwordResetLink: $passwordResetLink) {
+      serviceToken
+    }
+  }
+`;
+
+export const GET_SHOW = gql`
+  query @api(name: controlPanel) {
+    getShow {
+      showToken
+      email
+      showName
+      showSubdomain
+      emailVerified
+      marketingOptIn
+      createdDate
+      lastLoginDate
+      expireDate
+      pluginVersion
+      fppVersion
+      lastLoginIp
+      showRole
+      playingNow
+      playingNext
+      serviceToken
+      mfaEnabled
+      apiAccess {
+        apiAccessActive
+        apiAccessToken
+      }
+      userProfile {
+        firstName
+        lastName
+        facebookUrl
+        youtubeUrl
+        lastTokenResetDate
+      }
+      preferences {
+        viewerControlEnabled
+        viewerPageViewOnly
+        viewerControlMode
+        resetVotes
+        jukeboxDepth
+        locationCheckMethod
+        showLatitude
+        showLongitude
+        allowedRadius
+        checkIfVoted
+        checkIfRequested
+        psaEnabled
+        psaFrequency
+        jukeboxRequestLimit
+        locationCode
+        hideSequenceCount
+        nightlyPlayLimit
+        makeItSnow
+        managePsa
+        playAllPsas
+        sequencesPlayed
+        pageTitle
+        pageIconUrl
+        showOnMap
+        selfHostedRedirectUrl
+        blockedViewerIps
+        dailyVoteLimit
+        votingExemptIps
+        statsExcludedIps
+        additionalGpsLocations {
+          latitude
+          longitude
+        }
+        notificationPreferences {
+          enableFppHeartbeat
+          fppHeartbeatIfControlEnabled
+          fppHeartbeatRenotifyAfterMinutes
+          fppHeartbeatLastNotification
+        }
+        analyticsBetaOptIn
+      }
+      sequences {
+        name
+        key
+        displayName
+        duration
+        visible
+        index
+        order
+        imageUrl
+        active
+        visibilityCount
+        type
+        group
+        category
+        artist
+      }
+      sequenceGroups {
+        name
+        visibilityCount
+      }
+      categories {
+        name
+        requestLimit
+        antiConsecutive
+        color
+        displayOrder
       }
       psaSequences {
         name
@@ -439,6 +602,7 @@ export const GET_SHOW_BY_SHOW_NAME = gql`
       showName
       showSubdomain
       emailVerified
+      marketingOptIn
       createdDate
       lastLoginDate
       expireDate
@@ -448,6 +612,7 @@ export const GET_SHOW_BY_SHOW_NAME = gql`
       showRole
       playingNow
       playingNext
+      mfaEnabled
       apiAccess {
         apiAccessActive
         apiAccessToken
@@ -475,6 +640,7 @@ export const GET_SHOW_BY_SHOW_NAME = gql`
         jukeboxRequestLimit
         locationCode
         hideSequenceCount
+        nightlyPlayLimit
         makeItSnow
         managePsa
         playAllPsas
@@ -504,6 +670,13 @@ export const GET_SHOW_BY_SHOW_NAME = gql`
       sequenceGroups {
         name
         visibilityCount
+      }
+      categories {
+        name
+        requestLimit
+        antiConsecutive
+        color
+        displayOrder
       }
       psaSequences {
         name

@@ -44,7 +44,8 @@ class PluginsApiContractTest {
         Arguments.of("updateNextScheduledSequence.json", Set.of("sequence"), Set.<String>of()),
         Arguments.of("pluginVersion.json", Set.of("pluginVersion", "fppVersion"), Set.<String>of()),
         Arguments.of("updateViewerControl.json", Set.of("viewerControlEnabled"), Set.<String>of()),
-        Arguments.of("updateManagedPsa.json", Set.of("managedPsaEnabled"), Set.<String>of()));
+        Arguments.of("updateManagedPsa.json", Set.of("managedPsaEnabled"), Set.<String>of()),
+        Arguments.of("setActiveViewerPage.json", Set.of("pageName"), Set.<String>of()));
   }
 
   @ParameterizedTest(name = "{0}")

@@ -126,6 +126,21 @@ public class PluginController {
   }
 
   @GET
+  @Path("/viewerPages")
+  @Produces(MediaType.APPLICATION_JSON)
+  public ViewerPagesResponse viewerPages() {
+    return this.pluginService.viewerPages();
+  }
+
+  @POST
+  @Path("/setActiveViewerPage")
+  @Produces(MediaType.APPLICATION_JSON)
+  @Consumes(MediaType.APPLICATION_JSON)
+  public PluginResponse setActiveViewerPage(SetActiveViewerPageRequest request) {
+    return this.pluginService.setActiveViewerPage(request);
+  }
+
+  @GET
   @Path("/actuator/health")
   @Produces(MediaType.APPLICATION_JSON)
   @Consumes(MediaType.APPLICATION_JSON)

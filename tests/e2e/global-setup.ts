@@ -1,6 +1,8 @@
 import { MongoClient } from 'mongodb';
-import { readdirSync, readFileSync, existsSync } from 'fs';
+import { readdirSync, readFileSync, existsSync, rmSync } from 'fs';
 import { join } from 'path';
+
+import { manifestOutputPath } from './docs-screenshots/utils/manifest-writer';
 
 const DOCS_DB_NAME = 'remote-falcon-docs';
 // The control-panel Spring Boot app is served under context path
@@ -274,6 +276,11 @@ export default async () => {
   const uri = process.env.MONGO_URI ?? 'mongodb://localhost:27017/remote-falcon';
 
   if (tier === 'docs-screenshots') {
+    // Start each run with a fresh manifest. The manifest-writer merges from
+    // disk to survive worker restarts WITHIN a run; deleting here is what
+    // keeps that merge from resurrecting entries from a PREVIOUS run
+    // (e.g. a since-renamed shot).
+    rmSync(manifestOutputPath(), { force: true });
     await seedDocsScreenshots(uri);
     return;
   }
