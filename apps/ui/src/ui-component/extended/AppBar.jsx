@@ -31,7 +31,7 @@ import ThemeToggle from '../../design-system/components/ThemeToggle';
 // links open in a new tab.
 const NAV_LINKS = [
   { label: 'Features',  href: '/#features',                                         icon: IconBolt },
-  { label: 'Shows Map', href: '/#shows-map',                                        icon: IconMap, badge: 'Soon' },
+  { label: 'Shows Map', href: '/map',                                               icon: IconMap },
   { label: 'Docs',      href: 'https://docs.remotefalcon.com',         external: true, icon: IconBook },
   { label: 'Community', href: 'https://www.facebook.com/groups/remotefalcon', external: true, icon: IconUsers }
 ];
