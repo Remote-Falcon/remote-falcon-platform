@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import * as React from 'react';
 
 import { useLazyQuery, useMutation } from '@apollo/client';
-import { Box, Button, Grid, Stack, Typography, Switch, CardActions, TextField, IconButton, Tooltip } from '@mui/material';
+import { Box, Button, Chip, Grid, Stack, Typography, Switch, CardActions, TextField, IconButton, Tooltip } from '@mui/material';
 import MyLocationTwoToneIcon from '@mui/icons-material/MyLocationTwoTone';
 import SaveTwoToneIcon from '@mui/icons-material/SaveTwoTone';
 import { IconExternalLink } from '@tabler/icons-react';
@@ -18,7 +18,7 @@ import TrackerSkeleton from '../../../../ui-component/cards/Skeleton/TrackerSkel
 import { savePreferencesService } from '../../../../services/controlPanel/mutations.service';
 import { setShow } from '../../../../store/slices/show';
 import { UPDATE_PREFERENCES } from '../../../../utils/graphql/controlPanel/mutations';
-import { SHOWS_ON_MAP } from '../../../../utils/graphql/controlPanel/queries';
+import { SHOWS_ON_MAP_FOR_USERS } from '../../../../utils/graphql/controlPanel/queries';
 import { getShowPublicUrl } from '../../../../utils/showPublicUrl';
 import { showAlert } from '../../globalPageHelpers';
 
@@ -28,12 +28,13 @@ const ShowsMap = () => {
 
   const [isLoading, setIsLoading] = useState(false);
   const [showsOnMap, setShowsOnMap] = useState([]);
+  const [totalShows, setTotalShows] = useState(null);
   const [selectedShow, setSelectedShow] = useState(null);
   const [manualLat, setManualLat] = useState('');
   const [manualLng, setManualLng] = useState('');
 
   const [updatePreferencesMutation] = useMutation(UPDATE_PREFERENCES);
-  const [showsOnMapQuery] = useLazyQuery(SHOWS_ON_MAP);
+  const [showsOnMapQuery] = useLazyQuery(SHOWS_ON_MAP_FOR_USERS);
 
   const detectLocation = useCallback(
     (notify = false) => {
@@ -91,19 +92,21 @@ const ShowsMap = () => {
       fetchPolicy: 'network-only',
       onCompleted: (data) => {
         const shows = [];
-        _.forEach(data?.showsOnAMap, (mappedShow) => {
+        _.forEach(data?.showsOnAMapForUsers?.shows, (mappedShow) => {
           const latitude = Number(mappedShow?.showLatitude);
           const longitude = Number(mappedShow?.showLongitude);
           if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
             shows.push({
               showName: mappedShow?.showName,
               showSubdomain: mappedShow?.showSubdomain,
+              publiclyVisible: mappedShow?.publiclyVisible === true,
               latitude,
               longitude
             });
           }
         });
         setShowsOnMap(shows);
+        setTotalShows(data?.showsOnAMapForUsers?.totalShows ?? null);
       },
       onError: () => {
         showAlert(dispatch, { alert: 'error' });
@@ -112,13 +115,15 @@ const ShowsMap = () => {
     setIsLoading(false);
   }, [dispatch, showsOnMapQuery]);
 
-  const handleShowMyShowSwitch = (event, value) => {
-    // Just toggle map visibility. The show's coordinates are set via the Show
-    // Location controls below (Detect or manual entry), so enabling the map no
-    // longer depends on a successful detection at toggle time.
+  // Two independent visibility tiers (two switches): showOnMap = visible to
+  // logged-in RF users on this page; showOnMapPublic = visible to anyone on
+  // the unauthenticated public /map page. Coordinates are set via the Show
+  // Location controls below, so enabling either toggle no longer depends on
+  // a successful detection at toggle time.
+  const handleVisibilitySwitch = (field) => (event, value) => {
     const updatedPreferences = _.cloneDeep({
       ...show?.preferences,
-      showOnMap: value
+      [field]: value
     });
     savePreferencesService(updatedPreferences, updatePreferencesMutation, (response) => {
       dispatch(
@@ -190,10 +195,11 @@ const ShowsMap = () => {
                   <Grid container alignItems="center" justifyContent="space-between" spacing={1}>
                     <Grid item xs={12} md={6} lg={4}>
                       <Stack direction="row" spacing={2} pb={1}>
-                        <Typography variant="h4">Show {show?.showName} on the Map</Typography>
+                        <Typography variant="h4">Show {show?.showName} to Remote Falcon users</Typography>
                       </Stack>
                       <Typography component="div" variant="caption">
-                        If enabled, {show?.showName}&apos;s location will be displayed on the Remote Falcon Shows Map.
+                        If enabled, {show?.showName}&apos;s location appears on this community Shows Map, visible only to people with a
+                        Remote Falcon login.
                       </Typography>
                     </Grid>
                     <Grid item xs={12} md={6} lg={4}>
@@ -201,12 +207,33 @@ const ShowsMap = () => {
                         name="displayShowOnMap"
                         color="primary"
                         checked={show?.preferences?.showOnMap}
-                        onChange={handleShowMyShowSwitch}
+                        onChange={handleVisibilitySwitch('showOnMap')}
                       />
                     </Grid>
                   </Grid>
                 </CardActions>
-                {show?.preferences?.showOnMap && (
+                <CardActions>
+                  <Grid container alignItems="center" justifyContent="space-between" spacing={1}>
+                    <Grid item xs={12} md={6} lg={4}>
+                      <Stack direction="row" spacing={2} pb={1}>
+                        <Typography variant="h4">Show {show?.showName} on the public map</Typography>
+                      </Stack>
+                      <Typography component="div" variant="caption">
+                        If enabled, {show?.showName} appears on the public Show Map at remotefalcon.com/map, visible to anyone on the
+                        internet with no login required. Your location is blurred to roughly 11 meters (about 36 feet) on both maps.
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={12} md={6} lg={4}>
+                      <Switch
+                        name="displayShowOnMapPublic"
+                        color="primary"
+                        checked={show?.preferences?.showOnMapPublic === true}
+                        onChange={handleVisibilitySwitch('showOnMapPublic')}
+                      />
+                    </Grid>
+                  </Grid>
+                </CardActions>
+                {(show?.preferences?.showOnMap || show?.preferences?.showOnMapPublic) && (
                   <CardActions>
                     <Grid container alignItems="center" justifyContent="space-between" spacing={1}>
                       <Grid item xs={12} md={6} lg={4}>
@@ -249,11 +276,14 @@ const ShowsMap = () => {
                 )}
                 <Box sx={{ mt: 4 }}>
                   <Typography variant="h3" align="center" color="secondary">
-                    Total Shows on Map: {showsOnMap?.length}
+                    {Number.isFinite(totalShows) && totalShows > 0
+                      ? `${totalShows.toLocaleString()} shows on Remote Falcon, ${showsOnMap?.length?.toLocaleString()} on the community map`
+                      : `Total Shows on Map: ${showsOnMap?.length}`}
                   </Typography>
                   {selectedShow && (
                     <Stack direction="row" spacing={1} alignItems="center" justifyContent="center" sx={{ mt: 1 }}>
                       <Typography variant="h5">{selectedShow.showName}</Typography>
+                      {selectedShow.publiclyVisible && <Chip size="small" color="success" label="Public" />}
                       <Button
                         size="small"
                         variant="outlined"

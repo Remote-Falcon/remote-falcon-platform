@@ -34,6 +34,7 @@ import FallbackList from './FallbackList';
 const MapPage = () => {
   const mapApiRef = useRef(null);
   const [shows, setShows] = useState([]);
+  const [totalShows, setTotalShows] = useState(null);
   const [loading, setLoading] = useState(true);
   const [queryFailed, setQueryFailed] = useState(false);
   const [mapFailed, setMapFailed] = useState(false);
@@ -47,7 +48,7 @@ const MapPage = () => {
       context: { headers: { Route: 'Control-Panel' } },
       fetchPolicy: 'network-only',
       onCompleted: (data) => {
-        const loaded = (data?.showsOnAMap || [])
+        const loaded = (data?.showsOnAMap?.shows || [])
           .map((show) => ({
             showName: show?.showName,
             showSubdomain: show?.showSubdomain,
@@ -56,6 +57,7 @@ const MapPage = () => {
           }))
           .filter((show) => Number.isFinite(show.latitude) && Number.isFinite(show.longitude));
         setShows(loaded);
+        setTotalShows(data?.showsOnAMap?.totalShows ?? null);
         setLoading(false);
       },
       onError: () => {
@@ -133,7 +135,17 @@ const MapPage = () => {
         >
           Return to Homepage
         </Button>
-        <Chip size="small" label={loading ? '…' : `${shows.length} shows`} sx={{ display: { xs: 'none', sm: 'inline-flex' } }} />
+        <Chip
+          size="small"
+          label={
+            loading
+              ? '…'
+              : Number.isFinite(totalShows) && totalShows > 0
+                ? `${totalShows.toLocaleString()} shows run on Remote Falcon · ${shows.length.toLocaleString()} shared publicly below`
+                : `${shows.length} shows`
+          }
+          sx={{ display: { xs: 'none', sm: 'inline-flex' } }}
+        />
         <Box sx={{ flex: 1 }} />
         <Autocomplete
           size="small"

@@ -55,6 +55,7 @@ export const SIGN_IN = gql`
         pageTitle
         pageIconUrl
         showOnMap
+        showOnMapPublic
         selfHostedRedirectUrl
         blockedViewerIps
         notificationPreferences {
@@ -185,6 +186,7 @@ export const VERIFY_MFA = gql`
         pageTitle
         pageIconUrl
         showOnMap
+        showOnMapPublic
         selfHostedRedirectUrl
         blockedViewerIps
         dailyVoteLimit
@@ -332,6 +334,7 @@ export const GET_SHOW = gql`
         pageTitle
         pageIconUrl
         showOnMap
+        showOnMapPublic
         selfHostedRedirectUrl
         blockedViewerIps
         dailyVoteLimit
@@ -586,10 +589,29 @@ export const DASHBOARD_STATS_BY_HOUR = gql`
 export const SHOWS_ON_MAP = gql`
   query @api(name: controlPanel) {
     showsOnAMap {
-      showName
-      showSubdomain
-      showLatitude
-      showLongitude
+      totalShows
+      shows {
+        showName
+        showSubdomain
+        showLatitude
+        showLongitude
+        publiclyVisible
+      }
+    }
+  }
+`;
+
+export const SHOWS_ON_MAP_FOR_USERS = gql`
+  query @api(name: controlPanel) {
+    showsOnAMapForUsers {
+      totalShows
+      shows {
+        showName
+        showSubdomain
+        showLatitude
+        showLongitude
+        publiclyVisible
+      }
     }
   }
 `;
@@ -648,6 +670,7 @@ export const GET_SHOW_BY_SHOW_NAME = gql`
         pageTitle
         pageIconUrl
         showOnMap
+        showOnMapPublic
         selfHostedRedirectUrl
         blockedViewerIps
       }
