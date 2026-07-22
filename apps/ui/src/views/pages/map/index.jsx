@@ -15,7 +15,7 @@ import {
   TextField,
   Typography
 } from '@mui/material';
-import { IconExternalLink, IconRoute, IconX } from '@tabler/icons-react';
+import { IconArrowLeft, IconExternalLink, IconRoute, IconX } from '@tabler/icons-react';
 import { Helmet } from 'react-helmet';
 import { Link as RouterLink } from 'react-router-dom';
 
@@ -120,9 +120,19 @@ const MapPage = () => {
         spacing={{ xs: 1, sm: 2 }}
         sx={{ px: 2, py: 1.25, borderBottom: 1, borderColor: 'divider', bgcolor: 'background.paper', flexWrap: 'wrap', rowGap: 1 }}
       >
-        <Box component={RouterLink} to="/" sx={{ textDecoration: 'none', display: 'flex', alignItems: 'center' }}>
+        <Box component={RouterLink} to="/" sx={{ textDecoration: 'none', color: 'inherit', display: 'flex', alignItems: 'center' }}>
           <Logo />
         </Box>
+        <Button
+          component={RouterLink}
+          to="/"
+          size="small"
+          color="inherit"
+          startIcon={<IconArrowLeft size={16} />}
+          sx={{ color: 'text.secondary', textTransform: 'none', flexShrink: 0 }}
+        >
+          Return to Homepage
+        </Button>
         <Chip size="small" label={loading ? '…' : `${shows.length} shows`} sx={{ display: { xs: 'none', sm: 'inline-flex' } }} />
         <Box sx={{ flex: 1 }} />
         <Autocomplete
