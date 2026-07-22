@@ -56,6 +56,8 @@ const boundsOf = (geojson) => {
  *   into it, clicking a pin calls onPinClick with the show's properties.
  *
  * Ref API: flyTo(options), fitToShows().
+ * onError is called as (error, reason) where reason is 'webgl' (no WebGL
+ * support) or 'style_load' (basemap style/tiles failed to load).
  */
 const ShowsMapLibre = forwardRef(({ shows, onPinClick, onGeolocate, onError, sx }, ref) => {
   const containerRef = useRef(null);
@@ -144,8 +146,10 @@ const ShowsMapLibre = forwardRef(({ shows, onPinClick, onGeolocate, onError, sx 
         zoom: DEFAULT_ZOOM
       });
     } catch (error) {
-      // Typically no-WebGL. The caller renders the list fallback.
-      onErrorRef.current?.(error);
+      // Typically no-WebGL. The caller renders the list fallback. reason
+      // distinguishes an unsupported device from a tile-provider outage so
+      // launch-week telemetry can tell "old iPad" from "Protomaps down".
+      onErrorRef.current?.(error, 'webgl');
       return undefined;
     }
     mapRef.current = map;
@@ -170,7 +174,10 @@ const ShowsMapLibre = forwardRef(({ shows, onPinClick, onGeolocate, onError, sx 
     // list view. Tile errors after a successful load are non-fatal noise.
     map.on('error', (event) => {
       if (!loadedOnceRef.current) {
-        onErrorRef.current?.(event?.error || new Error('Map failed to load'));
+        // Before the first style.load: a failed style-JSON fetch — includes a
+        // rejected/exhausted Protomaps key (api.protomaps.com 4xx on the style
+        // URL). Post-load tile errors are non-fatal noise and don't escalate.
+        onErrorRef.current?.(event?.error || new Error('Map failed to load'), 'style_load');
       }
     });
 

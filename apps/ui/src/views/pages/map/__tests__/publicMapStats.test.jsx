@@ -1,11 +1,13 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { MockedProvider } from '@apollo/client/testing';
+import { GraphQLError } from 'graphql';
 import { MemoryRouter } from 'react-router-dom';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 
 import MapPage from '../index';
 import { SHOWS_ON_MAP } from '../../../../utils/graphql/controlPanel/queries';
+import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
 
 // Public /map page: envelope response (totalShows + shows) and the
 // community-size header line. The public query returns ONLY public
@@ -70,5 +72,19 @@ describe('Public map — community stats header', () => {
     await waitFor(() => {
       expect(screen.getByRole('link', { name: /return to homepage/i })).toHaveAttribute('href', '/');
     });
+  });
+
+  // A backend outage on the flagship public page must be observable — visitors
+  // still emit public_map_opened, so absence of pins alone can't be alerted on.
+  it('captures a telemetry event when the shows query fails', async () => {
+    const errorMock = {
+      request: { query: SHOWS_ON_MAP },
+      result: { errors: [new GraphQLError('backend down')] }
+    };
+    renderMapPage([errorMock]);
+    await waitFor(() => {
+      expect(screen.getByText(/couldn't load the shows/i)).toBeInTheDocument();
+    });
+    expect(trackPosthogEvent).toHaveBeenCalledWith('public_map_query_failed', expect.objectContaining({}));
   });
 });

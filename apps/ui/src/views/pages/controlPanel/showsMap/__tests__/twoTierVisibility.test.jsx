@@ -11,6 +11,7 @@ import { store } from '../../../../../store';
 import { setShow } from '../../../../../store/slices/show';
 import { SHOWS_ON_MAP_FOR_USERS } from '../../../../../utils/graphql/controlPanel/queries';
 import { savePreferencesService } from '../../../../../services/controlPanel/mutations.service';
+import { trackPosthogEvent } from '../../../../../utils/analytics/posthog';
 
 // Public Show Map two-tier visibility. Pins the two-toggle consent model:
 // showOnMap (members-only community map) and showOnMapPublic (the
@@ -25,6 +26,10 @@ vi.mock('../../../../../ui-component/maps/ShowsMapLibre', () => ({
 
 vi.mock('../../../../../services/controlPanel/mutations.service', () => ({
   savePreferencesService: vi.fn()
+}));
+
+vi.mock('../../../../../utils/analytics/posthog', () => ({
+  trackPosthogEvent: vi.fn()
 }));
 
 const theme = createTheme();
@@ -84,7 +89,19 @@ describe('Shows Map — two-tier visibility toggles', () => {
     expect(publicToggle).not.toBeChecked();
   });
 
-  it('flipping the public toggle saves showOnMapPublic without touching showOnMap', async () => {
+  // A screen-reader user must be able to tell "show to RF users" from "show to
+  // the entire internet" — the public one discloses a home location.
+  it('gives both toggles distinct accessible names', async () => {
+    renderShowsMap();
+    const membersToggle = await screen.findByRole('checkbox', {
+      name: /to logged-in Remote Falcon users/i
+    });
+    const publicToggle = screen.getByRole('checkbox', { name: /on the public map, visible to anyone/i });
+    expect(membersToggle).toHaveAttribute('name', 'displayShowOnMap');
+    expect(publicToggle).toHaveAttribute('name', 'displayShowOnMapPublic');
+  });
+
+  it('flipping the public toggle saves showOnMapPublic without touching showOnMap, and emits the activation event', async () => {
     const { container } = renderShowsMap();
     await waitFor(() => expect(container.querySelector('input[name="displayShowOnMapPublic"]')).toBeInTheDocument());
     const publicToggle = container.querySelector('input[name="displayShowOnMapPublic"]');
@@ -94,6 +111,10 @@ describe('Shows Map — two-tier visibility toggles', () => {
     const savedPreferences = savePreferencesService.mock.calls[0][0];
     expect(savedPreferences.showOnMapPublic).toBe(true);
     expect(savedPreferences.showOnMap).toBe(true);
+    expect(trackPosthogEvent).toHaveBeenCalledWith('map_visibility_toggled', {
+      field: 'showOnMapPublic',
+      enabled: true
+    });
   });
 
   it('flipping the members toggle saves showOnMap without touching showOnMapPublic', async () => {

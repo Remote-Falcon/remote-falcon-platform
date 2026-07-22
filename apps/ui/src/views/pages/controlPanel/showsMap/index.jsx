@@ -17,6 +17,7 @@ import TrackerSkeleton from '../../../../ui-component/cards/Skeleton/TrackerSkel
 
 import { savePreferencesService } from '../../../../services/controlPanel/mutations.service';
 import { setShow } from '../../../../store/slices/show';
+import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
 import { UPDATE_PREFERENCES } from '../../../../utils/graphql/controlPanel/mutations';
 import { SHOWS_ON_MAP_FOR_USERS } from '../../../../utils/graphql/controlPanel/queries';
 import { getShowPublicUrl } from '../../../../utils/showPublicUrl';
@@ -125,6 +126,9 @@ const ShowsMap = () => {
       ...show?.preferences,
       [field]: value
     });
+    // Supply-side activation metric for the public-map launch: which operators
+    // opt in, and to which tier. showOnMapPublic is the headline one.
+    trackPosthogEvent('map_visibility_toggled', { field, enabled: value });
     savePreferencesService(updatedPreferences, updatePreferencesMutation, (response) => {
       dispatch(
         setShow({
@@ -206,8 +210,9 @@ const ShowsMap = () => {
                       <Switch
                         name="displayShowOnMap"
                         color="primary"
-                        checked={show?.preferences?.showOnMap}
+                        checked={show?.preferences?.showOnMap === true}
                         onChange={handleVisibilitySwitch('showOnMap')}
+                        inputProps={{ 'aria-label': `Show ${show?.showName} to logged-in Remote Falcon users` }}
                       />
                     </Grid>
                   </Grid>
@@ -229,6 +234,7 @@ const ShowsMap = () => {
                         color="primary"
                         checked={show?.preferences?.showOnMapPublic === true}
                         onChange={handleVisibilitySwitch('showOnMapPublic')}
+                        inputProps={{ 'aria-label': `Show ${show?.showName} on the public map, visible to anyone on the internet` }}
                       />
                     </Grid>
                   </Grid>

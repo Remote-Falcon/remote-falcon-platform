@@ -33,6 +33,8 @@ import FallbackList from './FallbackList';
 // pin opens a details panel with a viewer-page link and directions.
 const MapPage = () => {
   const mapApiRef = useRef(null);
+  const detailsCardRef = useRef(null);
+  const searchInputRef = useRef(null);
   const [shows, setShows] = useState([]);
   const [totalShows, setTotalShows] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -60,16 +62,23 @@ const MapPage = () => {
         setTotalShows(data?.showsOnAMap?.totalShows ?? null);
         setLoading(false);
       },
-      onError: () => {
+      onError: (error) => {
+        // A backend/GraphQL outage on the flagship public page would otherwise
+        // be invisible in PostHog (visitors still emit public_map_opened) —
+        // capture it explicitly so a launch-week outage is observable.
         setQueryFailed(true);
         setLoading(false);
+        trackPosthogEvent('public_map_query_failed', { message: error?.message });
       }
     });
   }, [showsOnMapQuery]);
 
-  const handleMapError = useCallback(() => {
+  const handleMapError = useCallback((error, reason) => {
     setMapFailed(true);
-    trackPosthogEvent('public_map_fallback_shown');
+    // reason ('webgl' | 'style_load') separates an unsupported device from a
+    // tile-provider outage — a Protomaps quota cutoff must be distinguishable
+    // from an old iPad during launch week.
+    trackPosthogEvent('public_map_fallback_shown', { reason, message: error?.message });
   }, []);
 
   const handlePinClick = useCallback((show) => {
@@ -92,15 +101,31 @@ const MapPage = () => {
     trackPosthogEvent('public_map_show_page_clicked', { show_subdomain: show.showSubdomain });
   }, []);
 
+  // Close the details panel and return focus to the search input so keyboard
+  // and screen-reader users don't lose focus to <body> when the card unmounts.
+  const closeDetails = useCallback(() => {
+    setSelectedShow(null);
+    searchInputRef.current?.focus();
+  }, []);
+
   // Dismiss the details panel with ESC (keyboard reachability, PRD NFR-13).
   useEffect(() => {
     if (!selectedShow) return undefined;
     const onKeyDown = (event) => {
-      if (event.key === 'Escape') setSelectedShow(null);
+      if (event.key === 'Escape') closeDetails();
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [selectedShow]);
+  }, [selectedShow, closeDetails]);
+
+  // Move focus into the details card when it opens so a screen reader
+  // announces the dialog + show name (the card can open from a keyboard
+  // search-select, which otherwise gives no feedback that a panel appeared).
+  useEffect(() => {
+    if (selectedShow && !mapFailed) {
+      detailsCardRef.current?.focus();
+    }
+  }, [selectedShow, mapFailed]);
 
   const sortedShows = useMemo(() => [...shows].sort((a, b) => (a.showName || '').localeCompare(b.showName || '')), [shows]);
 
@@ -154,7 +179,7 @@ const MapPage = () => {
           onChange={handleSearchSelect}
           disabled={mapFailed}
           sx={{ width: { xs: '100%', sm: 280 }, order: { xs: 3, sm: 0 } }}
-          renderInput={(params) => <TextField {...params} label="Search shows" />}
+          renderInput={(params) => <TextField {...params} label="Search shows" inputRef={searchInputRef} />}
         />
         <ThemeToggle />
       </Stack>
@@ -189,6 +214,11 @@ const MapPage = () => {
         {selectedShow && !mapFailed && (
           <Card
             elevation={8}
+            ref={detailsCardRef}
+            tabIndex={-1}
+            role="dialog"
+            aria-modal={false}
+            aria-label={`${selectedShow.showName} — show details`}
             sx={{
               position: 'absolute',
               zIndex: 3,
@@ -204,7 +234,7 @@ const MapPage = () => {
                 <Typography variant="h4" sx={{ overflowWrap: 'anywhere' }}>
                   {selectedShow.showName}
                 </Typography>
-                <IconButton size="small" aria-label="Close show details" onClick={() => setSelectedShow(null)}>
+                <IconButton size="small" aria-label="Close show details" onClick={closeDetails}>
                   <IconX size={18} />
                 </IconButton>
               </Stack>
