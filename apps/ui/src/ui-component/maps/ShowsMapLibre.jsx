@@ -32,7 +32,7 @@ const toGeoJson = (shows) => ({
     .map((show) => ({
       type: 'Feature',
       geometry: { type: 'Point', coordinates: [show.longitude, show.latitude] },
-      properties: { showName: show.showName, showSubdomain: show.showSubdomain }
+      properties: { showName: show.showName, showSubdomain: show.showSubdomain, publiclyVisible: show.publiclyVisible === true }
     }))
 });
 
@@ -177,8 +177,13 @@ const ShowsMapLibre = forwardRef(({ shows, onPinClick, onGeolocate, onError, sx 
     map.on('click', CLUSTER_LAYER, async (event) => {
       const feature = event.features?.[0];
       if (!feature) return;
-      const zoom = await map.getSource(SOURCE_ID).getClusterExpansionZoom(feature.properties.cluster_id);
-      map.easeTo({ center: feature.geometry.coordinates, zoom });
+      try {
+        const zoom = await map.getSource(SOURCE_ID).getClusterExpansionZoom(feature.properties.cluster_id);
+        map.easeTo({ center: feature.geometry.coordinates, zoom });
+      } catch {
+        // Cluster dissolved between render and click (data refresh) — the
+        // expansion-zoom lookup rejects; nothing to zoom to.
+      }
     });
 
     map.on('click', PIN_LAYER, (event) => {
@@ -249,6 +254,7 @@ ShowsMapLibre.propTypes = {
     PropTypes.shape({
       showName: PropTypes.string,
       showSubdomain: PropTypes.string,
+      publiclyVisible: PropTypes.bool,
       latitude: PropTypes.number,
       longitude: PropTypes.number
     })

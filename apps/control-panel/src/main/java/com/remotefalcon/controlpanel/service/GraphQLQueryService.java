@@ -281,6 +281,14 @@ public class GraphQLQueryService {
         return refreshShowsOnAMapCache().publicResult();
     }
 
+    // Called by updatePreferences when a save changes map visibility or
+    // coordinates, so the operator sees their toggle reflected immediately
+    // instead of after the 5-minute TTL. Operator saves are rare; anonymous
+    // traffic still only ever reads the cache.
+    public void evictShowsOnAMapCache() {
+        this.showsOnAMapCache.set(null);
+    }
+
     public ShowsOnAMapResult showsOnAMapForUsers() {
         return refreshShowsOnAMapCache().membersResult();
     }

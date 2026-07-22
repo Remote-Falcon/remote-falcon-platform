@@ -10,8 +10,9 @@ const MapPage = Loadable(lazy(() => import('../views/pages/map')));
 // arrive from social shares and local news without an account. Registering
 // it as its own top-level group (before LoginRoutes) keeps it reachable on
 // the apex domain regardless of the swapCP subdomain logic in GuestGuard.
-// Only opted-in shows (preferences.showOnMap) appear, with coordinates
-// rounded server-side.
+// Only shows that opted into PUBLIC visibility (preferences.showOnMapPublic)
+// appear, with coordinates rounded server-side. Members-only opt-ins
+// (preferences.showOnMap) are visible solely on the dashboard Shows Map.
 const MapRoutes = {
   path: '/map',
   element: (

@@ -478,6 +478,20 @@ class GraphQLQueryServiceTest {
         verify(showRepository, times(1)).count();
     }
 
+    // Eviction (updatePreferences on a visibility/coords change) must force
+    // the next read to refetch, so toggles reflect immediately.
+    @Test
+    void showsOnAMap_refetchesAfterCacheEviction() {
+        Show show = mapShow("evicted", true, true, 1.0f, 2.0f);
+        when(showRepository.count()).thenReturn(1L);
+        when(showRepository.getShowsOnMap()).thenReturn(List.of(show));
+
+        service.showsOnAMap();
+        service.evictShowsOnAMapCache();
+        service.showsOnAMap();
+        verify(showRepository, times(2)).getShowsOnMap();
+    }
+
     // ---- getShowByShowName ----
 
     @Test
