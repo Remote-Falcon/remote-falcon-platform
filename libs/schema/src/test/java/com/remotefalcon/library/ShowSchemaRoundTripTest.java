@@ -164,6 +164,7 @@ class ShowSchemaRoundTripTest {
                 .pageTitle("Test Show Page")
                 .pageIconUrl("https://example/icon.png")
                 .showOnMap(true)
+                .showOnMapPublic(false)
                 .selfHostedRedirectUrl("https://example/host")
                 .blockedViewerIps(new LinkedHashSet<>(List.of("10.0.0.1", "10.0.0.2")))
                 .notificationPreferences(notifPref)

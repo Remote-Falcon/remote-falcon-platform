@@ -66,6 +66,11 @@ public class Preference {
     private String pageTitle;
     private String pageIconUrl;
     private Boolean showOnMap;
+    // Public Show Map two-tier visibility: showOnMap = visible to logged-in
+    // RF users (the original consent, pre-dating the public /map page);
+    // showOnMapPublic = visible to anyone on the unauthenticated public map.
+    // Never grandfathered — null/false until the operator explicitly opts in.
+    private Boolean showOnMapPublic;
     private String selfHostedRedirectUrl;
     private Set<String> blockedViewerIps;
     private Set<String> votingExemptIps;

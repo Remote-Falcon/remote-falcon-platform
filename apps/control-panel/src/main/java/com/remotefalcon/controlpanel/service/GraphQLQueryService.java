@@ -21,6 +21,7 @@ import org.springframework.stereotype.Service;
 
 import com.remotefalcon.controlpanel.repository.ShowRepository;
 import com.remotefalcon.controlpanel.response.ShowsOnAMap;
+import com.remotefalcon.controlpanel.response.ShowsOnAMapResult;
 import com.remotefalcon.controlpanel.util.AuthUtil;
 import com.remotefalcon.controlpanel.util.ClientUtil;
 import com.remotefalcon.library.documents.Show;
@@ -255,37 +256,78 @@ public class GraphQLQueryService {
     //
     //   1. Coordinates are rounded to 4 decimal places (~11 m) in the public
     //      projection ONLY. The stored preferences keep full precision because
-    //      the viewer geofence (allowedRadius) depends on it.
+    //      the viewer geofence (allowedRadius) depends on it. The members
+    //      query (showsOnAMapForUsers) gets the same rounding — RF operators
+    //      are still strangers to each other.
     //   2. The result is cached in-memory for 5 minutes so anonymous traffic
     //      can't turn every map load into a Mongo query. Plain AtomicReference
     //      (not a cache lib) — native-image build strips runtime-conditional
     //      beans, and this survives that (see control-panel @Conditional trap).
+    //
+    // Two-tier visibility (two dashboard toggles):
+    //   showOnMap       — visible to logged-in RF users (the original consent,
+    //                     which pre-dates the public map; never upgraded).
+    //   showOnMapPublic — visible to anyone on the unauthenticated /map page.
+    // Public list = showOnMapPublic only. Members list = union of both (the
+    // public map is world-readable, so public opt-ins are members-visible by
+    // definition). One repo fetch + one countDocuments feeds both, cached
+    // together. totalShows is the raw platform show count for the
+    // community-size line in both map headers.
     private static final long SHOWS_ON_MAP_CACHE_MS = 5 * 60 * 1000L;
-    private record ShowsOnAMapCache(List<ShowsOnAMap> shows, long fetchedAtMs) {}
+    private record ShowsOnAMapCache(ShowsOnAMapResult publicResult, ShowsOnAMapResult membersResult, long fetchedAtMs) {}
     private final java.util.concurrent.atomic.AtomicReference<ShowsOnAMapCache> showsOnAMapCache = new java.util.concurrent.atomic.AtomicReference<>();
 
-    public List<ShowsOnAMap> showsOnAMap() {
+    public ShowsOnAMapResult showsOnAMap() {
+        return refreshShowsOnAMapCache().publicResult();
+    }
+
+    public ShowsOnAMapResult showsOnAMapForUsers() {
+        return refreshShowsOnAMapCache().membersResult();
+    }
+
+    private ShowsOnAMapCache refreshShowsOnAMapCache() {
         ShowsOnAMapCache cached = this.showsOnAMapCache.get();
         long now = System.currentTimeMillis();
         if (cached != null && now - cached.fetchedAtMs() < SHOWS_ON_MAP_CACHE_MS) {
-            return cached.shows();
+            return cached;
         }
+        long totalShows = this.showRepository.count();
         List<Show> allShows = this.showRepository.getShowsOnMap();
-        List<ShowsOnAMap> showsOnAMapList = new ArrayList<>();
+        List<ShowsOnAMap> publicShows = new ArrayList<>();
+        List<ShowsOnAMap> memberShows = new ArrayList<>();
         allShows.forEach(show -> {
-            if(show.getPreferences() != null
-                    && Boolean.TRUE.equals(show.getPreferences().getShowOnMap())) {
-                showsOnAMapList.add(ShowsOnAMap.builder()
-                                .showName(show.getShowName())
-                                .showSubdomain(show.getShowSubdomain())
-                                .showLatitude(roundCoordinate(show.getPreferences().getShowLatitude()))
-                                .showLongitude(roundCoordinate(show.getPreferences().getShowLongitude()))
-                        .build());
+            if (show.getPreferences() == null) {
+                return;
+            }
+            boolean isPublic = Boolean.TRUE.equals(show.getPreferences().getShowOnMapPublic());
+            boolean isMembers = Boolean.TRUE.equals(show.getPreferences().getShowOnMap());
+            if (!isPublic && !isMembers) {
+                return;
+            }
+            ShowsOnAMap pin = ShowsOnAMap.builder()
+                    .showName(show.getShowName())
+                    .showSubdomain(show.getShowSubdomain())
+                    .showLatitude(roundCoordinate(show.getPreferences().getShowLatitude()))
+                    .showLongitude(roundCoordinate(show.getPreferences().getShowLongitude()))
+                    .publiclyVisible(isPublic)
+                    .build();
+            memberShows.add(pin);
+            if (isPublic) {
+                publicShows.add(pin);
             }
         });
-        List<ShowsOnAMap> result = Collections.unmodifiableList(showsOnAMapList);
-        this.showsOnAMapCache.set(new ShowsOnAMapCache(result, now));
-        return result;
+        ShowsOnAMapCache fresh = new ShowsOnAMapCache(
+                ShowsOnAMapResult.builder()
+                        .totalShows(totalShows)
+                        .shows(Collections.unmodifiableList(publicShows))
+                        .build(),
+                ShowsOnAMapResult.builder()
+                        .totalShows(totalShows)
+                        .shows(Collections.unmodifiableList(memberShows))
+                        .build(),
+                now);
+        this.showsOnAMapCache.set(fresh);
+        return fresh;
     }
 
     // ~11 m precision — enough to find the show, coarse enough to obscure the

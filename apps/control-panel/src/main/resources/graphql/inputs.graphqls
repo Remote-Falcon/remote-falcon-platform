@@ -72,6 +72,7 @@ input PreferenceInput {
     pageTitle: String
     pageIconUrl: String
     showOnMap: Boolean
+    showOnMapPublic: Boolean
     selfHostedRedirectUrl: String
     blockedViewerIps: [String]
     votingExemptIps: [String]

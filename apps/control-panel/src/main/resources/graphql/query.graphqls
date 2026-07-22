@@ -18,7 +18,8 @@ type Query {
     requestConversion(startDate: Long!, endDate: Long!, timezone: String = "America/Chicago"): RequestConversion
     psaEffectiveness(timezone: String = "America/Chicago"): PsaEffectiveness
     wrappedSummary(token: String!, season: String!, year: Int!, timezone: String): WrappedSummary
-    showsOnAMap: [ShowsOnAMap]
+    showsOnAMap: ShowsOnAMapResult
+    showsOnAMapForUsers: ShowsOnAMapResult
     getShowsAutoSuggest(showName: String!): [String]
     getShowByShowName(showName: String!): Show
     getNotifications: [Notification]
