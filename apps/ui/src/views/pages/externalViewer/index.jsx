@@ -569,8 +569,12 @@ const ExternalViewerPage = () => {
                     // greedy-packs them as independent items and the variable-width
                     // category label shifts every badge from the right of its card to
                     // the left (or vice versa) depending on the label's length.
+                    // align-items:flex-end (not center) so the short vote badge's
+                    // bottom border lines up with the taller card's bottom-border
+                    // divider — otherwise the two underlines stagger at different
+                    // heights per row in templates that border-bottom both elements.
                     const theElement = (
-                      <div className="cell-vote-row" style={{ display: 'flex', width: '100%', alignItems: 'center' }}>
+                      <div className="cell-vote-row" style={{ display: 'flex', width: '100%', alignItems: 'flex-end' }}>
                         <div
                           className={categorizedVotingListClassname}
                           style={isSequenceUnavailable(categorizedSequence) ? unavailableStyle : undefined}
