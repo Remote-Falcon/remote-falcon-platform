@@ -177,6 +177,37 @@ is a future enhancement).
 > produced 20 named shots before this addendum; with `sequences-categories`,
 > 21 (verified against the run manifest, 2026-07-11).
 
+## Public Show Map — new shots added 2026-07-22
+
+The Public Show Map release (#138) added the unauthenticated `/map` page and
+swapped the admin Shows Map from Google Maps to the shared MapLibre GL
+component. New/changed testids:
+
+| # | Shot name | Component file | Element | `data-testid` |
+|---|---|---|---|---|
+| 20 | `public-map` | `apps/ui/src/views/pages/map/index.jsx` | outer `<Box>` shell | `public-map-root` |
+| 21 | `public-map-details` | same file (details card open) | (same `public-map-root` anchor; card opened via the search box) | `public-map-root` |
+| — | (load anchor, both maps) | `apps/ui/src/ui-component/maps/ShowsMapLibre.jsx` | the MapLibre container `<Box>` | `shows-maplibre` |
+
+Notes:
+
+- **`public-map-root`** is the full-page load anchor on the public `/map`
+  page, following the `-root` convention. `public-map.screenshot.ts`
+  captures it twice: the default map, then a `details-open` state opened by
+  selecting a show from the search box (a deterministic path — clicking a
+  canvas pin is unreliable headless).
+- **`shows-maplibre`** ships with the `ShowsMapLibre` component itself (the
+  map container). Both the public-map spec and the admin `shows-map` spec
+  (#13) now wait on it so they assert the map path rendered (not the list
+  fallback) and give basemap tiles a beat to paint. `shows-map` (#13) is
+  otherwise unchanged — it just picks up the new two-toggle MapLibre admin
+  UI on regeneration.
+- **Seed dependency:** for the public map to show real pins the docs seed
+  sets `preferences.showOnMapPublic: true` on the demo show and inserts
+  `fixtures/seed-shows-docs/public-map-pins.json` (7 scattered public shows,
+  two clustered near the demo pin) — see `global-setup.ts` Phase C. This
+  also lights the public toggle + "Public" badge on the `shows-map` shot.
+
 ## Cross-reference
 
 - PRD source: **Appendix B** of

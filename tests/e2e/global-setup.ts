@@ -263,6 +263,21 @@ const seedDocsScreenshots = async (mongoUri: string): Promise<void> => {
     console.log(
       `[docs-screenshots] seed: enriched with ${seqCount} sequences, ${groupCount} groups, ${reqCount} requests`
     );
+
+    // Phase C — extra public-map pins. The public /map shot (and the admin
+    // Shows Map shot) look bare with a single pin, so seed a handful of
+    // scattered public opt-ins (a couple clustered near the demo show) to
+    // populate pins, a low-zoom cluster, and plural community-size counts.
+    // These are minimal docs: only the fields getShowsOnMap projects
+    // (showName, showSubdomain, preferences.showOnMapPublic + coords).
+    const pinsPath = join(__dirname, 'fixtures/seed-shows-docs/public-map-pins.json');
+    if (existsSync(pinsPath)) {
+      const pins = JSON.parse(readFileSync(pinsPath, 'utf-8')) as Record<string, unknown>[];
+      if (Array.isArray(pins) && pins.length) {
+        await db.collection('show').insertMany(pins);
+        console.log(`[docs-screenshots] seed: inserted ${pins.length} public-map pins`);
+      }
+    }
   } finally {
     await client.close();
   }
