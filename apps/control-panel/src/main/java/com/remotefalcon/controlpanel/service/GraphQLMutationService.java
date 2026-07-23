@@ -51,6 +51,7 @@ public class GraphQLMutationService {
     private final ViewerPageService viewerPageService;
     private final MongoTemplate mongoTemplate;
     private final PostHogUtil postHogUtil;
+    private final GraphQLQueryService graphQLQueryService;
 
     @Value("${auto-validate-email}")
     Boolean autoValidateEmail;
@@ -447,8 +448,19 @@ public class GraphQLMutationService {
             // daily-vote cap + "votes left" countdown to full mid-show.
             preferences.setVotingWindowStartedAt(current == null ? null : current.getVotingWindowStartedAt());
             preferences.setLastVoteCountedAt(current == null ? null : current.getLastVoteCountedAt());
+            // Shows-map cache eviction: if this save changes what either map
+            // renders (visibility tier or coordinates), drop the 5-minute
+            // cache so the operator's toggle takes effect immediately.
+            boolean mapProjectionChanged = current == null
+                    || !Objects.equals(current.getShowOnMap(), preferences.getShowOnMap())
+                    || !Objects.equals(current.getShowOnMapPublic(), preferences.getShowOnMapPublic())
+                    || !Objects.equals(current.getShowLatitude(), preferences.getShowLatitude())
+                    || !Objects.equals(current.getShowLongitude(), preferences.getShowLongitude());
             show.get().setPreferences(preferences);
             this.showRepository.save(show.get());
+            if (mapProjectionChanged) {
+                this.graphQLQueryService.evictShowsOnAMapCache();
+            }
             return true;
         }
         throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());

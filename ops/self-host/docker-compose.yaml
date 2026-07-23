@@ -122,7 +122,9 @@ services:
         CONTROL_PANEL_API: ${WEB_URL}/remote-falcon-control-panel
         VIEWER_API: ${WEB_URL}/remote-falcon-viewer
         VIEWER_JWT_KEY: ${JWT_VIEWER}
-        GOOGLE_MAPS_KEY: ${GOOGLE_MAPS_KEY:-}
+        PROTOMAPS_API_KEY: ${PROTOMAPS_API_KEY:-}
+        MAP_STYLE_LIGHT: ${MAP_STYLE_LIGHT:-}
+        MAP_STYLE_DARK: ${MAP_STYLE_DARK:-}
         PUBLIC_POSTHOG_KEY: ${PUBLIC_POSTHOG_KEY:-}
         GA_TRACKING_ID: ${GA_TRACKING_ID:-}
         HOSTNAME_PARTS: ${HOSTNAME_PARTS:-2}

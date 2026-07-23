@@ -1,99 +1,41 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import * as React from 'react';
 
 import { useLazyQuery, useMutation } from '@apollo/client';
-import { Box, Grid, Stack, Typography, Switch, CardActions, TextField, IconButton, Tooltip } from '@mui/material';
+import { Box, Button, Chip, Grid, Stack, Typography, Switch, CardActions, TextField, IconButton, Tooltip } from '@mui/material';
 import MyLocationTwoToneIcon from '@mui/icons-material/MyLocationTwoTone';
 import SaveTwoToneIcon from '@mui/icons-material/SaveTwoTone';
-import { APIProvider, Map, useMap, useMapsLibrary } from '@vis.gl/react-google-maps';
-import { MarkerClusterer } from '@googlemaps/markerclusterer';
+import { IconExternalLink } from '@tabler/icons-react';
 import _ from 'lodash';
-
-/* global google */
 
 import { useDispatch, useSelector } from '../../../../store';
 import { gridSpacing } from '../../../../store/constant';
 import MainCard from '../../../../ui-component/cards/MainCard';
+import ShowsMapLibre from '../../../../ui-component/maps/ShowsMapLibre';
 import PageHead from '../../../../ui-component/PageHead';
 import TrackerSkeleton from '../../../../ui-component/cards/Skeleton/TrackerSkeleton';
 
 import { savePreferencesService } from '../../../../services/controlPanel/mutations.service';
 import { setShow } from '../../../../store/slices/show';
+import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
 import { UPDATE_PREFERENCES } from '../../../../utils/graphql/controlPanel/mutations';
-import { SHOWS_ON_MAP } from '../../../../utils/graphql/controlPanel/queries';
+import { SHOWS_ON_MAP_FOR_USERS } from '../../../../utils/graphql/controlPanel/queries';
+import { getShowPublicUrl } from '../../../../utils/showPublicUrl';
 import { showAlert } from '../../globalPageHelpers';
-const ShowsCluster = ({ shows }) => {
-  const map = useMap();
-  const markerLib = useMapsLibrary('marker');
-  const infoWindowRef = useRef(null);
-  const clustererRef = useRef(null);
-
-  useEffect(() => {
-    if (!markerLib || infoWindowRef.current) return;
-    infoWindowRef.current = new google.maps.InfoWindow();
-  }, [markerLib]);
-
-  useEffect(() => {
-    if (!map || !markerLib) return undefined;
-    const { AdvancedMarkerElement } = markerLib;
-    const infoWindow = infoWindowRef.current ?? new google.maps.InfoWindow();
-    const mapClickListener = map.addListener('click', () => infoWindow.close());
-
-    const markers = shows
-      .filter((show) => Number.isFinite(show?.location?.lat) && Number.isFinite(show?.location?.lng))
-      .map((show) => {
-        const title = show?.showName || 'Show';
-        const marker = new AdvancedMarkerElement({
-          position: show.location,
-          title
-        });
-        marker.addListener('click', () => {
-          infoWindow.close();
-          const content = document.createElement('div');
-          content.textContent = title;
-          content.style.color = '#0d47a1';
-          content.style.fontWeight = '600';
-          content.style.fontSize = '14px';
-          content.style.padding = '4px 8px';
-          infoWindow.setContent(content);
-          infoWindow.open({ anchor: marker, map });
-        });
-        return marker;
-      });
-
-    // Construct the clusterer with markers already populated. The
-    // previous split-effect implementation (empty-init then addMarkers)
-    // is a known sharp edge in @googlemaps/markerclusterer v2.5+ when
-    // paired with AdvancedMarkerElement — the renderer is left in a
-    // state where the first addMarkers() call silently produces no DOM
-    // output, with no console error. Result: ~1,040 valid markers
-    // entered the cluster but zero <gmp-advanced-marker> elements ever
-    // appeared in the DOM (#117).
-    clustererRef.current = new MarkerClusterer({ map, markers });
-
-    return () => {
-      google.maps.event.removeListener(mapClickListener);
-      clustererRef.current?.clearMarkers();
-      clustererRef.current = null;
-      markers.forEach((marker) => marker.map && (marker.map = null));
-    };
-  }, [map, markerLib, shows]);
-
-  return null;
-};
 
 const ShowsMap = () => {
   const dispatch = useDispatch();
   const { show } = useSelector((state) => state.show);
 
   const [isLoading, setIsLoading] = useState(false);
-  const [mapLoaded, setMapLoaded] = useState(false);
   const [showsOnMap, setShowsOnMap] = useState([]);
+  const [totalShows, setTotalShows] = useState(null);
+  const [selectedShow, setSelectedShow] = useState(null);
   const [manualLat, setManualLat] = useState('');
   const [manualLng, setManualLng] = useState('');
 
   const [updatePreferencesMutation] = useMutation(UPDATE_PREFERENCES);
-  const [showsOnMapQuery] = useLazyQuery(SHOWS_ON_MAP);
+  const [showsOnMapQuery] = useLazyQuery(SHOWS_ON_MAP_FOR_USERS);
 
   const detectLocation = useCallback(
     (notify = false) => {
@@ -151,17 +93,21 @@ const ShowsMap = () => {
       fetchPolicy: 'network-only',
       onCompleted: (data) => {
         const shows = [];
-        _.forEach(data?.showsOnAMap, (show) => {
-          const lat = Number(show?.showLatitude);
-          const lng = Number(show?.showLongitude);
-          if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        _.forEach(data?.showsOnAMapForUsers?.shows, (mappedShow) => {
+          const latitude = Number(mappedShow?.showLatitude);
+          const longitude = Number(mappedShow?.showLongitude);
+          if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
             shows.push({
-              showName: show?.showName,
-              location: { lat, lng }
+              showName: mappedShow?.showName,
+              showSubdomain: mappedShow?.showSubdomain,
+              publiclyVisible: mappedShow?.publiclyVisible === true,
+              latitude,
+              longitude
             });
           }
         });
         setShowsOnMap(shows);
+        setTotalShows(data?.showsOnAMapForUsers?.totalShows ?? null);
       },
       onError: () => {
         showAlert(dispatch, { alert: 'error' });
@@ -170,14 +116,19 @@ const ShowsMap = () => {
     setIsLoading(false);
   }, [dispatch, showsOnMapQuery]);
 
-  const handleShowMyShowSwitch = (event, value) => {
-    // Just toggle map visibility. The show's coordinates are set via the Show
-    // Location controls below (Detect or manual entry), so enabling the map no
-    // longer depends on a successful detection at toggle time.
+  // Two independent visibility tiers (two switches): showOnMap = visible to
+  // logged-in RF users on this page; showOnMapPublic = visible to anyone on
+  // the unauthenticated public /map page. Coordinates are set via the Show
+  // Location controls below, so enabling either toggle no longer depends on
+  // a successful detection at toggle time.
+  const handleVisibilitySwitch = (field) => (event, value) => {
     const updatedPreferences = _.cloneDeep({
       ...show?.preferences,
-      showOnMap: value
+      [field]: value
     });
+    // Supply-side activation metric for the public-map launch: which operators
+    // opt in, and to which tier. showOnMapPublic is the headline one.
+    trackPosthogEvent('map_visibility_toggled', { field, enabled: value });
     savePreferencesService(updatedPreferences, updatePreferencesMutation, (response) => {
       dispatch(
         setShow({
@@ -218,11 +169,6 @@ const ShowsMap = () => {
     });
   };
 
-  const center = {
-    lat: 41.69194824042432,
-    lng: -97.64580975379515
-  };
-
   useEffect(() => {
     getShowsOnMap();
   }, [getShowsOnMap]);
@@ -253,23 +199,47 @@ const ShowsMap = () => {
                   <Grid container alignItems="center" justifyContent="space-between" spacing={1}>
                     <Grid item xs={12} md={6} lg={4}>
                       <Stack direction="row" spacing={2} pb={1}>
-                        <Typography variant="h4">Show {show?.showName} on the Map</Typography>
+                        <Typography variant="h4">Show {show?.showName} to Remote Falcon users</Typography>
                       </Stack>
                       <Typography component="div" variant="caption">
-                        If enabled, {show?.showName}&apos;s location will be displayed on the Remote Falcon Shows Map.
+                        If enabled, {show?.showName}&apos;s location appears on this community Shows Map, visible only to people with a
+                        Remote Falcon login.
                       </Typography>
                     </Grid>
                     <Grid item xs={12} md={6} lg={4}>
                       <Switch
                         name="displayShowOnMap"
                         color="primary"
-                        checked={show?.preferences?.showOnMap}
-                        onChange={handleShowMyShowSwitch}
+                        checked={show?.preferences?.showOnMap === true}
+                        onChange={handleVisibilitySwitch('showOnMap')}
+                        inputProps={{ 'aria-label': `Show ${show?.showName} to logged-in Remote Falcon users` }}
                       />
                     </Grid>
                   </Grid>
                 </CardActions>
-                {show?.preferences?.showOnMap && (
+                <CardActions>
+                  <Grid container alignItems="center" justifyContent="space-between" spacing={1}>
+                    <Grid item xs={12} md={6} lg={4}>
+                      <Stack direction="row" spacing={2} pb={1}>
+                        <Typography variant="h4">Show {show?.showName} on the public map</Typography>
+                      </Stack>
+                      <Typography component="div" variant="caption">
+                        If enabled, {show?.showName} appears on the public Show Map at remotefalcon.com/map, visible to anyone on the
+                        internet with no login required. Your location is blurred to roughly 11 meters (about 36 feet) on both maps.
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={12} md={6} lg={4}>
+                      <Switch
+                        name="displayShowOnMapPublic"
+                        color="primary"
+                        checked={show?.preferences?.showOnMapPublic === true}
+                        onChange={handleVisibilitySwitch('showOnMapPublic')}
+                        inputProps={{ 'aria-label': `Show ${show?.showName} on the public map, visible to anyone on the internet` }}
+                      />
+                    </Grid>
+                  </Grid>
+                </CardActions>
+                {(show?.preferences?.showOnMap || show?.preferences?.showOnMapPublic) && (
                   <CardActions>
                     <Grid container alignItems="center" justifyContent="space-between" spacing={1}>
                       <Grid item xs={12} md={6} lg={4}>
@@ -312,17 +282,30 @@ const ShowsMap = () => {
                 )}
                 <Box sx={{ mt: 4 }}>
                   <Typography variant="h3" align="center" color="secondary">
-                    Total Shows on Map: {showsOnMap?.length}
+                    {Number.isFinite(totalShows) && totalShows > 0
+                      ? `${totalShows.toLocaleString()} shows on Remote Falcon, ${showsOnMap?.length?.toLocaleString()} on the community map`
+                      : `Total Shows on Map: ${showsOnMap?.length}`}
                   </Typography>
+                  {selectedShow && (
+                    <Stack direction="row" spacing={1} alignItems="center" justifyContent="center" sx={{ mt: 1 }}>
+                      <Typography variant="h5">{selectedShow.showName}</Typography>
+                      {selectedShow.publiclyVisible && <Chip size="small" color="success" label="Public" />}
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        endIcon={<IconExternalLink size={16} />}
+                        component="a"
+                        href={getShowPublicUrl(selectedShow.showSubdomain)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        Visit Show
+                      </Button>
+                    </Stack>
+                  )}
                 </Box>
                 <CardActions sx={{ height: '39em' }}>
-                  <APIProvider apiKey={import.meta.env.VITE_GOOGLE_MAPS_KEY} onLoad={() => setMapLoaded(true)}>
-                    {mapLoaded && (
-                      <Map mapId="972618e58193992a" defaultZoom={1} defaultCenter={center}>
-                        <ShowsCluster shows={showsOnMap} />
-                      </Map>
-                    )}
-                  </APIProvider>
+                  <ShowsMapLibre shows={showsOnMap} onPinClick={setSelectedShow} />
                 </CardActions>
               </>
             )}

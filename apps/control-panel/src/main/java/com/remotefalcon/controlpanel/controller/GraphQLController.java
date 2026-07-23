@@ -6,7 +6,7 @@ import com.remotefalcon.controlpanel.response.MfaEnrollment;
 import com.remotefalcon.controlpanel.response.MfaKeyRotationResult;
 import com.remotefalcon.controlpanel.response.MfaRecoveryCodes;
 import com.remotefalcon.controlpanel.response.RotateShowTokenResponse;
-import com.remotefalcon.controlpanel.response.ShowsOnAMap;
+import com.remotefalcon.controlpanel.response.ShowsOnAMapResult;
 import com.remotefalcon.library.documents.Notification;
 import com.remotefalcon.library.documents.Show;
 import com.remotefalcon.library.models.*;
@@ -416,10 +416,25 @@ public class GraphQLController {
         return dashboardService.wrappedSummary(token, season, year, timezone);
     }
 
+    // PUBLIC — no @RequiresAccess. Powers the public /map page. Only shows
+    // that opted into PUBLIC visibility (preferences.showOnMapPublic) are
+    // returned, coordinates are rounded to ~11 m in the service, and the
+    // result is cached in-memory for 5 minutes so anonymous traffic can't
+    // hammer Mongo. Partial indexes idx_showOnMap / idx_showOnMapPublic back
+    // the shared repo query.
     @QueryMapping
-    @RequiresAccess()
-    public List<ShowsOnAMap> showsOnAMap() {
+    public ShowsOnAMapResult showsOnAMap() {
         return graphQLQueryService.showsOnAMap();
+    }
+
+    // Members map (dashboard Shows Map page): union of both opt-in tiers —
+    // preferences.showOnMap (visible to logged-in RF users only) plus
+    // showOnMapPublic. Same coordinate rounding; operators are still
+    // strangers to each other.
+    @QueryMapping
+    @RequiresAccess
+    public ShowsOnAMapResult showsOnAMapForUsers() {
+        return graphQLQueryService.showsOnAMapForUsers();
     }
 
     @QueryMapping

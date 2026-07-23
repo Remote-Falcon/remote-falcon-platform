@@ -210,11 +210,10 @@ const FEATURES = [
     heading: 'Find & be found on the Shows Map',
     body: 'Opt in to the global Remote Falcon shows map and let viewers discover light shows nearby.',
     bullets: [
-      'Pin your show with a single toggle in the control panel',
+      'Share publicly or only with other Remote Falcon users — your choice, one toggle each',
       'Map auto-clusters shows by region as viewers pan and zoom',
       "100% opt-in — you control whether your show appears"
     ],
-    badge: 'Soon',
     anchor: 'shows-map',
     visualPalette: ['primary', 'error'],
     visual: <ShowsMapPreview />

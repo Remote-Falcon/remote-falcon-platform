@@ -4,6 +4,7 @@ import com.remotefalcon.controlpanel.dto.TokenDTO;
 import com.remotefalcon.controlpanel.repository.NotificationRepository;
 import com.remotefalcon.controlpanel.repository.ShowRepository;
 import com.remotefalcon.controlpanel.response.ShowsOnAMap;
+import com.remotefalcon.controlpanel.response.ShowsOnAMapResult;
 import com.remotefalcon.controlpanel.util.AuthUtil;
 import com.remotefalcon.controlpanel.util.ClientUtil;
 import com.remotefalcon.library.documents.Notification;
@@ -390,24 +391,105 @@ class GraphQLQueryServiceTest {
                 .hasMessage(StatusResponse.UNEXPECTED_ERROR.name());
     }
 
-    // ---- showsOnAMap ----
+    // ---- showsOnAMap / showsOnAMapForUsers ----
+    //
+    // Two-tier visibility: showOnMap = members-only (logged-in RF users),
+    // showOnMapPublic = the unauthenticated public map. Public list is
+    // showOnMapPublic only; members list is the union. Never grandfather
+    // members-only opt-ins onto the public map.
+
+    private Show mapShow(String name, Boolean members, Boolean pub, float lat, float lng) {
+        return Show.builder().showName(name).showSubdomain(name + "-show")
+                .preferences(Preference.builder().showOnMap(members).showOnMapPublic(pub)
+                        .showLatitude(lat).showLongitude(lng).build())
+                .build();
+    }
 
     @Test
-    void showsOnAMap_onlyIncludesShowsWithOptInPreference() {
-        Show optIn = Show.builder().showName("Yes")
-                .preferences(Preference.builder().showOnMap(true).showLatitude(1.0f).showLongitude(2.0f).build())
-                .build();
-        Show optOut = Show.builder().showName("No")
-                .preferences(Preference.builder().showOnMap(false).showLatitude(3.0f).showLongitude(4.0f).build())
-                .build();
+    void showsOnAMap_publicListOnlyIncludesPublicOptIns() {
+        Show membersOnly = mapShow("members", true, false, 1.0f, 2.0f);
+        Show publicShow = mapShow("public", false, true, 3.0f, 4.0f);
+        Show both = mapShow("both", true, true, 5.0f, 6.0f);
+        Show neither = mapShow("neither", false, null, 7.0f, 8.0f);
         Show noPref = Show.builder().showName("Null").preferences(null).build();
-        when(showRepository.getShowsOnMap()).thenReturn(List.of(optIn, optOut, noPref));
+        when(showRepository.count()).thenReturn(5L);
+        when(showRepository.getShowsOnMap()).thenReturn(List.of(membersOnly, publicShow, both, neither, noPref));
 
-        List<ShowsOnAMap> shown = service.showsOnAMap();
-        assertThat(shown).hasSize(1);
-        assertThat(shown.get(0).getShowName()).isEqualTo("Yes");
-        assertThat(shown.get(0).getShowLatitude()).isEqualTo(1.0f);
-        assertThat(shown.get(0).getShowLongitude()).isEqualTo(2.0f);
+        ShowsOnAMapResult result = service.showsOnAMap();
+        assertThat(result.getTotalShows()).isEqualTo(5L);
+        assertThat(result.getShows()).extracting(ShowsOnAMap::getShowName)
+                .containsExactlyInAnyOrder("public", "both");
+        assertThat(result.getShows()).allMatch(s -> Boolean.TRUE.equals(s.getPubliclyVisible()));
+    }
+
+    @Test
+    void showsOnAMapForUsers_returnsUnionWithPublicFlag() {
+        Show membersOnly = mapShow("members", true, false, 1.0f, 2.0f);
+        Show publicShow = mapShow("public", false, true, 3.0f, 4.0f);
+        Show neither = mapShow("neither", null, null, 7.0f, 8.0f);
+        when(showRepository.count()).thenReturn(3L);
+        when(showRepository.getShowsOnMap()).thenReturn(List.of(membersOnly, publicShow, neither));
+
+        ShowsOnAMapResult result = service.showsOnAMapForUsers();
+        assertThat(result.getTotalShows()).isEqualTo(3L);
+        assertThat(result.getShows()).extracting(ShowsOnAMap::getShowName)
+                .containsExactlyInAnyOrder("members", "public");
+        assertThat(result.getShows()).filteredOn(s -> s.getShowName().equals("members"))
+                .allMatch(s -> Boolean.FALSE.equals(s.getPubliclyVisible()));
+        assertThat(result.getShows()).filteredOn(s -> s.getShowName().equals("public"))
+                .allMatch(s -> Boolean.TRUE.equals(s.getPubliclyVisible()));
+    }
+
+    // Both projections must not expose exact home coordinates: rounded to
+    // 4 decimal places (~11 m). Full precision stays in Mongo for the
+    // viewer geofence.
+    @Test
+    void showsOnAMap_roundsCoordinatesToFourDecimalPlaces() {
+        Show show = Show.builder().showName("Precise").showSubdomain("precise")
+                .preferences(Preference.builder().showOnMap(true).showOnMapPublic(true)
+                        .showLatitude(35.123456f).showLongitude(-80.987654f).build())
+                .build();
+        when(showRepository.count()).thenReturn(1L);
+        when(showRepository.getShowsOnMap()).thenReturn(List.of(show));
+
+        ShowsOnAMapResult publicResult = service.showsOnAMap();
+        assertThat(publicResult.getShows().get(0).getShowLatitude()).isEqualTo(35.1235f);
+        assertThat(publicResult.getShows().get(0).getShowLongitude()).isEqualTo(-80.9877f);
+        ShowsOnAMapResult membersResult = service.showsOnAMapForUsers();
+        assertThat(membersResult.getShows().get(0).getShowLatitude()).isEqualTo(35.1235f);
+        assertThat(membersResult.getShows().get(0).getShowLongitude()).isEqualTo(-80.9877f);
+    }
+
+    // showsOnAMap is public/unauthenticated — the 5-minute in-memory cache is
+    // what keeps anonymous map traffic from hitting Mongo per page load. Both
+    // queries share one cache entry: one repo fetch + one count feeds both.
+    @Test
+    void showsOnAMap_cachesResultAndSkipsRepositoryOnSecondCall() {
+        Show show = mapShow("cached", true, true, 1.0f, 2.0f);
+        when(showRepository.count()).thenReturn(1L);
+        when(showRepository.getShowsOnMap()).thenReturn(List.of(show));
+
+        ShowsOnAMapResult first = service.showsOnAMap();
+        ShowsOnAMapResult second = service.showsOnAMap();
+        ShowsOnAMapResult members = service.showsOnAMapForUsers();
+        assertThat(second).isSameAs(first);
+        assertThat(members.getShows()).hasSize(1);
+        verify(showRepository, times(1)).getShowsOnMap();
+        verify(showRepository, times(1)).count();
+    }
+
+    // Eviction (updatePreferences on a visibility/coords change) must force
+    // the next read to refetch, so toggles reflect immediately.
+    @Test
+    void showsOnAMap_refetchesAfterCacheEviction() {
+        Show show = mapShow("evicted", true, true, 1.0f, 2.0f);
+        when(showRepository.count()).thenReturn(1L);
+        when(showRepository.getShowsOnMap()).thenReturn(List.of(show));
+
+        service.showsOnAMap();
+        service.evictShowsOnAMapCache();
+        service.showsOnAMap();
+        verify(showRepository, times(2)).getShowsOnMap();
     }
 
     // ---- getShowByShowName ----

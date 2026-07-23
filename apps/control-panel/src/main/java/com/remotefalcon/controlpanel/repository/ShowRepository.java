@@ -89,11 +89,23 @@ public interface ShowRepository extends MongoRepository<Show, String> {
             fields = "{ 'showName': 1 }")
     List<Show> findByShowNameStartingWith(String anchoredRegexPattern, Pageable pageable);
 
-    @Query(value = "{ 'preferences.showOnMap': true, " +
-                   "'preferences.showLatitude':  { $gte: -90,  $lte: 90 }, " +
-                   "'preferences.showLongitude': { $gte: -180, $lte: 180 }, " +
-                   "$or: [ { 'preferences.showLatitude': { $ne: 0 } }, { 'preferences.showLongitude': { $ne: 0 } } ] }",
-            fields = "{ 'showName': 1, 'preferences.showLatitude': 1, 'preferences.showLongitude': 1, 'preferences.showOnMap': 1 }")
+    // Top-level $or of two COMPLETE branches (each repeats the coordinate
+    // sanity conditions) so Mongo's SUBPLAN can serve each branch from its
+    // own partial index (idx_showOnMap / idx_showOnMapPublic) and dedupe by
+    // _id. A single combined predicate would defeat both partial filters.
+    @Query(value = "{ $or: [ " +
+                   "{ 'preferences.showOnMap': true, " +
+                   "  'preferences.showLatitude':  { $gte: -90,  $lte: 90 }, " +
+                   "  'preferences.showLongitude': { $gte: -180, $lte: 180 }, " +
+                   "  $or: [ { 'preferences.showLatitude': { $ne: 0 } }, { 'preferences.showLongitude': { $ne: 0 } } ] }, " +
+                   "{ 'preferences.showOnMapPublic': true, " +
+                   "  'preferences.showLatitude':  { $gte: -90,  $lte: 90 }, " +
+                   "  'preferences.showLongitude': { $gte: -180, $lte: 180 }, " +
+                   "  $or: [ { 'preferences.showLatitude': { $ne: 0 } }, { 'preferences.showLongitude': { $ne: 0 } } ] } " +
+                   "] }",
+            fields = "{ 'showName': 1, 'showSubdomain': 1, " +
+                     "'preferences.showLatitude': 1, 'preferences.showLongitude': 1, " +
+                     "'preferences.showOnMap': 1, 'preferences.showOnMapPublic': 1 }")
     List<Show> getShowsOnMap();
 
     @Aggregation(pipeline = {

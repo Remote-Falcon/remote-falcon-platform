@@ -152,6 +152,19 @@ public class MongoIndexInitializer {
             ))
     );
 
+    // Sibling of idx_showOnMap for the public-visibility flag. getShowsOnMap
+    // is a top-level $or over the two flags; Mongo's SUBPLAN serves each
+    // branch from its matching partial index.
+    ensure("idx_showOnMapPublic",
+        new Index()
+            .on("preferences.showLatitude", Sort.Direction.ASC)
+            .on("preferences.showLongitude", Sort.Direction.ASC)
+            .named("idx_showOnMapPublic")
+            .partial(PartialIndexFilter.of(
+                Criteria.where("preferences.showOnMapPublic").is(true)
+            ))
+    );
+
     // Sparse: backs the public, unauthenticated Wrapped-summary lookup
     // (ShowRepository.findByWrappedShareTokenForWrapped on
     // 'preferences.wrappedShareToken'). Sparse because only shows that have shared

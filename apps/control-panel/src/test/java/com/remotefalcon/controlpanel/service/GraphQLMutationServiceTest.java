@@ -79,6 +79,7 @@ class GraphQLMutationServiceTest {
     @Mock private ViewerPageService viewerPageService;
     @Mock private MongoTemplate mongoTemplate;
     @Mock private PostHogUtil postHogUtil;
+    @Mock private GraphQLQueryService graphQLQueryService;
 
     @InjectMocks private GraphQLMutationService service;
 
@@ -507,6 +508,39 @@ class GraphQLMutationServiceTest {
 
         // The mutation should have force-reset the counter to 0.
         assertThat(newPrefs.getSequencesPlayed()).isZero();
+    }
+
+    // ---- updatePreferences (shows-map cache eviction) ----
+
+    @Test
+    void updatePreferences_evictsMapCache_whenVisibilityOrCoordsChange() {
+        stubAuth();
+        Show show = Show.builder().showToken(SHOW_TOKEN)
+                .preferences(Preference.builder().showOnMap(true).showOnMapPublic(false)
+                        .showLatitude(35.0f).showLongitude(-80.0f).build())
+                .build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        service.updatePreferences(Preference.builder().showOnMap(true).showOnMapPublic(true)
+                .showLatitude(35.0f).showLongitude(-80.0f).build());
+
+        verify(graphQLQueryService).evictShowsOnAMapCache();
+    }
+
+    @Test
+    void updatePreferences_doesNotEvictMapCache_whenMapProjectionUntouched() {
+        stubAuth();
+        Show show = Show.builder().showToken(SHOW_TOKEN)
+                .preferences(Preference.builder().showOnMap(true).showOnMapPublic(false)
+                        .showLatitude(35.0f).showLongitude(-80.0f).jukeboxDepth(3).build())
+                .build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        // Unrelated preference change — same visibility flags and coords.
+        service.updatePreferences(Preference.builder().showOnMap(true).showOnMapPublic(false)
+                .showLatitude(35.0f).showLongitude(-80.0f).jukeboxDepth(7).build());
+
+        verify(graphQLQueryService, never()).evictShowsOnAMapCache();
     }
 
     @Test

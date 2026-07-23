@@ -80,10 +80,12 @@ fi
 # Compose semantics: with no profile, only services that have no `profiles:`
 # tag start. With --profile platform, those *plus* services tagged [platform].
 dc() {
+  # --env-file makes .env.dev values available to ${VAR:-} interpolation
+  # (build args like PROTOMAPS_API_KEY), not just runtime env_file: injection.
   if [[ "$MODE" == "platform" ]]; then
-    "${DC_BIN[@]}" -f "$COMPOSE_FILE" --profile platform "$@"
+    "${DC_BIN[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" --profile platform "$@"
   else
-    "${DC_BIN[@]}" -f "$COMPOSE_FILE" "$@"
+    "${DC_BIN[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" "$@"
   fi
 }
 

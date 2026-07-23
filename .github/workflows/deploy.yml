@@ -359,7 +359,7 @@ jobs:
             VERSION=${{ steps.date.outputs.version }}
             CONTROL_PANEL_API=https://remotefalcon.com/remote-falcon-control-panel
             VIEWER_API=https://remotefalcon.com/remote-falcon-viewer
-            GOOGLE_MAPS_KEY=${{ secrets.GOOGLE_MAPS_KEY }}
+            PROTOMAPS_API_KEY=${{ secrets.PROTOMAPS_API_KEY }}
             PUBLIC_POSTHOG_KEY=${{ secrets.PUBLIC_POSTHOG_KEY }}
             POSTHOG_CLI_API_KEY=${{ secrets.POSTHOG_API_KEY }}
             HOSTNAME_PARTS=2

@@ -208,7 +208,9 @@ services:
         CONTROL_PANEL_API: http://localhost:8080/remote-falcon-control-panel
         VIEWER_API: http://localhost:8080/remote-falcon-viewer
         VIEWER_JWT_KEY: ${VIEWER_JWT_KEY:-dev-jwt-secret-change-me}
-        GOOGLE_MAPS_KEY: ${GOOGLE_MAPS_KEY:-}
+        PROTOMAPS_API_KEY: ${PROTOMAPS_API_KEY:-}
+        MAP_STYLE_LIGHT: ${MAP_STYLE_LIGHT:-}
+        MAP_STYLE_DARK: ${MAP_STYLE_DARK:-}
         PUBLIC_POSTHOG_KEY: ${PUBLIC_POSTHOG_KEY:-}
         GA_TRACKING_ID: ${GA_TRACKING_ID:-}
         MIXPANEL_KEY: ${MIXPANEL_KEY:-}

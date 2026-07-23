@@ -24,7 +24,8 @@ All third-party keys are **baked into the bundle at image build time** via `impo
 | Env var | Purpose |
 |---|---|
 | `VITE_VIEWER_JWT_KEY` | Signs the JWT used by the viewer flow |
-| `VITE_GOOGLE_MAPS_KEY` | Maps for geo-fencing UI |
+| `VITE_PROTOMAPS_API_KEY` | Protomaps hosted API key — basemap tiles for the public shows map (`/map`) and the control-panel Shows Map |
+| `VITE_MAP_STYLE_LIGHT` / `VITE_MAP_STYLE_DARK` | Optional complete MapLibre style URLs; when set they override the Protomaps key (the future self-hosted-tiles switch) |
 | `VITE_PUBLIC_POSTHOG_KEY` | PostHog product analytics + session replay |
 | `VITE_GA_TRACKING_ID` | Google Analytics *(scheduled for removal in observability rollout)* |
 | `VITE_MIXPANEL_KEY` | Mixpanel *(scheduled for removal in observability rollout)* |

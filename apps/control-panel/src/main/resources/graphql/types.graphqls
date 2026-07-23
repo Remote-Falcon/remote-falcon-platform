@@ -122,6 +122,7 @@ type Preference {
     pageTitle: String
     pageIconUrl: String
     showOnMap: Boolean
+    showOnMapPublic: Boolean
     selfHostedRedirectUrl: String
     blockedViewerIps: [String]
     votingExemptIps: [String]
@@ -342,8 +343,15 @@ type SequenceStat {
 
 type ShowsOnAMap {
     showName: String
+    showSubdomain: String
     showLatitude: Float
     showLongitude: Float
+    publiclyVisible: Boolean
+}
+
+type ShowsOnAMapResult {
+    totalShows: Long
+    shows: [ShowsOnAMap]
 }
 
 type Notification {
