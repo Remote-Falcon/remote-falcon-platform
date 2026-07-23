@@ -564,8 +564,13 @@ const ExternalViewerPage = () => {
                     }
                     const categorizedVotingListClassname = `cell-vote-playlist cell-vote-playlist-${sequence.index}`;
                     const categorizedVotingListArtistClassname = `cell-vote-playlist-artist cell-vote-playlist-artist-${sequence.index}`;
+                    // Keep each card glued to its own vote count. Both live in the
+                    // flex-wrap .category-section, so without this wrapper the browser
+                    // greedy-packs them as independent items and the variable-width
+                    // category label shifts every badge from the right of its card to
+                    // the left (or vice versa) depending on the label's length.
                     const theElement = (
-                      <>
+                      <div className="cell-vote-row" style={{ display: 'flex', width: '100%', alignItems: 'center' }}>
                         <div
                           className={categorizedVotingListClassname}
                           style={isSequenceUnavailable(categorizedSequence) ? unavailableStyle : undefined}
@@ -584,7 +589,7 @@ const ExternalViewerPage = () => {
                           </div>
                         </div>
                         <div className="cell-vote">{categorizedSequenceVotes}</div>
-                      </>
+                      </div>
                     );
                     categorizedSequencesArray.push(theElement);
                   }
@@ -594,7 +599,9 @@ const ExternalViewerPage = () => {
               sequencesElement.push(
                 <>
                   <div className="category-section" style={{ width: '100%', display: 'flex', flexWrap: 'wrap' }}>
-                    <div className="category-label">{sequence.category}</div>
+                    <div className="category-label" style={{ flexBasis: '100%' }}>
+                      {sequence.category}
+                    </div>
                     {categorizedSequencesArray}
                   </div>
                 </>
