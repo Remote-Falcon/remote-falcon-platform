@@ -1,0 +1,79 @@
+[
+  {
+    "email": "map-pin-01@docs-demo.remotefalcon.com",
+    "showToken": "docs-map-pin-01",
+    "showSubdomain": "harbor-lights",
+    "showName": "Harbor Lights Spectacular",
+    "preferences": {
+      "showOnMapPublic": true,
+      "showLatitude": 34.05223,
+      "showLongitude": -118.24368
+    }
+  },
+  {
+    "email": "map-pin-02@docs-demo.remotefalcon.com",
+    "showToken": "docs-map-pin-02",
+    "showSubdomain": "sunset-ridge",
+    "showName": "Sunset Ridge Christmas",
+    "preferences": {
+      "showOnMapPublic": true,
+      "showLatitude": 33.83585,
+      "showLongitude": -117.91450
+    }
+  },
+  {
+    "email": "map-pin-03@docs-demo.remotefalcon.com",
+    "showToken": "docs-map-pin-03",
+    "showSubdomain": "lone-star-lights",
+    "showName": "Lone Star Lights",
+    "preferences": {
+      "showOnMapPublic": true,
+      "showLatitude": 32.77661,
+      "showLongitude": -96.79699
+    }
+  },
+  {
+    "email": "map-pin-04@docs-demo.remotefalcon.com",
+    "showToken": "docs-map-pin-04",
+    "showSubdomain": "hill-country-glow",
+    "showName": "Hill Country Glow",
+    "preferences": {
+      "showOnMapPublic": true,
+      "showLatitude": 30.26715,
+      "showLongitude": -97.74306
+    }
+  },
+  {
+    "email": "map-pin-05@docs-demo.remotefalcon.com",
+    "showToken": "docs-map-pin-05",
+    "showSubdomain": "windy-city-wonderland",
+    "showName": "Windy City Wonderland",
+    "preferences": {
+      "showOnMapPublic": true,
+      "showLatitude": 41.85003,
+      "showLongitude": -87.65005
+    }
+  },
+  {
+    "email": "map-pin-06@docs-demo.remotefalcon.com",
+    "showToken": "docs-map-pin-06",
+    "showSubdomain": "liberty-lights",
+    "showName": "Liberty Lights",
+    "preferences": {
+      "showOnMapPublic": true,
+      "showLatitude": 40.71278,
+      "showLongitude": -74.00594
+    }
+  },
+  {
+    "email": "map-pin-07@docs-demo.remotefalcon.com",
+    "showToken": "docs-map-pin-07",
+    "showSubdomain": "gulf-coast-dazzle",
+    "showName": "Gulf Coast Dazzle",
+    "preferences": {
+      "showOnMapPublic": true,
+      "showLatitude": 27.99444,
+      "showLongitude": -82.45426
+    }
+  }
+]

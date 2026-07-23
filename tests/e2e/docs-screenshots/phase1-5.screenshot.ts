@@ -54,9 +54,16 @@ test.describe('docs-screenshots: phase 1.5 pages', () => {
     await page
       .locator('[data-testid="shows-map-root"]')
       .waitFor({ state: 'visible' });
+    // The map is now MapLibre GL (Google Maps was removed in the public-map
+    // release). Wait for the map container, then give the basemap tiles a
+    // beat to paint so the shot isn't a blank canvas.
+    await page
+      .locator('[data-testid="shows-maplibre"]')
+      .waitFor({ state: 'visible' });
     await takeScreenshot(page, testInfo, 'fullPage', 'shows-map', {
-      alt: 'Shows Map page with the fixture show pinned',
+      alt: 'Shows Map page with both visibility toggles and the fixture show pinned',
       state: 'default',
+      waitBeforeMs: 2500,
     });
   });
 

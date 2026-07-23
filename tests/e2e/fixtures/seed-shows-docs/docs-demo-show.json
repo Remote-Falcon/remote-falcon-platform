@@ -35,6 +35,7 @@
     "psaFrequency": 3,
     "playAllPsas": false,
     "showOnMap": true,
+    "showOnMapPublic": true,
     "showLatitude": 33.95246,
     "showLongitude": -117.58479
   },

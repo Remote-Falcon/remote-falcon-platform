@@ -135,7 +135,7 @@ const MapPage = () => {
     : null;
 
   return (
-    <Box sx={{ height: '100dvh', display: 'flex', flexDirection: 'column', bgcolor: 'background.default' }}>
+    <Box data-testid="public-map-root" sx={{ height: '100dvh', display: 'flex', flexDirection: 'column', bgcolor: 'background.default' }}>
       <Helmet>
         <title>Remote Falcon | Show Map</title>
         <meta name="description" content="Find Remote Falcon light shows near you and jump straight to their viewer pages." />
