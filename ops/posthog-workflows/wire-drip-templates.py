@@ -37,9 +37,9 @@ except ImportError:
 HERE = Path(__file__).resolve().parent
 DRIP_FILE = HERE / "drip.yml"
 
-# The email-node fields this script owns. Everything else on the node
-# (to, from, replyTo, message_category_type) is deliberately left alone —
-# those are workflow-level delivery config, not template content.
+# The email-node fields this script owns. Recipient (to), reply-to, and
+# message_category_type are deliberately left alone — those are workflow
+# delivery config, not template content.
 CONTENT_FIELDS = ("subject", "html", "text")
 
 
@@ -125,6 +125,7 @@ def main() -> None:
     project_id = cfg["project_id"]
     host = cfg.get("posthog_host", "https://us.posthog.com").rstrip("/")
     flow_id = cfg["flow_id"]
+    integration_id = cfg.get("email_integration_id")
 
     token = os.environ.get("POSTHOG_API_KEY")
     if not token:
@@ -171,15 +172,30 @@ def main() -> None:
         wanted = template_content(get_template(host, project_id, token, template_id))
 
         diff = [f for f in CONTENT_FIELDS if value.get(f) != wanted[f]]
-        if not diff:
+
+        # A node authored over the API carries a `from` with name/email but
+        # no integrationId, and PostHog only validates that at send time —
+        # so the flow looks fine in the editor and every send fails once
+        # enabled. Guarantee it here rather than trusting authoring.
+        sender_fixed = False
+        if integration_id is not None:
+            sender = value.setdefault("from", {})
+            if sender.get("integrationId") != integration_id:
+                sender["integrationId"] = integration_id
+                sender_fixed = True
+
+        if not diff and not sender_fixed:
             print(f"[NOOP]   {action_id:<16} already matches {label!r}")
             continue
 
         was = node_placeholder_warning(value)
         suffix = f" ({was})" if was else ""
         print(f"[UPDATE] {action_id:<16} <- {label!r}{suffix}")
-        print(f"         fields: {', '.join(diff)}")
-        print(f"         subject: {wanted['subject']}")
+        if diff:
+            print(f"         fields: {', '.join(diff)}")
+            print(f"         subject: {wanted['subject']}")
+        if sender_fixed:
+            print(f"         sender: bind from.integrationId = {integration_id}")
         value.update(wanted)
         changed += 1
 

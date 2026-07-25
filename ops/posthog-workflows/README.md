@@ -36,9 +36,43 @@ node and issues no write.
 
 ## What it deliberately does not touch
 
-Only `subject`, `html`, and `text` are owned by the template. The node's
-`to` / `from` / `replyTo` / `message_category_type` are delivery config
-that belongs to the workflow, not the template, and are left alone.
+`subject`, `html`, and `text` are owned by the template, and `from.integrationId`
+is enforced from `drip.yml`. The node's `to` / `replyTo` /
+`message_category_type` are delivery config that belongs to the workflow,
+not the template, and are left alone.
+
+# fix-liquid-escaping.py
+
+PostHog's CDP Liquid renderer runs with liquidjs `outputEscape: 'escape'`,
+so every `{{ ... }}` output is HTML-escaped. That is correct for the HTML
+body and wrong everywhere else:
+
+- a show called `Matt's Show` arrives as a subject line reading
+  `Matt&#39;s Show`
+- `{{ unsubscribe_url }}` in the plain-text part gets its `&` separators
+  turned into `&amp;`, quietly breaking the link
+
+Apostrophes and ampersands are common in show names, so this hits a large
+share of recipients. Nothing catches it at author time — the editor and
+preview both look fine, and it only appears in a delivered message.
+
+```bash
+./ops/posthog-workflows/apply.sh --help    # (wiring script)
+"$HOME/.cache/rf-posthog-workflows-venv/bin/python" \
+  ops/posthog-workflows/fix-liquid-escaping.py --apply
+```
+
+Appends `| raw` to every Liquid output in `subject` and `text` across all
+templates in `drip.yml` (including `standalone_templates`). Idempotent, so
+re-run it after **any** edit in the PostHog template editor — the merge-tag
+dropdown reintroduces un-raw'd tags. Then re-run the wiring script to push
+the corrected subject/text into the flow nodes.
+
+**Subject and text only, never html.** Show names are user-supplied;
+escaping in the HTML body is a deliberate injection defence and must stay.
+
+`| raw` is a no-op when escaping is off, so this stays safe if PostHog
+changes that setting later. Reported upstream 2026-07-25.
 
 ## Related
 
