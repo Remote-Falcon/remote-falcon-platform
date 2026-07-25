@@ -17,8 +17,34 @@ and forwards:
 | everything else (`/i/…`, `/flags`, `/decide`, `/s` replay) | `us-proxy-direct.i.posthog.com` |
 
 `us-proxy-direct` + the forwarded `X-Forwarded-For` preserves the viewer's real
-IP for PostHog geo. Same-origin ⇒ no CORS. Cookies are stripped before
-forwarding (don't leak app cookies to a third party).
+IP for PostHog geo. Cookies are stripped before forwarding (don't leak app
+cookies to a third party).
+
+### CORS
+
+The relay is only same-origin for the **apex** (control panel, landing, map).
+Every **viewer page** is served from `<show>.remotefalcon.com`, which is a
+separate origin, so those calls are cross-origin.
+
+- `/flags`, `/i/…`, `/s` go through `forwardRequest`, and PostHog echoes the
+  request `Origin` back — nothing for the Worker to do.
+- `/static/*` and `/array/*` are **edge-cached**, so the Worker has to own CORS.
+  It keys the cache on the incoming URL with headers dropped, strips upstream
+  `Access-Control-*` and the (malformed) upstream `Vary` before storing, and
+  mints `Access-Control-Allow-Origin` per request from the caller's `Origin`
+  (apex or any `*.remotefalcon.com` subdomain; anything else gets no header and
+  is blocked by the browser).
+
+  Getting this wrong is silent: before this was fixed, an apex-cached
+  `/array/<token>/config` response carried no ACAO, so every viewer page's
+  remote-config fetch failed `net::ERR_FAILED` and posthog-js fell back to
+  bundled defaults. **After deploying a change to the asset path, purge the
+  Cloudflare cache** or the old header-less entries keep being served.
+
+  Keep the cache key on the `remotefalcon.com` hostname. A Worker may only
+  override cache keys inside its own zone, and Cache API entries can only be
+  purged against the hostname they were keyed under — keying on
+  `us-assets.i.posthog.com` would be off-zone and unpurgeable from our zone.
 
 ## Choosing the path
 
@@ -50,6 +76,13 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST \
   'https://remotefalcon.com/rf-relay/i/v0/e/' \
   -H 'Content-Type: application/json' \
   --data '{"api_key":"<VITE_PUBLIC_POSTHOG_KEY>","event":"proxy_smoke_test","distinct_id":"proxy-test"}'
+
+# 3. cached asset paths answer a SHOW SUBDOMAIN origin (expect the Origin
+#    echoed back in access-control-allow-origin — a missing header is the
+#    viewer-page regression described above)
+curl -sI -H 'Origin: https://rfdemoshow.remotefalcon.com' \
+  'https://remotefalcon.com/rf-relay/array/<VITE_PUBLIC_POSTHOG_KEY>/config' \
+  | grep -i 'access-control-allow-origin'
 ```
 
 Confirm the `proxy_smoke_test` event lands in PostHog → Activity. Only **after**

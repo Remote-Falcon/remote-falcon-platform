@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import {
   defaultProcessingInstructions,
   processingInstructions,
+  sequenceImage,
   viewerPageMessageElements
 } from '../helpers';
 import { LocationCheckMethod, ViewerControlMode } from '../../../../../utils/enum';
@@ -151,5 +152,38 @@ describe('viewerPageMessageElements', () => {
       expect(cfg.block, name).toContain('display: block');
       expect(cfg.none, name).toContain('display: none');
     }
+  });
+});
+
+// A busy show renders 80+ of these. Eager loading pulled megabytes of
+// below-the-fold artwork during the initial load, which is what pushed viewer
+// LCP into "needs improvement" and shifted layout as each image landed.
+describe('sequenceImage', () => {
+  const sequence = { name: 'Wizards in Winter', index: 3, imageUrl: 'https://example.test/wiz.jpg' };
+
+  it('defers off-screen artwork and keeps decode off the main thread', () => {
+    const img = sequenceImage(sequence);
+    expect(img.props.loading).toBe('lazy');
+    expect(img.props.decoding).toBe('async');
+  });
+
+  it('keeps the class + data-key contract operator templates style against', () => {
+    const img = sequenceImage(sequence);
+    expect(img.props.className).toBe('sequence-image sequence-image-3');
+    expect(img.props['data-key']).toBe('Wizards in Winter');
+    expect(img.props.alt).toBe('Wizards in Winter');
+    expect(img.props.src).toBe('https://example.test/wiz.jpg');
+  });
+
+  // The call sites render {sequenceImage(seq)} inline, so "no artwork" has to
+  // come back as nothing-at-all rather than an <img> with an empty src (which
+  // browsers resolve against the page URL and re-request).
+  it.each([
+    ['missing sequence', undefined],
+    ['no imageUrl', { name: 'x', index: 1 }],
+    ['empty imageUrl', { name: 'x', index: 1, imageUrl: '' }],
+    ['whitespace-only imageUrl', { name: 'x', index: 1, imageUrl: '   ' }]
+  ])('renders nothing for %s', (_label, input) => {
+    expect(sequenceImage(input)).toBeNull();
   });
 });

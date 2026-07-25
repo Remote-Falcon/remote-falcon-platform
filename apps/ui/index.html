@@ -17,8 +17,33 @@
         <!-- Social Meta Tags-->
         %VITE_SOCIAL_META%
 
-        <link rel="preconnect" href="https://fonts.gstatic.com"/>
-        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Poppins:wght@400;500;600;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet"/>
+        <!--
+          Fonts load NON-render-blocking (media="print" until onload). Every
+          viewer page (~3.2k users/mo, on *.remotefalcon.com) is operator-authored
+          HTML that brings its own fonts and uses none of these — it should never
+          block first paint on a cross-origin stylesheet it doesn't need.
+          The <noscript> copy keeps the control panel styled without JS.
+
+          Poppins was dropped: its only consumer was the font switcher in
+          layout/Customization, which isn't mounted anywhere. Inter (Logo,
+          design-system) and Roboto (legacy theme default, config.jsx) are live.
+          A stale localStorage `rf-config` could still name Poppins; it falls
+          back to the sans-serif stack, which is why the switcher stays dead.
+
+          Preconnect BOTH font origins — gstatic alone left the googleapis CSS
+          request paying a full cold connection.
+        -->
+        <link rel="preconnect" href="https://fonts.googleapis.com"/>
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+        <link
+            href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Roboto:wght@400;500;700&display=swap"
+            rel="stylesheet"
+            media="print"
+            onload="this.media='all';this.onload=null"
+        />
+        <noscript>
+            <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet"/>
+        </noscript>
     </head>
     <body>
         <div id="root"></div>

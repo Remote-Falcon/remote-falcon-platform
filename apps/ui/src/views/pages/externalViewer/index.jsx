@@ -1,6 +1,6 @@
 /* eslint-disable jsx-a11y/no-static-element-interactions */
 /* eslint-disable jsx-a11y/click-events-have-key-events */
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useLazyQuery, useMutation, useQuery } from '@apollo/client';
 import { TextField } from '@mui/material';
@@ -24,7 +24,19 @@ import { ADD_SEQUENCE_TO_QUEUE, INSERT_VIEWER_PAGE_STATS, VOTE_FOR_SEQUENCE } fr
 import { GET_ACTIVE_VIEWER_PAGE, GET_SHOW_FOR_VIEWER, VOTES_REMAINING } from '../../../utils/graphql/viewer/queries';
 import { showAlert } from '../globalPageHelpers';
 import { orderSequencesByCategory } from './helpers/categoryOrder';
-import { defaultProcessingInstructions, nextNowPlayingState, processingInstructions, viewerPageMessageElements } from './helpers/helpers';
+import {
+  defaultProcessingInstructions,
+  nextNowPlayingState,
+  processingInstructions,
+  sequenceImage,
+  viewerPageMessageElements
+} from './helpers/helpers';
+
+// Both are stateless factories — `parseWithInstructions` takes the instruction
+// set per call, so nothing here carries state between parses. They used to be
+// allocated inside convertViewerPageToReact, i.e. twice a second forever.
+const htmlToReactParser = new htmlToReact.Parser();
+const processNodeDefinitions = new htmlToReact.ProcessNodeDefinitions(React);
 
 const ExternalViewerPage = () => {
   const dispatch = useDispatch();
@@ -366,8 +378,6 @@ const ExternalViewerPage = () => {
 
     let parsedViewerPage = activeViewerPage;
 
-    const htmlToReactParser = new htmlToReact.Parser();
-    const processNodeDefinitions = new htmlToReact.ProcessNodeDefinitions(React);
     let instructions = defaultProcessingInstructions(processNodeDefinitions);
 
     let formattedNowPlayingTimer = '0:00';
@@ -432,11 +442,7 @@ const ExternalViewerPage = () => {
 
     _.map(orderedSequences, (sequence) => {
       if (sequence.visible) {
-        let sequenceImageElement = [<></>];
-        if (sequence && sequence.imageUrl && sequence.imageUrl.replace(/\s/g, '').length) {
-          const classname = `sequence-image sequence-image-${sequence.index}`;
-          sequenceImageElement = <img alt={sequence.name} className={classname} src={sequence.imageUrl} data-key={sequence.name} />;
-        }
+        let sequenceImageElement = sequenceImage(sequence);
         if (show?.preferences?.viewerControlMode === ViewerControlMode.VOTING) {
           let sequenceVotes = 0;
           _.forEach(show?.votes, (vote) => {
@@ -457,62 +463,24 @@ const ExternalViewerPage = () => {
 
               if (show?.playingNowSequence != null) {
                 const playingNowSequence = show?.playingNowSequence;
-                let sequenceImageElement = [<></>];
-                if (playingNowSequence && playingNowSequence?.imageUrl && playingNowSequence?.imageUrl.replace(/\s/g, '').length) {
-                  const classname = `sequence-image sequence-image-${playingNowSequence?.index}`;
-                  sequenceImageElement = (
-                    <img
-                      alt={playingNowSequence?.name}
-                      className={classname}
-                      src={playingNowSequence?.imageUrl}
-                      data-key={playingNowSequence?.name}
-                    />
-                  );
-                  playingNow = (
-                    <>
-                      {sequenceImageElement}
-                      {playingNowSequence?.displayName}
-                      <div className={votingListArtistClassname}>{playingNowSequence?.artist}</div>
-                    </>
-                  );
-                } else {
-                  playingNow = (
-                    <>
-                      {playingNowSequence?.displayName}
-                      <div className={votingListArtistClassname}>{playingNowSequence?.artist}</div>
-                    </>
-                  );
-                }
+                playingNow = (
+                  <>
+                    {sequenceImage(playingNowSequence)}
+                    {playingNowSequence?.displayName}
+                    <div className={votingListArtistClassname}>{playingNowSequence?.artist}</div>
+                  </>
+                );
               }
 
               if (show?.playingNextSequence != null) {
                 const playingNextSequence = show?.playingNextSequence;
-                let sequenceImageElement = [<></>];
-                if (playingNextSequence && playingNextSequence?.imageUrl && playingNextSequence?.imageUrl.replace(/\s/g, '').length) {
-                  const classname = `sequence-image sequence-image-${playingNextSequence?.index}`;
-                  sequenceImageElement = (
-                    <img
-                      alt={playingNextSequence?.name}
-                      className={classname}
-                      src={playingNextSequence?.imageUrl}
-                      data-key={playingNextSequence?.name}
-                    />
-                  );
-                  playingNext = (
-                    <>
-                      {sequenceImageElement}
-                      {playingNextSequence?.displayName}
-                      <div className={votingListArtistClassname}>{playingNextSequence?.artist}</div>
-                    </>
-                  );
-                } else {
-                  playingNext = (
-                    <>
-                      {playingNextSequence?.displayName}
-                      <div className={votingListArtistClassname}>{playingNextSequence?.artist}</div>
-                    </>
-                  );
-                }
+                playingNext = (
+                  <>
+                    {sequenceImage(playingNextSequence)}
+                    {playingNextSequence?.displayName}
+                    <div className={votingListArtistClassname}>{playingNextSequence?.artist}</div>
+                  </>
+                );
               }
 
               sequencesElement.push(
@@ -550,18 +518,7 @@ const ExternalViewerPage = () => {
                 // const categorizedSequenceVotes = _.find(show?.votes, (vote) => vote?.sequence?.name === categorizedSequence?.name);
                 if (categorizedSequence.visible) {
                   if (categorizedSequence.category === sequence.category) {
-                    sequenceImageElement = [<></>];
-                    if (categorizedSequence && categorizedSequence.imageUrl && categorizedSequence.imageUrl.replace(/\s/g, '').length) {
-                      const classname = `sequence-image sequence-image-${categorizedSequence.index}`;
-                      sequenceImageElement = (
-                        <img
-                          alt={categorizedSequence.name}
-                          className={classname}
-                          src={categorizedSequence.imageUrl}
-                          data-key={categorizedSequence.name}
-                        />
-                      );
-                    }
+                    sequenceImageElement = sequenceImage(categorizedSequence);
                     const categorizedVotingListClassname = `cell-vote-playlist cell-vote-playlist-${sequence.index}`;
                     const categorizedVotingListArtistClassname = `cell-vote-playlist-artist cell-vote-playlist-artist-${sequence.index}`;
                     // Keep each card glued to its own vote count. Both live in the
@@ -618,62 +575,24 @@ const ExternalViewerPage = () => {
 
           if (show?.playingNowSequence != null) {
             const playingNowSequence = show?.playingNowSequence;
-            let sequenceImageElement = [<></>];
-            if (playingNowSequence && playingNowSequence?.imageUrl && playingNowSequence?.imageUrl.replace(/\s/g, '').length) {
-              const classname = `sequence-image sequence-image-${playingNowSequence?.index}`;
-              sequenceImageElement = (
-                <img
-                  alt={playingNowSequence?.name}
-                  className={classname}
-                  src={playingNowSequence?.imageUrl}
-                  data-key={playingNowSequence?.name}
-                />
-              );
-              playingNow = (
-                <>
-                  {sequenceImageElement}
-                  {playingNowSequence?.displayName}
-                  <div className={jukeboxListArtistClassname}>{playingNowSequence?.artist}</div>
-                </>
-              );
-            } else {
-              playingNow = (
-                <>
-                  {playingNowSequence?.displayName}
-                  <div className={jukeboxListArtistClassname}>{playingNowSequence?.artist}</div>
-                </>
-              );
-            }
+            playingNow = (
+              <>
+                {sequenceImage(playingNowSequence)}
+                {playingNowSequence?.displayName}
+                <div className={jukeboxListArtistClassname}>{playingNowSequence?.artist}</div>
+              </>
+            );
           }
 
           if (show?.playingNextSequence != null) {
             const playingNextSequence = show?.playingNextSequence;
-            let sequenceImageElement = [<></>];
-            if (playingNextSequence && playingNextSequence?.imageUrl && playingNextSequence?.imageUrl.replace(/\s/g, '').length) {
-              const classname = `sequence-image sequence-image-${playingNextSequence?.index}`;
-              sequenceImageElement = (
-                <img
-                  alt={playingNextSequence?.name}
-                  className={classname}
-                  src={playingNextSequence?.imageUrl}
-                  data-key={playingNextSequence?.name}
-                />
-              );
-              playingNext = (
-                <>
-                  {sequenceImageElement}
-                  {playingNextSequence?.displayName}
-                  <div className={jukeboxListArtistClassname}>{playingNextSequence?.artist}</div>
-                </>
-              );
-            } else {
-              playingNext = (
-                <>
-                  {playingNextSequence?.displayName}
-                  <div className={jukeboxListArtistClassname}>{playingNextSequence?.artist}</div>
-                </>
-              );
-            }
+            playingNext = (
+              <>
+                {sequenceImage(playingNextSequence)}
+                {playingNextSequence?.displayName}
+                <div className={jukeboxListArtistClassname}>{playingNextSequence?.artist}</div>
+              </>
+            );
           }
 
           if (sequence.category == null || sequence.category === '') {
@@ -704,18 +623,7 @@ const ExternalViewerPage = () => {
             _.map(categorizedSequencesToIterate, (categorizedSequence) => {
               if (categorizedSequence.visible) {
                 if (categorizedSequence.category === sequence.category) {
-                  sequenceImageElement = [<></>];
-                  if (categorizedSequence && categorizedSequence.imageUrl && categorizedSequence.imageUrl.replace(/\s/g, '').length) {
-                    const classname = `sequence-image sequence-image-${categorizedSequence.index}`;
-                    sequenceImageElement = (
-                      <img
-                        alt={categorizedSequence.name}
-                        className={classname}
-                        src={categorizedSequence.imageUrl}
-                        data-key={categorizedSequence.name}
-                      />
-                    );
-                  }
+                  sequenceImageElement = sequenceImage(categorizedSequence);
                   const categorizedJukeboxListClassname = `jukebox-list jukebox-list-${categorizedSequence.index}`;
                   const categorizedJukeboxListArtistClassname = `jukebox-list-artist jukebox-list-artist-${categorizedSequence.index}`;
                   const theElement = (
@@ -761,31 +669,15 @@ const ExternalViewerPage = () => {
           _.map(updatedRequests, (request, index) => {
             // Don't add Playing Now or Next Playing to list
             if (index !== 0) {
-              let sequenceImageElement = [<></>];
-              if (request?.sequence && request?.sequence.imageUrl && request?.sequence.imageUrl.replace(/\s/g, '').length) {
-                const classname = `sequence-image sequence-image-${request?.sequence.index}`;
-                sequenceImageElement = (
-                  <img alt={request?.sequence.name} className={classname} src={request?.sequence.imageUrl} data-key={request?.sequence.name} />
-                );
-                jukeboxRequestsElement.push(
-                  <>
-                    <div className="jukebox-queue">
-                      {sequenceImageElement}
-                      {request?.sequence?.displayName}
-                      <div className={jukeboxListArtistClassname}>{request?.sequence.artist}</div>
-                    </div>
-                  </>
-                );
-              } else {
-                jukeboxRequestsElement.push(
-                  <>
-                    <div className="jukebox-queue">
-                      {request?.sequence?.displayName}
-                      <div className={jukeboxListArtistClassname}>{request?.sequence.artist}</div>
-                    </div>
-                  </>
-                );
-              }
+              jukeboxRequestsElement.push(
+                <>
+                  <div className="jukebox-queue">
+                    {sequenceImage(request?.sequence)}
+                    {request?.sequence?.displayName}
+                    <div className={jukeboxListArtistClassname}>{request?.sequence.artist}</div>
+                  </div>
+                </>
+              );
             }
           });
         }
@@ -845,7 +737,16 @@ const ExternalViewerPage = () => {
     show?.categories,
     voteForSequence,
     nowPlayingTimer,
-    votesRemaining
+    votesRemaining,
+    // Completed to satisfy exhaustive-deps. These were always read here but never
+    // declared; the unconditional 500ms reparse hid it. Now that the reparse is
+    // gated on this callback's identity, an undeclared dep is a stale render, so
+    // the list has to be honest.
+    show?.votes,
+    show?.playingNowSequence,
+    show?.playingNextSequence,
+    show?.preferences?.nightlyPlayLimit,
+    show?.preferences?.viewerPageViewOnly
   ]);
 
   const getActiveViewerPage = useCallback(() => {
@@ -1003,7 +904,28 @@ const ExternalViewerPage = () => {
     }
   }, [pollingData, orderSequencesForVoting]);
 
+  // Re-parse the operator's page only when something it renders from actually
+  // changed. This tick used to reparse the whole HTML document and rebuild the
+  // entire React tree twice a second unconditionally, which on a traced
+  // production page re-fetched the same webfont four times and the same artwork
+  // repeatedly, and burned the main thread through the whole load.
+  //
+  // The change signal is `convertViewerPageToReact`'s own identity: it's a
+  // useCallback, so React already recomputes it exactly when one of its declared
+  // deps changes. Anything missing from that dep array was already missing
+  // before this gate — the one genuine exception is `viewerPageMessageElements`,
+  // a module-level object that showViewerMessage mutates imperatively, so it
+  // never trips the identity and has to be folded in by hand.
+  const lastConvertRef = useRef(null);
+  const lastMessageStateRef = useRef(null);
+
   useInterval(async () => {
+    const messageState = _.map(viewerPageMessageElements, (message) => message?.current).join('|');
+    if (lastConvertRef.current === convertViewerPageToReact && lastMessageStateRef.current === messageState) {
+      return;
+    }
+    lastConvertRef.current = convertViewerPageToReact;
+    lastMessageStateRef.current = messageState;
     await convertViewerPageToReact();
   }, 500);
 
