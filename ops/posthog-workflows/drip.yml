@@ -1,0 +1,49 @@
+# PRD-013 Track C — onboarding drip: which library template backs which
+# email node in the workflow graph.
+#
+# PostHog workflow email nodes store their body INLINE; there is no live
+# reference back to the messaging-template library. The visual editor's
+# "load template" button is a one-time copy. This file plus
+# wire-drip-templates.py make that copy reproducible, so editing a
+# template in the library and re-running the script is the supported way
+# to change what the drip actually sends.
+project_id: 425428
+posthog_host: https://us.posthog.com
+
+flow_id: 019f772d-a637-0000-5ea7-d3ee215cdb5b
+flow_name: Onboarding drip — full campaign (DRAFT, PRD-013)
+
+# The verified email integration these nodes send through (Settings →
+# Integrations, kind=email). A node authored over the API does NOT get
+# this automatically the way the visual editor's sender picker sets it,
+# and without it every send fails validation with
+# `from.integrationId: expected number, received undefined` — at enable
+# time, not at author time. Kept here so the script can guarantee it.
+email_integration_id: 187373
+
+# action_id in the flow graph -> messaging_template id in the library.
+nodes:
+  - action_id: email_connect
+    template_id: 019f7771-417c-0000-1425-020da86db307
+    template_name: Onboarding — 1. Connect your show
+  - action_id: email_songs
+    template_id: 019f7772-233e-0000-bf51-a45e87d8178d
+    template_name: Onboarding — 2. Get your songs in
+  - action_id: email_makeyours
+    template_id: 019f7772-9bdd-0000-ac1e-4462154b59df
+    template_name: Onboarding — 3. Make it yours
+  - action_id: email_golive
+    template_id: 019f782d-ba42-0000-187f-f104fa67cd3e
+    template_name: Onboarding — 4. Go live
+  - action_id: email_stuck
+    template_id: 019f782e-4ec1-0000-2a26-f6c2883e5af5
+    template_name: Onboarding — 5. Stuck? Here's help
+  - action_id: email_protips
+    template_id: 019f782e-d318-0000-bf5a-8f5589c37a36
+    template_name: Onboarding — 6. You're live, pro tips
+
+# Templates not bound to a drip node, but still subject to the shared
+# template hygiene passes (fix-liquid-escaping.py).
+standalone_templates:
+  - template_id: 019f782f-a685-0000-1270-6885279e5e84
+    template_name: Preseason 2026 — What's new + season checklist

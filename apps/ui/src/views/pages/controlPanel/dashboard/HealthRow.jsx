@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import * as React from 'react';
 
 import { Box, Chip, Divider, IconButton, Popover, Skeleton, Stack, Tooltip, Typography } from '@mui/material';
@@ -9,7 +9,6 @@ import useDashboardLiveStats from '../../../../hooks/useDashboardLiveStats';
 import { useSelector } from '../../../../store';
 import MainCard from '../../../../ui-component/cards/MainCard';
 import { fireMilestoneOnce } from '../../../../utils/analytics/posthog';
-import safeStorage from '../../../../utils/safeStorage';
 
 // Dashboard FPP-plugin status card (V17 + V18-lite, PSA-v2 dashboard restructure).
 //
@@ -86,32 +85,34 @@ const HealthRow = () => {
     [stats]
   );
 
-  // PRD-013 P0-3 — `plugin_connected` activation milestone. Fires when the
-  // dashboard observes the show's FIRST heartbeat after having previously
-  // seen it never-connected; fireMilestoneOnce owns the dedupe (and skips
-  // impersonation). The seen-flag scopes the event to shows this browser
-  // watched go from never-connected to connected — a device-scoped
-  // heuristic by design: cross-device setups can miss it, and PostHog
-  // Workflows' per-person dedup backstops any refire. The effect keys on
-  // the primitive lastHeartbeatMs (the stats object gets a fresh identity
-  // every ~5s poll) and latches per subdomain so storage is touched once
-  // per state, not once per tick.
+  // PRD-013 P0-3 — `plugin_connected` activation milestone. Fires once the
+  // dashboard observes a live plugin, whenever that first happens to be.
+  //
+  // This deliberately does NOT require watching a never-connected →
+  // connected transition, which is what the original version gated on. That
+  // gate assumed the operator sits on the dashboard while setting up the Pi,
+  // and it silently lost everyone who flashed the plugin first and opened
+  // the dashboard second — the common order. Measured before the change:
+  // 13 shows reached `activation_completed` (which is impossible without a
+  // connected plugin) and only 2 of them had ever emitted this event, so it
+  // was under-reporting by ~85% and timing out the drip's stage-1 gate for
+  // operators who were already connected.
+  //
+  // Cost of the looser rule: established shows emit this once, the first
+  // time an existing operator loads the dashboard on a given browser. That
+  // is a bounded one-time backfill, it carries no sign_up so it cannot
+  // enter the activation funnel, and fireMilestoneOnce keeps it to one per
+  // show per device. Correct gating beats a clean-but-empty event stream.
+  //
+  // Keyed on the isConnected boolean rather than raw lastHeartbeatMs so a
+  // months-stale heartbeat never counts as connected, and so the ~5s poll
+  // (which hands back a fresh stats identity every tick) doesn't re-run it.
   const milestoneSubdomain = show?.showSubdomain;
-  const lastHeartbeatMs = stats?.lastHeartbeatMs ?? null;
   const statsReady = !loading && !!stats;
-  const seenWrittenRef = useRef(null);
   useEffect(() => {
-    if (!statsReady || !milestoneSubdomain) return;
-    const seenKey = `rf_seen_never_connected_${milestoneSubdomain}`;
-    if (!lastHeartbeatMs) {
-      if (seenWrittenRef.current !== milestoneSubdomain) {
-        seenWrittenRef.current = milestoneSubdomain;
-        safeStorage.setItem(seenKey, '1');
-      }
-    } else if (safeStorage.getItem(seenKey)) {
-      fireMilestoneOnce('plugin_connected', milestoneSubdomain);
-    }
-  }, [lastHeartbeatMs, statsReady, milestoneSubdomain]);
+    if (!statsReady || !milestoneSubdomain || !isConnected) return;
+    fireMilestoneOnce('plugin_connected', milestoneSubdomain);
+  }, [isConnected, statsReady, milestoneSubdomain]);
 
   if (loading) {
     return <Skeleton variant="rectangular" height={120} sx={{ borderRadius: 1 }} />;
