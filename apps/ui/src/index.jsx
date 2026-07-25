@@ -12,7 +12,8 @@ import { BrowserRouter } from 'react-router-dom';
 
 import App from './App';
 import { ConfigProvider } from './contexts/ConfigContext';
-import { getRouterBasename } from './utils/route-guard/helpers/helpers';
+import { buildPosthogOptions } from './utils/analytics/posthogOptions';
+import { getRouterBasename, isExternalViewer } from './utils/route-guard/helpers/helpers';
 import reportWebVitals from './reportWebVitals';
 import * as serviceWorker from './serviceWorker';
 import { store } from './store';
@@ -56,17 +57,10 @@ if (missingEnv.length > 0) {
 // the PostHog host — it only affects links like get_session_replay_url().
 // Requires the Worker to be live (see docs/OBSERVABILITY-PLAN.md); reverting
 // api_host to https://us.i.posthog.com is the rollback.
-const posthogOptions = {
-  api_host: 'https://remotefalcon.com/rf-relay',
-  ui_host: 'https://us.posthog.com',
-  person_profiles: 'identified_only',
-  // Capture unhandled errors + promise rejections as $exception events.
-  capture_exceptions: true,
-  // Web vitals capture requires BOTH this SDK opt-in AND the project-side
-  // "Capture web vitals" toggle in PostHog settings. Either alone is a
-  // silent no-op.
-  capture_performance: { web_vitals: true }
-};
+// Viewer pages get most automatic capture switched off — see posthogOptions.js
+// for what and why. The split is runtime because one bundle serves both the
+// apex control panel and every <show>.remotefalcon.com viewer page.
+const posthogOptions = buildPosthogOptions({ onViewerPage: isExternalViewer() });
 
 if (import.meta.env.VITE_PUBLIC_POSTHOG_KEY) {
   posthog.init(import.meta.env.VITE_PUBLIC_POSTHOG_KEY, posthogOptions);
