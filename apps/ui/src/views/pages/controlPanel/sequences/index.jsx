@@ -10,7 +10,7 @@ import { useDispatch } from '../../../../store';
 import { setShow } from '../../../../store/slices/show';
 import PageHead from '../../../../ui-component/PageHead';
 import SubNav from '../../../../ui-component/SubNav';
-import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
+import { fireMilestoneOnce } from '../../../../utils/analytics/posthog';
 import { GET_SHOW } from '../../../../utils/graphql/controlPanel/queries';
 import { showAlert } from '../../globalPageHelpers';
 
@@ -79,7 +79,9 @@ const Sequences = () => {
         showAlert(dispatch, { message: 'Sequences imported successfully.' });
         const { data } = await getShowQuery();
         if (data?.getShow) dispatch(setShow(data.getShow));
-        trackPosthogEvent('sequences_imported', {
+        // Shares fireMilestoneOnce's key with useSequencesMilestone, so
+        // whichever observes the show first wins and the other no-ops.
+        fireMilestoneOnce('sequences_imported', data?.getShow?.showSubdomain, {
           source: 'excel_upload',
           sequence_count: data?.getShow?.sequences?.length || 0
         });

@@ -52,12 +52,12 @@ export const applyEmailConsent = (optIn, email) => {
 // so future milestones (wizard/checklist phases) don't grow bespoke
 // variants. Device-scoped by design (localStorage): PostHog Workflows'
 // own per-person dedup is the backstop for cross-device refires.
-export const fireMilestoneOnce = (eventName, showSubdomain) => {
+export const fireMilestoneOnce = (eventName, showSubdomain, props = {}) => {
   if (!eventName || !showSubdomain) return false;
   if (isImpersonationSession()) return false;
   const firedKey = `rf_milestone_${eventName}_${showSubdomain}`;
   if (safeStorage.getItem(firedKey)) return false;
   safeStorage.setItem(firedKey, '1');
-  trackPosthogEvent(eventName);
+  trackPosthogEvent(eventName, props);
   return true;
 };

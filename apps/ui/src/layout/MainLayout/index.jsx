@@ -6,6 +6,7 @@ import { Outlet } from 'react-router-dom';
 
 import useActivationMilestone from '../../hooks/useActivationMilestone';
 import useConfig from '../../hooks/useConfig';
+import useSequencesMilestone from '../../hooks/useSequencesMilestone';
 import { useDispatch, useSelector } from '../../store';
 import { openDrawer } from '../../store/slices/menu';
 import CommandPalette from '../../ui-component/CommandPalette';
@@ -32,6 +33,11 @@ const MainLayout = () => {
   // PRD-013 P0-3 — fires activation_completed on the show's first go-live,
   // regardless of which surface flipped viewer control.
   useActivationMilestone();
+
+  // PRD-013 P0-3 — fires sequences_imported once a show is observed with
+  // songs on it, whichever path put them there (FPP sync is server-side
+  // and leaves no client event of its own).
+  useSequencesMilestone();
 
   React.useEffect(() => {
     dispatch(openDrawer(!matchDownMd));
