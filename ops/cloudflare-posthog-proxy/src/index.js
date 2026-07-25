@@ -101,15 +101,25 @@ async function handleRequest(request, ctx) {
 
 // Edge-cached SDK assets and remote config.
 //
-// The cache key is the UPSTREAM url alone, deliberately excluding the incoming
-// request's Origin. Keying on the raw request instead is what broke viewer
-// pages: the first caller is normally the apex (same-origin, so PostHog returns
-// no Access-Control-Allow-Origin), that bare response gets stored, and every
-// subsequent `<show>.remotefalcon.com` read of it is blocked by the browser
-// (net::ERR_FAILED) because the cached copy carries no ACAO for their origin.
-// So: strip upstream CORS before storing, then mint fresh headers per request.
+// What broke viewer pages: the old key was the RAW incoming request. Upstream
+// tags these responses with a malformed `Vary` (`Origin, Referer,origin, …` —
+// note the missing space), so the edge couldn't vary on Origin properly. The
+// first caller is normally the apex, which is same-origin and therefore gets no
+// Access-Control-Allow-Origin from PostHog; that bare response was stored and
+// then replayed to every `<show>.remotefalcon.com` reader, whose browser blocked
+// it (net::ERR_FAILED) for having no ACAO covering their origin.
+//
+// Fix: key on the incoming URL with the headers dropped (a bare GET Request, so
+// nothing origin-specific participates in the key), store the response with all
+// upstream CORS and the broken Vary stripped, and mint correct CORS per request
+// on the way out.
+//
+// The key stays on the remotefalcon.com hostname on purpose. A Worker may only
+// own cache keys inside its own zone, and Cache API entries are purgeable only
+// against the hostname they were keyed under — an upstream-hostname key would
+// be both off-zone and impossible to purge from our zone.
 async function retrieveAsset(request, pathname, ctx) {
-  const cacheKey = new Request(`https://${ASSET_HOST}${pathname}`, { method: 'GET' });
+  const cacheKey = new Request(new URL(request.url).toString(), { method: 'GET' });
 
   let response = await caches.default.match(cacheKey);
   if (!response) {
@@ -124,8 +134,8 @@ async function retrieveAsset(request, pathname, ctx) {
 function stripUpstreamCors(response) {
   const headers = new Headers(response.headers);
   UPSTREAM_CORS_HEADERS.forEach((header) => headers.delete(header));
-  // Upstream sends a malformed, duplicated `Vary` (`Origin, Referer,origin, …`).
-  // Drop it — withCors sets the one value that actually matters here.
+  // Drop the malformed upstream `Vary` — a stored entry must not vary on Origin,
+  // because withCors re-derives the CORS headers per request after the cache read.
   headers.delete('vary');
   return new Response(response.body, {
     status: response.status,

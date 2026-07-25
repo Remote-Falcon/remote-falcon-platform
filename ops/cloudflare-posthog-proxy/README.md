@@ -29,16 +29,22 @@ separate origin, so those calls are cross-origin.
 - `/flags`, `/i/…`, `/s` go through `forwardRequest`, and PostHog echoes the
   request `Origin` back — nothing for the Worker to do.
 - `/static/*` and `/array/*` are **edge-cached**, so the Worker has to own CORS.
-  It caches on the upstream URL only, strips upstream `Access-Control-*` before
-  storing, and mints `Access-Control-Allow-Origin` per request from the caller's
-  `Origin` (apex or any `*.remotefalcon.com` subdomain; anything else gets no
-  header and is blocked by the browser).
+  It keys the cache on the incoming URL with headers dropped, strips upstream
+  `Access-Control-*` and the (malformed) upstream `Vary` before storing, and
+  mints `Access-Control-Allow-Origin` per request from the caller's `Origin`
+  (apex or any `*.remotefalcon.com` subdomain; anything else gets no header and
+  is blocked by the browser).
 
   Getting this wrong is silent: before this was fixed, an apex-cached
   `/array/<token>/config` response carried no ACAO, so every viewer page's
   remote-config fetch failed `net::ERR_FAILED` and posthog-js fell back to
   bundled defaults. **After deploying a change to the asset path, purge the
   Cloudflare cache** or the old header-less entries keep being served.
+
+  Keep the cache key on the `remotefalcon.com` hostname. A Worker may only
+  override cache keys inside its own zone, and Cache API entries can only be
+  purged against the hostname they were keyed under — keying on
+  `us-assets.i.posthog.com` would be off-zone and unpurgeable from our zone.
 
 ## Choosing the path
 
