@@ -444,6 +444,12 @@ public class GraphQLController {
     }
 
     @QueryMapping
+    @RequiresAdminAccess
+    public Show getShowByEmail(@Argument String email) {
+        return graphQLQueryService.getShowByEmail(email);
+    }
+
+    @QueryMapping
     @RequiresAccess
     public List<NotificationModel> getNotifications() {
         return this.graphQLQueryService.getNotifications();

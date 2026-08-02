@@ -502,6 +502,44 @@ class GraphQLQueryServiceTest {
         assertThat(service.getShowByShowName("unknown")).isNull();
     }
 
+    // ---- getShowByEmail ----
+
+    @Test
+    void getShowByEmail_returnsShow_orNull() {
+        when(showRepository.findByEmailCollation("known@example.com"))
+                .thenReturn(Optional.of(Show.builder().build()));
+        when(showRepository.findByEmailCollation("unknown@example.com"))
+                .thenReturn(Optional.empty());
+        assertThat(service.getShowByEmail("known@example.com")).isNotNull();
+        assertThat(service.getShowByEmail("unknown@example.com")).isNull();
+    }
+
+    /**
+     * Admins paste emails out of support tickets, so leading/trailing
+     * whitespace and mixed case both arrive routinely. Case-insensitivity
+     * is the collation index's job (idx_email_ci, strength 2) and is
+     * covered by ShowRepositoryCollationTest; trimming is this method's
+     * job, because a stray space would miss even with the collation.
+     */
+    @Test
+    void getShowByEmail_trimsSurroundingWhitespace() {
+        when(showRepository.findByEmailCollation("padded@example.com"))
+                .thenReturn(Optional.of(Show.builder().build()));
+        assertThat(service.getShowByEmail("  padded@example.com  ")).isNotNull();
+        verify(showRepository).findByEmailCollation("padded@example.com");
+    }
+
+    /**
+     * A blank search box must not become an unindexed lookup for the
+     * empty string -- short-circuit before touching Mongo.
+     */
+    @Test
+    void getShowByEmail_returnsNull_andSkipsRepository_whenBlank() {
+        assertThat(service.getShowByEmail(null)).isNull();
+        assertThat(service.getShowByEmail("   ")).isNull();
+        verify(showRepository, never()).findByEmailCollation(any());
+    }
+
     // ---- getNotifications ----
 
     @Test
