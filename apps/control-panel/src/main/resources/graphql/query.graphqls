@@ -22,6 +22,9 @@ type Query {
     showsOnAMapForUsers: ShowsOnAMapResult
     getShowsAutoSuggest(showName: String!): [String]
     getShowByShowName(showName: String!): Show
+    # Admin support lookup. Exact match, case-insensitive via the
+    # idx_email_ci collation index -- not a prefix or contains search.
+    getShowByEmail(email: String!): Show
     getNotifications: [Notification]
     listAdminNotifications(offset: Int, limit: Int): NotificationPage!
     impersonateShow(showSubdomain: String!): Show

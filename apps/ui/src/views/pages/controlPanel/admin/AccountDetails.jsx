@@ -2,7 +2,20 @@ import { useState } from 'react';
 
 import { useMutation, useLazyQuery } from '@apollo/client';
 import CloseIcon from '@mui/icons-material/Close';
-import { Grid, CardActions, CardContent, Divider, Typography, Stack, TextField, Button, Modal, IconButton } from '@mui/material';
+import {
+  Grid,
+  CardActions,
+  CardContent,
+  Divider,
+  Typography,
+  Stack,
+  TextField,
+  Button,
+  Modal,
+  IconButton,
+  ToggleButton,
+  ToggleButtonGroup
+} from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import Autocomplete from '@mui/material/Autocomplete';
 import _ from 'lodash';
@@ -17,7 +30,13 @@ import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
 import safeStorage from '../../../../utils/safeStorage';
 import { adminResetMfaService } from '../../../../services/controlPanel/mutations.service';
 import { ADMIN_UPDATE_SHOW, ADMIN_RESET_MFA } from '../../../../utils/graphql/controlPanel/mutations';
-import { GET_SHOW_BY_SHOW_NAME, IMPERSONATE, GET_SHOW, GET_SHOWS_AUTO_SUGGEST } from '../../../../utils/graphql/controlPanel/queries';
+import {
+  GET_SHOW_BY_SHOW_NAME,
+  GET_SHOW_BY_EMAIL,
+  IMPERSONATE,
+  GET_SHOW,
+  GET_SHOWS_AUTO_SUGGEST
+} from '../../../../utils/graphql/controlPanel/queries';
 import { showAlert } from '../../globalPageHelpers';
 
 const AccountDetails = () => {
@@ -25,14 +44,22 @@ const AccountDetails = () => {
   const dispatch = useDispatch();
   const navigate = useNavigate();
 
+  // 'showName' | 'email'. Show name gets prefix autosuggest (idx_showName
+  // btree); email is exact-match only, because Mongo can't serve a $regex
+  // from the idx_email_ci collation index that makes the lookup
+  // case-insensitive. See ShowRepository#findByEmailCollation.
+  const [searchMode, setSearchMode] = useState('showName');
   const [showSearchValue, setShowSearchValue] = useState('');
+  const [emailSearchValue, setEmailSearchValue] = useState('');
   const [showOptions, setShowOptions] = useState([]);
   const [selectedShow, setSelectedShow] = useState({});
   const [resetMfaOpen, setResetMfaOpen] = useState(false);
   const [isResettingMfa, setIsResettingMfa] = useState(false);
   const hasSelectedShow = !_.isEmpty(selectedShow);
+  const searchingByEmail = searchMode === 'email';
 
   const [showByShowNameQuery] = useLazyQuery(GET_SHOW_BY_SHOW_NAME);
+  const [showByEmailQuery] = useLazyQuery(GET_SHOW_BY_EMAIL);
   const [adminUpdateShowMutation] = useMutation(ADMIN_UPDATE_SHOW);
   const [adminResetMfaMutation] = useMutation(ADMIN_RESET_MFA);
   const [impersonateQuery] = useLazyQuery(IMPERSONATE);
@@ -65,6 +92,10 @@ const AccountDetails = () => {
   };
 
   const selectAShow = async () => {
+    if (searchingByEmail) {
+      await selectAShowByEmail();
+      return;
+    }
     if (!showSearchValue) {
       return;
     }
@@ -83,6 +114,41 @@ const AccountDetails = () => {
         if (data?.getShowByShowName != null) {
           setSelectedShow(data?.getShowByShowName);
         }
+      },
+      onError: () => {
+        showAlert(dispatch, { alert: 'error' });
+      }
+    });
+  };
+
+  // Exact-match account lookup for support ("a user emailed me"). Unlike the
+  // show-name path there's no autosuggest to confirm the value exists, so a
+  // miss is reported explicitly rather than leaving the panel silently empty.
+  const selectAShowByEmail = async () => {
+    const email = emailSearchValue.trim();
+    if (!email) {
+      return;
+    }
+    setSelectedShow({});
+    await showByEmailQuery({
+      context: {
+        headers: {
+          Route: 'Control-Panel'
+        }
+      },
+      variables: {
+        email
+      },
+      fetchPolicy: 'network-only',
+      onCompleted: (data) => {
+        if (data?.getShowByEmail != null) {
+          setSelectedShow(data.getShowByEmail);
+          return;
+        }
+        showAlert(dispatch, {
+          alert: 'warning',
+          message: `No account found with the email ${email}.`
+        });
       },
       onError: () => {
         showAlert(dispatch, { alert: 'error' });
@@ -191,36 +257,81 @@ const AccountDetails = () => {
           <Grid container alignItems="center" justifyContent="space-between" spacing={2}>
             <Grid item xs={12} md={6} lg={4}>
               <Stack direction="row" spacing={2} pb={1}>
-                <Typography variant="h4">Show Name</Typography>
+                <Typography variant="h4">Find an Account</Typography>
               </Stack>
               <Typography component="div" variant="caption">
-                Enter the Show Name you want to view.
+                {searchingByEmail
+                  ? 'Enter the full email address on the account. Exact match, not case sensitive.'
+                  : 'Enter the Show Name you want to view.'}
               </Typography>
             </Grid>
             <Grid item xs={12} md={6} lg={4}>
               <Stack spacing={2}>
+                <ToggleButtonGroup
+                  exclusive
+                  size="small"
+                  value={searchMode}
+                  onChange={(_, newMode) => {
+                    // MUI passes null when the active button is re-clicked;
+                    // keep the current mode rather than ending up with none.
+                    if (newMode == null || newMode === searchMode) {
+                      return;
+                    }
+                    setSearchMode(newMode);
+                    // Drop the loaded account along with the mode. Otherwise
+                    // the panel keeps rendering the previous show -- with live
+                    // Impersonate and Reset 2FA buttons -- next to a blank
+                    // search box that implies nothing is selected. Both of
+                    // those actions are too consequential to leave pointed at
+                    // a stale target.
+                    setSelectedShow({});
+                  }}
+                  aria-label="Account search mode"
+                >
+                  <ToggleButton value="showName" aria-label="Search by show name">
+                    Show Name
+                  </ToggleButton>
+                  <ToggleButton value="email" aria-label="Search by email">
+                    Email
+                  </ToggleButton>
+                </ToggleButtonGroup>
                 <Stack direction="row" spacing={2}>
-                  <Autocomplete
-                    fullWidth
-                    options={showOptions}
-                    value={showSearchValue}
-                    inputValue={showSearchValue}
-                    onInputChange={(_, newInputValue, reason) => {
-                      setShowSearchValue(newInputValue ?? '');
-                      if (reason !== 'reset') {
-                        getShowsAutoSuggest(newInputValue);
-                      }
-                    }}
-                    onChange={(_, newValue) => {
-                      if (typeof newValue === 'string') {
-                        setShowSearchValue(newValue);
-                      }
-                    }}
-                    renderInput={(params) => (
-                      <TextField {...params} type="text" fullWidth label="Show Name" />
-                    )}
-                    freeSolo
-                  />
+                  {searchingByEmail ? (
+                    <TextField
+                      fullWidth
+                      type="email"
+                      label="Email"
+                      value={emailSearchValue}
+                      onChange={(event) => setEmailSearchValue(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          selectAShow();
+                        }
+                      }}
+                    />
+                  ) : (
+                    <Autocomplete
+                      fullWidth
+                      options={showOptions}
+                      value={showSearchValue}
+                      inputValue={showSearchValue}
+                      onInputChange={(_, newInputValue, reason) => {
+                        setShowSearchValue(newInputValue ?? '');
+                        if (reason !== 'reset') {
+                          getShowsAutoSuggest(newInputValue);
+                        }
+                      }}
+                      onChange={(_, newValue) => {
+                        if (typeof newValue === 'string') {
+                          setShowSearchValue(newValue);
+                        }
+                      }}
+                      renderInput={(params) => (
+                        <TextField {...params} type="text" fullWidth label="Show Name" />
+                      )}
+                      freeSolo
+                    />
+                  )}
                   <Button variant="outlined" onClick={selectAShow} sx={{ whiteSpace: 'nowrap' }}>
                     Get Show
                   </Button>

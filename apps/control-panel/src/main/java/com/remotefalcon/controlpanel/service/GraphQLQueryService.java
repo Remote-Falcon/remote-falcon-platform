@@ -352,6 +352,22 @@ public class GraphQLQueryService {
         return show.orElse(null);
     }
 
+    /**
+     * Admin account lookup by email -- the support path for "a user emailed
+     * me, find their show". Exact match only, no prefix or contains search:
+     * findByEmailCollation is served by idx_email_ci (unique, collation
+     * strength 2), so a stored "Rcamp572@gmail.com" is found by a typed
+     * "rcamp572@gmail.com" without the $regex that would force a COLLSCAN.
+     * See ShowRepository#findByEmailCollation for why collation beats
+     * Spring Data's derived findByEmailIgnoreCase here.
+     */
+    public Show getShowByEmail(String email) {
+        if (StringUtils.isBlank(email)) {
+            return null;
+        }
+        return this.showRepository.findByEmailCollation(email.trim()).orElse(null);
+    }
+
     public List<NotificationModel> getNotifications() {
         Stream<NotificationModel> globalStream = Optional.ofNullable(this.notificationRepository.findAll())
                 .orElseGet(List::of)
