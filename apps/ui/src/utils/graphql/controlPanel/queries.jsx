@@ -616,148 +616,268 @@ export const SHOWS_ON_MAP_FOR_USERS = gql`
   }
 `;
 
-// Full account detail selection set for the admin Account Details page.
-// Shared by the show-name and email lookups so the two search paths can
-// never drift into returning different fields.
-const ADMIN_SHOW_DETAIL_FIELDS = gql`
-  fragment AdminShowDetailFields on Show {
-    showToken
-    email
-    showName
-    showSubdomain
-    emailVerified
-    marketingOptIn
-    createdDate
-    lastLoginDate
-    expireDate
-    pluginVersion
-    fppVersion
-    lastLoginIp
-    showRole
-    playingNow
-    playingNext
-    mfaEnabled
-    apiAccess {
-      apiAccessActive
-      apiAccessToken
-    }
-    userProfile {
-      firstName
-      lastName
-      facebookUrl
-      youtubeUrl
-    }
-    preferences {
-      viewerControlEnabled
-      viewerPageViewOnly
-      viewerControlMode
-      resetVotes
-      jukeboxDepth
-      locationCheckMethod
-      showLatitude
-      showLongitude
-      allowedRadius
-      checkIfVoted
-      checkIfRequested
-      psaEnabled
-      psaFrequency
-      jukeboxRequestLimit
-      locationCode
-      hideSequenceCount
-      nightlyPlayLimit
-      makeItSnow
-      managePsa
-      playAllPsas
-      sequencesPlayed
-      pageTitle
-      pageIconUrl
-      showOnMap
-      showOnMapPublic
-      selfHostedRedirectUrl
-      blockedViewerIps
-    }
-    sequences {
-      name
-      key
-      displayName
-      duration
-      visible
-      index
-      order
-      imageUrl
-      active
-      visibilityCount
-      type
-      group
-      category
-      artist
-    }
-    sequenceGroups {
-      name
-      visibilityCount
-    }
-    categories {
-      name
-      requestLimit
-      antiConsecutive
-      color
-      displayOrder
-    }
-    psaSequences {
-      name
-      order
-      lastPlayed
-      enabled
-    }
-    requestLeaderSequence
-    voteLeaderSequence
-    nextPsaOverride
-    pages {
-      name
-      active
-      html
-      pageId
-      updatedAt
-    }
-    requests {
-      sequence {
-        name
-      }
-      position
-      ownerRequested
-    }
-    votes {
-      sequence {
-        name
-      }
-      votes
-      lastVoteTime
-      ownerVoted
-    }
-    activeViewers {
-      ipAddress
-      visitDateTime
-    }
-  }
-`;
-
+// NOTE: this selection set is intentionally duplicated between the
+// show-name and email lookups rather than shared via a GraphQL fragment.
+// @habx/apollo-multi-endpoint-link's MultiAPILink never settles its
+// observable when the document contains a FragmentDefinition -- the request
+// is sent and the server answers 200, but useLazyQuery's execute promise
+// neither resolves nor rejects, so the caller hangs forever with no error
+// and no toast. Verified in a real browser: inline renders in ~390ms, the
+// identical query via a fragment never returns. Do NOT DRY these back
+// into a fragment without re-testing the admin Account Details page.
 export const GET_SHOW_BY_SHOW_NAME = gql`
-  ${ADMIN_SHOW_DETAIL_FIELDS}
   query ($showName: String!) @api(name: controlPanel) {
     getShowByShowName(showName: $showName) {
-      ...AdminShowDetailFields
+      showToken
+      email
+      showName
+      showSubdomain
+      emailVerified
+      marketingOptIn
+      createdDate
+      lastLoginDate
+      expireDate
+      pluginVersion
+      fppVersion
+      lastLoginIp
+      showRole
+      playingNow
+      playingNext
+      mfaEnabled
+      apiAccess {
+        apiAccessActive
+        apiAccessToken
+      }
+      userProfile {
+        firstName
+        lastName
+        facebookUrl
+        youtubeUrl
+      }
+      preferences {
+        viewerControlEnabled
+        viewerPageViewOnly
+        viewerControlMode
+        resetVotes
+        jukeboxDepth
+        locationCheckMethod
+        showLatitude
+        showLongitude
+        allowedRadius
+        checkIfVoted
+        checkIfRequested
+        psaEnabled
+        psaFrequency
+        jukeboxRequestLimit
+        locationCode
+        hideSequenceCount
+        nightlyPlayLimit
+        makeItSnow
+        managePsa
+        playAllPsas
+        sequencesPlayed
+        pageTitle
+        pageIconUrl
+        showOnMap
+        showOnMapPublic
+        selfHostedRedirectUrl
+        blockedViewerIps
+      }
+      sequences {
+        name
+        key
+        displayName
+        duration
+        visible
+        index
+        order
+        imageUrl
+        active
+        visibilityCount
+        type
+        group
+        category
+        artist
+      }
+      sequenceGroups {
+        name
+        visibilityCount
+      }
+      categories {
+        name
+        requestLimit
+        antiConsecutive
+        color
+        displayOrder
+      }
+      psaSequences {
+        name
+        order
+        lastPlayed
+        enabled
+      }
+      requestLeaderSequence
+      voteLeaderSequence
+      nextPsaOverride
+      pages {
+        name
+        active
+        html
+        pageId
+        updatedAt
+      }
+      requests {
+        sequence {
+          name
+        }
+        position
+        ownerRequested
+      }
+      votes {
+        sequence {
+          name
+        }
+        votes
+        lastVoteTime
+        ownerVoted
+      }
+      activeViewers {
+        ipAddress
+        visitDateTime
+      }
     }
   }
 `;
 
-// Admin support lookup by email. Exact match, case-insensitive server-side
-// (idx_email_ci collation) -- there is deliberately no autosuggest sibling
-// here, because Mongo cannot serve a $regex from a collation index.
+// NOTE: this selection set is intentionally duplicated between the
+// show-name and email lookups rather than shared via a GraphQL fragment.
+// @habx/apollo-multi-endpoint-link's MultiAPILink never settles its
+// observable when the document contains a FragmentDefinition -- the request
+// is sent and the server answers 200, but useLazyQuery's execute promise
+// neither resolves nor rejects, so the caller hangs forever with no error
+// and no toast. Verified in a real browser: inline renders in ~390ms, the
+// identical query via a fragment never returns. Do NOT DRY these back
+// into a fragment without re-testing the admin Account Details page.
 export const GET_SHOW_BY_EMAIL = gql`
-  ${ADMIN_SHOW_DETAIL_FIELDS}
   query ($email: String!) @api(name: controlPanel) {
     getShowByEmail(email: $email) {
-      ...AdminShowDetailFields
+      showToken
+      email
+      showName
+      showSubdomain
+      emailVerified
+      marketingOptIn
+      createdDate
+      lastLoginDate
+      expireDate
+      pluginVersion
+      fppVersion
+      lastLoginIp
+      showRole
+      playingNow
+      playingNext
+      mfaEnabled
+      apiAccess {
+        apiAccessActive
+        apiAccessToken
+      }
+      userProfile {
+        firstName
+        lastName
+        facebookUrl
+        youtubeUrl
+      }
+      preferences {
+        viewerControlEnabled
+        viewerPageViewOnly
+        viewerControlMode
+        resetVotes
+        jukeboxDepth
+        locationCheckMethod
+        showLatitude
+        showLongitude
+        allowedRadius
+        checkIfVoted
+        checkIfRequested
+        psaEnabled
+        psaFrequency
+        jukeboxRequestLimit
+        locationCode
+        hideSequenceCount
+        nightlyPlayLimit
+        makeItSnow
+        managePsa
+        playAllPsas
+        sequencesPlayed
+        pageTitle
+        pageIconUrl
+        showOnMap
+        showOnMapPublic
+        selfHostedRedirectUrl
+        blockedViewerIps
+      }
+      sequences {
+        name
+        key
+        displayName
+        duration
+        visible
+        index
+        order
+        imageUrl
+        active
+        visibilityCount
+        type
+        group
+        category
+        artist
+      }
+      sequenceGroups {
+        name
+        visibilityCount
+      }
+      categories {
+        name
+        requestLimit
+        antiConsecutive
+        color
+        displayOrder
+      }
+      psaSequences {
+        name
+        order
+        lastPlayed
+        enabled
+      }
+      requestLeaderSequence
+      voteLeaderSequence
+      nextPsaOverride
+      pages {
+        name
+        active
+        html
+        pageId
+        updatedAt
+      }
+      requests {
+        sequence {
+          name
+        }
+        position
+        ownerRequested
+      }
+      votes {
+        sequence {
+          name
+        }
+        votes
+        lastVoteTime
+        ownerVoted
+      }
+      activeViewers {
+        ipAddress
+        visitDateTime
+      }
     }
   }
 `;

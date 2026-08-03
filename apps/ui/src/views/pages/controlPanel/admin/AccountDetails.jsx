@@ -58,8 +58,14 @@ const AccountDetails = () => {
   const hasSelectedShow = !_.isEmpty(selectedShow);
   const searchingByEmail = searchMode === 'email';
 
-  const [showByShowNameQuery] = useLazyQuery(GET_SHOW_BY_SHOW_NAME);
-  const [showByEmailQuery] = useLazyQuery(GET_SHOW_BY_EMAIL);
+  // fetchPolicy MUST be declared on the hook, not passed to the execute
+  // function. @apollo/client 3.14 stopped honouring fetchPolicy/onCompleted/
+  // onError on execute (it warns "Please pass the option to the useLazyQuery
+  // hook instead" and drops them). Passing them to execute means the query
+  // fires, returns 200, and the result is silently discarded -- the page
+  // just sits there. Read the awaited result instead of using callbacks.
+  const [showByShowNameQuery] = useLazyQuery(GET_SHOW_BY_SHOW_NAME, { fetchPolicy: 'network-only' });
+  const [showByEmailQuery] = useLazyQuery(GET_SHOW_BY_EMAIL, { fetchPolicy: 'network-only' });
   const [adminUpdateShowMutation] = useMutation(ADMIN_UPDATE_SHOW);
   const [adminResetMfaMutation] = useMutation(ADMIN_RESET_MFA);
   const [impersonateQuery] = useLazyQuery(IMPERSONATE);
@@ -72,23 +78,15 @@ const AccountDetails = () => {
       return;
     }
 
-    await getShowsAutoSuggestQuery({
-      context: {
-        headers: {
-          Route: 'Control-Panel'
-        }
-      },
-      variables: {
-        showName
-      },
-      fetchPolicy: 'network-only',
-      onCompleted: (data) => {
-        setShowOptions(data?.getShowsAutoSuggest ?? []);
-      },
-      onError: () => {
-        showAlert(dispatch, { alert: 'error' });
-      }
-    });
+    try {
+      const { data } = await getShowsAutoSuggestQuery({
+        context: { headers: { Route: 'Control-Panel' } },
+        variables: { showName }
+      });
+      setShowOptions(data?.getShowsAutoSuggest ?? []);
+    } catch {
+      showAlert(dispatch, { alert: 'error' });
+    }
   };
 
   const selectAShow = async () => {
@@ -100,25 +98,22 @@ const AccountDetails = () => {
       return;
     }
     setSelectedShow({});
-    await showByShowNameQuery({
-      context: {
-        headers: {
-          Route: 'Control-Panel'
-        }
-      },
-      variables: {
-        showName: showSearchValue
-      },
-      fetchPolicy: 'network-only',
-      onCompleted: (data) => {
-        if (data?.getShowByShowName != null) {
-          setSelectedShow(data?.getShowByShowName);
-        }
-      },
-      onError: () => {
-        showAlert(dispatch, { alert: 'error' });
+    try {
+      const { data } = await showByShowNameQuery({
+        context: { headers: { Route: 'Control-Panel' } },
+        variables: { showName: showSearchValue }
+      });
+      if (data?.getShowByShowName != null) {
+        setSelectedShow(data.getShowByShowName);
+        return;
       }
-    });
+      showAlert(dispatch, {
+        alert: 'warning',
+        message: `No show found named ${showSearchValue}.`
+      });
+    } catch {
+      showAlert(dispatch, { alert: 'error' });
+    }
   };
 
   // Exact-match account lookup for support ("a user emailed me"). Unlike the
@@ -130,30 +125,22 @@ const AccountDetails = () => {
       return;
     }
     setSelectedShow({});
-    await showByEmailQuery({
-      context: {
-        headers: {
-          Route: 'Control-Panel'
-        }
-      },
-      variables: {
-        email
-      },
-      fetchPolicy: 'network-only',
-      onCompleted: (data) => {
-        if (data?.getShowByEmail != null) {
-          setSelectedShow(data.getShowByEmail);
-          return;
-        }
-        showAlert(dispatch, {
-          alert: 'warning',
-          message: `No account found with the email ${email}.`
-        });
-      },
-      onError: () => {
-        showAlert(dispatch, { alert: 'error' });
+    try {
+      const { data } = await showByEmailQuery({
+        context: { headers: { Route: 'Control-Panel' } },
+        variables: { email }
+      });
+      if (data?.getShowByEmail != null) {
+        setSelectedShow(data.getShowByEmail);
+        return;
       }
-    });
+      showAlert(dispatch, {
+        alert: 'warning',
+        message: `No account found with the email ${email}.`
+      });
+    } catch {
+      showAlert(dispatch, { alert: 'error' });
+    }
   };
 
   const impersonate = async () => {

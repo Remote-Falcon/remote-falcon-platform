@@ -8,7 +8,7 @@ import { ThemeProvider, createTheme } from '@mui/material/styles';
 
 import AccountDetails from './AccountDetails';
 import { store } from '../../../../store';
-import { GET_SHOW_BY_EMAIL } from '../../../../utils/graphql/controlPanel/queries';
+import { GET_SHOW_BY_EMAIL, GET_SHOW_BY_SHOW_NAME } from '../../../../utils/graphql/controlPanel/queries';
 
 // Covers the admin email-lookup path added alongside the existing
 // show-name search: the mode toggle, the client-side trim, and the
@@ -30,18 +30,19 @@ vi.mock('../../../../contexts/JWTContext', () => ({
 
 const theme = createTheme();
 
-// Build a fully null-populated result straight from the shared fragment.
-// Every field the query selects is present, so Apollo never warns about
-// missing fields, and the object stays correct automatically if the
-// fragment gains a field later.
+// Build a fully null-populated result straight from the query's own
+// selection set. Every field the query selects is present, so Apollo never
+// warns about missing fields, and the object stays correct automatically if
+// the selection set gains a field later.
 //
 // __typename is required: this Apollo version has removed MockedProvider's
 // `addTypename={false}` escape hatch, so the outgoing query always carries
 // __typename and a mock result without it fails to satisfy the cache.
-const showFromFragment = (overrides = {}) => {
-  const fragment = GET_SHOW_BY_EMAIL.definitions.find((d) => d.kind === 'FragmentDefinition');
+const showFromQuery = (overrides = {}) => {
+  const op = GET_SHOW_BY_EMAIL.definitions.find((d) => d.kind === 'OperationDefinition');
+  const root = op.selectionSet.selections.find((s) => s.name.value === 'getShowByEmail');
   const base = Object.fromEntries(
-    fragment.selectionSet.selections.map((selection) => [selection.name.value, null])
+    root.selectionSet.selections.map((selection) => [selection.name.value, null])
   );
   return { __typename: 'Show', ...base, ...overrides };
 };
@@ -75,6 +76,25 @@ describe('AccountDetails search mode', () => {
     store.dispatch({ type: 'snackbar/closeSnackbar' });
   });
 
+
+  /**
+   * Regression guard for a shipped production bug. Sharing these selection
+   * sets via a GraphQL fragment looks like an obvious DRY win, but
+   * @habx/apollo-multi-endpoint-link's MultiAPILink never settles its
+   * observable for a document containing a FragmentDefinition: the request
+   * goes out, the server answers 200, and useLazyQuery's execute promise
+   * neither resolves nor rejects. The admin page hangs silently -- no data,
+   * no error, no toast. Caught only in a real browser, never by a mocked
+   * test, so this asserts on document shape instead.
+   */
+  it('uses no GraphQL fragments (MultiAPILink hangs on FragmentDefinition)', () => {
+    [GET_SHOW_BY_EMAIL, GET_SHOW_BY_SHOW_NAME].forEach((doc) => {
+      const kinds = doc.definitions.map((d) => d.kind);
+      expect(kinds).not.toContain('FragmentDefinition');
+      expect(kinds).toContain('OperationDefinition');
+    });
+  });
+
   it('defaults to show-name search and swaps the input when Email is selected', async () => {
     const user = userEvent.setup({ delay: null });
     renderPage([]);
@@ -93,7 +113,7 @@ describe('AccountDetails search mode', () => {
   it('looks up an account by email and reveals the account actions', async () => {
     const user = userEvent.setup({ delay: null });
     renderPage([
-      emailMock('operator@example.com', showFromFragment({ showName: 'Operator Lights' }))
+      emailMock('operator@example.com', showFromQuery({ showName: 'Operator Lights' }))
     ]);
 
     await switchToEmailMode(user);
@@ -123,7 +143,7 @@ describe('AccountDetails search mode', () => {
   it('sends a clean address when the typed email carries whitespace', async () => {
     const user = userEvent.setup({ delay: null });
     renderPage([
-      emailMock('padded@example.com', showFromFragment({ showName: 'Padded Show' }))
+      emailMock('padded@example.com', showFromQuery({ showName: 'Padded Show' }))
     ]);
 
     await switchToEmailMode(user);
@@ -179,7 +199,7 @@ describe('AccountDetails search mode', () => {
   it('clears the loaded account when the search mode changes', async () => {
     const user = userEvent.setup({ delay: null });
     renderPage([
-      emailMock('operator@example.com', showFromFragment({ showName: 'Operator Lights' }))
+      emailMock('operator@example.com', showFromQuery({ showName: 'Operator Lights' }))
     ]);
 
     await switchToEmailMode(user);
