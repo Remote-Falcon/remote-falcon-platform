@@ -61,6 +61,27 @@ receivers:
         field: resource["deployment.environment"]
         value: local-dev
 
+      # Parse the application's log level out of the body. Kept in sync
+      # with the prod configmap (ops/k8s/otel-collector/configmap.yml) so
+      # a severity filter behaves the same locally as it does in prod —
+      # otherwise an alert can look fine in dev and be inert in prod,
+      # which is exactly how both prod alerts sat dead until 2026-08-10.
+      # Non-Java lines fall through untouched via on_error: send_quiet.
+      - type: regex_parser
+        parse_from: body
+        parse_to: attributes
+        regex: '^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}[.,]\d{3}Z?\s+(?P<log_level>TRACE|DEBUG|INFO|WARN|ERROR|FATAL)\b'
+        on_error: send_quiet
+        severity:
+          parse_from: attributes.log_level
+          mapping:
+            trace: TRACE
+            debug: DEBUG
+            info: INFO
+            warn: WARN
+            error: ERROR
+            fatal: FATAL
+
 processors:
   # Batch records before export — reduces request rate to PostHog and
   # keeps egress sane. Default settings are tuned for typical workloads.

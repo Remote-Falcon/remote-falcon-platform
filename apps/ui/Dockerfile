@@ -97,4 +97,17 @@ RUN npm install serve -g --silent
 EXPOSE 3000
 
 # start the web server
-CMD ["serve", "-s", "/app/dist", "-c", "/app/serve.json"]
+#
+# -L (--no-request-logging): `serve`'s access log was 3.4M lines/week —
+# 84% of ALL logs the platform shipped to PostHog (measured 2026-08-10),
+# and it drowned everything else: real backend errors were 0.007% of the
+# stream. It was also undiagnosable by construction:
+#   * the client IP is always the ingress (10.150.0.243), never the real
+#     caller, so you can't attribute or rate-limit anything;
+#   * the request line carries no status code — `Returned 200 in 1 ms` is
+#     a SEPARATE line, so a request and its outcome can't be correlated;
+#   * ~242k lines/week are just the kubelet hitting /health.json every 10s.
+# Nothing actionable was lost by turning it off. If HTTP access logging is
+# wanted later, it belongs at the ingress (which sees the real client IP
+# and the status together), not in a static file server.
+CMD ["serve", "-s", "/app/dist", "-c", "/app/serve.json", "-L"]

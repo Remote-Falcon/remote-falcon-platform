@@ -69,3 +69,28 @@ alerts:
       window_minutes: 5
     cooldown_minutes: 30
     runbook: docs/runbooks/backend-error-spike.md
+
+  - name: rf-mongo-unreachable
+    description: >-
+      Backend services can't reach the DO Managed Mongo primary — the
+      driver is retrying server selection. Deliberately does NOT filter on
+      severity: the driver logs "Waiting for server to become available" at
+      INFO (a retry, not a failure), so an error-severity alert is
+      structurally blind to this whole class of outage. Verified against
+      the 2026-08-07 01:53Z event, which produced 231 of these lines in a
+      single minute and fired nothing.
+    enabled: true
+    filters:
+      service_names:
+        - remote-falcon-viewer
+        - remote-falcon-plugins-api
+        - remote-falcon-control-panel
+        - remote-falcon-external-api
+        - remote-falcon-account-archive
+      message_contains: "Waiting for server to become available"
+    threshold:
+      count: 25
+      operator: above
+      window_minutes: 5
+    cooldown_minutes: 30
+    runbook: docs/runbooks/mongo-unreachable.md

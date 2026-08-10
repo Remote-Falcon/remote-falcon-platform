@@ -68,6 +68,50 @@ data:
             field: resource["deployment.environment"]
             value: prod
 
+          # Parse the APPLICATION's log level out of the body.
+          #
+          # The `container` operator above parses only the containerd
+          # wrapper (timestamp, stream, body). It does NOT look inside the
+          # body, so every record landed at severity_text=info regardless
+          # of what the service actually logged. Measured 2026-08-10:
+          # 4,035,994 records in 7 days, ZERO at error or fatal.
+          #
+          # That silently disabled both alerts in ops/posthog-alerts/
+          # alerts.yml — they filter on `severity_levels: [error, fatal]`,
+          # which no record could ever satisfy. The manual regex_parser
+          # that used to do this was dropped when this pipeline moved to
+          # the `container` operator; the operator does not replace it.
+          #
+          # Two body formats in this cluster, both carrying the level
+          # immediately after a leading timestamp, so one regex covers
+          # both:
+          #   Spring   2026-08-10T12:27:00.764Z  INFO 1 --- [svc] [thr] c : msg
+          #   Quarkus  2026-08-07 01:53:44,868 ERROR [logger] (thread) msg
+          #
+          # Lines that don't match (the ui container's `serve` access log)
+          # fall through untouched via on_error: send_quiet — they keep the
+          # default severity and are NOT dropped. `send_quiet` rather than
+          # `send` so non-Java lines don't spam the collector's own log.
+          #
+          # `mapping` is additive on top of the default preset (which
+          # already covers the lowercase names). The explicit uppercase
+          # entries make the match correct whether or not the parser
+          # lowercases the captured value before lookup.
+          - type: regex_parser
+            parse_from: body
+            parse_to: attributes
+            regex: '^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}[.,]\d{3}Z?\s+(?P<log_level>TRACE|DEBUG|INFO|WARN|ERROR|FATAL)\b'
+            on_error: send_quiet
+            severity:
+              parse_from: attributes.log_level
+              mapping:
+                trace: TRACE
+                debug: DEBUG
+                info: INFO
+                warn: WARN
+                error: ERROR
+                fatal: FATAL
+
     processors:
       # Batch records before export — reduces request rate to PostHog.
       batch:

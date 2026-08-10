@@ -75,6 +75,18 @@ jobs:
         if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.dry_run != true) }}
         run: kubectl apply -f ops/k8s/otel-collector/
 
+      # A ConfigMap-only change does NOT roll the DaemonSet: the pod spec
+      # is byte-identical, so `kubectl apply` is a no-op for the pods and
+      # the `rollout status` below returns success instantly against the
+      # OLD pods. The collector reads its config once at startup and does
+      # not hot-reload, so without this restart a config change deploys
+      # green and changes nothing. (The mounted file does eventually
+      # refresh on the kubelet's sync interval — the running process just
+      # never re-reads it.)
+      - name: Restart DaemonSet to pick up config changes
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.dry_run != true) }}
+        run: kubectl rollout restart daemonset/otel-collector --namespace ${{ env.NAMESPACE }}
+
       - name: Wait for DaemonSet rollout
         if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.dry_run != true) }}
         run: kubectl rollout status daemonset/otel-collector --namespace ${{ env.NAMESPACE }} --timeout=3m

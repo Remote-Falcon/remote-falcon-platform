@@ -26,6 +26,7 @@ directly.
 | `mongo-backup-stale` | k8s CronJob | [`ops/k8s/mongo-backup-watchdog/`](../../ops/k8s/mongo-backup-watchdog/) | Newest backup in `s3://rf-mongo-backup/mongo-backups/` older than 36h | P2 | [`mongo-backup-stale.md`](../runbooks/mongo-backup-stale.md) |
 | `rf-mongo-backup-failure` | PostHog log alert | [`ops/posthog-alerts/`](../../ops/posthog-alerts/) | `remote-falcon-mongo-backup` logs "Failed to complete MongoDB backup" | P2 | [`mongo-backup-failure.md`](../runbooks/mongo-backup-failure.md) |
 | `rf-backend-error-spike` | PostHog log alert | [`ops/posthog-alerts/`](../../ops/posthog-alerts/) | ≥20 ERROR/FATAL logs across backend services in 5min | P2 | [`backend-error-spike.md`](../runbooks/backend-error-spike.md) |
+| `rf-mongo-unreachable` | PostHog log alert | [`ops/posthog-alerts/`](../../ops/posthog-alerts/) | ≥25 "Waiting for server to become available" logs in 5min (Mongo primary unreachable). No severity filter — the driver logs this at INFO | P1 if sustained | [`mongo-unreachable.md`](../runbooks/mongo-unreachable.md) |
 | `rf-doks-node-cpu-high` | DO Monitoring | [`ops/do-monitoring/`](../../ops/do-monitoring/) | DOKS worker node CPU > 85% for 10min | P2 | [`doks-node-cpu-high.md`](../runbooks/doks-node-cpu-high.md) |
 | `rf-doks-node-memory-high` | DO Monitoring | [`ops/do-monitoring/`](../../ops/do-monitoring/) | DOKS worker node memory > 90% for 10min | **P1** | [`doks-node-memory-high.md`](../runbooks/doks-node-memory-high.md) |
 | `rf-doks-node-disk-high` | DO Monitoring | [`ops/do-monitoring/`](../../ops/do-monitoring/) | DOKS worker node disk > 80% for 10min | P2 | [`doks-node-disk-high.md`](../runbooks/doks-node-disk-high.md) |
@@ -91,6 +92,34 @@ PostHog UI directly.
 4. Apply via the appropriate `apply.sh --apply`.
 5. (PostHog only) Attach the Discord destination in the UI.
 6. Add a row to the table above in this file.
+
+### Before you filter on `severity_levels`, verify the severity exists
+
+A PostHog log alert filtered on `severity_levels: [error, fatal]` is only
+as good as the severity the collector stamped. **Both PostHog alerts sat
+silently dead from their creation until 2026-08-10** because the OTel
+collector's `container` operator parses the containerd wrapper but not the
+application's own level — every one of 4M weekly records landed at
+`severity_text=info`, so no record could ever match. Fixed by restoring a
+`regex_parser` + `severity` block in
+[`ops/k8s/otel-collector/configmap.yml`](../../ops/k8s/otel-collector/configmap.yml).
+
+Two habits that would have caught it, and are cheap to repeat:
+
+```sh
+# 1. Does ANY record carry the severity you're about to filter on?
+#    If this returns 0 over a week, your alert is decorative.
+#    (PostHog MCP: logs-count with severityLevels [error, fatal], -7d)
+
+# 2. Back-test the alert against a window where you KNOW it should have
+#    fired. If it wouldn't have fired then, it won't fire next time.
+```
+
+Also check that the level you're filtering on is the level the library
+actually uses. The MongoDB driver logs a lost primary at **INFO** (server
+selection retry is a normal code path to it), which is why
+`rf-mongo-unreachable` matches on message text and deliberately carries no
+severity filter.
 
 ## Not yet covered
 
