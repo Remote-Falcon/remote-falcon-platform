@@ -68,6 +68,84 @@ data:
             field: resource["deployment.environment"]
             value: prod
 
+          # Parse the APPLICATION's log level out of the body.
+          #
+          # The `container` operator above parses only the containerd
+          # wrapper (timestamp, stream, body). It does NOT look inside the
+          # body, so every record landed at severity_text=info regardless
+          # of what the service actually logged. Measured 2026-08-10:
+          # 4,035,994 records in 7 days, ZERO at error or fatal.
+          #
+          # That silently disabled both alerts in ops/posthog-alerts/
+          # alerts.yml — they filter on `severity_levels: [error, fatal]`,
+          # which no record could ever satisfy.
+          #
+          # History, precisely: the regex_parser dropped in 01cc1e8 keyed
+          # severity off the containerd STREAM (`error: stderr`), never off
+          # an application log level. So app-level severity was never
+          # parsed here at all — this is new, not a restoration — while the
+          # stderr->error mapping WAS a real regression. Both are handled:
+          # the level parser below, then a stderr fallback after it.
+          #
+          # Two body formats in this cluster, both carrying the level
+          # immediately after a leading timestamp, so one regex covers
+          # both:
+          #   Spring   2026-08-10T12:27:00.764Z  INFO 1 --- [svc] [thr] c : msg
+          #   Quarkus  2026-08-07 01:53:44,868 ERROR [logger] (thread) msg
+          #
+          # Lines that don't match (the ui container's `serve` access log)
+          # fall through untouched via on_error: send_quiet — they keep the
+          # default severity and are NOT dropped. `send_quiet` rather than
+          # `send` so non-Java lines don't spam the collector's own log.
+          #
+          # `mapping` is additive on top of the default preset (which
+          # already covers the lowercase names). The explicit uppercase
+          # entries make the match correct whether or not the parser
+          # lowercases the captured value before lookup.
+          - type: regex_parser
+            parse_from: body
+            parse_to: attributes
+            regex: '^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}[.,]\d{3}Z?\s+(?P<log_level>TRACE|DEBUG|INFO|WARN|ERROR|FATAL)\b'
+            on_error: send_quiet
+            severity:
+              parse_from: attributes.log_level
+              mapping:
+                trace: TRACE
+                debug: DEBUG
+                info: INFO
+                warn: WARN
+                error: ERROR
+                fatal: FATAL
+
+          # stderr fallback — restores the `error: stderr` mapping lost in
+          # 344e5d8, but only for records the level parser above did NOT
+          # classify. Catches output with no logging-framework prefix (JVM
+          # crash dumps, GraalVM native-image aborts, shell `set -e`
+          # traces) that would otherwise stay unspecified and remain
+          # invisible to rf-backend-error-spike.
+          #
+          # Gated on log_level being absent so a normal `INFO` line that
+          # happens to go to stderr isn't misreported as an error — that
+          # over-reporting is why the original stream-only mapping wasn't
+          # worth keeping on its own.
+          #
+          # Baseline cost measured 2026-08-10: across all six backend
+          # services over 48h, every record was stdout and none was stderr,
+          # so this adds nothing to the alert baseline in normal operation.
+          # overwrite_text is REQUIRED here, not cosmetic. Without it the
+          # parser leaves severity_text as the raw parsed value ("stderr")
+          # while setting severity_number to Error(17). PostHog's
+          # severityLevels filter matches on severity_TEXT, so an alert on
+          # [error, fatal] would skip these records — the exact silent-miss
+          # this whole change exists to remove. Verified against 0.119.0.
+          - type: severity_parser
+            parse_from: attributes["log.iostream"]
+            if: 'attributes["log_level"] == nil and attributes["log.iostream"] == "stderr"'
+            preset: none
+            overwrite_text: true
+            mapping:
+              error: stderr
+
     processors:
       # Batch records before export — reduces request rate to PostHog.
       batch:
