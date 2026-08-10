@@ -1,0 +1,702 @@
+openapi: 3.0.3
+
+# ---------------------------------------------------------------------------
+# Source of truth for the PUBLIC Remote Falcon API.
+#
+# This file documents ONLY the three show-owner integration endpoints served by
+# ExternalApiController and guarded by @RequiresAccess. It deliberately does NOT
+# document:
+#   - /v1/sessions/** and /v1/pages/**  (first-party RF Page Builder flow,
+#     bearer + scope auth, CORS-locked to rfpagebuilder.com)
+#   - anything in apps/plugins-api      (the FPP / xSchedule plugin surface)
+#
+# It is rendered on docs.remotefalcon.com. The docs site pulls this file via
+# `npm run docs:sync-api` in the remote-falcon-docusaurus repo — edit it HERE,
+# never the copy over there.
+#
+# If you add, remove, or change an @RequiresAccess mapping in
+# ExternalApiController, update this file in the same PR.
+# ---------------------------------------------------------------------------
+
+info:
+  title: Remote Falcon API
+  version: "1.0.0"
+  description: |
+    The public Remote Falcon API lets you read your show's live state and drive
+    viewer requests and votes from your own code — a custom viewer page on your
+    own domain, a stats overlay for a livestream, a chat bot, a kiosk, whatever
+    you want to build.
+
+    It is scoped to **one show**. The credentials you sign with determine which
+    show every call reads and writes; there is no show identifier in any request.
+
+    ## Getting credentials
+
+    In your control panel, go to **Account Settings → Account → Request API
+    Access**. That provisions two values:
+
+    | Value | What it is |
+    |---|---|
+    | **API Access Token** | Public identifier for your show. Goes *inside* the JWT payload. |
+    | **API Secret Key** | HMAC signing key. Never send it in a request. |
+
+    Both have an eye button to reveal them and a copy button. The Access Token is
+    always available. The Secret Key only appears right after you click **Refresh
+    Secret** and is gone once you leave the page — it is never loaded on page
+    open. If you can't see a Secret Key, click **Refresh Secret** to generate and
+    reveal a new one.
+
+    Refreshing invalidates every JWT signed with the old secret; your access
+    token does not change.
+
+    ## Authenticating
+
+    **The Access Token is not your bearer token.** Sending
+    `Authorization: Bearer <your-access-token>` returns `401` every time. The
+    access token goes *inside* a JWT that you sign with your secret key, and
+    that JWT is what goes in the header. This is the most common integration
+    mistake.
+
+    Every call takes `Authorization: Bearer <jwt>`, where the JWT is:
+
+    - **Algorithm** `HS256`
+    - **Payload** `{ "accessToken": "<your API Access Token>" }`
+    - **Signed with** your API Secret Key
+
+    No other claims are required, and no expiry is enforced. Sign it server-side.
+    Anyone holding the secret can act as your show, so never ship it to a browser
+    or commit it.
+
+    ```
+    Header:  { "alg": "HS256", "typ": "JWT" }
+    Payload: { "accessToken": "a1b2c3d4-...." }
+    ```
+
+    Any failure to authenticate — missing header, malformed token, bad signature,
+    absent or unknown `accessToken` claim — returns a bare `401` with no body.
+    The API does not distinguish between these cases on purpose.
+
+    ## Rate limits
+
+    There is no published rate limit on these endpoints today. Poll `showDetails`
+    on a sane interval (5 seconds or slower); treat that as a courtesy contract
+    that may become enforced.
+
+  contact:
+    name: Remote Falcon
+    url: https://docs.remotefalcon.com
+  license:
+    name: Remote Falcon
+    url: https://github.com/Remote-Falcon
+
+servers:
+  - url: https://remotefalcon.com/remote-falcon-external-api
+    description: Production
+
+security:
+  - showJwt: []
+
+tags:
+  - name: Show
+    description: Read live show state.
+  - name: Viewer control
+    description: Submit requests and votes on behalf of a viewer.
+
+paths:
+  /showDetails:
+    get:
+      tags: [Show]
+      summary: Get live show state
+      operationId: showDetails
+      description: |
+        Returns the current state of your show in one call: viewer-control
+        preferences, the full sequence list, sequence groups, the live jukebox
+        queue, the live vote tallies, and what is playing now and next.
+
+        This is the endpoint you poll to drive a custom viewer page or an
+        overlay. Which of `requests` or `votes` is meaningful depends on
+        `preferences.viewerControlMode` — `JUKEBOX` populates `requests`,
+        `VOTING` populates `votes`.
+
+        Only sequences with `visible: true` should be offered to viewers.
+        A sequence with `visibilityCount` above 0 is on its hide-after-play
+        cooldown and will be refused if requested, so gray it out rather than
+        letting a viewer pick it.
+      responses:
+        "200":
+          description: Current show state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShowResponse"
+              examples:
+                jukebox:
+                  summary: Jukebox mode, two sequences queued
+                  value:
+                    preferences:
+                      viewerControlEnabled: true
+                      viewerControlMode: JUKEBOX
+                      resetVotes: false
+                      jukeboxDepth: 10
+                      locationCheckMethod: GEO
+                      showLatitude: 40.7128
+                      showLongitude: -74.006
+                      allowedRadius: 1.5
+                      jukeboxRequestLimit: 2
+                      locationCode: null
+                      hideSequenceCount: 3
+                      makeItSnow: false
+                    sequences:
+                      - name: "Wizards in Winter"
+                        displayName: "Wizards in Winter"
+                        duration: 182
+                        visible: true
+                        index: 0
+                        order: 1
+                        active: true
+                        visibilityCount: 0
+                        type: "SEQUENCE"
+                        group: ""
+                        category: "Rock"
+                        artist: "Trans-Siberian Orchestra"
+                      - name: "Carol of the Bells"
+                        displayName: "Carol of the Bells"
+                        duration: 145
+                        visible: true
+                        index: 1
+                        order: 2
+                        active: true
+                        visibilityCount: 2
+                        type: "SEQUENCE"
+                        group: ""
+                        category: "Classical"
+                        artist: "Lindsey Stirling"
+                    sequenceGroups: []
+                    requests:
+                      - sequence:
+                          name: "Carol of the Bells"
+                          displayName: "Carol of the Bells"
+                          duration: 145
+                          visible: true
+                        position: 1
+                        viewerRequested: "8f14e45f-ceea-467a-9f4c-1a2b3c4d5e6f"
+                        ownerRequested: false
+                    votes: []
+                    playingNow: "Wizards in Winter"
+                    playingNext: "Carol of the Bells"
+                    playingNextFromSchedule: "Christmas Eve Sarajevo"
+                voting:
+                  summary: Voting mode, live tallies
+                  value:
+                    preferences:
+                      viewerControlEnabled: true
+                      viewerControlMode: VOTING
+                      resetVotes: true
+                      jukeboxDepth: 0
+                      locationCheckMethod: NONE
+                      showLatitude: null
+                      showLongitude: null
+                      allowedRadius: null
+                      jukeboxRequestLimit: 0
+                      locationCode: null
+                      hideSequenceCount: 0
+                      makeItSnow: true
+                    sequences:
+                      - name: "Wizards in Winter"
+                        displayName: "Wizards in Winter"
+                        duration: 182
+                        visible: true
+                        index: 0
+                        order: 1
+                        active: true
+                        visibilityCount: 0
+                    sequenceGroups:
+                      - name: "Rock Block"
+                        visibilityCount: 0
+                    requests: []
+                    votes:
+                      - sequence:
+                          name: "Wizards in Winter"
+                          displayName: "Wizards in Winter"
+                        votes: 14
+                        viewersVoted:
+                          - "8f14e45f-ceea-467a-9f4c-1a2b3c4d5e6f"
+                        lastVoteTime: "2026-12-24T19:42:11"
+                        ownerVoted: false
+                    playingNow: "Wizards in Winter"
+                    playingNext: ""
+                    playingNextFromSchedule: ""
+        "400":
+          $ref: "#/components/responses/ShowUnresolved"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /addSequenceToQueue:
+    post:
+      tags: [Viewer control]
+      summary: Add a sequence to the jukebox queue
+      operationId: addSequenceToQueue
+      description: |
+        Requests a sequence on behalf of a viewer, exactly as if they had tapped
+        it on your viewer page. Use this when the show is in `JUKEBOX` mode.
+
+        **Read the status codes carefully.** A rejection is *not* a `4xx`. A
+        request that the show refused — queue full, viewer out of range, sequence
+        already queued — comes back as **`202` with a `message`**. A request that
+        succeeded comes back as **`200` with an empty body**. Branch on the
+        status code, or on the presence of `message`, not on `response.ok`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RequestVoteRequest"
+            examples:
+              geofenced:
+                summary: Show uses GEO location checking
+                value:
+                  sequence: "Wizards in Winter"
+                  viewerLatitude: 40.7129
+                  viewerLongitude: -74.0061
+              noLocationCheck:
+                summary: Show has location checking off
+                value:
+                  sequence: "Wizards in Winter"
+      responses:
+        "200":
+          $ref: "#/components/responses/ViewerControlAccepted"
+        "202":
+          description: |
+            The show refused the request. The body carries a machine-readable
+            `message` explaining why. See the schema for the full list of values.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RequestVoteResponse"
+              examples:
+                queueFull:
+                  summary: Jukebox queue is at its configured depth
+                  value:
+                    message: QUEUE_FULL
+                outOfRange:
+                  summary: Viewer is outside the show's allowed radius
+                  value:
+                    message: INVALID_LOCATION
+                alreadyQueued:
+                  summary: That sequence is already in the queue
+                  value:
+                    message: SEQUENCE_REQUESTED
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/UpstreamError"
+
+  /voteForSequence:
+    post:
+      tags: [Viewer control]
+      summary: Cast a vote for a sequence
+      operationId: voteForSequence
+      description: |
+        Casts a vote on behalf of a viewer. Use this when the show is in `VOTING`
+        mode. `sequence` may name either a sequence or a sequence group.
+
+        The same status-code rule applies as `addSequenceToQueue`: **`200` means
+        the vote counted, `202` means it was refused** and `message` says why.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RequestVoteRequest"
+            examples:
+              sequence:
+                summary: Vote for a single sequence
+                value:
+                  sequence: "Wizards in Winter"
+                  viewerLatitude: 40.7129
+                  viewerLongitude: -74.0061
+              group:
+                summary: Vote for a sequence group
+                value:
+                  sequence: "Rock Block"
+      responses:
+        "200":
+          $ref: "#/components/responses/ViewerControlAccepted"
+        "202":
+          description: |
+            The show refused the vote. The body carries a machine-readable
+            `message` explaining why.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RequestVoteResponse"
+              examples:
+                alreadyVoted:
+                  summary: This viewer already voted this round
+                  value:
+                    message: ALREADY_VOTED
+                limitReached:
+                  summary: Viewer hit the show's vote cap
+                  value:
+                    message: DAILY_VOTE_LIMIT_REACHED
+                unavailable:
+                  summary: Sequence is on cooldown or at its play cap
+                  value:
+                    message: SEQUENCE_UNAVAILABLE
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/UpstreamError"
+
+components:
+  securitySchemes:
+    showJwt:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        HS256 JWT with payload `{ "accessToken": "<API Access Token>" }`,
+        signed with your API Secret Key. See the Authentication section above.
+
+  responses:
+    Unauthorized:
+      description: |
+        Missing, malformed, unsigned, wrongly-signed, or unrecognised token.
+        The response has **no body** — the API does not say which check failed.
+    ShowUnresolved:
+      description: |
+        Authenticated, but the show behind the token could not be loaded. This
+        should not happen in normal operation; treat it as retryable and report
+        it if it persists. No body.
+    UpstreamError:
+      description: |
+        Remote Falcon could not process the request. No body. Retry with backoff.
+    ViewerControlAccepted:
+      description: |
+        Accepted. The request or vote was recorded. The body is an empty JSON
+        object — **`message` is absent on success**.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/RequestVoteResponse"
+          example: {}
+
+  schemas:
+    RequestVoteRequest:
+      type: object
+      required: [sequence]
+      properties:
+        sequence:
+          type: string
+          description: |
+            Name of the sequence to request or vote for. Match the `name` field
+            from `showDetails` (not `displayName`). Matching is case-insensitive.
+            For `voteForSequence` this may also be a sequence group name.
+          example: "Wizards in Winter"
+        viewerLatitude:
+          type: number
+          format: float
+          nullable: true
+          description: |
+            Viewer's latitude. Required only when the show's
+            `preferences.locationCheckMethod` is `GEO`; ignored otherwise.
+            Omitting it on a `GEO` show yields `INVALID_LOCATION`.
+          example: 40.7129
+        viewerLongitude:
+          type: number
+          format: float
+          nullable: true
+          description: |
+            Viewer's longitude. See `viewerLatitude`.
+          example: -74.0061
+        showSubdomain:
+          type: string
+          nullable: true
+          deprecated: true
+          description: |
+            Ignored. The server overwrites this with the subdomain of the show
+            resolved from your token before forwarding the call, so sending it
+            has no effect and sending someone else's does not target their show.
+            Do not send it.
+
+    RequestVoteResponse:
+      type: object
+      description: |
+        Empty on success. On a refusal (`202`) `message` holds the reason.
+      properties:
+        message:
+          type: string
+          nullable: true
+          description: |
+            Absent when the request or vote succeeded. Present on a `202`.
+
+            | Value | Meaning |
+            |---|---|
+            | `QUEUE_FULL` | Jukebox queue is at `preferences.jukeboxDepth`. |
+            | `ALREADY_REQUESTED` | This viewer already has a request in the queue, or is at `jukeboxRequestLimit`. |
+            | `SEQUENCE_REQUESTED` | That sequence is already queued by someone. |
+            | `ALREADY_VOTED` | This viewer already voted in the current round. |
+            | `DAILY_VOTE_LIMIT_REACHED` | Viewer hit the show's vote cap for this show session. |
+            | `INVALID_LOCATION` | Viewer is outside `allowedRadius`, or coordinates were missing on a `GEO` show. |
+            | `SEQUENCE_UNAVAILABLE` | Sequence is on its hide-after-play cooldown (`visibilityCount` > 0) or at its nightly play cap. |
+            | `SEQUENCE_NOT_FOUND` | No sequence or group by that name in this show. |
+            | `NAUGHTY` | The viewer's IP is on the show's blocked list. |
+            | `UNEXPECTED_ERROR` | Anything else. |
+          enum:
+            - QUEUE_FULL
+            - ALREADY_REQUESTED
+            - SEQUENCE_REQUESTED
+            - ALREADY_VOTED
+            - DAILY_VOTE_LIMIT_REACHED
+            - INVALID_LOCATION
+            - SEQUENCE_UNAVAILABLE
+            - SEQUENCE_NOT_FOUND
+            - NAUGHTY
+            - UNEXPECTED_ERROR
+          example: QUEUE_FULL
+
+    ShowResponse:
+      type: object
+      properties:
+        preferences:
+          $ref: "#/components/schemas/Preference"
+        sequences:
+          type: array
+          description: Every sequence on the show, visible or not.
+          items:
+            $ref: "#/components/schemas/Sequence"
+        sequenceGroups:
+          type: array
+          description: Named groups viewers can vote for as a unit.
+          items:
+            $ref: "#/components/schemas/SequenceGroup"
+        requests:
+          type: array
+          description: |
+            The live jukebox queue, in play order. Populated in `JUKEBOX` mode.
+          items:
+            $ref: "#/components/schemas/Request"
+        votes:
+          type: array
+          description: |
+            Live vote tallies for the current round. Populated in `VOTING` mode.
+          items:
+            $ref: "#/components/schemas/Vote"
+        playingNow:
+          type: string
+          nullable: true
+          description: Name of the sequence currently playing.
+          example: "Wizards in Winter"
+        playingNext:
+          type: string
+          nullable: true
+          description: |
+            Name of the next sequence as determined by viewer control (the top
+            of the queue, or the current vote leader). Empty when viewer control
+            has not selected one.
+          example: "Carol of the Bells"
+        playingNextFromSchedule:
+          type: string
+          nullable: true
+          description: |
+            Name of the next sequence according to the show's own schedule,
+            independent of viewer control.
+          example: "Christmas Eve Sarajevo"
+
+    Preference:
+      type: object
+      description: The show's viewer-control settings.
+      properties:
+        viewerControlEnabled:
+          type: boolean
+          description: |
+            Whether viewer control is on right now. When `false`, requests and
+            votes are not being accepted and your UI should say so.
+        viewerControlMode:
+          type: string
+          enum: [JUKEBOX, VOTING]
+          description: |
+            `JUKEBOX` — viewers queue sequences; use `addSequenceToQueue` and
+            read `requests`. `VOTING` — viewers vote; use `voteForSequence` and
+            read `votes`.
+        resetVotes:
+          type: boolean
+          description: Whether vote tallies reset after each sequence plays.
+        jukeboxDepth:
+          type: integer
+          description: Maximum queue length. `0` means unlimited.
+        locationCheckMethod:
+          type: string
+          enum: [GEO, CODE, NONE]
+          description: |
+            `GEO` — send `viewerLatitude`/`viewerLongitude` on requests and
+            votes. `CODE` — the show gates on a numeric code entered on the
+            viewer page; this API does not accept that code, so a `CODE` show
+            cannot be fully driven through these endpoints. `NONE` — no check.
+        showLatitude:
+          type: number
+          format: float
+          nullable: true
+          description: Show's latitude. Present when `locationCheckMethod` is `GEO`.
+        showLongitude:
+          type: number
+          format: float
+          nullable: true
+          description: Show's longitude. Present when `locationCheckMethod` is `GEO`.
+        allowedRadius:
+          type: number
+          format: float
+          nullable: true
+          description: Radius in miles a viewer must be within, for `GEO` shows.
+        jukeboxRequestLimit:
+          type: integer
+          description: |
+            How many simultaneous queued requests one viewer may hold. `0` means
+            unlimited.
+        locationCode:
+          type: integer
+          nullable: true
+          description: |
+            The numeric code for `CODE` shows. Exposed so an owner-operated
+            display can show it; this API has no parameter to submit it.
+        hideSequenceCount:
+          type: integer
+          description: |
+            How many other sequences must play before a just-played sequence
+            becomes selectable again. Drives `Sequence.visibilityCount`.
+        makeItSnow:
+          type: boolean
+          description: Cosmetic snow effect toggle on the viewer page.
+
+    Sequence:
+      type: object
+      properties:
+        name:
+          type: string
+          description: |
+            Canonical name. **This is the value to send** as `sequence` on
+            `addSequenceToQueue` and `voteForSequence`.
+          example: "Wizards in Winter"
+        displayName:
+          type: string
+          nullable: true
+          description: Owner-facing label to render to viewers. Display only.
+          example: "Wizards in Winter"
+        duration:
+          type: integer
+          nullable: true
+          description: Runtime in seconds.
+          example: 182
+        visible:
+          type: boolean
+          description: |
+            Whether the owner has published this sequence to viewers. Only offer
+            sequences where this is `true`.
+        index:
+          type: integer
+          nullable: true
+          description: Position in the owner's sequence list.
+        order:
+          type: integer
+          nullable: true
+          description: Sort order for display.
+        active:
+          type: boolean
+          nullable: true
+          description: Whether the sequence is enabled on the show.
+        visibilityCount:
+          type: integer
+          nullable: true
+          description: |
+            Countdown of how many more sequences must play before this one can
+            be picked again. Anything above `0` means a request or vote will be
+            refused with `SEQUENCE_UNAVAILABLE` — gray it out in your UI.
+          example: 0
+        type:
+          type: string
+          nullable: true
+          description: Sequence type as configured by the owner.
+        group:
+          type: string
+          nullable: true
+          description: Name of the sequence group this belongs to, if any.
+        category:
+          type: string
+          nullable: true
+          example: "Rock"
+        artist:
+          type: string
+          nullable: true
+          example: "Trans-Siberian Orchestra"
+
+    SequenceGroup:
+      type: object
+      properties:
+        name:
+          type: string
+          description: |
+            Group name. Valid as the `sequence` value on `voteForSequence`.
+          example: "Rock Block"
+        visibilityCount:
+          type: integer
+          nullable: true
+          description: Cooldown countdown, same semantics as on `Sequence`.
+
+    Request:
+      type: object
+      description: One entry in the live jukebox queue.
+      properties:
+        sequence:
+          $ref: "#/components/schemas/Sequence"
+        position:
+          type: integer
+          nullable: true
+          description: Position in the queue. `1` plays next.
+        viewerRequested:
+          type: string
+          nullable: true
+          description: Opaque viewer identifier that placed the request.
+        ownerRequested:
+          type: boolean
+          nullable: true
+          description: Whether the owner queued this rather than a viewer.
+
+    Vote:
+      type: object
+      description: |
+        Live tally for one sequence or group. Exactly one of `sequence` or
+        `sequenceGroup` is populated.
+      properties:
+        sequence:
+          type: object
+          nullable: true
+          description: Populated when the vote is for a single sequence.
+          allOf:
+            - $ref: "#/components/schemas/Sequence"
+        sequenceGroup:
+          type: object
+          nullable: true
+          description: Populated when the vote is for a sequence group.
+          allOf:
+            - $ref: "#/components/schemas/SequenceGroup"
+        votes:
+          type: integer
+          nullable: true
+          description: Current vote count.
+          example: 14
+        viewersVoted:
+          type: array
+          description: Opaque viewer identifiers that have voted in this round.
+          items:
+            type: string
+        lastVoteTime:
+          type: string
+          nullable: true
+          description: |
+            Timestamp of the most recent vote, ISO-8601 without a zone offset.
+            Values are effectively UTC.
+          example: "2026-12-24T19:42:11"
+        ownerVoted:
+          type: boolean
+          nullable: true
+          description: Whether the owner cast this vote.
