@@ -97,17 +97,25 @@ def list_alerts(host: str, project_id: int, token: str) -> list[dict]:
 def list_destinations(
     host: str, project_id: int, alert_id: str, token: str
 ) -> list[dict] | None:
-    """Returns the destinations list, or None if the API denies us read access.
+    """Returns the destinations list, or None if we can't read destination state.
 
     Personal API Keys may be locked out of destinations entirely. Returning
     None lets the caller treat it as "destination state unknown" (and not
     falsely report drift on every run).
+
+    Statuses treated as "unknown" rather than fatal:
+      401/403 — key lacks the scope.
+      405     — the endpoint rejects GET outright. PostHog returns this
+                today ({"code":"method_not_allowed"}), i.e. destinations
+                are write-only over the API; there is no way to list them.
+      404     — endpoint/alert not addressable for reads.
+    Anything else is a genuine failure and still raises.
     """
     url = f"{host}/api/projects/{project_id}/logs/alerts/{alert_id}/destinations/"
     try:
         resp = _request("GET", url, token=token, raise_on_error=False)
     except HttpError as e:
-        if e.status in (401, 403):
+        if e.status in (401, 403, 404, 405):
             return None
         raise
     if isinstance(resp, dict):
