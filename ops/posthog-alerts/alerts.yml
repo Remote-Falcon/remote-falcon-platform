@@ -77,16 +77,22 @@ alerts:
       severity: the driver logs "Waiting for server to become available" at
       INFO (a retry, not a failure), so an error-severity alert is
       structurally blind to this whole class of outage. Verified against
-      the 2026-08-07 01:53Z event, which produced 231 of these lines in a
+      the 2026-08-07 01:53Z event, which produced 262 of these lines in a
       single minute and fired nothing.
     enabled: true
     filters:
+      # Every service that opens a Mongo connection. mongo-backup is
+      # included deliberately: it logged 31 lines in the reference
+      # incident, and it's the service where losing Mongo silently is
+      # worst — a backup that can't reach the primary is a backup you
+      # don't have.
       service_names:
         - remote-falcon-viewer
         - remote-falcon-plugins-api
         - remote-falcon-control-panel
         - remote-falcon-external-api
         - remote-falcon-account-archive
+        - remote-falcon-mongo-backup
       message_contains: "Waiting for server to become available"
     threshold:
       count: 25

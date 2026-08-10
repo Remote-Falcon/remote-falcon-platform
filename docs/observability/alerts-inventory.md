@@ -133,5 +133,16 @@ These are known gaps; file an issue if any becomes a blocker:
   want it as code, file an issue.
 - **Cluster autoscaler failures** — DO Monitoring doesn't have a
   native alert type for this.
+- **HTTP status codes for the UI** — the `ui` container runs `serve` with
+  `-L` (no request logging) as of 2026-08-10, because its access log was
+  84% of all platform log volume while carrying neither the real client IP
+  (always the ingress) nor a status code on the request line. Consequence:
+  there is currently **no HTTP status signal for the UI at all** — no 4xx
+  or 5xx rate, no per-path error counts. The fix is to collect
+  ingress-nginx access logs, which the collector does not do today
+  (`filelog.include` is scoped to `/var/log/pods/remote-falcon_*`, and
+  ingress-nginx lives in its own namespace). That would also restore real
+  client IPs, which is what a `.env`-scanner rate-limit would need
+  (~134k `/.env` probes/week measured 2026-08-10).
 - **CI deploy failures** — GH Actions can post to Discord directly via
   workflow steps; not centralized through this inventory yet.

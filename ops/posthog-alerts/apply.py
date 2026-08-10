@@ -272,6 +272,10 @@ def main() -> int:
     # (alert_name, alert_id) pairs that need manual Discord webhook attach
     # because PostHog blocks destination creation via Personal API Key.
     pending_destinations: list[tuple[str, str]] = []
+    # Alerts whose destination wiring we could not read back (PostHog 405s
+    # GET on the destinations endpoint). Reported so a clean [OK] isn't
+    # mistaken for "routing confirmed".
+    unverified_destinations: list[str] = []
 
     for alert_cfg in config.get("alerts", []):
         name = alert_cfg["name"]
@@ -302,7 +306,14 @@ def main() -> int:
             existing_dests = list_destinations(host, project_id, remote["id"], token)
             if existing_dests is None:
                 # Read denied; we can't tell — don't claim drift on destination.
+                #
+                # PostHog 405s this endpoint unconditionally, so in practice
+                # this branch is ALWAYS taken and destination drift is never
+                # detected: if someone deletes the Discord webhook in the UI,
+                # every future run still prints [OK]. Say so out loud rather
+                # than let a clean [OK] imply the routing was verified.
                 needs_dest = False
+                unverified_destinations.append(name)
             else:
                 needs_dest = not any(
                     d.get("type") == "webhook" and d.get("webhook_url") == webhook_url
@@ -360,6 +371,17 @@ def main() -> int:
         print("   destination state will be in sync.")
         for name, alert_id in pending_destinations:
             print(f"     - {name}  (id={alert_id})")
+
+    if unverified_destinations:
+        print()
+        print("NOTE: destination wiring could not be read back for the alerts below.")
+        print("      PostHog returns 405 for GET on the destinations endpoint, so")
+        print("      there is no API path to confirm a webhook is still attached —")
+        print("      [OK] above means the alert CONFIG matches, not that its routing")
+        print("      was verified. If an alert stops notifying, check its")
+        print("      destinations in the UI first.")
+        for name in unverified_destinations:
+            print(f"     - {name}")
 
     print()
     if not args.apply:

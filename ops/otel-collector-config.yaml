@@ -82,6 +82,19 @@ receivers:
             error: ERROR
             fatal: FATAL
 
+      # stderr fallback, mirroring prod. Works here because the `move`
+      # operator above puts the docker stream into the same
+      # attributes["log.iostream"] key the k8s `container` operator uses.
+      # overwrite_text is required — without it severity_text stays the raw
+      # "stderr" and a severityLevels:[error] filter skips the record.
+      - type: severity_parser
+        parse_from: attributes["log.iostream"]
+        if: 'attributes["log_level"] == nil and attributes["log.iostream"] == "stderr"'
+        preset: none
+        overwrite_text: true
+        mapping:
+          error: stderr
+
 processors:
   # Batch records before export — reduces request rate to PostHog and
   # keeps egress sane. Default settings are tuned for typical workloads.

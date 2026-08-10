@@ -83,6 +83,18 @@ jobs:
       # green and changes nothing. (The mounted file does eventually
       # refresh on the kubelet's sync interval — the running process just
       # never re-reads it.)
+      #
+      # Two accepted costs, neither fixed by the usual configmap-checksum
+      # annotation:
+      #   * filelog is `start_at: end` with no storage extension, so log
+      #     lines written while the collector is down are dropped, not
+      #     backfilled. A checksum annotation restarts the pod too, so it
+      #     loses the same window — the fix would be a storage extension
+      #     to persist file offsets across restarts.
+      #   * this fires on ANY change under ops/k8s/otel-collector/,
+      #     including docs, so an unnecessary roll costs that same gap.
+      # Both are seconds of loss on an infrequent deploy; revisit if the
+      # collector starts deploying often.
       - name: Restart DaemonSet to pick up config changes
         if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.dry_run != true) }}
         run: kubectl rollout restart daemonset/otel-collector --namespace ${{ env.NAMESPACE }}

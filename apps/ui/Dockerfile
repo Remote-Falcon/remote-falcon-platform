@@ -107,7 +107,17 @@ EXPOSE 3000
 #   * the request line carries no status code — `Returned 200 in 1 ms` is
 #     a SEPARATE line, so a request and its outcome can't be correlated;
 #   * ~242k lines/week are just the kubelet hitting /health.json every 10s.
-# Nothing actionable was lost by turning it off. If HTTP access logging is
-# wanted later, it belongs at the ingress (which sees the real client IP
-# and the status together), not in a static file server.
+# KNOWN GAP, accepted deliberately: -L silences BOTH serve log lines, so
+# the `Returned <status> in Nms` line goes too and the UI now emits no HTTP
+# status signal at all. There is no replacement today — the collector's
+# filelog only tails /var/log/pods/remote-falcon_*, and ingress-nginx runs
+# in its own namespace, so ingress access logs are NOT collected. Wiring
+# that up is the real fix and is tracked in docs/observability/
+# alerts-inventory.md ("Not yet covered").
+#
+# Judged worth it because the status line was nearly unusable on its own:
+# it carries no path and no request correlation, so a 404 told you only
+# that *something* 404'd. Frontend breakage still surfaces through PostHog
+# Error Tracking and the post-deploy error-rate check in
+# ops/release-validation/check.py, neither of which depends on these logs.
 CMD ["serve", "-s", "/app/dist", "-c", "/app/serve.json", "-L"]

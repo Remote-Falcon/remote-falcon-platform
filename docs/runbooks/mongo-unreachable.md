@@ -2,7 +2,7 @@
 
 **Alert source:** PostHog log alert `rf-mongo-unreachable` ([source](../../ops/posthog-alerts/alerts.yml))
 **Fires on:** ≥25 `Waiting for server to become available` logs across the backend services in any 5min window
-**Services watched:** viewer, plugins-api, control-panel, external-api, account-archive
+**Services watched:** viewer, plugins-api, control-panel, external-api, account-archive, mongo-backup
 **Severity:** P1 if sustained past ~30s (every read/write is blocked); P3 if it clears on its own
 **Cooldown:** 30min between repeat notifications
 
@@ -101,12 +101,27 @@ argument needs a list of dates.
 
 | When | Duration | Impact |
 |---|---|---|
-| 2026-08-07 01:53Z (Thu 21:53 EDT) | ~1 min, 231 lines | None confirmed. No operation hit the 30s timeout. plugins-api 203, viewer 11, control-panel 8, external-api 2. Predates this alert existing. |
+| 2026-08-07 01:53Z (Thu 21:53 EDT) | ~1 min, 262 lines | None confirmed — no operation hit the 30s timeout. Predates this alert existing. |
+
+Per-service breakdown of that minute (matching this alert's filter
+exactly, so it doubles as the back-test):
+
+| Service | Lines |
+|---|---|
+| plugins-api | 200 |
+| mongo-backup | 31 |
+| account-archive | 17 |
+| viewer | 8 |
+| control-panel | 6 |
+| external-api | 0 |
+
+`external-api` logged nothing — it's in the watch list because it does
+open Mongo connections, not because it participated here.
 
 ## Tuning
 
 - Threshold (25 / 5min) is set against a measured baseline of **zero**
-  outside the incident minute: over 2026-08-03..08-10, all 231 matching
+  outside the incident minute: over 2026-08-03..08-10, all 262 matching
   lines fell inside one 60-second window. Any sustained match is real.
 - If a future blip produces 10-20 lines and you want to catch it, lower
   the count rather than widening the window — the signal is bursty.
