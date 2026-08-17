@@ -1,56 +1,57 @@
-import React, { lazy } from 'react';
+import React from 'react';
 
 import { Navigate } from 'react-router-dom';
 
 import MainLayout from '../layout/MainLayout';
 import Loadable from '../ui-component/Loadable';
+import lazyChunk from '../utils/lazyChunk';
 import AuthGuard from '../utils/route-guard/AuthGuard';
 
-const Landing = Loadable(lazy(() => import('../views/pages/landing')));
-const Dashboard = Loadable(lazy(() => import('../views/pages/controlPanel/dashboard')));
+const Landing = Loadable(lazyChunk(() => import('../views/pages/landing')));
+const Dashboard = Loadable(lazyChunk(() => import('../views/pages/controlPanel/dashboard')));
 
-const ViewerSettings = Loadable(lazy(() => import('../views/pages/controlPanel/viewerSettings')));
-const MainSettings = Loadable(lazy(() => import('../views/pages/controlPanel/viewerSettings/MainSettings')));
-const ViewerPageSettings = Loadable(lazy(() => import('../views/pages/controlPanel/viewerSettings/ViewerPageSettings')));
-const JukeboxSettings = Loadable(lazy(() => import('../views/pages/controlPanel/viewerSettings/JukeboxSettings')));
-const VotingSettings = Loadable(lazy(() => import('../views/pages/controlPanel/viewerSettings/VotingSettings')));
-const InteractionSettings = Loadable(lazy(() => import('../views/pages/controlPanel/viewerSettings/InteractionSettings')));
+const ViewerSettings = Loadable(lazyChunk(() => import('../views/pages/controlPanel/viewerSettings')));
+const MainSettings = Loadable(lazyChunk(() => import('../views/pages/controlPanel/viewerSettings/MainSettings')));
+const ViewerPageSettings = Loadable(lazyChunk(() => import('../views/pages/controlPanel/viewerSettings/ViewerPageSettings')));
+const JukeboxSettings = Loadable(lazyChunk(() => import('../views/pages/controlPanel/viewerSettings/JukeboxSettings')));
+const VotingSettings = Loadable(lazyChunk(() => import('../views/pages/controlPanel/viewerSettings/VotingSettings')));
+const InteractionSettings = Loadable(lazyChunk(() => import('../views/pages/controlPanel/viewerSettings/InteractionSettings')));
 
-const ViewerPage = Loadable(lazy(() => import('../views/pages/controlPanel/viewerPage')));
-const Sequences = Loadable(lazy(() => import('../views/pages/controlPanel/sequences')));
-const SequencesList = Loadable(lazy(() => import('../views/pages/controlPanel/sequences/SequencesList')));
-const SequenceGroups = Loadable(lazy(() => import('../views/pages/controlPanel/sequences/SequenceGroups')));
-const Categories = Loadable(lazy(() => import('../views/pages/controlPanel/sequences/Categories')));
+const ViewerPage = Loadable(lazyChunk(() => import('../views/pages/controlPanel/viewerPage')));
+const Sequences = Loadable(lazyChunk(() => import('../views/pages/controlPanel/sequences')));
+const SequencesList = Loadable(lazyChunk(() => import('../views/pages/controlPanel/sequences/SequencesList')));
+const SequenceGroups = Loadable(lazyChunk(() => import('../views/pages/controlPanel/sequences/SequenceGroups')));
+const Categories = Loadable(lazyChunk(() => import('../views/pages/controlPanel/sequences/Categories')));
 // PSA-v2 PR-5 — new Special Roles tab on the Sequences page.
-const SpecialRoles = Loadable(lazy(() => import('../views/pages/controlPanel/sequences/SpecialRoles')));
+const SpecialRoles = Loadable(lazyChunk(() => import('../views/pages/controlPanel/sequences/SpecialRoles')));
 
-const Analytics = Loadable(lazy(() => import('../views/pages/controlPanel/analytics')));
-const AnalyticsOverview = Loadable(lazy(() => import('../views/pages/controlPanel/analytics/OverviewTab')));
-const AnalyticsAudience = Loadable(lazy(() => import('../views/pages/controlPanel/analytics/AudienceTab')));
-const AnalyticsSequences = Loadable(lazy(() => import('../views/pages/controlPanel/analytics/SequencesTab')));
-const AnalyticsSequenceDetail = Loadable(lazy(() => import('../views/pages/controlPanel/analytics/SequenceDetail')));
+const Analytics = Loadable(lazyChunk(() => import('../views/pages/controlPanel/analytics')));
+const AnalyticsOverview = Loadable(lazyChunk(() => import('../views/pages/controlPanel/analytics/OverviewTab')));
+const AnalyticsAudience = Loadable(lazyChunk(() => import('../views/pages/controlPanel/analytics/AudienceTab')));
+const AnalyticsSequences = Loadable(lazyChunk(() => import('../views/pages/controlPanel/analytics/SequencesTab')));
+const AnalyticsSequenceDetail = Loadable(lazyChunk(() => import('../views/pages/controlPanel/analytics/SequenceDetail')));
 
-const AccountSettings = Loadable(lazy(() => import('../views/pages/controlPanel/accountSettings')));
-const UserProfile = Loadable(lazy(() => import('../views/pages/controlPanel/accountSettings/UserProfile')));
-const Account = Loadable(lazy(() => import('../views/pages/controlPanel/accountSettings/Account')));
-const Notifications = Loadable(lazy(() => import('../views/pages/controlPanel/accountSettings/Notifications')));
-const ChangePassword = Loadable(lazy(() => import('../views/pages/controlPanel/accountSettings/ChangePassword')));
-const TwoFactorAuth = Loadable(lazy(() => import('../views/pages/controlPanel/accountSettings/TwoFactorAuth')));
+const AccountSettings = Loadable(lazyChunk(() => import('../views/pages/controlPanel/accountSettings')));
+const UserProfile = Loadable(lazyChunk(() => import('../views/pages/controlPanel/accountSettings/UserProfile')));
+const Account = Loadable(lazyChunk(() => import('../views/pages/controlPanel/accountSettings/Account')));
+const Notifications = Loadable(lazyChunk(() => import('../views/pages/controlPanel/accountSettings/Notifications')));
+const ChangePassword = Loadable(lazyChunk(() => import('../views/pages/controlPanel/accountSettings/ChangePassword')));
+const TwoFactorAuth = Loadable(lazyChunk(() => import('../views/pages/controlPanel/accountSettings/TwoFactorAuth')));
 
-const ViewerPageTemplates = Loadable(lazy(() => import('../views/pages/controlPanel/viewerPageTemplates')));
-const FreeTemplates = Loadable(lazy(() => import('../views/pages/controlPanel/viewerPageTemplates/FreeTemplates')));
-const PremiumTemplates = Loadable(lazy(() => import('../views/pages/controlPanel/viewerPageTemplates/PremiumTemplates')));
+const ViewerPageTemplates = Loadable(lazyChunk(() => import('../views/pages/controlPanel/viewerPageTemplates')));
+const FreeTemplates = Loadable(lazyChunk(() => import('../views/pages/controlPanel/viewerPageTemplates/FreeTemplates')));
+const PremiumTemplates = Loadable(lazyChunk(() => import('../views/pages/controlPanel/viewerPageTemplates/PremiumTemplates')));
 
-const Tracker = Loadable(lazy(() => import('../views/pages/controlPanel/tracker')));
-const ShowsMap = Loadable(lazy(() => import('../views/pages/controlPanel/showsMap')));
+const Tracker = Loadable(lazyChunk(() => import('../views/pages/controlPanel/tracker')));
+const ShowsMap = Loadable(lazyChunk(() => import('../views/pages/controlPanel/showsMap')));
 
-const Admin = Loadable(lazy(() => import('../views/pages/controlPanel/admin')));
-const AccountDetails = Loadable(lazy(() => import('../views/pages/controlPanel/admin/AccountDetails')));
-const SendNotification = Loadable(lazy(() => import('../views/pages/controlPanel/admin/SendNotification')));
+const Admin = Loadable(lazyChunk(() => import('../views/pages/controlPanel/admin')));
+const AccountDetails = Loadable(lazyChunk(() => import('../views/pages/controlPanel/admin/AccountDetails')));
+const SendNotification = Loadable(lazyChunk(() => import('../views/pages/controlPanel/admin/SendNotification')));
 
-const ImageHosting = Loadable(lazy(() => import('../views/pages/controlPanel/imageHosting')));
+const ImageHosting = Loadable(lazyChunk(() => import('../views/pages/controlPanel/imageHosting')));
 
-const QrCode = Loadable(lazy(() => import('../views/pages/controlPanel/qrCode')));
+const QrCode = Loadable(lazyChunk(() => import('../views/pages/controlPanel/qrCode')));
 
 const MainRoutes = {
   path: '/',

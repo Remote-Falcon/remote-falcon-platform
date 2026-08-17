@@ -1,20 +1,21 @@
-import React, { lazy } from 'react';
+import React from 'react';
 
 import V2Theme from '../design-system/theme';
 import MinimalLayout from '../layout/MinimalLayout';
 import NavMotion from '../layout/NavMotion';
 import Loadable from '../ui-component/Loadable';
+import lazyChunk from '../utils/lazyChunk';
 import GuestGuard from '../utils/route-guard/GuestGuard';
 
-const Landing = Loadable(lazy(() => import('../views/pages/landing')));
-const NotFound = Loadable(lazy(() => import('../views/pages/NotFound')));
-const AuthLogin = Loadable(lazy(() => import('../views/pages/authentication/Login')));
-const AuthRegister = Loadable(lazy(() => import('../views/pages/authentication/Register')));
-const AuthForgotPassword = Loadable(lazy(() => import('../views/pages/authentication/ForgotPassword')));
-const VerifyEmail = Loadable(lazy(() => import('../views/pages/authentication/VerifyEmail')));
-const ResetPassword = Loadable(lazy(() => import('../views/pages/authentication/ResetPassword')));
-const PrivacyPolicy = Loadable(lazy(() => import('../views/pages/misc/PrivacyPolicy')));
-const TermsAndConditions = Loadable(lazy(() => import('../views/pages/misc/TermsAndConditions')));
+const Landing = Loadable(lazyChunk(() => import('../views/pages/landing')));
+const NotFound = Loadable(lazyChunk(() => import('../views/pages/NotFound')));
+const AuthLogin = Loadable(lazyChunk(() => import('../views/pages/authentication/Login')));
+const AuthRegister = Loadable(lazyChunk(() => import('../views/pages/authentication/Register')));
+const AuthForgotPassword = Loadable(lazyChunk(() => import('../views/pages/authentication/ForgotPassword')));
+const VerifyEmail = Loadable(lazyChunk(() => import('../views/pages/authentication/VerifyEmail')));
+const ResetPassword = Loadable(lazyChunk(() => import('../views/pages/authentication/ResetPassword')));
+const PrivacyPolicy = Loadable(lazyChunk(() => import('../views/pages/misc/PrivacyPolicy')));
+const TermsAndConditions = Loadable(lazyChunk(() => import('../views/pages/misc/TermsAndConditions')));
 
 // Public routes wrap in the v2 design-system theme — landing, auth, legal,
 // 404. Once the user signs in and lands on /control-panel/*, MainRoutes

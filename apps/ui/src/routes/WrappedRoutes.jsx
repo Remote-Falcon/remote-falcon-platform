@@ -1,9 +1,10 @@
-import React, { lazy } from 'react';
+import React from 'react';
 
 import V2Theme from '../design-system/theme';
 import Loadable from '../ui-component/Loadable';
+import lazyChunk from '../utils/lazyChunk';
 
-const WrappedPage = Loadable(lazy(() => import('../views/pages/wrapped')));
+const WrappedPage = Loadable(lazyChunk(() => import('../views/pages/wrapped')));
 
 // Truly public route — no AuthGuard, no GuestGuard. Anyone with the URL
 // can view a show's End-of-Season Wrapped page. The whole point is
