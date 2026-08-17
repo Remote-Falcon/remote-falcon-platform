@@ -1,11 +1,12 @@
-import React, { lazy } from 'react';
+import React from 'react';
 
 import { Navigate } from 'react-router-dom';
 
 import Loadable from '../ui-component/Loadable';
+import lazyChunk from '../utils/lazyChunk';
 import ViewerGuard from '../utils/route-guard/ViewerGuard';
 
-const ExternalViewerPage = Loadable(lazy(() => import('../views/pages/externalViewer')));
+const ExternalViewerPage = Loadable(lazyChunk(() => import('../views/pages/externalViewer')));
 
 const ViewerRoutes = {
   path: '/',

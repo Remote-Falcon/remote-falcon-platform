@@ -59,6 +59,7 @@ public class ShowResponse {
         private String group;
         private String category;
         private String artist;
+        private String imageUrl;
     }
 
     @Builder

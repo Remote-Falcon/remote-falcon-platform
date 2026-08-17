@@ -1,5 +1,7 @@
 package com.remotefalcon.external.api.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.remotefalcon.external.api.repository.ShowRepository;
 import com.remotefalcon.external.api.request.RequestVoteRequest;
 import com.remotefalcon.external.api.response.RequestVoteResponse;
@@ -7,6 +9,7 @@ import com.remotefalcon.external.api.response.ShowResponse;
 import com.remotefalcon.external.api.util.AuthUtil;
 import com.remotefalcon.library.documents.Show;
 import com.remotefalcon.library.models.Preference;
+import com.remotefalcon.library.models.Sequence;
 import org.dozer.DozerBeanMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -17,6 +20,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -31,14 +35,15 @@ import static org.mockito.Mockito.when;
  * showDetails()} runs end-to-end; the RestTemplate paths in
  * {@code addSequenceToQueue} / {@code voteForSequence} construct their own
  * {@code RestTemplate} internally with {@code new}, so we can't mock that
- * collaborator from a unit test — those paths are covered indirectly by the
- * controller integration tests in {@link
- * com.remotefalcon.external.api.controller.ExternalApiControllerTest}.
+ * collaborator from a unit test. Those paths are currently uncovered: there is
+ * no controller integration test for this service anywhere in the tree.
  */
 @ExtendWith(MockitoExtension.class)
 class ExternalApiServiceTest {
 
     private static final String SHOW_TOKEN = "show-token-xyz";
+    private static final String IMAGE_URL =
+            "https://is1-ssl.mzstatic.com/image/thumb/Music/v4/example/600x600bb.jpg";
 
     @Mock private ShowRepository showRepository;
     @Mock private AuthUtil authUtil;
@@ -82,6 +87,16 @@ class ExternalApiServiceTest {
                         .jukeboxDepth(5)
                         .build())
                 .playingNow("Wizards in Winter")
+                .sequences(List.of(
+                        Sequence.builder()
+                                .name("Wizards in Winter")
+                                .artist("Trans-Siberian Orchestra")
+                                .imageUrl(IMAGE_URL)
+                                .build(),
+                        Sequence.builder()
+                                .name("Carol of the Bells")
+                                .artist("Lindsey Stirling")
+                                .build()))
                 .build();
         when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
 
@@ -92,6 +107,43 @@ class ExternalApiServiceTest {
         assertThat(response.getBody().getPreferences()).isNotNull();
         assertThat(response.getBody().getPreferences().getViewerControlEnabled()).isTrue();
         assertThat(response.getBody().getPreferences().getJukeboxDepth()).isEqualTo(5);
+
+        assertThat(response.getBody().getSequences()).hasSize(2);
+        ShowResponse.Sequence mapped = response.getBody().getSequences().get(0);
+        assertThat(mapped.getName()).isEqualTo("Wizards in Winter");
+        assertThat(mapped.getArtist()).isEqualTo("Trans-Siberian Orchestra");
+        assertThat(mapped.getImageUrl()).isEqualTo(IMAGE_URL);
+    }
+
+    @Test
+    void showDetails_mapsImageUrlAsNull_whenOwnerNeverSetOne() {
+        when(authUtil.getShowToken()).thenReturn(SHOW_TOKEN);
+        Show show = Show.builder()
+                .showToken(SHOW_TOKEN)
+                .sequences(List.of(Sequence.builder().name("Carol of the Bells").build()))
+                .build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        ResponseEntity<ShowResponse> response = service.showDetails();
+        assertThat(response.getBody()).isNotNull();
+        // null, not "" — this is what the spec's `nullable: true` promises.
+        assertThat(response.getBody().getSequences().get(0).getImageUrl()).isNull();
+    }
+
+    @Test
+    void showResponse_serializesImageUrlKey_evenWhenNull() throws Exception {
+        // The DTO carries no @JsonInclude, so nulls serialize explicitly and
+        // every other nullable field behaves this way. Pinned so a future
+        // NON_NULL cannot silently drop the key out of the documented contract.
+        ShowResponse body = ShowResponse.builder()
+                .sequences(List.of(ShowResponse.Sequence.builder()
+                        .name("Carol of the Bells")
+                        .build()))
+                .build();
+
+        JsonNode sequence = new ObjectMapper().valueToTree(body).get("sequences").get(0);
+        assertThat(sequence.has("imageUrl")).isTrue();
+        assertThat(sequence.get("imageUrl").isNull()).isTrue();
     }
 
     // ----- addSequenceToQueue -----

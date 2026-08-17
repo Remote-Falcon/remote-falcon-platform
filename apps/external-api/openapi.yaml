@@ -159,6 +159,7 @@ paths:
                         group: ""
                         category: "Rock"
                         artist: "Trans-Siberian Orchestra"
+                        imageUrl: "https://is1-ssl.mzstatic.com/image/thumb/Music/v4/example/600x600bb.jpg"
                       - name: "Carol of the Bells"
                         displayName: "Carol of the Bells"
                         duration: 145
@@ -171,6 +172,7 @@ paths:
                         group: ""
                         category: "Classical"
                         artist: "Lindsey Stirling"
+                        imageUrl: null
                     sequenceGroups: []
                     requests:
                       - sequence:
@@ -210,6 +212,7 @@ paths:
                         order: 1
                         active: true
                         visibilityCount: 0
+                        imageUrl: "https://is1-ssl.mzstatic.com/image/thumb/Music/v4/example/600x600bb.jpg"
                     sequenceGroups:
                       - name: "Rock Block"
                         visibilityCount: 0
@@ -485,7 +488,11 @@ components:
         playingNow:
           type: string
           nullable: true
-          description: Name of the sequence currently playing.
+          description: |
+            Name of the sequence currently playing. This is a bare name, not an
+            object — match it against `sequences[].name` to get the rest of that
+            sequence's fields, such as `displayName`, `artist`, or `imageUrl`.
+            Treat a miss as normal: a sequence can play that is not in the list.
           example: "Wizards in Winter"
         playingNext:
           type: string
@@ -493,14 +500,16 @@ components:
           description: |
             Name of the next sequence as determined by viewer control (the top
             of the queue, or the current vote leader). Empty when viewer control
-            has not selected one.
+            has not selected one. Joins to `sequences[].name` the same way as
+            `playingNow`.
           example: "Carol of the Bells"
         playingNextFromSchedule:
           type: string
           nullable: true
           description: |
             Name of the next sequence according to the show's own schedule,
-            independent of viewer control.
+            independent of viewer control. Joins to `sequences[].name` the same
+            way as `playingNow`.
           example: "Christmas Eve Sarajevo"
 
     Preference:
@@ -628,6 +637,16 @@ components:
           type: string
           nullable: true
           example: "Trans-Siberian Orchestra"
+        imageUrl:
+          type: string
+          nullable: true
+          description: |
+            Album artwork URL the owner set for this sequence, served as-is from
+            whatever host they pointed at. Frequently absent — many shows have
+            never filled it in — so always keep a fallback image. The value is
+            not normalized: it may be `null`, an empty string, or whitespace, so
+            trim before testing it.
+          example: "https://is1-ssl.mzstatic.com/image/thumb/Music/v4/example/600x600bb.jpg"
 
     SequenceGroup:
       type: object

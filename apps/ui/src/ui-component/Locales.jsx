@@ -21,6 +21,13 @@ const Locales = ({ children }) => {
 
   useEffect(() => {
     loadLocaleData(locale).then((d) => {
+      // `undefined` means index.jsx's vite:preloadError handler swallowed a
+      // stale-chunk failure and a reload is already in flight — see
+      // utils/lazyChunk. Leave `messages` unset so this renders nothing until
+      // the reload lands, rather than throwing on `d.default`.
+      if (d === undefined) {
+        return;
+      }
       setMessages(d.default);
     });
   }, [locale]);

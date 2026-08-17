@@ -1,9 +1,10 @@
-import React, { lazy } from 'react';
+import React from 'react';
 
 import V2Theme from '../design-system/theme';
 import Loadable from '../ui-component/Loadable';
+import lazyChunk from '../utils/lazyChunk';
 
-const MapPage = Loadable(lazy(() => import('../views/pages/map')));
+const MapPage = Loadable(lazyChunk(() => import('../views/pages/map')));
 
 // Truly public route — no AuthGuard, no GuestGuard (same pattern as
 // WrappedRoutes). The public shows map is top-of-funnel discovery: visitors
