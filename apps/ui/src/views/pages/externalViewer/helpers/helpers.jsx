@@ -141,6 +141,20 @@ const votesRemainingNode = (value) => ({
   }
 });
 
+// PRD-019 — {RETRY_LOCATION} slot for the location-recovery control. Auto-
+// injected into the page string when the operator hasn't placed it themselves,
+// so all ~2600 existing shows get it without touching their page. Empty unless
+// the viewer genuinely cannot request (see LocationRecoveryControl).
+const retryLocationNode = (value) => ({
+  replaceChildren: true,
+  shouldProcessNode(node) {
+    return node && node.children && node.children[0] && node.children[0].data && node.children[0].data.trim() === '{RETRY_LOCATION}';
+  },
+  processNode() {
+    return value;
+  }
+});
+
 const afterHoursNode = (value) => ({
   replaceChildren: true,
   shouldProcessNode(node) {
@@ -201,6 +215,20 @@ const locationCodeDynamicContainerNode = (value) => ({
   }
 });
 
+// PRD-019 — operator-placeable wrapper, blanked wholesale when the show isn't
+// GPS-gated. Same mechanism as {location-code-dynamic-container}: it lets an
+// operator wrap the control in their own layout without that layout surviving
+// on a show where the control can never appear.
+const locationPermissionDynamicContainerNode = (value) => ({
+  replaceChildren: true,
+  shouldProcessNode(node) {
+    return node.attribs && node.attribs['{location-permission-dynamic-container}'] === '';
+  },
+  processNode() {
+    return value;
+  }
+});
+
 const allNodes = (processNodeDefinitions) => ({
   shouldProcessNode() {
     return true;
@@ -232,7 +260,8 @@ export const processingInstructions = (
   queueDepth,
   locationCode,
   nowPlayingTimer,
-  votesRemaining
+  votesRemaining,
+  retryLocation
 ) => {
   let processedNodes = [];
   if (!viewerControlEnabled) {
@@ -251,6 +280,8 @@ export const processingInstructions = (
       votingPlaylistsDynamicContainerNode(<></>),
       jukeboxPlaylistsDynamicContainerNode(<></>),
       locationCodeDynamicContainerNode(<></>),
+      retryLocationNode(<></>),
+      locationPermissionDynamicContainerNode(<></>),
       allNodes(processNodeDefinitions)
     ];
   } else if (viewerControlMode === ViewerControlMode.JUKEBOX) {
@@ -266,6 +297,11 @@ export const processingInstructions = (
       votingDynamicContainerNode(<></>),
       votingPlaylistsDynamicContainerNode(<></>),
       locationCheckMethod === LocationCheckMethod.CODE ? blankNode(null) : locationCodeDynamicContainerNode(<></>),
+      retryLocationNode(<>{retryLocation}</>),
+      // Inverse of the location-code container above: that one survives only on
+      // CODE shows, this one only on GEO shows. `blankNode` matches nothing, so
+      // it is how a branch says "leave this container alone".
+      locationCheckMethod === LocationCheckMethod.GEO ? blankNode(null) : locationPermissionDynamicContainerNode(<></>),
       afterHoursNode(<></>),
       allNodes(processNodeDefinitions)
     ];
@@ -283,11 +319,140 @@ export const processingInstructions = (
       jukeboxDynamicContainerNode(<></>),
       jukeboxPlaylistsDynamicContainerNode(<></>),
       locationCheckMethod === LocationCheckMethod.CODE ? blankNode(null) : locationCodeDynamicContainerNode(<></>),
+      retryLocationNode(<>{retryLocation}</>),
+      // Inverse of the location-code container above: that one survives only on
+      // CODE shows, this one only on GEO shows. `blankNode` matches nothing, so
+      // it is how a branch says "leave this container alone".
+      locationCheckMethod === LocationCheckMethod.GEO ? blankNode(null) : locationPermissionDynamicContainerNode(<></>),
       afterHoursNode(<></>),
       allNodes(processNodeDefinitions)
     ];
   }
   return processedNodes;
+};
+
+/**
+ * Where to hang the slot, most-preferred first.
+ *
+ * The mode containers come FIRST and that ordering is load-bearing. The obvious
+ * anchor is the song list itself, but {PLAYLISTS} and {VOTES} appear once per
+ * control mode inside containers that get blanked for the mode the show is NOT
+ * in — on a stock jukebox template the earliest live {PLAYLISTS} sits inside
+ * {playlist-voting-dynamic-container}, so a slot anchored there is silently
+ * erased and the control never renders at all.
+ *
+ * Anchoring above the containers puts the slot ahead of the whole request
+ * section regardless of mode, which is also where it belongs: the viewer has to
+ * see it BEFORE tapping a song, not beside one list of them.
+ *
+ * The song-list tokens stay as a fallback for custom pages built without the
+ * container attributes.
+ */
+const ANCHOR_TOKENS = [
+  '{on-demand-and-voting-dynamic-container}',
+  '{jukebox-dynamic-container}',
+  '{playlist-voting-dynamic-container}',
+  '{playlist-standard-dynamic-container}',
+  '{PLAYLISTS}',
+  '{VOTES}'
+];
+
+/**
+ * Regions of the page where a token is discussed rather than used.
+ *
+ * Every stock template ships a documentation comment listing the placeholders
+ * ("The following are the variables used to populate your lists so DON'T MODIFY
+ * THESE!!: {PLAYLISTS} - Displays the list of your sequences..."), and on the
+ * real templates that comment is the FIRST occurrence of {PLAYLISTS} by ~17KB.
+ * A naive indexOf anchors on the prose and drops the control at the very top of
+ * the page instead of above the song list. Style and script bodies are excluded
+ * for the same reason.
+ */
+const INERT_REGIONS = [
+  ['<!--', '-->'],
+  ['<style', '</style>'],
+  ['<script', '</script>']
+];
+
+const inertRanges = (html) => {
+  const ranges = [];
+  INERT_REGIONS.forEach(([open, close]) => {
+    let from = 0;
+    for (;;) {
+      const start = html.indexOf(open, from);
+      if (start < 0) {
+        break;
+      }
+      const end = html.indexOf(close, start + open.length);
+      // An unterminated comment or block swallows the rest of the page, which
+      // is exactly how a browser would treat it too.
+      ranges.push([start, end < 0 ? html.length : end + close.length]);
+      from = end < 0 ? html.length : end + close.length;
+    }
+  });
+  return ranges;
+};
+
+/** First index of `token` that is actual markup, not prose in a comment. */
+const firstLiveIndex = (html, token) => {
+  const ranges = inertRanges(html);
+  let from = 0;
+  for (;;) {
+    const at = html.indexOf(token, from);
+    if (at < 0) {
+      return -1;
+    }
+    if (!ranges.some(([start, end]) => at >= start && at < end)) {
+      return at;
+    }
+    from = at + token.length;
+  }
+};
+
+/**
+ * PRD-019 — put a {RETRY_LOCATION} slot on pages that don't have one.
+ *
+ * This runs on the RAW PAGE STRING, before `parseWithInstructions` turns it
+ * into React. That ordering is the whole trick: the token we splice in here is
+ * indistinguishable from one the operator typed, so the existing parser renders
+ * it as a live element and every GPS-gated show gets the control on deploy with
+ * no operator action. "Whatever ships must work on a template nobody has
+ * touched since 2022" is a hard requirement of this feature.
+ *
+ * An operator who has placed the token themselves gets left alone entirely —
+ * that is how they control position, and (via a display:none wrapper) how they
+ * opt out.
+ *
+ * Anchored immediately before the request section (see ANCHOR_TOKENS), because
+ * the control has to be seen BEFORE a song is tapped. A viewer who only finds
+ * out after tapping has already spent the interaction this exists to save.
+ *
+ * @param {string} viewerPage  raw operator page HTML
+ * @returns {string} the page, with a slot added if one was needed and placeable
+ */
+export const injectRetryLocationToken = (viewerPage) => {
+  if (!viewerPage || firstLiveIndex(viewerPage, '{RETRY_LOCATION}') >= 0) {
+    return viewerPage;
+  }
+
+  const anchors = ANCHOR_TOKENS.map((token) => firstLiveIndex(viewerPage, token)).filter((index) => index >= 0);
+  if (!anchors.length) {
+    // No request UI on the page at all. We have no idea where the viewer picks
+    // a song, and guessing would drop the control somewhere arbitrary — better
+    // to leave the page untouched than to deface it.
+    return viewerPage;
+  }
+
+  // Back up to the opening tag of the element that CARRIES the anchor. For a
+  // container attribute that is its own tag; for a song-list token it is the
+  // element wrapping it. Either way the slot must be a SIBLING — the token-node
+  // matcher requires {RETRY_LOCATION} to be its element's only content, and a
+  // slot placed inside a mode container would be blanked with it.
+  const tokenAt = Math.min(...anchors);
+  const containerAt = viewerPage.lastIndexOf('<', tokenAt);
+  const insertAt = containerAt >= 0 ? containerAt : tokenAt;
+
+  return `${viewerPage.slice(0, insertAt)}<div>{RETRY_LOCATION}</div>${viewerPage.slice(insertAt)}`;
 };
 
 export const viewerPageMessageElements = {

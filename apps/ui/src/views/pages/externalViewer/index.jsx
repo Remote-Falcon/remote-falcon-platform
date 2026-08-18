@@ -24,9 +24,11 @@ import { ADD_SEQUENCE_TO_QUEUE, INSERT_VIEWER_PAGE_STATS, VOTE_FOR_SEQUENCE } fr
 import { GET_ACTIVE_VIEWER_PAGE, GET_SHOW_FOR_VIEWER, VOTES_REMAINING } from '../../../utils/graphql/viewer/queries';
 import { showAlert } from '../globalPageHelpers';
 import { orderSequencesByCategory } from './helpers/categoryOrder';
+import LocationRecoveryControl from './LocationRecoveryControl';
 import { LocationPermission, acquireViewerLocation, clientClassFromUserAgent } from './helpers/locationPermission';
 import {
   defaultProcessingInstructions,
+  injectRetryLocationToken,
   nextNowPlayingState,
   processingInstructions,
   sequenceImage,
@@ -58,6 +60,17 @@ const ExternalViewerPage = () => {
   // bought nothing and cost correctness.
   const viewerCoordsRef = useRef(null);
   const locationPermissionRef = useRef(LocationPermission.UNKNOWN);
+  // PRD-019 — the ref is what the mutation path reads synchronously; this is
+  // what the recovery control renders from. Both, because a ref can't trigger a
+  // re-render and state can't be read back in the tick it was set.
+  //
+  // Starts UNKNOWN and STAYS unknown until the load-time call resolves, which
+  // renders nothing. That gate is deliberate: on load the permission state is
+  // `prompt` until the viewer answers the dialog the page itself raised, so
+  // rendering on "not granted" would flash the control at every viewer —
+  // control appears, dialog appears, viewer allows, control vanishes. Waiting
+  // confines it to viewers who genuinely cannot request.
+  const [locationPermission, setLocationPermission] = useState(LocationPermission.UNKNOWN);
   const [enteredLocationCode, setEnteredLocationCode] = useState(null);
   const [messageDisplayTime] = useState(6000);
   const [nowPlaying, setNowPlaying] = useState(null);
@@ -120,10 +133,87 @@ const ExternalViewerPage = () => {
       trackPosthogEvent('viewer_location_permission', { state, trigger, client_class: clientClass })
     );
     locationPermissionRef.current = permission;
+    setLocationPermission(permission);
     if (coords) {
       viewerCoordsRef.current = coords;
     }
     return coords;
+  }, []);
+
+  /**
+   * PRD-019 — user-initiated re-prompt.
+   *
+   * Gesture-initiated, never programmatic. Chrome quiet-blocks an origin after
+   * repeated dismissals, so an auto-retry loop would break the exact viewers it
+   * was trying to help. It is also MORE reliable than the load-time call at
+   * actually surfacing the dialog, particularly on iOS Safari — the button is a
+   * better prompt trigger than the thing it is recovering from.
+   */
+  const retryViewerLocation = useCallback(() => {
+    setViewerLocation('retry');
+  }, [setViewerLocation]);
+
+  /**
+   * PRD-019 — tier 1 only. Chrome's <geolocation> element resolves the grant
+   * itself and hands us the position, so we record it directly rather than
+   * spending a second getCurrentPosition to learn what we already know.
+   */
+  const acceptElementPosition = useCallback((coords) => {
+    viewerCoordsRef.current = {
+      latitude: coords.latitude.toFixed(5),
+      longitude: coords.longitude.toFixed(5)
+    };
+    locationPermissionRef.current = LocationPermission.GRANTED;
+    setLocationPermission(LocationPermission.GRANTED);
+    trackPosthogEvent('viewer_location_permission', {
+      state: 'granted',
+      trigger: 'element',
+      client_class: clientClassFromUserAgent(typeof navigator === 'undefined' ? '' : navigator.userAgent)
+    });
+  }, []);
+
+  /**
+   * PRD-019 — follow permission changes made OUTSIDE the page.
+   *
+   * The denied-state copy sends the viewer into browser settings, and without
+   * this they would come back to a page still telling them location is blocked.
+   * Also covers Chrome's post-dismissal quiet block, which expires on its own
+   * after about a week: a repeat visitor across show nights can silently
+   * recover, and the page should notice.
+   *
+   * Does NOT clear a stale `denied`->`granted` transition's coordinates — the
+   * next tap re-acquires. The state is only here to decide what to render.
+   */
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !navigator.permissions?.query) {
+      return undefined;
+    }
+    let status;
+    let cancelled = false;
+    const onChange = () => {
+      const next = status?.state;
+      if (cancelled || !next) {
+        return;
+      }
+      locationPermissionRef.current = next;
+      setLocationPermission(next);
+    };
+    navigator.permissions
+      .query({ name: 'geolocation' })
+      .then((result) => {
+        if (cancelled) {
+          return;
+        }
+        status = result;
+        status.addEventListener('change', onChange);
+      })
+      // Some engines reject the `geolocation` permission name outright. The
+      // page works without this; it just won't self-heal.
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      status?.removeEventListener('change', onChange);
+    };
   }, []);
 
   // #162 — pull this viewer's remaining session votes for the {VOTES_REMAINING}
@@ -455,6 +545,12 @@ const ExternalViewerPage = () => {
     }
 
     parsedViewerPage = parsedViewerPage?.replace(/{QUEUE_DEPTH}/g, show?.preferences?.jukeboxDepth);
+    // PRD-019 — only GPS-gated shows can fail a location check, so only they get
+    // a slot. Must happen before the parse below: the token has to be in the
+    // string for the parser's instructions to find it.
+    if (show?.preferences?.locationCheckMethod === LocationCheckMethod.GEO) {
+      parsedViewerPage = injectRetryLocationToken(parsedViewerPage);
+    }
     parsedViewerPage = displayCurrentViewerMessages(parsedViewerPage);
 
     const sequencesElement = [];
@@ -761,6 +857,17 @@ const ExternalViewerPage = () => {
         <></>
       );
 
+    // PRD-019 — only GPS-gated shows can produce a permission failure, so the
+    // control is inert everywhere else. `LocationRecoveryControl` decides on its
+    // own whether to render anything for the current permission state; passing
+    // it here does not mean it appears.
+    const retryLocationElement =
+      show?.preferences?.locationCheckMethod === LocationCheckMethod.GEO ? (
+        <LocationRecoveryControl permission={locationPermission} onRetry={retryViewerLocation} onPosition={acceptElementPosition} />
+      ) : (
+        <></>
+      );
+
     instructions = processingInstructions(
       processNodeDefinitions,
       show?.preferences?.viewerControlEnabled,
@@ -774,7 +881,8 @@ const ExternalViewerPage = () => {
       show?.requests?.length,
       locationCodeElement,
       formattedNowPlayingTimer,
-      votesRemainingElement
+      votesRemainingElement,
+      retryLocationElement
     );
 
     const reactHtml = htmlToReactParser.parseWithInstructions(parsedViewerPage, isValidNode, instructions);
@@ -805,7 +913,10 @@ const ExternalViewerPage = () => {
     show?.playingNowSequence,
     show?.playingNextSequence,
     show?.preferences?.nightlyPlayLimit,
-    show?.preferences?.viewerPageViewOnly
+    show?.preferences?.viewerPageViewOnly,
+    locationPermission,
+    retryViewerLocation,
+    acceptElementPosition
   ]);
 
   const getActiveViewerPage = useCallback(() => {
