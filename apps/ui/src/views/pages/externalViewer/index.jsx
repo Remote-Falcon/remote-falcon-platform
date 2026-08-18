@@ -24,6 +24,7 @@ import { ADD_SEQUENCE_TO_QUEUE, INSERT_VIEWER_PAGE_STATS, VOTE_FOR_SEQUENCE } fr
 import { GET_ACTIVE_VIEWER_PAGE, GET_SHOW_FOR_VIEWER, VOTES_REMAINING } from '../../../utils/graphql/viewer/queries';
 import { showAlert } from '../globalPageHelpers';
 import { orderSequencesByCategory } from './helpers/categoryOrder';
+import { LocationPermission, acquireViewerLocation, clientClassFromUserAgent } from './helpers/locationPermission';
 import {
   defaultProcessingInstructions,
   nextNowPlayingState,
@@ -49,8 +50,14 @@ const ExternalViewerPage = () => {
   const [activeViewerPage, setActiveViewerPage] = useState();
 
   const [remoteViewerReactPage, setRemoteViewerReactPage] = useState(null);
-  const [viewerLatitude, setViewerLatitude] = useState(0.0);
-  const [viewerLongitude, setViewerLongitude] = useState(0.0);
+  // PRD-019 — the last acquired fix lives in a ref, not state. The mutation
+  // callbacks read it synchronously right after awaiting a fresh fix, and a
+  // `useState` value cannot be read back within the same tick it was set: the
+  // callback closes over the render's value. That is exactly how the old code
+  // sent 0.0/0.0 on a viewer's first tap. Nothing renders from these, so state
+  // bought nothing and cost correctness.
+  const viewerCoordsRef = useRef(null);
+  const locationPermissionRef = useRef(LocationPermission.UNKNOWN);
   const [enteredLocationCode, setEnteredLocationCode] = useState(null);
   const [messageDisplayTime] = useState(6000);
   const [nowPlaying, setNowPlaying] = useState(null);
@@ -84,13 +91,39 @@ const ExternalViewerPage = () => {
     }
   });
 
-  const setViewerLocation = useCallback(async () => {
-    if ('geolocation' in navigator) {
-      navigator.geolocation.getCurrentPosition((position) => {
-        setViewerLatitude(position.coords.latitude.toFixed(5));
-        setViewerLongitude(position.coords.longitude.toFixed(5));
-      });
+  /**
+   * PRD-019 — acquire the viewer's position and report what happened.
+   *
+   * The previous version was `async` but wrapped the callback-based
+   * `getCurrentPosition` without promisifying it and without an error callback.
+   * Two bugs fell out of that:
+   *
+   * 1. `await setViewerLocation()` resolved IMMEDIATELY, before any fix
+   *    existed, so the mutation right after it sent `viewerLatitude || 0.0`
+   *    from a stale closure. Any viewer whose permission resolved at tap time
+   *    rather than load time got INVALID_LOCATION on their FIRST request and
+   *    success on the second.
+   * 2. With no error callback the page had zero knowledge of permission state,
+   *    which is why no recovery UI could exist and why INVALID_LOCATION
+   *    conflates "denied the prompt" with "genuinely too far away".
+   *
+   * Resolves with the coordinates (or `null`) so callers use the value they
+   * just awaited instead of re-reading React state, and records the permission
+   * outcome on the way through.
+   *
+   * @param {'load'|'request'} trigger  where the call came from, for the event
+   * @returns {Promise<{latitude: string, longitude: string} | null>}
+   */
+  const setViewerLocation = useCallback(async (trigger = 'load') => {
+    const clientClass = clientClassFromUserAgent(typeof navigator === 'undefined' ? '' : navigator.userAgent);
+    const { permission, coords } = await acquireViewerLocation(typeof navigator === 'undefined' ? undefined : navigator, (state) =>
+      trackPosthogEvent('viewer_location_permission', { state, trigger, client_class: clientClass })
+    );
+    locationPermissionRef.current = permission;
+    if (coords) {
+      viewerCoordsRef.current = coords;
     }
+    return coords;
   }, []);
 
   // #162 — pull this viewer's remaining session votes for the {VOTES_REMAINING}
@@ -129,7 +162,27 @@ const ExternalViewerPage = () => {
         trackPosthogEvent('viewer_interaction_result', { result: 'Sequence Already Requested' });
       } else if (errorMessage === 'INVALID_LOCATION') {
         viewerPageMessageElements.invalidLocation.current = viewerPageMessageElements?.invalidLocation?.block;
-        trackPosthogEvent('viewer_interaction_result', { result: 'Invalid Location' });
+        // PRD-019 — INVALID_LOCATION has always meant three different things at
+        // once: the viewer denied the prompt, the viewer is genuinely outside
+        // the radius, or the show's geofence is misconfigured. Only the browser
+        // knows which, so carry the permission state on the event. Without this
+        // dimension neither we nor the operator can tell a fixable permission
+        // problem from a radius that needs widening — and the operator-facing
+        // hint has been guessing wrong for as long as it has existed.
+        //
+        // `out_of_range` is an inference, not an observation: permission was
+        // granted and the server still rejected us. A misconfigured show
+        // latitude lands here too, which is what the separate zero-success-shows
+        // investigation is for.
+        trackPosthogEvent('viewer_interaction_result', {
+          result: 'Invalid Location',
+          location_permission: locationPermissionRef.current,
+          cause:
+            locationPermissionRef.current === LocationPermission.GRANTED
+              ? 'out_of_range'
+              : `permission_${locationPermissionRef.current}`,
+          client_class: clientClassFromUserAgent(typeof navigator === 'undefined' ? '' : navigator.userAgent)
+        });
       } else if (errorMessage === 'QUEUE_FULL') {
         viewerPageMessageElements.queueFull.current = viewerPageMessageElements?.queueFull?.block;
         trackPosthogEvent('viewer_interaction_result', { result: 'Queue Full' });
@@ -172,8 +225,13 @@ const ExternalViewerPage = () => {
         sequence: sequenceDisplayName != null ? sequenceDisplayName : sequenceName,
         show_name: show?.showName
       });
+      // PRD-019 — use the coordinates this call resolves with. Reading
+      // `viewerLatitude` state back here is what sent 0.0/0.0 on the first tap.
+      // Fall back to the last good fix so a viewer who granted on load but hits
+      // a transient POSITION_UNAVAILABLE at tap time isn't rejected outright.
+      let coords = viewerCoordsRef.current;
       if (show?.preferences?.enableGeolocation) {
-        await setViewerLocation();
+        coords = (await setViewerLocation('request')) ?? viewerCoordsRef.current;
       }
       if (show?.preferences?.locationCheckMethod === LocationCheckMethod.CODE) {
         if (parseInt(enteredLocationCode, 10) !== parseInt(show?.preferences?.locationCode, 10)) {
@@ -197,8 +255,8 @@ const ExternalViewerPage = () => {
         addSequenceToQueueMutation,
         getSubdomain(),
         sequenceName,
-        viewerLatitude || 0.0,
-        viewerLongitude || 0.0,
+        coords?.latitude ?? 0.0,
+        coords?.longitude ?? 0.0,
         show?.preferences?.analyticsBetaOptIn ? getViewerId() : null,
         (response) => {
           showViewerMessage(response);
@@ -211,8 +269,6 @@ const ExternalViewerPage = () => {
       show?.preferences?.locationCode,
       show?.preferences?.analyticsBetaOptIn,
       addSequenceToQueueMutation,
-      viewerLatitude,
-      viewerLongitude,
       setViewerLocation,
       enteredLocationCode,
       showViewerMessage
@@ -230,8 +286,13 @@ const ExternalViewerPage = () => {
         sequence: sequenceDisplayName != null ? sequenceDisplayName : sequenceName,
         show_name: show?.showName
       });
+      // PRD-019 — use the coordinates this call resolves with. Reading
+      // `viewerLatitude` state back here is what sent 0.0/0.0 on the first tap.
+      // Fall back to the last good fix so a viewer who granted on load but hits
+      // a transient POSITION_UNAVAILABLE at tap time isn't rejected outright.
+      let coords = viewerCoordsRef.current;
       if (show?.preferences?.enableGeolocation) {
-        await setViewerLocation();
+        coords = (await setViewerLocation('request')) ?? viewerCoordsRef.current;
       }
       if (show?.preferences?.locationCheckMethod === LocationCheckMethod.CODE) {
         if (parseInt(enteredLocationCode, 10) !== parseInt(show?.preferences?.locationCode, 10)) {
@@ -255,8 +316,8 @@ const ExternalViewerPage = () => {
         voteForSequenceMutation,
         getSubdomain(),
         sequenceName,
-        viewerLatitude || 0.0,
-        viewerLongitude || 0.0,
+        coords?.latitude ?? 0.0,
+        coords?.longitude ?? 0.0,
         show?.preferences?.analyticsBetaOptIn ? getViewerId() : null,
         (response) => {
           showViewerMessage(response);
@@ -276,8 +337,6 @@ const ExternalViewerPage = () => {
       show?.preferences?.locationCode,
       show?.preferences?.analyticsBetaOptIn,
       voteForSequenceMutation,
-      viewerLatitude,
-      viewerLongitude,
       setViewerLocation,
       enteredLocationCode,
       showViewerMessage,
