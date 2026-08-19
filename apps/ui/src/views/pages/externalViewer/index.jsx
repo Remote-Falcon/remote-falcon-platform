@@ -28,6 +28,7 @@ import LocationRecoveryControl from './LocationRecoveryControl';
 import { LocationPermission, acquireViewerLocation, clientClassFromUserAgent } from './helpers/locationPermission';
 import {
   defaultProcessingInstructions,
+  injectInlineRetryLocationToken,
   injectRetryLocationToken,
   nextNowPlayingState,
   processingInstructions,
@@ -550,6 +551,7 @@ const ExternalViewerPage = () => {
     // string for the parser's instructions to find it.
     if (show?.preferences?.locationCheckMethod === LocationCheckMethod.GEO) {
       parsedViewerPage = injectRetryLocationToken(parsedViewerPage);
+      parsedViewerPage = injectInlineRetryLocationToken(parsedViewerPage);
     }
     parsedViewerPage = displayCurrentViewerMessages(parsedViewerPage);
 
@@ -868,6 +870,20 @@ const ExternalViewerPage = () => {
         <></>
       );
 
+    // Secondary surface, inside the operator's invalidLocation message. Hidden
+    // by that block's own display:none until a rejection shows it.
+    const retryLocationInlineElement =
+      show?.preferences?.locationCheckMethod === LocationCheckMethod.GEO ? (
+        <LocationRecoveryControl
+          variant="inline"
+          permission={locationPermission}
+          onRetry={retryViewerLocation}
+          onPosition={acceptElementPosition}
+        />
+      ) : (
+        <></>
+      );
+
     instructions = processingInstructions(
       processNodeDefinitions,
       show?.preferences?.viewerControlEnabled,
@@ -882,7 +898,8 @@ const ExternalViewerPage = () => {
       locationCodeElement,
       formattedNowPlayingTimer,
       votesRemainingElement,
-      retryLocationElement
+      retryLocationElement,
+      retryLocationInlineElement
     );
 
     const reactHtml = htmlToReactParser.parseWithInstructions(parsedViewerPage, isValidNode, instructions);

@@ -155,6 +155,21 @@ const retryLocationNode = (value) => ({
   }
 });
 
+// PRD-019 — secondary, reactive slot inside the operator's invalidLocation
+// message block. See injectInlineRetryLocationToken for why this is separate
+// from {RETRY_LOCATION}.
+const retryLocationInlineNode = (value) => ({
+  replaceChildren: true,
+  shouldProcessNode(node) {
+    return (
+      node && node.children && node.children[0] && node.children[0].data && node.children[0].data.trim() === '{RETRY_LOCATION_INLINE}'
+    );
+  },
+  processNode() {
+    return value;
+  }
+});
+
 const afterHoursNode = (value) => ({
   replaceChildren: true,
   shouldProcessNode(node) {
@@ -261,7 +276,8 @@ export const processingInstructions = (
   locationCode,
   nowPlayingTimer,
   votesRemaining,
-  retryLocation
+  retryLocation,
+  retryLocationInline
 ) => {
   let processedNodes = [];
   if (!viewerControlEnabled) {
@@ -281,6 +297,7 @@ export const processingInstructions = (
       jukeboxPlaylistsDynamicContainerNode(<></>),
       locationCodeDynamicContainerNode(<></>),
       retryLocationNode(<></>),
+      retryLocationInlineNode(<></>),
       locationPermissionDynamicContainerNode(<></>),
       allNodes(processNodeDefinitions)
     ];
@@ -298,6 +315,7 @@ export const processingInstructions = (
       votingPlaylistsDynamicContainerNode(<></>),
       locationCheckMethod === LocationCheckMethod.CODE ? blankNode(null) : locationCodeDynamicContainerNode(<></>),
       retryLocationNode(<>{retryLocation}</>),
+      retryLocationInlineNode(<>{retryLocationInline}</>),
       // Inverse of the location-code container above: that one survives only on
       // CODE shows, this one only on GEO shows. `blankNode` matches nothing, so
       // it is how a branch says "leave this container alone".
@@ -320,6 +338,7 @@ export const processingInstructions = (
       jukeboxPlaylistsDynamicContainerNode(<></>),
       locationCheckMethod === LocationCheckMethod.CODE ? blankNode(null) : locationCodeDynamicContainerNode(<></>),
       retryLocationNode(<>{retryLocation}</>),
+      retryLocationInlineNode(<>{retryLocationInline}</>),
       // Inverse of the location-code container above: that one survives only on
       // CODE shows, this one only on GEO shows. `blankNode` matches nothing, so
       // it is how a branch says "leave this container alone".
@@ -453,6 +472,80 @@ export const injectRetryLocationToken = (viewerPage) => {
   const insertAt = containerAt >= 0 ? containerAt : tokenAt;
 
   return `${viewerPage.slice(0, insertAt)}<div>{RETRY_LOCATION}</div>${viewerPage.slice(insertAt)}`;
+};
+
+/**
+ * PRD-019 — secondary slot inside the operator's `invalidLocation` block.
+ *
+ * The templates have been asking "Did you allow your location?" / "...or didn't
+ * allow your location to be identified!" for years without giving the viewer
+ * any way to act on the answer. This puts the control in the message they are
+ * already reading, at the moment they are reading it.
+ *
+ * Needs its OWN token rather than reusing {RETRY_LOCATION}: the node matcher
+ * matches every occurrence, so one token in two places would render two live
+ * controls and the second would be a duplicate of the first.
+ *
+ * No extra visibility state is needed. The block is `display: none` until a
+ * rejection flips it to `block`, so the operator's own toggle already gates
+ * this — which is also why the inline variant does NOT fire a "shown" event
+ * (it is in the DOM long before anyone can see it).
+ *
+ * @param {string} viewerPage  raw operator page HTML
+ * @returns {string} the page, with an inline slot added if one was placeable
+ */
+export const injectInlineRetryLocationToken = (viewerPage) => {
+  if (!viewerPage || firstLiveIndex(viewerPage, '{RETRY_LOCATION_INLINE}') >= 0) {
+    return viewerPage;
+  }
+
+  const idAt = firstLiveIndex(viewerPage, 'id="invalidLocation"');
+  if (idAt < 0) {
+    // Not every page has the block — it is operator markup, not ours. The
+    // proactive control still covers these viewers.
+    return viewerPage;
+  }
+  const openStart = viewerPage.lastIndexOf('<', idAt);
+  const openEnd = viewerPage.indexOf('>', idAt);
+  if (openStart < 0 || openEnd < 0) {
+    return viewerPage;
+  }
+
+  const closeAt = matchingCloseIndex(viewerPage, openEnd + 1);
+  if (closeAt < 0) {
+    return viewerPage;
+  }
+  return `${viewerPage.slice(0, closeAt)}<div>{RETRY_LOCATION_INLINE}</div>${viewerPage.slice(closeAt)}`;
+};
+
+/**
+ * Index of the `</div>` that closes the div open at `from`, or -1.
+ *
+ * Depth-tracked rather than "next </div>", because the stock message block
+ * wraps its copy in a `.failed_Info_Box` child — a naive search would close on
+ * the inner div and put the slot in the middle of the operator's markup.
+ */
+const matchingCloseIndex = (html, from) => {
+  let depth = 1;
+  let at = from;
+  while (depth > 0) {
+    const open = html.indexOf('<div', at);
+    const close = html.indexOf('</div>', at);
+    if (close < 0) {
+      return -1;
+    }
+    if (open >= 0 && open < close) {
+      depth += 1;
+      at = open + 4;
+    } else {
+      depth -= 1;
+      if (depth === 0) {
+        return close;
+      }
+      at = close + 6;
+    }
+  }
+  return -1;
 };
 
 export const viewerPageMessageElements = {

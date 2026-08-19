@@ -4,7 +4,7 @@ import { render } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { LocationCheckMethod, ViewerControlMode } from '../../../../../utils/enum';
-import { injectRetryLocationToken, processingInstructions } from '../helpers';
+import { injectInlineRetryLocationToken, injectRetryLocationToken, processingInstructions } from '../helpers';
 
 // This function rewrites the page HTML of every GPS-gated show on deploy, so
 // the bar is "cannot deface a page", not just "usually works".
@@ -190,5 +190,62 @@ describe('injected token through parseWithInstructions', () => {
     const page = injectRetryLocationToken('<div><div class="list">{PLAYLISTS}</div></div>');
     const { container } = parse(page, <></>);
     expect(container.textContent).not.toContain('{RETRY_LOCATION}');
+  });
+});
+
+
+// The stock invalidLocation block wraps its copy in a .failed_Info_Box child,
+// so "insert before the next </div>" would land in the middle of the operator's
+// own markup. Depth tracking is what makes this safe.
+describe('injectInlineRetryLocationToken', () => {
+  const STOCK = [
+    '<div id="invalidLocation" style="display: none">',
+    '    <div class="failed_Info_Box">',
+    "        INVALID LOCATION <br/>",
+    "        You are not located where the show is or didn't allow your location to be identified!",
+    '    </div>',
+    '</div>',
+    '<div id="alreadyVoted" style="display: none"><div class="failed_Info_Box">ALREADY VOTED</div></div>'
+  ].join('\n');
+
+  it('places the slot inside the invalidLocation block, past its nested box', () => {
+    const out = injectInlineRetryLocationToken(STOCK);
+    const slot = out.indexOf('{RETRY_LOCATION_INLINE}');
+    expect(slot).toBeGreaterThan(out.indexOf('failed_Info_Box'));
+    // Still inside invalidLocation, i.e. before the next message block starts.
+    expect(slot).toBeLessThan(out.indexOf('id="alreadyVoted"'));
+  });
+
+  it('does not disturb the sibling message blocks', () => {
+    const out = injectInlineRetryLocationToken(STOCK);
+    expect(out).toContain('<div id="alreadyVoted" style="display: none"><div class="failed_Info_Box">ALREADY VOTED</div></div>');
+    expect(out.match(/{RETRY_LOCATION_INLINE}/g)).toHaveLength(1);
+  });
+
+  it('leaves pages without an invalidLocation block alone', () => {
+    const page = '<div>{PLAYLISTS}</div>';
+    expect(injectInlineRetryLocationToken(page)).toBe(page);
+  });
+
+  it('respects an operator-placed inline token', () => {
+    const page = '<div id="invalidLocation"><span>{RETRY_LOCATION_INLINE}</span></div>';
+    expect(injectInlineRetryLocationToken(page)).toBe(page);
+  });
+
+  it('leaves an unbalanced block alone rather than corrupting it', () => {
+    const page = '<div id="invalidLocation"><div class="failed_Info_Box">oops';
+    expect(injectInlineRetryLocationToken(page)).toBe(page);
+  });
+
+  it('ignores an invalidLocation mentioned only in a comment', () => {
+    const page = '<!-- add id="invalidLocation" to show location errors --><div>{PLAYLISTS}</div>';
+    expect(injectInlineRetryLocationToken(page)).toBe(page);
+  });
+
+  // Both injectors run on the same page; neither may consume the other's slot.
+  it('coexists with the proactive injection', () => {
+    const page = injectInlineRetryLocationToken(injectRetryLocationToken(`<div {jukebox-dynamic-container}>{PLAYLISTS}</div>${STOCK}`));
+    expect(page.match(/{RETRY_LOCATION}/g)).toHaveLength(1);
+    expect(page.match(/{RETRY_LOCATION_INLINE}/g)).toHaveLength(1);
   });
 });

@@ -187,6 +187,71 @@ describe('LocationRecoveryControl', () => {
     });
   });
 
+  describe('inline variant (inside the invalidLocation message)', () => {
+    it('drops copy the operator message already supplies, keeping the action', () => {
+      render(<LocationRecoveryControl variant="inline" permission={LocationPermission.PROMPT} onRetry={vi.fn()} />);
+      expect(screen.queryByText('Enable location to request songs')).toBeNull();
+      expect(screen.queryByText(/checks that you're nearby/)).toBeNull();
+      expect(screen.getByRole('button', { name: 'Enable location' })).toBeTruthy();
+    });
+
+    // The denied-state text IS the recovery instruction, not a restatement of
+    // the operator's message — dropping it would leave a dead end.
+    it('keeps the denied-state heading and steps', () => {
+      setUserAgent(IOS_SAFARI);
+      render(<LocationRecoveryControl variant="inline" permission={LocationPermission.DENIED} onRetry={vi.fn()} />);
+      expect(screen.getByText('Location is blocked for this site')).toBeTruthy();
+    });
+
+    // Its heading is the only place an in-app viewer is told to leave.
+    it('keeps the in-app heading and explanation', () => {
+      setUserAgent(FACEBOOK);
+      render(<LocationRecoveryControl variant="inline" permission={LocationPermission.PROMPT} onRetry={vi.fn()} />);
+      expect(screen.getByText(/Open this page in your browser/)).toBeTruthy();
+      expect(screen.getByText(/Facebook and Instagram/)).toBeTruthy();
+    });
+
+    // It sits inside the operator's themed .failed_Info_Box. Drawing our own
+    // scrim there would be a box inside a box.
+    it('drops the wrapper box', () => {
+      const { container } = render(
+        <LocationRecoveryControl variant="inline" permission={LocationPermission.PROMPT} onRetry={vi.fn()} />
+      );
+      expect(container.querySelector('.rf-location-notice--inline')).toBeTruthy();
+    });
+
+    // The block is display:none until a rejection shows it, so this variant is
+    // in the DOM long before anyone sees it. Counting it would inflate the
+    // recovery-rate denominator with viewers who never saw a thing.
+    it('does not fire the shown event', () => {
+      render(<LocationRecoveryControl variant="inline" permission={LocationPermission.PROMPT} onRetry={vi.fn()} />);
+      expect(trackPosthogEvent.mock.calls.filter(([n]) => n === 'viewer_location_recovery_shown')).toHaveLength(0);
+    });
+
+    it('still records a tap, tagged with the variant', () => {
+      render(<LocationRecoveryControl variant="inline" permission={LocationPermission.PROMPT} onRetry={vi.fn()} />);
+      fireEvent.click(screen.getByRole('button', { name: 'Enable location' }));
+      expect(trackPosthogEvent).toHaveBeenCalledWith(
+        'viewer_location_recovery_click',
+        expect.objectContaining({ variant: 'inline' })
+      );
+    });
+
+    it('keeps the denied-state rules — instructions, no button', () => {
+      setUserAgent(IOS_SAFARI);
+      render(<LocationRecoveryControl variant="inline" permission={LocationPermission.DENIED} onRetry={vi.fn()} />);
+      expect(screen.queryByRole('button')).toBeNull();
+      expect(screen.getAllByRole('listitem')).toHaveLength(3);
+    });
+
+    it('renders nothing when permission is granted', () => {
+      const { container } = render(
+        <LocationRecoveryControl variant="inline" permission={LocationPermission.GRANTED} onRetry={vi.fn()} />
+      );
+      expect(container).toBeEmptyDOMElement();
+    });
+  });
+
   describe('instrumentation', () => {
     it('records that a viewer actually saw a control, with its tier', () => {
       render(<LocationRecoveryControl permission={LocationPermission.PROMPT} onRetry={vi.fn()} />);

@@ -57,6 +57,14 @@ const NOTICE_STYLES = `
     backdrop-filter: blur(6px);
   }
 }
+:where(.rf-location-notice--inline) {
+  margin: 0.5em 0 0;
+  padding: 0;
+  border: none;
+  background: none;
+  backdrop-filter: none;
+  max-width: none;
+}
 :where(.rf-location-notice__heading) { font-weight: 600; margin: 0 0 0.25em; }
 :where(.rf-location-notice__subline) { opacity: 0.85; font-size: 0.9em; margin: 0 0 0.5em; }
 :where(.rf-location-notice__steps) { text-align: left; margin: 0.5em auto; padding-left: 1.5em; }
@@ -137,7 +145,14 @@ const GeolocationElement = ({ onPosition, onError, children }) => {
   return <geolocation ref={ref}>{children}</geolocation>;
 };
 
-const LocationRecoveryControl = ({ permission, onRetry, onPosition }) => {
+const LocationRecoveryControl = ({ permission, onRetry, onPosition, variant = 'proactive' }) => {
+  // PRD-019 — the `inline` variant lives inside the operator's invalidLocation
+  // message block, which is `display: none` until a rejection shows it. It is
+  // therefore in the DOM long before anyone can see it, which is why it fires
+  // no shown-event: we cannot observe the operator's own visibility toggle, and
+  // counting it would inflate the recovery-rate denominator with viewers who
+  // never saw a thing.
+  const inline = variant === 'inline';
   const [copyState, setCopyState] = useState('idle');
   const userAgent = typeof navigator === 'undefined' ? '' : navigator.userAgent;
   const elementSupported = typeof window !== 'undefined' && 'HTMLGeolocationElement' in window;
@@ -149,7 +164,7 @@ const LocationRecoveryControl = ({ permission, onRetry, onPosition }) => {
   // for the recovery rate — "share of viewers who see a control and then reach
   // granted" — against a 0.8% baseline where recovery essentially never happens.
   useEffect(() => {
-    if (tier === RecoveryTier.NONE) {
+    if (tier === RecoveryTier.NONE || inline) {
       return;
     }
     trackPosthogEvent('viewer_location_recovery_shown', {
@@ -157,15 +172,15 @@ const LocationRecoveryControl = ({ permission, onRetry, onPosition }) => {
       permission,
       client_class: clientClassFromUserAgent(userAgent)
     });
-  }, [tier, permission, userAgent]);
+  }, [tier, permission, userAgent, inline]);
 
   const handleRetry = useCallback(() => {
-    trackPosthogEvent('viewer_location_recovery_click', { tier, permission, client_class: clientClassFromUserAgent(userAgent) });
+    trackPosthogEvent('viewer_location_recovery_click', { tier, permission, variant, client_class: clientClassFromUserAgent(userAgent) });
     onRetry();
-  }, [onRetry, tier, permission, userAgent]);
+  }, [onRetry, tier, permission, userAgent, variant]);
 
   const handleCopyLink = useCallback(async () => {
-    trackPosthogEvent('viewer_location_recovery_click', { tier, permission, client_class: clientClassFromUserAgent(userAgent) });
+    trackPosthogEvent('viewer_location_recovery_click', { tier, permission, variant, client_class: clientClassFromUserAgent(userAgent) });
     try {
       await navigator.clipboard.writeText(window.location.href);
       setCopyState('copied');
@@ -177,7 +192,7 @@ const LocationRecoveryControl = ({ permission, onRetry, onPosition }) => {
       // the address is.
       setCopyState('failed');
     }
-  }, [tier, permission, userAgent]);
+  }, [tier, permission, userAgent, variant]);
 
   if (tier === RecoveryTier.NONE) {
     return null;
@@ -185,10 +200,21 @@ const LocationRecoveryControl = ({ permission, onRetry, onPosition }) => {
 
   const copy = recoveryCopy(tier, permission, userAgent);
 
+  // Inline sits under copy the operator already wrote ("You are not located
+  // where the show is or didn't allow your location to be identified!"), so it
+  // drops its own heading and subline in the one case where they say nothing
+  // new — the prompt state, where the button label is already the instruction.
+  // The denied state keeps them (they ARE the recovery steps), and the in-app
+  // tier keeps them (its heading is the only place the viewer is told to leave).
+  const redundantInline = inline && tier !== RecoveryTier.IN_APP && permission !== LocationPermission.DENIED;
+  // The inline variant already sits inside the operator's themed message box,
+  // so it drops our scrim and border rather than drawing a box inside a box.
+  const wrapperClass = inline ? 'rf-location-notice rf-location-notice--inline' : 'rf-location-notice';
+
   const body = (
     <>
-      <div className="rf-location-notice__heading">{copy.heading}</div>
-      {copy.subline ? <div className="rf-location-notice__subline">{copy.subline}</div> : null}
+      {redundantInline ? null : <div className="rf-location-notice__heading">{copy.heading}</div>}
+      {copy.subline && !redundantInline ? <div className="rf-location-notice__subline">{copy.subline}</div> : null}
       {copy.steps ? (
         <ol className="rf-location-notice__steps">
           {copy.steps.map((step) => (
@@ -202,7 +228,7 @@ const LocationRecoveryControl = ({ permission, onRetry, onPosition }) => {
 
   if (tier === RecoveryTier.IN_APP) {
     return (
-      <div className="rf-location-notice">
+      <div className={wrapperClass}>
         {body}
         <button type="button" className="rf-location-notice__button" onClick={handleCopyLink}>
           {copyState === 'copied' ? 'Link copied' : copy.action}
@@ -229,7 +255,7 @@ const LocationRecoveryControl = ({ permission, onRetry, onPosition }) => {
   ) : null;
 
   return (
-    <div className="rf-location-notice">
+    <div className={wrapperClass}>
       {body}
       {tier === RecoveryTier.ELEMENT ? (
         // The element hands us a GeolocationPosition outright, so tier 1 grants
