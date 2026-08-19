@@ -353,10 +353,10 @@ export const processingInstructions = (
 /**
  * Where to hang the slot, most-preferred first.
  *
- * The mode containers come FIRST and that ordering is load-bearing. The obvious
- * anchor is the song list itself, but {PLAYLISTS} and {VOTES} appear once per
- * control mode inside containers that get blanked for the mode the show is NOT
- * in — on a stock jukebox template the earliest live {PLAYLISTS} sits inside
+ * The container GROUP is preferred over the song-list group, and that ordering
+ * is load-bearing. {PLAYLISTS} and {VOTES} appear once per control mode inside
+ * containers that get blanked for the mode the show is NOT in — on a stock
+ * jukebox template the earliest live {PLAYLISTS} sits inside
  * {playlist-voting-dynamic-container}, so a slot anchored there is silently
  * erased and the control never renders at all.
  *
@@ -364,16 +364,23 @@ export const processingInstructions = (
  * section regardless of mode, which is also where it belongs: the viewer has to
  * see it BEFORE tapping a song, not beside one list of them.
  *
- * The song-list tokens stay as a fallback for custom pages built without the
- * container attributes.
+ * Within a group, earliest position wins. Ranking tokens against each other
+ * inside a group would mean overriding the operator's own layout order on the
+ * strength of an arbitrary list.
  */
-const ANCHOR_TOKENS = [
-  '{on-demand-and-voting-dynamic-container}',
-  '{jukebox-dynamic-container}',
-  '{playlist-voting-dynamic-container}',
-  '{playlist-standard-dynamic-container}',
-  '{PLAYLISTS}',
-  '{VOTES}'
+const ANCHOR_TOKEN_GROUPS = [
+  // Mode containers. Preferred as a GROUP, but within the group the earliest
+  // one on the page wins — we want to sit above the whole request section, and
+  // which container comes first is a property of the operator's layout, not a
+  // ranking we get to impose.
+  [
+    '{on-demand-and-voting-dynamic-container}',
+    '{jukebox-dynamic-container}',
+    '{playlist-voting-dynamic-container}',
+    '{playlist-standard-dynamic-container}'
+  ],
+  // Fallback for custom pages built without the container attributes.
+  ['{PLAYLISTS}', '{VOTES}']
 ];
 
 /**
@@ -410,6 +417,45 @@ const inertRanges = (html) => {
     }
   });
   return ranges;
+};
+
+/**
+ * Index of the opening tag of the element that CONTAINS `at`.
+ *
+ * Not simply the nearest preceding `<`: that lands on the previous sibling's
+ * CLOSING tag whenever the anchor isn't the first thing in its parent. On
+ * `<div class="rtable"><h3>Requests</h3>{PLAYLISTS}</div>` the naive version
+ * spliced the slot inside the `<h3>`. Walks backwards keeping tag depth so a
+ * fully-formed sibling is stepped over as a unit.
+ *
+ * Returns -1 when the token has no enclosing element (start of document).
+ */
+const enclosingOpenTagIndex = (html, at) => {
+  let cursor = at;
+  let depth = 0;
+  for (;;) {
+    const lt = html.lastIndexOf('<', cursor - 1);
+    if (lt < 0) {
+      return -1;
+    }
+    cursor = lt;
+    if (html.startsWith('<!--', lt)) {
+      continue;
+    }
+    if (html[lt + 1] === '/') {
+      depth += 1;
+      continue;
+    }
+    const gt = html.indexOf('>', lt);
+    if (gt > lt && html[gt - 1] === '/') {
+      // Self-closing (<br/>): opens nothing, so it can't be our container.
+      continue;
+    }
+    if (depth === 0) {
+      return lt;
+    }
+    depth -= 1;
+  }
 };
 
 /** First index of `token` that is actual markup, not prose in a comment. */
@@ -454,8 +500,14 @@ export const injectRetryLocationToken = (viewerPage) => {
     return viewerPage;
   }
 
-  const anchors = ANCHOR_TOKENS.map((token) => firstLiveIndex(viewerPage, token)).filter((index) => index >= 0);
-  if (!anchors.length) {
+  const anchorAt = ANCHOR_TOKEN_GROUPS.reduce((found, group) => {
+    if (found >= 0) {
+      return found;
+    }
+    const hits = group.map((token) => firstLiveIndex(viewerPage, token)).filter((index) => index >= 0);
+    return hits.length ? Math.min(...hits) : -1;
+  }, -1);
+  if (anchorAt < 0) {
     // No request UI on the page at all. We have no idea where the viewer picks
     // a song, and guessing would drop the control somewhere arbitrary — better
     // to leave the page untouched than to deface it.
@@ -467,9 +519,8 @@ export const injectRetryLocationToken = (viewerPage) => {
   // element wrapping it. Either way the slot must be a SIBLING — the token-node
   // matcher requires {RETRY_LOCATION} to be its element's only content, and a
   // slot placed inside a mode container would be blanked with it.
-  const tokenAt = Math.min(...anchors);
-  const containerAt = viewerPage.lastIndexOf('<', tokenAt);
-  const insertAt = containerAt >= 0 ? containerAt : tokenAt;
+  const containerAt = enclosingOpenTagIndex(viewerPage, anchorAt);
+  const insertAt = containerAt >= 0 ? containerAt : anchorAt;
 
   return `${viewerPage.slice(0, insertAt)}<div>{RETRY_LOCATION}</div>${viewerPage.slice(insertAt)}`;
 };
@@ -511,7 +562,16 @@ export const injectInlineRetryLocationToken = (viewerPage) => {
     return viewerPage;
   }
 
-  const closeAt = matchingCloseIndex(viewerPage, openEnd + 1);
+  // The id can sit on ANY element, so the close has to be matched on that
+  // element's own tag name. Counting `</div>` regardless of what was opened put
+  // the slot OUTSIDE a `<span id="invalidLocation">` and inside its always-
+  // visible parent — i.e. the recovery control rendered permanently, to every
+  // viewer, on every page load.
+  const tagName = (viewerPage.slice(openStart + 1, openEnd).match(/^[a-zA-Z][a-zA-Z0-9-]*/) || [])[0];
+  if (!tagName) {
+    return viewerPage;
+  }
+  const closeAt = matchingCloseIndex(viewerPage, tagName, openEnd + 1);
   if (closeAt < 0) {
     return viewerPage;
   }
@@ -519,30 +579,32 @@ export const injectInlineRetryLocationToken = (viewerPage) => {
 };
 
 /**
- * Index of the `</div>` that closes the div open at `from`, or -1.
+ * Index of the tag that closes the `<tagName>` open at `from`, or -1.
  *
- * Depth-tracked rather than "next </div>", because the stock message block
+ * Depth-tracked rather than "next close tag", because the stock message block
  * wraps its copy in a `.failed_Info_Box` child — a naive search would close on
- * the inner div and put the slot in the middle of the operator's markup.
+ * the inner element and put the slot in the middle of the operator's markup.
  */
-const matchingCloseIndex = (html, from) => {
+const matchingCloseIndex = (html, tagName, from) => {
+  const openTag = `<${tagName}`;
+  const closeTag = `</${tagName}`;
   let depth = 1;
   let at = from;
   while (depth > 0) {
-    const open = html.indexOf('<div', at);
-    const close = html.indexOf('</div>', at);
+    const open = html.indexOf(openTag, at);
+    const close = html.indexOf(closeTag, at);
     if (close < 0) {
       return -1;
     }
     if (open >= 0 && open < close) {
       depth += 1;
-      at = open + 4;
+      at = open + openTag.length;
     } else {
       depth -= 1;
       if (depth === 0) {
         return close;
       }
-      at = close + 6;
+      at = close + closeTag.length;
     }
   }
   return -1;

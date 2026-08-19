@@ -60,6 +60,11 @@ const ExternalViewerPage = () => {
   // sent 0.0/0.0 on a viewer's first tap. Nothing renders from these, so state
   // bought nothing and cost correctness.
   const viewerCoordsRef = useRef(null);
+  // The location wait is now genuinely asynchronous (up to the 10s timeout on a
+  // cold fix), where it used to return instantly. Without a guard an impatient
+  // double-tap fires two mutations, and the loser is logged as a rejected
+  // request — inflating the very funnel this work exists to clean up.
+  const requestInFlightRef = useRef(false);
   const locationPermissionRef = useRef(LocationPermission.UNKNOWN);
   // PRD-019 — the ref is what the mutation path reads synchronously; this is
   // what the recovery control renders from. Both, because a ref can't trigger a
@@ -316,13 +321,21 @@ const ExternalViewerPage = () => {
         sequence: sequenceDisplayName != null ? sequenceDisplayName : sequenceName,
         show_name: show?.showName
       });
+      if (requestInFlightRef.current) {
+        return;
+      }
+      requestInFlightRef.current = true;
       // PRD-019 — use the coordinates this call resolves with. Reading
       // `viewerLatitude` state back here is what sent 0.0/0.0 on the first tap.
       // Fall back to the last good fix so a viewer who granted on load but hits
       // a transient POSITION_UNAVAILABLE at tap time isn't rejected outright.
       let coords = viewerCoordsRef.current;
-      if (show?.preferences?.enableGeolocation) {
-        coords = (await setViewerLocation('request')) ?? viewerCoordsRef.current;
+      try {
+        if (show?.preferences?.enableGeolocation) {
+          coords = (await setViewerLocation('request')) ?? viewerCoordsRef.current;
+        }
+      } finally {
+        requestInFlightRef.current = false;
       }
       if (show?.preferences?.locationCheckMethod === LocationCheckMethod.CODE) {
         if (parseInt(enteredLocationCode, 10) !== parseInt(show?.preferences?.locationCode, 10)) {
@@ -377,13 +390,21 @@ const ExternalViewerPage = () => {
         sequence: sequenceDisplayName != null ? sequenceDisplayName : sequenceName,
         show_name: show?.showName
       });
+      if (requestInFlightRef.current) {
+        return;
+      }
+      requestInFlightRef.current = true;
       // PRD-019 — use the coordinates this call resolves with. Reading
       // `viewerLatitude` state back here is what sent 0.0/0.0 on the first tap.
       // Fall back to the last good fix so a viewer who granted on load but hits
       // a transient POSITION_UNAVAILABLE at tap time isn't rejected outright.
       let coords = viewerCoordsRef.current;
-      if (show?.preferences?.enableGeolocation) {
-        coords = (await setViewerLocation('request')) ?? viewerCoordsRef.current;
+      try {
+        if (show?.preferences?.enableGeolocation) {
+          coords = (await setViewerLocation('request')) ?? viewerCoordsRef.current;
+        }
+      } finally {
+        requestInFlightRef.current = false;
       }
       if (show?.preferences?.locationCheckMethod === LocationCheckMethod.CODE) {
         if (parseInt(enteredLocationCode, 10) !== parseInt(show?.preferences?.locationCode, 10)) {

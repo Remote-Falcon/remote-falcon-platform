@@ -49,6 +49,18 @@ describe('recoveryTier', () => {
     expect(recoveryTier(LocationPermission.UNKNOWN, UA.chromeAndroid, true)).toBe(RecoveryTier.NONE);
   });
 
+  // Review finding: there was no UNSUPPORTED branch, so a client with no
+  // navigator.geolocation got an "Enable location" button whose handler could
+  // only report UNSUPPORTED again. A provably inert control.
+  it('renders nothing when the client has no geolocation at all', () => {
+    expect(recoveryTier(LocationPermission.UNSUPPORTED, UA.chromeAndroid, true)).toBe(RecoveryTier.NONE);
+    expect(recoveryTier(LocationPermission.UNSUPPORTED, UA.iosSafari, false)).toBe(RecoveryTier.NONE);
+  });
+
+  it('still offers recovery when we could not tell a dismissal from a block', () => {
+    expect(recoveryTier(LocationPermission.UNCERTAIN, UA.iosSafari, false)).toBe(RecoveryTier.BUTTON);
+  });
+
   it('uses the native element on supporting Chromium', () => {
     expect(recoveryTier(LocationPermission.PROMPT, UA.chromeAndroid, true)).toBe(RecoveryTier.ELEMENT);
   });
@@ -100,6 +112,14 @@ describe('recoveryCopy', () => {
 
   it('does not give Chrome-on-iOS the Safari steps', () => {
     expect(recoveryCopy(RecoveryTier.BUTTON, LocationPermission.DENIED, UA.iosChrome).steps).toBeUndefined();
+  });
+
+  // Serves both populations: the retry works for a dismisser, the recovery line
+  // is the only thing that helps if they turn out to be blocked.
+  it('offers BOTH a retry and recovery text when the state is uncertain', () => {
+    const copy = recoveryCopy(RecoveryTier.BUTTON, LocationPermission.UNCERTAIN, UA.iosSafari);
+    expect(copy.action).toBe('Enable location');
+    expect(copy.subline).toContain('lock');
   });
 
   it('gives tier 1 no settings instructions, because the element recovers on its own', () => {

@@ -99,6 +99,33 @@ describe('injectRetryLocationToken', () => {
     expect(injectRetryLocationToken(page)).toBe(page);
   });
 
+  // Review finding: the naive `lastIndexOf('<')` landed on the PREVIOUS
+  // SIBLING's closing tag, splicing the slot inside that sibling.
+  it('anchors on the enclosing element, not a preceding sibling', () => {
+    const out = injectRetryLocationToken('<div class="rtable"><h3>Requests</h3>{PLAYLISTS}</div>');
+    expect(out).toBe('<div>{RETRY_LOCATION}</div><div class="rtable"><h3>Requests</h3>{PLAYLISTS}</div>');
+    expect(out).not.toContain('<h3>Requests<div>');
+  });
+
+  it('steps over a fully-formed sibling subtree', () => {
+    const out = injectRetryLocationToken('<section><div class="a"><span>x</span></div>{PLAYLISTS}</section>');
+    expect(out.indexOf('{RETRY_LOCATION}')).toBeLessThan(out.indexOf('<div class="a">'));
+  });
+
+  it('is not fooled by a self-closing tag before the anchor', () => {
+    const out = injectRetryLocationToken('<div class="list"><br/>{PLAYLISTS}</div>');
+    expect(out).toBe('<div>{RETRY_LOCATION}</div><div class="list"><br/>{PLAYLISTS}</div>');
+  });
+
+  // Review finding: Math.min over all matches made the documented priority
+  // order dead code, so a song-list token appearing first won over the
+  // container — the placement that gets blanked for the other control mode.
+  it('prefers the container group even when a song-list token appears earlier', () => {
+    const out = injectRetryLocationToken('<p>{PLAYLISTS}</p><div {jukebox-dynamic-container}>x</div>');
+    expect(out.indexOf('{RETRY_LOCATION}')).toBeGreaterThan(out.indexOf('<p>'));
+    expect(out.indexOf('{RETRY_LOCATION}')).toBeLessThan(out.indexOf('{jukebox-dynamic-container}'));
+  });
+
   it('handles null and empty pages', () => {
     expect(injectRetryLocationToken(null)).toBeNull();
     expect(injectRetryLocationToken('')).toBe('');
@@ -230,6 +257,26 @@ describe('injectInlineRetryLocationToken', () => {
   it('respects an operator-placed inline token', () => {
     const page = '<div id="invalidLocation"><span>{RETRY_LOCATION_INLINE}</span></div>';
     expect(injectInlineRetryLocationToken(page)).toBe(page);
+  });
+
+  // Review finding, the severe one: the id can sit on ANY element, but the
+  // close was matched by counting `</div>`. On `<span id="invalidLocation">`
+  // nested in a wrapper div, the slot landed OUTSIDE the hidden block — so the
+  // recovery control rendered permanently, to every viewer, on every load.
+  it('matches the close on the block\'s own tag, not always a div', () => {
+    const page = '<div class="messages"><span id="invalidLocation" style="display:none">INVALID</span><p>always visible</p></div>';
+    const out = injectInlineRetryLocationToken(page);
+    const slot = out.indexOf('{RETRY_LOCATION_INLINE}');
+    expect(slot).toBeGreaterThan(0);
+    // Inside the hidden span — i.e. before its closing tag.
+    expect(slot).toBeLessThan(out.indexOf('</span>'));
+    expect(slot).toBeLessThan(out.indexOf('<p>always visible'));
+  });
+
+  it('still depth-matches nested same-tag children', () => {
+    const page = '<span id="invalidLocation"><span class="inner">x</span></span><p>after</p>';
+    const out = injectInlineRetryLocationToken(page);
+    expect(out).toContain('<span class="inner">x</span><div>{RETRY_LOCATION_INLINE}</div></span>');
   });
 
   it('leaves an unbalanced block alone rather than corrupting it', () => {

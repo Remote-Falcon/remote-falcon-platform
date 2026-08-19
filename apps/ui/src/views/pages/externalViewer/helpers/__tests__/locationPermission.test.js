@@ -47,10 +47,15 @@ describe('permissionStateFromError', () => {
     });
   });
 
-  it('falls back to denied when the permissions query told us nothing', () => {
+  // Review finding: this used to collapse to DENIED, and the control suppresses
+  // the retry button on DENIED. On engines that reject the `geolocation`
+  // permission name, a viewer who merely DISMISSED got browser-settings
+  // instructions and no button — the exact dead end this module exists to
+  // avoid, for the larger of the two populations.
+  it('does NOT assume a block when the permissions query told us nothing', () => {
     expect(permissionStateFromError(PERMISSION_DENIED, LocationPermission.UNKNOWN)).toEqual({
-      permission: LocationPermission.DENIED,
-      event: LocationPermissionEvent.DENIED
+      permission: LocationPermission.UNCERTAIN,
+      event: LocationPermissionEvent.DENIED_OR_DISMISSED
     });
   });
 
@@ -67,11 +72,20 @@ describe('permissionStateFromError', () => {
     expect(permissionStateFromError(TIMEOUT, LocationPermission.DENIED).permission).toBe(LocationPermission.DENIED);
   });
 
-  it('keeps POSITION_UNAVAILABLE as granted — the device has no fix, not no permission', () => {
+  it('keeps POSITION_UNAVAILABLE as granted when the query confirms it', () => {
     expect(permissionStateFromError(POSITION_UNAVAILABLE, LocationPermission.GRANTED)).toEqual({
       permission: LocationPermission.GRANTED,
       event: LocationPermissionEvent.UNAVAILABLE
     });
+  });
+
+  // Review finding: POSITION_UNAVAILABLE used to INFER granted. A never-granted
+  // viewer was recorded as granted, got no recovery UI at all, and had their
+  // rejection mislabelled `out_of_range` in the funnel.
+  it('does not infer granted from POSITION_UNAVAILABLE on an unknown query', () => {
+    const result = permissionStateFromError(POSITION_UNAVAILABLE, LocationPermission.UNKNOWN);
+    expect(result.permission).not.toBe(LocationPermission.GRANTED);
+    expect(result.permission).toBe(LocationPermission.PROMPT);
   });
 
   it('handles an error with no code at all', () => {
@@ -227,6 +241,24 @@ describe('acquireViewerLocation', () => {
     const nav = navWith((success) => success({ coords: { latitude: 1, longitude: 2 } }));
     await acquireViewerLocation(nav, (state) => seen.push(state));
     expect(seen).toEqual([LocationPermissionEvent.GRANTED]);
+  });
+
+  // Review finding: getCurrentPosition can throw synchronously in locked-down
+  // webviews. Inside a Promise executor that is a rejection, which contradicts
+  // the documented contract and would propagate out of the tap handler uncaught
+  // — the request would silently do nothing at all.
+  it('never rejects, even when getCurrentPosition throws synchronously', async () => {
+    const nav = {
+      geolocation: {
+        getCurrentPosition: () => {
+          throw new Error('blocked by permissions policy');
+        }
+      },
+      permissions: { query: async () => ({ state: 'prompt' }) }
+    };
+    const result = await acquireViewerLocation(nav);
+    expect(result.coords).toBeNull();
+    expect(result.permission).toBe(LocationPermission.UNCERTAIN);
   });
 
   it('reports unsupported without touching geolocation when there is none', async () => {

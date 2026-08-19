@@ -163,10 +163,17 @@ const LocationRecoveryControl = ({ permission, onRetry, onPosition, variant = 'p
   // Fires once per viewer who actually sees a control. This is the denominator
   // for the recovery rate — "share of viewers who see a control and then reach
   // granted" — against a 0.8% baseline where recovery essentially never happens.
+  // Fires ONCE per viewer. Keyed on a ref rather than the effect deps because
+  // `permission` legitimately changes while the control is up (prompt -> denied,
+  // or a permissionchange from browser settings) and re-firing would count the
+  // same viewer several times — inflating the very denominator the recovery
+  // rate is measured against.
+  const shownReported = useRef(false);
   useEffect(() => {
-    if (tier === RecoveryTier.NONE || inline) {
+    if (tier === RecoveryTier.NONE || inline || shownReported.current) {
       return;
     }
+    shownReported.current = true;
     trackPosthogEvent('viewer_location_recovery_shown', {
       tier,
       permission,

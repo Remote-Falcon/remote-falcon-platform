@@ -52,6 +52,18 @@ describe('LocationRecoveryControl', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it('renders nothing when the client has no geolocation at all', () => {
+    const { container } = render(<LocationRecoveryControl permission={LocationPermission.UNSUPPORTED} onRetry={vi.fn()} />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('offers a working retry when the state is uncertain, not a dead end', () => {
+    const onRetry = vi.fn();
+    render(<LocationRecoveryControl permission={LocationPermission.UNCERTAIN} onRetry={onRetry} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Enable location' }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
   it('does not inject its stylesheet when it renders nothing', () => {
     render(<LocationRecoveryControl permission={LocationPermission.GRANTED} onRetry={vi.fn()} />);
     expect(document.getElementById('rf-location-notice-styles')).toBeNull();
@@ -281,6 +293,18 @@ describe('LocationRecoveryControl', () => {
       rerender(<LocationRecoveryControl permission={LocationPermission.PROMPT} onRetry={vi.fn()} />);
       rerender(<LocationRecoveryControl permission={LocationPermission.PROMPT} onRetry={vi.fn()} />);
       expect(trackPosthogEvent.mock.calls.filter(([name]) => name === 'viewer_location_recovery_shown')).toHaveLength(1);
+    });
+
+    // Review finding: the effect refired on every permission/tier change, and
+    // permission legitimately changes while the control is up (prompt -> denied,
+    // or a permissionchange from browser settings). That double-counted the
+    // viewers who engaged — inflating the denominator the recovery rate is
+    // measured against, in the direction that flatters the feature.
+    it('records the viewer once even when their permission state changes', () => {
+      const { rerender } = render(<LocationRecoveryControl permission={LocationPermission.PROMPT} onRetry={vi.fn()} />);
+      rerender(<LocationRecoveryControl permission={LocationPermission.DENIED} onRetry={vi.fn()} />);
+      rerender(<LocationRecoveryControl permission={LocationPermission.PROMPT} onRetry={vi.fn()} />);
+      expect(trackPosthogEvent.mock.calls.filter(([n]) => n === 'viewer_location_recovery_shown')).toHaveLength(1);
     });
 
     it('separates the in-app population, which is a third of all rejections', () => {

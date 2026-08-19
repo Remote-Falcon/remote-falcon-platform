@@ -25,7 +25,19 @@ export const LocationPermission = {
   /** Blocked. A re-prompt is inert — the viewer has to change a browser setting. */
   DENIED: 'denied',
   /** No `navigator.geolocation` at all. */
-  UNSUPPORTED: 'unsupported'
+  UNSUPPORTED: 'unsupported',
+  /**
+   * The call failed and the Permissions API could not tell us whether that was
+   * a dismissal or a block.
+   *
+   * A real state, not a placeholder. Some engines reject the `geolocation`
+   * permission name outright, and folding this into DENIED gave a viewer who
+   * merely DISMISSED the prompt browser-settings instructions and no button —
+   * a dead end, and dismissal is by far the larger population. Treated as
+   * recoverable (the retry is offered) while still showing the recovery text,
+   * so both populations get something that can work.
+   */
+  UNCERTAIN: 'uncertain'
 };
 
 /**
@@ -37,6 +49,8 @@ export const LocationPermission = {
 export const LocationPermissionEvent = {
   GRANTED: 'granted',
   DENIED: 'denied',
+  /** Failed, but we could not tell a dismissal from a block. */
+  DENIED_OR_DISMISSED: 'denied_or_dismissed',
   PROMPT_DISMISSED: 'prompt_dismissed',
   TIMEOUT: 'timeout',
   UNAVAILABLE: 'unavailable',
@@ -118,12 +132,16 @@ export const permissionStateFromError = (error, queriedState) => {
     };
   }
 
-  // POSITION_UNAVAILABLE — permission may well be granted; the device just has no fix.
+  // POSITION_UNAVAILABLE — the device has no fix. Says little about permission,
+  // so only mirror what the query actually told us. Inferring GRANTED here
+  // recorded never-granted viewers as granted: no recovery UI, and their
+  // rejection mislabelled `out_of_range`. When the query is silent, PROMPT is
+  // the safe read — it offers a retry, which is the right move for a missing fix.
   if (code === 2) {
-    return {
-      permission: queriedState === LocationPermission.DENIED ? LocationPermission.DENIED : LocationPermission.GRANTED,
-      event: LocationPermissionEvent.UNAVAILABLE
-    };
+    if (queriedState === LocationPermission.DENIED || queriedState === LocationPermission.GRANTED) {
+      return { permission: queriedState, event: LocationPermissionEvent.UNAVAILABLE };
+    }
+    return { permission: LocationPermission.PROMPT, event: LocationPermissionEvent.UNAVAILABLE };
   }
 
   // PERMISSION_DENIED (code 1) and anything unrecognised. If the query still
@@ -133,7 +151,11 @@ export const permissionStateFromError = (error, queriedState) => {
   if (queriedState === LocationPermission.PROMPT) {
     return { permission: LocationPermission.PROMPT, event: LocationPermissionEvent.PROMPT_DISMISSED };
   }
-  return { permission: LocationPermission.DENIED, event: LocationPermissionEvent.DENIED };
+  if (queriedState === LocationPermission.DENIED) {
+    return { permission: LocationPermission.DENIED, event: LocationPermissionEvent.DENIED };
+  }
+  // The query told us nothing. Do NOT assume a block — see UNCERTAIN.
+  return { permission: LocationPermission.UNCERTAIN, event: LocationPermissionEvent.DENIED_OR_DISMISSED };
 };
 
 /**
@@ -188,29 +210,38 @@ export const acquireViewerLocation = async (nav = typeof navigator === 'undefine
   }
 
   return new Promise((resolve) => {
-    nav.geolocation.getCurrentPosition(
-      (position) => {
-        // 5dp is ~1m. The geofence is measured in miles; this is the precision
-        // the server has always received and trimming it keeps the payload
-        // from carrying more location detail than the check needs.
-        const coords = {
-          latitude: position.coords.latitude.toFixed(5),
-          longitude: position.coords.longitude.toFixed(5)
-        };
-        report(LocationPermissionEvent.GRANTED);
-        resolve({ permission: LocationPermission.GRANTED, event: LocationPermissionEvent.GRANTED, coords });
-      },
-      (error) => {
-        // A dismissal and a hard Block both arrive here as PERMISSION_DENIED.
-        // Only the Permissions API separates them, and querying it never raises
-        // a prompt, so it is safe to ask on the failure path.
-        queryLocationPermission(nav).then((queried) => {
-          const { permission, event } = permissionStateFromError(error, queried);
-          report(event);
-          resolve({ permission, event, coords: null });
-        });
-      },
-      GEOLOCATION_POSITION_OPTIONS
-    );
+    // getCurrentPosition can throw synchronously (locked-down webviews, some
+    // policy-blocked embeds). Inside a Promise executor that becomes a
+    // rejection, which contradicts the contract above and would propagate out
+    // of the tap handler uncaught — the request would silently do nothing.
+    try {
+      nav.geolocation.getCurrentPosition(
+        (position) => {
+          // 5dp is ~1m. The geofence is measured in miles; this is the precision
+          // the server has always received and trimming it keeps the payload
+          // from carrying more location detail than the check needs.
+          const coords = {
+            latitude: position.coords.latitude.toFixed(5),
+            longitude: position.coords.longitude.toFixed(5)
+          };
+          report(LocationPermissionEvent.GRANTED);
+          resolve({ permission: LocationPermission.GRANTED, event: LocationPermissionEvent.GRANTED, coords });
+        },
+        (error) => {
+          // A dismissal and a hard Block both arrive here as PERMISSION_DENIED.
+          // Only the Permissions API separates them, and querying it never raises
+          // a prompt, so it is safe to ask on the failure path.
+          queryLocationPermission(nav).then((queried) => {
+            const { permission, event } = permissionStateFromError(error, queried);
+            report(event);
+            resolve({ permission, event, coords: null });
+          });
+        },
+        GEOLOCATION_POSITION_OPTIONS
+      );
+    } catch {
+      report(LocationPermissionEvent.UNAVAILABLE);
+      resolve({ permission: LocationPermission.UNCERTAIN, event: LocationPermissionEvent.UNAVAILABLE, coords: null });
+    }
   });
 };

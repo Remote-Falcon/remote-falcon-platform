@@ -67,6 +67,12 @@ export const recoveryTier = (permission, userAgent, elementSupported) => {
   if (permission === LocationPermission.GRANTED || permission === LocationPermission.UNKNOWN) {
     return RecoveryTier.NONE;
   }
+  // No geolocation on this client at all. Every control we could render is
+  // provably inert — an "Enable location" button whose handler can only report
+  // UNSUPPORTED again is worse than saying nothing.
+  if (permission === LocationPermission.UNSUPPORTED) {
+    return RecoveryTier.NONE;
+  }
   // Checked BEFORE the element: the Facebook Android webview is Chromium-based
   // and may well report HTMLGeolocationElement, but its recovery flow cannot
   // reach the host app's OS permission, so tier 1 would be a dead end there.
@@ -117,6 +123,17 @@ export const recoveryCopy = (tier, permission, userAgent) => {
     return {
       heading: 'Location is blocked for this site',
       subline: 'Look for the lock or ⓘ icon next to the web address, open it, and allow Location.'
+    };
+  }
+
+  // We could not tell a dismissal from a block, so serve both: offer the retry
+  // (which works for the dismisser, the larger group) AND the recovery line
+  // (which is the only thing that helps if they are actually blocked).
+  if (permission === LocationPermission.UNCERTAIN && tier !== RecoveryTier.ELEMENT) {
+    return {
+      heading: 'Enable location to request songs',
+      subline: 'If nothing happens, look for the lock or ⓘ icon next to the web address, open it, and allow Location.',
+      action: 'Enable location'
     };
   }
 

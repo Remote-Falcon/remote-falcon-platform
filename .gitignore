@@ -44,3 +44,4 @@ docs-output/
 # Claude Code agent worktrees (created automatically when running
 # Agent({isolation: "worktree"}) — local-only, never committed).
 .claude/
+.eslintcache
