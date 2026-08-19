@@ -81,8 +81,13 @@ public class Stat {
     public static class RejectedRequest {
         private String name;
         private String viewerId;
-        // Mirrors viewer-service StatusResponse names: QUEUE_FULL,
+        // Mostly mirrors viewer-service StatusResponse names: QUEUE_FULL,
         // ALREADY_REQUESTED, INVALID_LOCATION, NAUGHTY (blocked IP).
+        // PRD-019 added INVALID_LOCATION_IN_APP, which is NOT a StatusResponse
+        // — it is a funnel-only narrowing of INVALID_LOCATION for requests from
+        // a Facebook/Instagram webview (88% rejection rate, a third of all
+        // rejections). Never thrown to a client. Readers must treat this field
+        // as free-form and tolerate values they don't recognise.
         private String reason;
         private LocalDateTime dateTime;
     }

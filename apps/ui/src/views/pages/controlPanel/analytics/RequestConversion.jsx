@@ -24,6 +24,9 @@ const REASON_LABEL = {
   QUEUE_FULL: 'Queue full',
   ALREADY_REQUESTED: 'Already requested',
   INVALID_LOCATION: 'Location check failed',
+  // PRD-019 — recorded by the viewer service from the request User-Agent. Not a
+  // StatusResponse; it never reaches a client, it only splits this funnel.
+  INVALID_LOCATION_IN_APP: 'Location check failed (Facebook / Instagram app)',
   NAUGHTY: 'Blocked IP',
   SEQUENCE_REQUESTED: 'Sequence already in queue',
   UNKNOWN: 'Unknown'
@@ -41,7 +44,9 @@ const REASON_HINT = {
   // or Instagram in-app browser (88% rejection rate) where the location
   // permission belongs to the host app and no radius change can help.
   INVALID_LOCATION:
-    "Usually the viewer's browser didn't share their location, not that they were too far away — most rejected viewers are at the show. Links opened inside the Facebook or Instagram app fail this check especially often. Only loosen the radius if you genuinely expect viewers from further away.",
+    "Usually the viewer's browser didn't share their location, not that they were too far away — most rejected viewers are at the show. Only loosen the radius if you genuinely expect viewers from further away.",
+  INVALID_LOCATION_IN_APP:
+    "These viewers opened your link inside the Facebook or Instagram app, which can't share location with the page no matter what they tap. Nothing on your show settings will fix it. If this bucket is large, ask viewers to open the link in their normal browser — the page now tells them so automatically.",
   NAUGHTY: 'A blocked IP tried to request. Working as designed — no action needed.',
   SEQUENCE_REQUESTED: 'The sequence is already playing now / next, or has hit its per-night request cap.'
 };
