@@ -54,11 +54,13 @@ public class GraphQLController {
   @Mutation
   @Name("addSequenceToQueue")
   @Description("Add Sequence To Queue")
-  public Boolean addSequenceToQueue(String showSubdomain, String name, Double latitude, Double longitude, @DefaultValue("") String viewerId) {
+  public Boolean addSequenceToQueue(String showSubdomain, String name, Double latitude, Double longitude, @DefaultValue("") String viewerId,
+      @DefaultValue("") String locationPermission) {
     return graphQLMutationService.addSequenceToQueue(showSubdomain, name,
         latitude != null ? latitude.floatValue() : null,
         longitude != null ? longitude.floatValue() : null,
-        emptyToNull(viewerId));
+        emptyToNull(viewerId),
+        emptyToNull(locationPermission));
   }
 
   @Mutation

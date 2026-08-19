@@ -27,7 +27,12 @@ public class RestController {
           request.getSequence(),
           request.getViewerLatitude(),
           request.getViewerLongitude(),
-          request.getViewerId());
+          request.getViewerId(),
+          // PRD-019 — REST callers don't report browser permission state, so a
+          // rejection here can't be split into permission-vs-out-of-range and
+          // stays in the plain INVALID_LOCATION bucket. Additive field on
+          // RequestVoteRequest if a REST client ever needs the split.
+          null);
       return RequestVoteResponse.builder().build();
     } catch (CustomGraphQLExceptionResolver e) {
       Object messageObj = e.getExtensions().get("message");

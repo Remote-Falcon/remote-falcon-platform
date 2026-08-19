@@ -362,6 +362,10 @@ const ExternalViewerPage = () => {
         coords?.latitude ?? 0.0,
         coords?.longitude ?? 0.0,
         show?.preferences?.analyticsBetaOptIn ? getViewerId() : null,
+        // PRD-019 — lets the server split a permission-caused rejection from a
+        // genuinely-out-of-range one. Sent on every attempt, not just failures,
+        // because the server doesn't know it will reject until the rule runs.
+        locationPermissionRef.current,
         (response) => {
           showViewerMessage(response);
         }
@@ -431,6 +435,10 @@ const ExternalViewerPage = () => {
         coords?.latitude ?? 0.0,
         coords?.longitude ?? 0.0,
         show?.preferences?.analyticsBetaOptIn ? getViewerId() : null,
+        // PRD-019 — lets the server split a permission-caused rejection from a
+        // genuinely-out-of-range one. Sent on every attempt, not just failures,
+        // because the server doesn't know it will reject until the rule runs.
+        locationPermissionRef.current,
         (response) => {
           showViewerMessage(response);
           if (response?.success) {

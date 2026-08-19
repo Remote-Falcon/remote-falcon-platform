@@ -1,4 +1,17 @@
-export const addSequenceToQueueService = (addSequenceToQueueMutation, showSubdomain, name, viewerLatitude, viewerLongitude, viewerId, callback) => {
+// PRD-019 — `locationPermission` is stats-only: the server records it on a
+// rejection so the operator's funnel can tell a denied prompt from a viewer who
+// is genuinely out of range. It is client-supplied and therefore untrusted, and
+// deliberately never reaches the geofence decision.
+export const addSequenceToQueueService = (
+  addSequenceToQueueMutation,
+  showSubdomain,
+  name,
+  viewerLatitude,
+  viewerLongitude,
+  viewerId,
+  locationPermission,
+  callback
+) => {
   addSequenceToQueueMutation({
     context: {
       headers: {
@@ -10,7 +23,8 @@ export const addSequenceToQueueService = (addSequenceToQueueMutation, showSubdom
       name,
       latitude: parseFloat(viewerLatitude),
       longitude: parseFloat(viewerLongitude),
-      viewerId
+      viewerId,
+      locationPermission
     },
     onCompleted: (response) => {
       callback({
@@ -27,7 +41,16 @@ export const addSequenceToQueueService = (addSequenceToQueueMutation, showSubdom
   });
 };
 
-export const voteForSequenceService = (voteForSequenceMutation, showSubdomain, name, viewerLatitude, viewerLongitude, viewerId, callback) => {
+export const voteForSequenceService = (
+  voteForSequenceMutation,
+  showSubdomain,
+  name,
+  viewerLatitude,
+  viewerLongitude,
+  viewerId,
+  locationPermission,
+  callback
+) => {
   voteForSequenceMutation({
     context: {
       headers: {
@@ -39,7 +62,8 @@ export const voteForSequenceService = (voteForSequenceMutation, showSubdomain, n
       name,
       latitude: parseFloat(viewerLatitude),
       longitude: parseFloat(viewerLongitude),
-      viewerId
+      viewerId,
+      locationPermission
     },
     onCompleted: (response) => {
       callback({

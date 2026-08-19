@@ -25,7 +25,7 @@ describe('addSequenceToQueueService', () => {
   it('passes parsed-float coordinates, viewerId, and routes to Viewer', () => {
     const mutation = buildMutation('success');
     const callback = vi.fn();
-    addSequenceToQueueService(mutation, 'mattshow', 'Carol', '12.34', '-56.78', 'viewer-abc', callback);
+    addSequenceToQueueService(mutation, 'mattshow', 'Carol', '12.34', '-56.78', 'viewer-abc', 'granted', callback);
     expect(mutation).toHaveBeenCalledTimes(1);
     const opts = mutation.mock.calls[0][0];
     expect(opts.context.headers.Route).toBe('Viewer');
@@ -34,25 +34,34 @@ describe('addSequenceToQueueService', () => {
       name: 'Carol',
       latitude: 12.34,
       longitude: -56.78,
-      viewerId: 'viewer-abc'
+      viewerId: 'viewer-abc',
+      locationPermission: 'granted'
     });
+  });
+
+  // PRD-019 — the funnel can only separate a denied prompt from a genuinely
+  // out-of-range viewer if this reaches the server on the attempt itself.
+  it('forwards the location permission state', () => {
+    const mutation = vi.fn();
+    addSequenceToQueueService(mutation, 's', 'n', '0', '0', 'viewer-abc', 'denied', vi.fn());
+    expect(mutation.mock.calls[0][0].variables.locationPermission).toBe('denied');
   });
 
   it('forwards a null viewerId unchanged (localStorage blocked)', () => {
     const mutation = buildMutation('success');
-    addSequenceToQueueService(mutation, 's', 'n', '0', '0', null, vi.fn());
+    addSequenceToQueueService(mutation, 's', 'n', '0', '0', null, 'prompt', vi.fn());
     expect(mutation.mock.calls[0][0].variables.viewerId).toBeNull();
   });
 
   it('invokes callback with {success:true, response} on completion', () => {
     const callback = vi.fn();
-    addSequenceToQueueService(buildMutation('success'), 's', 'n', '0', '0', 'viewer-abc', callback);
+    addSequenceToQueueService(buildMutation('success'), 's', 'n', '0', '0', 'viewer-abc', 'granted', callback);
     expect(callback).toHaveBeenCalledWith({ success: true, response: { ok: true } });
   });
 
   it('invokes callback with {success:false, error} on error', () => {
     const callback = vi.fn();
-    addSequenceToQueueService(buildMutation('error'), 's', 'n', '0', '0', 'viewer-abc', callback);
+    addSequenceToQueueService(buildMutation('error'), 's', 'n', '0', '0', 'viewer-abc', 'granted', callback);
     expect(callback).toHaveBeenCalledWith({
       success: false,
       error: expect.objectContaining({ message: 'boom' })
@@ -63,27 +72,28 @@ describe('addSequenceToQueueService', () => {
 describe('voteForSequenceService', () => {
   it('routes to Viewer with parsed coordinates and viewerId', () => {
     const mutation = buildMutation('success');
-    voteForSequenceService(mutation, 'mattshow', 'Carol', '12', '-34', 'viewer-abc', () => {});
+    voteForSequenceService(mutation, 'mattshow', 'Carol', '12', '-34', 'viewer-abc', 'granted', () => {});
     const opts = mutation.mock.calls[0][0];
     expect(opts.variables).toEqual({
       showSubdomain: 'mattshow',
       name: 'Carol',
       latitude: 12,
       longitude: -34,
-      viewerId: 'viewer-abc'
+      viewerId: 'viewer-abc',
+      locationPermission: 'granted'
     });
     expect(opts.context.headers.Route).toBe('Viewer');
   });
 
   it('callback receives {success:true, response} on completion', () => {
     const callback = vi.fn();
-    voteForSequenceService(buildMutation('success'), 's', 'n', '0', '0', 'viewer-abc', callback);
+    voteForSequenceService(buildMutation('success'), 's', 'n', '0', '0', 'viewer-abc', 'granted', callback);
     expect(callback).toHaveBeenCalledWith({ success: true, response: { ok: true } });
   });
 
   it('callback receives {success:false, error} on error', () => {
     const callback = vi.fn();
-    voteForSequenceService(buildMutation('error'), 's', 'n', '0', '0', 'viewer-abc', callback);
+    voteForSequenceService(buildMutation('error'), 's', 'n', '0', '0', 'viewer-abc', 'granted', callback);
     expect(callback.mock.calls[0][0].success).toBe(false);
     expect(callback.mock.calls[0][0].error).toBeInstanceOf(Error);
   });

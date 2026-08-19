@@ -27,6 +27,7 @@ const REASON_LABEL = {
   // PRD-019 — recorded by the viewer service from the request User-Agent. Not a
   // StatusResponse; it never reaches a client, it only splits this funnel.
   INVALID_LOCATION_IN_APP: 'Location check failed (Facebook / Instagram app)',
+  INVALID_LOCATION_PERMISSION: "Location check failed (browser didn't share location)",
   NAUGHTY: 'Blocked IP',
   SEQUENCE_REQUESTED: 'Sequence already in queue',
   UNKNOWN: 'Unknown'
@@ -43,8 +44,13 @@ const REASON_HINT = {
   // of that same show's OWN successful viewers, and a third are in a Facebook
   // or Instagram in-app browser (88% rejection rate) where the location
   // permission belongs to the host app and no radius change can help.
+  // With the two causes below split out, what's left really is "shared their
+  // location and was still outside the radius" — the one bucket where widening
+  // the radius is the right call, or where the show's own coordinates are wrong.
   INVALID_LOCATION:
-    "Usually the viewer's browser didn't share their location, not that they were too far away — most rejected viewers are at the show. Only loosen the radius if you genuinely expect viewers from further away.",
+    'These viewers shared their location and were still outside your Check Radius (or their client did not report). If this is your largest bucket, either your radius is genuinely too tight or your show latitude/longitude is wrong — check them before widening.',
+  INVALID_LOCATION_PERMISSION:
+    "These viewers' browsers never handed over a location — they dismissed or blocked the prompt. Widening your radius will not help. The Viewer Page now shows them how to turn it back on, so this bucket should shrink on its own.",
   INVALID_LOCATION_IN_APP:
     "These viewers opened your link inside the Facebook or Instagram app, which can't share location with the page no matter what they tap. Nothing on your show settings will fix it. If this bucket is large, ask viewers to open the link in their normal browser — the page now tells them so automatically.",
   NAUGHTY: 'A blocked IP tried to request. Working as designed — no action needed.',

@@ -34,27 +34,27 @@ class RestControllerTest {
   @Test
   @DisplayName("addSequenceToQueue returns empty message on success and delegates to service")
   void addSequenceToQueue_success() {
-    when(mutationService.addSequenceToQueue("sub", "Song", 1.23f, 4.56f, null)).thenReturn(true);
+    when(mutationService.addSequenceToQueue("sub", "Song", 1.23f, 4.56f, null, null)).thenReturn(true);
 
     RequestVoteRequest request = buildRequest();
     RequestVoteResponse response = controller.addSequenceToQueue(request);
 
     assertNotNull(response);
     assertNull(response.getMessage(), "Expected no message on success");
-    verify(mutationService).addSequenceToQueue("sub", "Song", 1.23f, 4.56f, null);
+    verify(mutationService).addSequenceToQueue("sub", "Song", 1.23f, 4.56f, null, null);
   }
 
   @Test
   @DisplayName("addSequenceToQueue returns error message when CustomGraphQLExceptionResolver is thrown")
   void addSequenceToQueue_error() {
-    when(mutationService.addSequenceToQueue(anyString(), anyString(), anyFloat(), anyFloat(), any()))
+    when(mutationService.addSequenceToQueue(anyString(), anyString(), anyFloat(), anyFloat(), any(), any()))
         .thenThrow(new CustomGraphQLExceptionResolver("Queue error"));
 
     RequestVoteResponse response = controller.addSequenceToQueue(buildRequest());
 
     assertNotNull(response);
     assertEquals("Queue error", response.getMessage());
-    verify(mutationService).addSequenceToQueue("sub", "Song", 1.23f, 4.56f, null);
+    verify(mutationService).addSequenceToQueue("sub", "Song", 1.23f, 4.56f, null, null);
   }
 
   @Test

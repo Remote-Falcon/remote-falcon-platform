@@ -19,6 +19,7 @@ import com.remotefalcon.rules.QueueFullRule;
 import com.remotefalcon.rules.Rule;
 import com.remotefalcon.rules.RuleChain;
 import com.remotefalcon.util.ClientTypeUtil;
+import com.remotefalcon.util.RejectionReason;
 import com.remotefalcon.util.ClientUtil;
 import io.vertx.ext.web.RoutingContext;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -50,15 +51,8 @@ public class GraphQLMutationService {
   @Inject
   ViewerMetrics viewerMetrics;
 
-  /**
-   * PRD-019 — funnel-only refinement of {@code INVALID_LOCATION} for requests
-   * that arrived from a Facebook or Instagram in-app webview. Deliberately NOT
-   * a {@link StatusResponse} value: this is never thrown to a client, it only
-   * lands in {@code stats.rejectedRequests[].reason} so the operator's
-   * conversion funnel can separate the segment. Adding it to the enum would
-   * imply it is part of the client contract, which it is not.
-   */
-  private static final String INVALID_LOCATION_IN_APP = "INVALID_LOCATION_IN_APP";
+
+
 
   // PRD-009 ADR-4 — ordered enforcement chains. Vote and request share the
   // blocked-IP and geofence rules; the per-voter / queue rules differ. First
@@ -159,7 +153,8 @@ public class GraphQLMutationService {
     throw new CustomGraphQLExceptionResolver(StatusResponse.UNEXPECTED_ERROR.name());
   }
 
-  public Boolean addSequenceToQueue(String showSubdomain, String name, Float latitude, Float longitude, String viewerId) {
+  public Boolean addSequenceToQueue(String showSubdomain, String name, Float latitude, Float longitude, String viewerId,
+      String locationPermission) {
     // Use optimized query that excludes large stats but keeps fields needed for validation
     Optional<Show> show = this.showRepository.findByShowSubdomainForMutations(showSubdomain);
     if (show.isPresent()) {
@@ -175,7 +170,7 @@ public class GraphQLMutationService {
         // PRD-019 — the LOGGED reason may be more specific than the THROWN one.
         // The thrown reason is a client contract (the viewer page switches its
         // message blocks on it), so it stays exactly as the rule decided.
-        this.logRejectedRequest(showSubdomain, name, viewerId, this.statReason(decision.reason()));
+        this.logRejectedRequest(showSubdomain, name, viewerId, this.statReason(decision.reason(), locationPermission));
         throw new CustomGraphQLExceptionResolver(decision.reason());
       }
       Optional<Sequence> requestedSequence = show.get().getSequences().stream()
@@ -464,29 +459,9 @@ public class GraphQLMutationService {
     }
   }
 
-  /**
-   * PRD-019 — narrows the reason recorded for the operator's funnel.
-   *
-   * {@code INVALID_LOCATION} conflates three very different situations and
-   * operators cannot act on the blend: a viewer genuinely outside the radius, a
-   * viewer who denied the browser prompt, and a viewer in an in-app webview
-   * whose location permission belongs to the host app. Measured across 31 GEO
-   * shows, 94.8% of rejected viewers were within 25km of that same show's own
-   * successful viewers, so "too far away" is the wrong read in the large
-   * majority of cases.
-   *
-   * <p>The in-app slice is separable here for free, from a header we already
-   * receive. The permission-denied vs out-of-range split is not — only the
-   * browser knows its own permission state.
-   *
-   * <p>Only the STAT reason changes. The thrown status stays
-   * {@code INVALID_LOCATION} so no client behaviour moves.
-   */
-  private String statReason(String reason) {
-    if (StatusResponse.INVALID_LOCATION.name().equals(reason) && ClientTypeUtil.isInAppBrowser(context)) {
-      return INVALID_LOCATION_IN_APP;
-    }
-    return reason;
+  /** PRD-019 — see {@link RejectionReason}. Supplies the request-scoped facts. */
+  private String statReason(String reason, String locationPermission) {
+    return RejectionReason.forStat(reason, ClientTypeUtil.isInAppBrowser(context), locationPermission);
   }
 
   // V15 — log a refused addSequenceToQueue attempt for the conversion funnel.
