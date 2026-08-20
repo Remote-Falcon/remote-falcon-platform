@@ -16,13 +16,18 @@ import useAnalyticsFilters from './useAnalyticsFilters';
 // not completed playback), so the funnel is two-step: attempted → accepted,
 // with the rejection breakdown answering "where did the dropped attempts go?"
 // Goal of the view: make it obvious whether the queue depth limit is set
-// right (lots of QUEUE_FULL → bump it up) and whether geofencing is too
-// tight (lots of INVALID_LOCATION → relax it).
+// right (lots of QUEUE_FULL → bump it up) and whether the location check is
+// costing requests (lots of INVALID_LOCATION). Note INVALID_LOCATION is NOT
+// synonymous with "too far away" — see the hint below and PRD-019.
 
 const REASON_LABEL = {
   QUEUE_FULL: 'Queue full',
   ALREADY_REQUESTED: 'Already requested',
-  INVALID_LOCATION: 'Outside geofence',
+  INVALID_LOCATION: 'Location check failed',
+  // PRD-019 — recorded by the viewer service from the request User-Agent. Not a
+  // StatusResponse; it never reaches a client, it only splits this funnel.
+  INVALID_LOCATION_IN_APP: 'Location check failed (Facebook / Instagram app)',
+  INVALID_LOCATION_PERMISSION: "Location check failed (browser didn't share location)",
   NAUGHTY: 'Blocked IP',
   SEQUENCE_REQUESTED: 'Sequence already in queue',
   UNKNOWN: 'Unknown'
@@ -31,7 +36,23 @@ const REASON_LABEL = {
 const REASON_HINT = {
   QUEUE_FULL: 'Bump the jukebox depth limit (Settings → Show preferences) if these are frequent.',
   ALREADY_REQUESTED: 'A viewer hit the limit on their own requests for the night. Working as designed.',
-  INVALID_LOCATION: 'Geofence rejected the viewer. Loosen the radius if you expect viewers from further away.',
+  // PRD-019 — this used to read "Loosen the radius if you expect viewers from
+  // further away", which is wrong in the large majority of cases and actively
+  // harmful: an operator who follows it widens their geofence, weakens the
+  // anti-abuse property the feature exists for, and fixes nothing. Measured
+  // 2026-08-10 across 31 GEO shows: 94.8% of rejected viewers are within 25km
+  // of that same show's OWN successful viewers, and a third are in a Facebook
+  // or Instagram in-app browser (88% rejection rate) where the location
+  // permission belongs to the host app and no radius change can help.
+  // With the two causes below split out, what's left really is "shared their
+  // location and was still outside the radius" — the one bucket where widening
+  // the radius is the right call, or where the show's own coordinates are wrong.
+  INVALID_LOCATION:
+    'These viewers shared their location and were still outside your Check Radius (or their client did not report). If this is your largest bucket, either your radius is genuinely too tight or your show latitude/longitude is wrong — check them before widening.',
+  INVALID_LOCATION_PERMISSION:
+    "These viewers' browsers never handed over a location — they dismissed or blocked the prompt. Widening your radius will not help. The Viewer Page now shows them how to turn it back on, so this bucket should shrink on its own.",
+  INVALID_LOCATION_IN_APP:
+    "These viewers opened your link inside the Facebook or Instagram app, which can't share location with the page no matter what they tap. Nothing on your show settings will fix it. If this bucket is large, ask viewers to open the link in their normal browser — the page now tells them so automatically.",
   NAUGHTY: 'A blocked IP tried to request. Working as designed — no action needed.',
   SEQUENCE_REQUESTED: 'The sequence is already playing now / next, or has hit its per-night request cap.'
 };

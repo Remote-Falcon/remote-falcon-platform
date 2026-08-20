@@ -18,6 +18,8 @@ import com.remotefalcon.rules.GeofenceRule;
 import com.remotefalcon.rules.QueueFullRule;
 import com.remotefalcon.rules.Rule;
 import com.remotefalcon.rules.RuleChain;
+import com.remotefalcon.util.ClientTypeUtil;
+import com.remotefalcon.util.RejectionReason;
 import com.remotefalcon.util.ClientUtil;
 import io.vertx.ext.web.RoutingContext;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -48,6 +50,9 @@ public class GraphQLMutationService {
 
   @Inject
   ViewerMetrics viewerMetrics;
+
+
+
 
   // PRD-009 ADR-4 — ordered enforcement chains. Vote and request share the
   // blocked-IP and geofence rules; the per-voter / queue rules differ. First
@@ -148,7 +153,8 @@ public class GraphQLMutationService {
     throw new CustomGraphQLExceptionResolver(StatusResponse.UNEXPECTED_ERROR.name());
   }
 
-  public Boolean addSequenceToQueue(String showSubdomain, String name, Float latitude, Float longitude, String viewerId) {
+  public Boolean addSequenceToQueue(String showSubdomain, String name, Float latitude, Float longitude, String viewerId,
+      String locationPermission) {
     // Use optimized query that excludes large stats but keeps fields needed for validation
     Optional<Show> show = this.showRepository.findByShowSubdomainForMutations(showSubdomain);
     if (show.isPresent()) {
@@ -161,7 +167,10 @@ public class GraphQLMutationService {
       Decision decision = RuleChain.firstDenial(REQUEST_RULES,
           new EvaluationContext(existingShow, clientIp, viewerId, latitude, longitude, null));
       if (decision.denied()) {
-        this.logRejectedRequest(showSubdomain, name, viewerId, decision.reason());
+        // PRD-019 — the LOGGED reason may be more specific than the THROWN one.
+        // The thrown reason is a client contract (the viewer page switches its
+        // message blocks on it), so it stays exactly as the rule decided.
+        this.logRejectedRequest(showSubdomain, name, viewerId, this.statReason(decision.reason(), locationPermission));
         throw new CustomGraphQLExceptionResolver(decision.reason());
       }
       Optional<Sequence> requestedSequence = show.get().getSequences().stream()
@@ -448,6 +457,11 @@ public class GraphQLMutationService {
     } catch (Exception e) {
       log.warnf("updateVotingWindow failed for showSubdomain=%s: %s", show.getShowSubdomain(), e.getMessage());
     }
+  }
+
+  /** PRD-019 — see {@link RejectionReason}. Supplies the request-scoped facts. */
+  private String statReason(String reason, String locationPermission) {
+    return RejectionReason.forStat(reason, ClientTypeUtil.isInAppBrowser(context), locationPermission);
   }
 
   // V15 — log a refused addSequenceToQueue attempt for the conversion funnel.

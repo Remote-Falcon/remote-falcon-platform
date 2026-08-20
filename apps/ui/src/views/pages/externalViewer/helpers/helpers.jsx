@@ -141,6 +141,35 @@ const votesRemainingNode = (value) => ({
   }
 });
 
+// PRD-019 — {RETRY_LOCATION} slot for the location-recovery control. Auto-
+// injected into the page string when the operator hasn't placed it themselves,
+// so all ~2600 existing shows get it without touching their page. Empty unless
+// the viewer genuinely cannot request (see LocationRecoveryControl).
+const retryLocationNode = (value) => ({
+  replaceChildren: true,
+  shouldProcessNode(node) {
+    return node && node.children && node.children[0] && node.children[0].data && node.children[0].data.trim() === '{RETRY_LOCATION}';
+  },
+  processNode() {
+    return value;
+  }
+});
+
+// PRD-019 — secondary, reactive slot inside the operator's invalidLocation
+// message block. See injectInlineRetryLocationToken for why this is separate
+// from {RETRY_LOCATION}.
+const retryLocationInlineNode = (value) => ({
+  replaceChildren: true,
+  shouldProcessNode(node) {
+    return (
+      node && node.children && node.children[0] && node.children[0].data && node.children[0].data.trim() === '{RETRY_LOCATION_INLINE}'
+    );
+  },
+  processNode() {
+    return value;
+  }
+});
+
 const afterHoursNode = (value) => ({
   replaceChildren: true,
   shouldProcessNode(node) {
@@ -201,6 +230,20 @@ const locationCodeDynamicContainerNode = (value) => ({
   }
 });
 
+// PRD-019 — operator-placeable wrapper, blanked wholesale when the show isn't
+// GPS-gated. Same mechanism as {location-code-dynamic-container}: it lets an
+// operator wrap the control in their own layout without that layout surviving
+// on a show where the control can never appear.
+const locationPermissionDynamicContainerNode = (value) => ({
+  replaceChildren: true,
+  shouldProcessNode(node) {
+    return node.attribs && node.attribs['{location-permission-dynamic-container}'] === '';
+  },
+  processNode() {
+    return value;
+  }
+});
+
 const allNodes = (processNodeDefinitions) => ({
   shouldProcessNode() {
     return true;
@@ -232,7 +275,9 @@ export const processingInstructions = (
   queueDepth,
   locationCode,
   nowPlayingTimer,
-  votesRemaining
+  votesRemaining,
+  retryLocation,
+  retryLocationInline
 ) => {
   let processedNodes = [];
   if (!viewerControlEnabled) {
@@ -251,6 +296,9 @@ export const processingInstructions = (
       votingPlaylistsDynamicContainerNode(<></>),
       jukeboxPlaylistsDynamicContainerNode(<></>),
       locationCodeDynamicContainerNode(<></>),
+      retryLocationNode(<></>),
+      retryLocationInlineNode(<></>),
+      locationPermissionDynamicContainerNode(<></>),
       allNodes(processNodeDefinitions)
     ];
   } else if (viewerControlMode === ViewerControlMode.JUKEBOX) {
@@ -266,6 +314,12 @@ export const processingInstructions = (
       votingDynamicContainerNode(<></>),
       votingPlaylistsDynamicContainerNode(<></>),
       locationCheckMethod === LocationCheckMethod.CODE ? blankNode(null) : locationCodeDynamicContainerNode(<></>),
+      retryLocationNode(<>{retryLocation}</>),
+      retryLocationInlineNode(<>{retryLocationInline}</>),
+      // Inverse of the location-code container above: that one survives only on
+      // CODE shows, this one only on GEO shows. `blankNode` matches nothing, so
+      // it is how a branch says "leave this container alone".
+      locationCheckMethod === LocationCheckMethod.GEO ? blankNode(null) : locationPermissionDynamicContainerNode(<></>),
       afterHoursNode(<></>),
       allNodes(processNodeDefinitions)
     ];
@@ -283,11 +337,277 @@ export const processingInstructions = (
       jukeboxDynamicContainerNode(<></>),
       jukeboxPlaylistsDynamicContainerNode(<></>),
       locationCheckMethod === LocationCheckMethod.CODE ? blankNode(null) : locationCodeDynamicContainerNode(<></>),
+      retryLocationNode(<>{retryLocation}</>),
+      retryLocationInlineNode(<>{retryLocationInline}</>),
+      // Inverse of the location-code container above: that one survives only on
+      // CODE shows, this one only on GEO shows. `blankNode` matches nothing, so
+      // it is how a branch says "leave this container alone".
+      locationCheckMethod === LocationCheckMethod.GEO ? blankNode(null) : locationPermissionDynamicContainerNode(<></>),
       afterHoursNode(<></>),
       allNodes(processNodeDefinitions)
     ];
   }
   return processedNodes;
+};
+
+/**
+ * Where to hang the slot, most-preferred first.
+ *
+ * The container GROUP is preferred over the song-list group, and that ordering
+ * is load-bearing. {PLAYLISTS} and {VOTES} appear once per control mode inside
+ * containers that get blanked for the mode the show is NOT in — on a stock
+ * jukebox template the earliest live {PLAYLISTS} sits inside
+ * {playlist-voting-dynamic-container}, so a slot anchored there is silently
+ * erased and the control never renders at all.
+ *
+ * Anchoring above the containers puts the slot ahead of the whole request
+ * section regardless of mode, which is also where it belongs: the viewer has to
+ * see it BEFORE tapping a song, not beside one list of them.
+ *
+ * Within a group, earliest position wins. Ranking tokens against each other
+ * inside a group would mean overriding the operator's own layout order on the
+ * strength of an arbitrary list.
+ */
+const ANCHOR_TOKEN_GROUPS = [
+  // Mode containers. Preferred as a GROUP, but within the group the earliest
+  // one on the page wins — we want to sit above the whole request section, and
+  // which container comes first is a property of the operator's layout, not a
+  // ranking we get to impose.
+  [
+    '{on-demand-and-voting-dynamic-container}',
+    '{jukebox-dynamic-container}',
+    '{playlist-voting-dynamic-container}',
+    '{playlist-standard-dynamic-container}'
+  ],
+  // Fallback for custom pages built without the container attributes.
+  ['{PLAYLISTS}', '{VOTES}']
+];
+
+/**
+ * Regions of the page where a token is discussed rather than used.
+ *
+ * Every stock template ships a documentation comment listing the placeholders
+ * ("The following are the variables used to populate your lists so DON'T MODIFY
+ * THESE!!: {PLAYLISTS} - Displays the list of your sequences..."), and on the
+ * real templates that comment is the FIRST occurrence of {PLAYLISTS} by ~17KB.
+ * A naive indexOf anchors on the prose and drops the control at the very top of
+ * the page instead of above the song list. Style and script bodies are excluded
+ * for the same reason.
+ */
+const INERT_REGIONS = [
+  ['<!--', '-->'],
+  ['<style', '</style>'],
+  ['<script', '</script>']
+];
+
+const inertRanges = (html) => {
+  const ranges = [];
+  INERT_REGIONS.forEach(([open, close]) => {
+    let from = 0;
+    for (;;) {
+      const start = html.indexOf(open, from);
+      if (start < 0) {
+        break;
+      }
+      const end = html.indexOf(close, start + open.length);
+      // An unterminated comment or block swallows the rest of the page, which
+      // is exactly how a browser would treat it too.
+      ranges.push([start, end < 0 ? html.length : end + close.length]);
+      from = end < 0 ? html.length : end + close.length;
+    }
+  });
+  return ranges;
+};
+
+/**
+ * Index of the opening tag of the element that CONTAINS `at`.
+ *
+ * Not simply the nearest preceding `<`: that lands on the previous sibling's
+ * CLOSING tag whenever the anchor isn't the first thing in its parent. On
+ * `<div class="rtable"><h3>Requests</h3>{PLAYLISTS}</div>` the naive version
+ * spliced the slot inside the `<h3>`. Walks backwards keeping tag depth so a
+ * fully-formed sibling is stepped over as a unit.
+ *
+ * Returns -1 when the token has no enclosing element (start of document).
+ */
+const enclosingOpenTagIndex = (html, at) => {
+  let cursor = at;
+  let depth = 0;
+  for (;;) {
+    const lt = html.lastIndexOf('<', cursor - 1);
+    if (lt < 0) {
+      return -1;
+    }
+    cursor = lt;
+    if (html.startsWith('<!--', lt)) {
+      continue;
+    }
+    if (html[lt + 1] === '/') {
+      depth += 1;
+      continue;
+    }
+    const gt = html.indexOf('>', lt);
+    if (gt > lt && html[gt - 1] === '/') {
+      // Self-closing (<br/>): opens nothing, so it can't be our container.
+      continue;
+    }
+    if (depth === 0) {
+      return lt;
+    }
+    depth -= 1;
+  }
+};
+
+/** First index of `token` that is actual markup, not prose in a comment. */
+const firstLiveIndex = (html, token) => {
+  const ranges = inertRanges(html);
+  let from = 0;
+  for (;;) {
+    const at = html.indexOf(token, from);
+    if (at < 0) {
+      return -1;
+    }
+    if (!ranges.some(([start, end]) => at >= start && at < end)) {
+      return at;
+    }
+    from = at + token.length;
+  }
+};
+
+/**
+ * PRD-019 — put a {RETRY_LOCATION} slot on pages that don't have one.
+ *
+ * This runs on the RAW PAGE STRING, before `parseWithInstructions` turns it
+ * into React. That ordering is the whole trick: the token we splice in here is
+ * indistinguishable from one the operator typed, so the existing parser renders
+ * it as a live element and every GPS-gated show gets the control on deploy with
+ * no operator action. "Whatever ships must work on a template nobody has
+ * touched since 2022" is a hard requirement of this feature.
+ *
+ * An operator who has placed the token themselves gets left alone entirely —
+ * that is how they control position, and (via a display:none wrapper) how they
+ * opt out.
+ *
+ * Anchored immediately before the request section (see ANCHOR_TOKENS), because
+ * the control has to be seen BEFORE a song is tapped. A viewer who only finds
+ * out after tapping has already spent the interaction this exists to save.
+ *
+ * @param {string} viewerPage  raw operator page HTML
+ * @returns {string} the page, with a slot added if one was needed and placeable
+ */
+export const injectRetryLocationToken = (viewerPage) => {
+  if (!viewerPage || firstLiveIndex(viewerPage, '{RETRY_LOCATION}') >= 0) {
+    return viewerPage;
+  }
+
+  const anchorAt = ANCHOR_TOKEN_GROUPS.reduce((found, group) => {
+    if (found >= 0) {
+      return found;
+    }
+    const hits = group.map((token) => firstLiveIndex(viewerPage, token)).filter((index) => index >= 0);
+    return hits.length ? Math.min(...hits) : -1;
+  }, -1);
+  if (anchorAt < 0) {
+    // No request UI on the page at all. We have no idea where the viewer picks
+    // a song, and guessing would drop the control somewhere arbitrary — better
+    // to leave the page untouched than to deface it.
+    return viewerPage;
+  }
+
+  // Back up to the opening tag of the element that CARRIES the anchor. For a
+  // container attribute that is its own tag; for a song-list token it is the
+  // element wrapping it. Either way the slot must be a SIBLING — the token-node
+  // matcher requires {RETRY_LOCATION} to be its element's only content, and a
+  // slot placed inside a mode container would be blanked with it.
+  const containerAt = enclosingOpenTagIndex(viewerPage, anchorAt);
+  const insertAt = containerAt >= 0 ? containerAt : anchorAt;
+
+  return `${viewerPage.slice(0, insertAt)}<div>{RETRY_LOCATION}</div>${viewerPage.slice(insertAt)}`;
+};
+
+/**
+ * PRD-019 — secondary slot inside the operator's `invalidLocation` block.
+ *
+ * The templates have been asking "Did you allow your location?" / "...or didn't
+ * allow your location to be identified!" for years without giving the viewer
+ * any way to act on the answer. This puts the control in the message they are
+ * already reading, at the moment they are reading it.
+ *
+ * Needs its OWN token rather than reusing {RETRY_LOCATION}: the node matcher
+ * matches every occurrence, so one token in two places would render two live
+ * controls and the second would be a duplicate of the first.
+ *
+ * No extra visibility state is needed. The block is `display: none` until a
+ * rejection flips it to `block`, so the operator's own toggle already gates
+ * this — which is also why the inline variant does NOT fire a "shown" event
+ * (it is in the DOM long before anyone can see it).
+ *
+ * @param {string} viewerPage  raw operator page HTML
+ * @returns {string} the page, with an inline slot added if one was placeable
+ */
+export const injectInlineRetryLocationToken = (viewerPage) => {
+  if (!viewerPage || firstLiveIndex(viewerPage, '{RETRY_LOCATION_INLINE}') >= 0) {
+    return viewerPage;
+  }
+
+  const idAt = firstLiveIndex(viewerPage, 'id="invalidLocation"');
+  if (idAt < 0) {
+    // Not every page has the block — it is operator markup, not ours. The
+    // proactive control still covers these viewers.
+    return viewerPage;
+  }
+  const openStart = viewerPage.lastIndexOf('<', idAt);
+  const openEnd = viewerPage.indexOf('>', idAt);
+  if (openStart < 0 || openEnd < 0) {
+    return viewerPage;
+  }
+
+  // The id can sit on ANY element, so the close has to be matched on that
+  // element's own tag name. Counting `</div>` regardless of what was opened put
+  // the slot OUTSIDE a `<span id="invalidLocation">` and inside its always-
+  // visible parent — i.e. the recovery control rendered permanently, to every
+  // viewer, on every page load.
+  const tagName = (viewerPage.slice(openStart + 1, openEnd).match(/^[a-zA-Z][a-zA-Z0-9-]*/) || [])[0];
+  if (!tagName) {
+    return viewerPage;
+  }
+  const closeAt = matchingCloseIndex(viewerPage, tagName, openEnd + 1);
+  if (closeAt < 0) {
+    return viewerPage;
+  }
+  return `${viewerPage.slice(0, closeAt)}<div>{RETRY_LOCATION_INLINE}</div>${viewerPage.slice(closeAt)}`;
+};
+
+/**
+ * Index of the tag that closes the `<tagName>` open at `from`, or -1.
+ *
+ * Depth-tracked rather than "next close tag", because the stock message block
+ * wraps its copy in a `.failed_Info_Box` child — a naive search would close on
+ * the inner element and put the slot in the middle of the operator's markup.
+ */
+const matchingCloseIndex = (html, tagName, from) => {
+  const openTag = `<${tagName}`;
+  const closeTag = `</${tagName}`;
+  let depth = 1;
+  let at = from;
+  while (depth > 0) {
+    const open = html.indexOf(openTag, at);
+    const close = html.indexOf(closeTag, at);
+    if (close < 0) {
+      return -1;
+    }
+    if (open >= 0 && open < close) {
+      depth += 1;
+      at = open + openTag.length;
+    } else {
+      depth -= 1;
+      if (depth === 0) {
+        return close;
+      }
+      at = close + closeTag.length;
+    }
+  }
+  return -1;
 };
 
 export const viewerPageMessageElements = {

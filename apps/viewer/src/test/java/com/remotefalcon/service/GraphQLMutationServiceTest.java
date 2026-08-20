@@ -229,7 +229,7 @@ class GraphQLMutationServiceTest {
       when(httpServerRequest.getHeader("CF-Connecting-IP")).thenReturn("");
       Show show = mockShowWithPrefsAndCollections();
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
-      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "name", 0f, 0f, ""));
+      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "name", 0f, 0f, "", null));
     }
 
     @Test
@@ -238,7 +238,7 @@ class GraphQLMutationServiceTest {
       Show show = mockShowWithPrefsAndCollections();
       when(show.getPreferences().getCheckIfVoted()).thenReturn(true);
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
-      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "name", 0f, 0f, ""));
+      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "name", 0f, 0f, "", null));
     }
 
     @Test
@@ -249,7 +249,7 @@ class GraphQLMutationServiceTest {
       blocked.add("1.2.3.4");
       when(show.getPreferences().getBlockedViewerIps()).thenReturn(blocked);
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
-      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "name", 0f, 0f, ""));
+      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "name", 0f, 0f, "", null));
     }
 
     @Test
@@ -261,7 +261,7 @@ class GraphQLMutationServiceTest {
       when(r.getViewerRequested()).thenReturn("1.2.3.4");
       show.getRequests().add(r);
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
-      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "name", 0f, 0f, ""));
+      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "name", 0f, 0f, "", null));
     }
 
     @Test
@@ -278,7 +278,7 @@ class GraphQLMutationServiceTest {
       when(r.getSequence()).thenReturn(seq);
       show.getRequests().add(r);
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
-      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "name", 0f, 0f, ""));
+      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "name", 0f, 0f, "", null));
     }
 
     @Test
@@ -286,8 +286,8 @@ class GraphQLMutationServiceTest {
     void shouldThrowInvalidLocation() {
       Show show = mockShowWithPrefsAndCollections();
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
-      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "name", null, 0f, ""));
-      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "name", 0f, null, ""));
+      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "name", null, 0f, "", null));
+      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "name", 0f, null, "", null));
     }
 
     @Test
@@ -296,7 +296,7 @@ class GraphQLMutationServiceTest {
       Show show = mockShowWithPrefsAndCollections();
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
       // Pass valid coords (location check NONE by default in mock)
-      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "unknown", 0f, 0f, ""));
+      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "unknown", 0f, 0f, "", null));
     }
 
     // ---- PSA-v2 PR-4 Q3 — countViewerRequests in isQueueFull ----
@@ -330,7 +330,7 @@ class GraphQLMutationServiceTest {
       // important thing is that QUEUE_FULL is NOT what gets thrown — verify
       // by inspecting the message.
       try {
-        service.addSequenceToQueue("sub", "unknown", 0f, 0f, "");
+        service.addSequenceToQueue("sub", "unknown", 0f, 0f, "", null);
         fail("expected exception");
       } catch (CustomGraphQLExceptionResolver e) {
         assertNotEquals("QUEUE_FULL", e.getMessage());
@@ -361,7 +361,7 @@ class GraphQLMutationServiceTest {
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
 
       try {
-        service.addSequenceToQueue("sub", "name", 0f, 0f, "");
+        service.addSequenceToQueue("sub", "name", 0f, 0f, "", null);
         fail("expected exception");
       } catch (CustomGraphQLExceptionResolver e) {
         assertEquals("QUEUE_FULL", e.getMessage());
@@ -393,7 +393,7 @@ class GraphQLMutationServiceTest {
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
 
       try {
-        service.addSequenceToQueue("sub", "name", 0f, 0f, "");
+        service.addSequenceToQueue("sub", "name", 0f, 0f, "", null);
         fail("expected exception");
       } catch (CustomGraphQLExceptionResolver e) {
         assertEquals("QUEUE_FULL", e.getMessage());
@@ -418,7 +418,7 @@ class GraphQLMutationServiceTest {
       // Should NOT throw QUEUE_FULL — falls through and throws because
       // sequence not found.
       try {
-        service.addSequenceToQueue("sub", "unknown", 0f, 0f, "");
+        service.addSequenceToQueue("sub", "unknown", 0f, 0f, "", null);
         fail("expected exception");
       } catch (CustomGraphQLExceptionResolver e) {
         assertNotEquals("QUEUE_FULL", e.getMessage());
@@ -509,7 +509,7 @@ class GraphQLMutationServiceTest {
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
       when(showRepository.nextRequestPosition(show)).thenReturn(1L);
 
-      Boolean result = service.addSequenceToQueue("sub", "song-a", 0f, 0f, "");
+      Boolean result = service.addSequenceToQueue("sub", "song-a", 0f, 0f, "", null);
       assertTrue(result);
 
       // Verify DB operations were called with correct data
@@ -563,7 +563,7 @@ class GraphQLMutationServiceTest {
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show), Optional.of(show));
       when(showRepository.nextRequestPosition(any(Show.class))).thenReturn(6L, 7L);
 
-      Boolean result = service.addSequenceToQueue("sub", "user-seq", 0f, 0f, "");
+      Boolean result = service.addSequenceToQueue("sub", "user-seq", 0f, 0f, "", null);
       assertTrue(result);
 
       // Verify user request was added
@@ -612,7 +612,7 @@ class GraphQLMutationServiceTest {
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
       when(showRepository.allocatePositionBlock(show, 2)).thenReturn(1L);
 
-      Boolean result = service.addSequenceToQueue("sub", "GroupA", 0f, 0f, "");
+      Boolean result = service.addSequenceToQueue("sub", "GroupA", 0f, 0f, "", null);
       assertTrue(result);
 
       // Verify DB operation was called with group requests
@@ -640,7 +640,7 @@ class GraphQLMutationServiceTest {
 
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
 
-      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "song-a", 10f, 10f, ""));
+      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "song-a", 10f, 10f, "", null));
     }
 
     @Test
@@ -656,7 +656,7 @@ class GraphQLMutationServiceTest {
       when(show.getPlayingNow()).thenReturn("song-a");
 
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
-      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "song-a", 0f, 0f, ""));
+      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "song-a", 0f, 0f, "", null));
     }
 
     @Test
@@ -672,7 +672,7 @@ class GraphQLMutationServiceTest {
       when(show.getPlayingNext()).thenReturn("Song A");
 
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
-      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "song-a", 0f, 0f, ""));
+      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "song-a", 0f, 0f, "", null));
     }
 
     @Test
@@ -703,7 +703,7 @@ class GraphQLMutationServiceTest {
       show.getRequests().add(r2);
 
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
-      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "song-a", 0f, 0f, ""));
+      assertThrows(CustomGraphQLExceptionResolver.class, () -> service.addSequenceToQueue("sub", "song-a", 0f, 0f, "", null));
     }
   }
 
@@ -735,7 +735,7 @@ class GraphQLMutationServiceTest {
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
       when(showRepository.nextRequestPosition(show)).thenReturn(1L);
 
-      Boolean result = service.addSequenceToQueue("sub", "song-a", 0f, 0f, "");
+      Boolean result = service.addSequenceToQueue("sub", "song-a", 0f, 0f, "", null);
       assertTrue(result);
 
       // Verify the batched write was used with leader at position 1 and the
@@ -770,7 +770,7 @@ class GraphQLMutationServiceTest {
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
       when(showRepository.nextRequestPosition(show)).thenReturn(1L);
 
-      Boolean result = service.addSequenceToQueue("sub", "song-a", 0f, 0f, "");
+      Boolean result = service.addSequenceToQueue("sub", "song-a", 0f, 0f, "", null);
       assertTrue(result);
 
       verify(showRepository).appendRequestAndJukeboxStat(eq("sub"), argThat(req ->
@@ -793,7 +793,7 @@ class GraphQLMutationServiceTest {
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
       when(showRepository.nextRequestPosition(show)).thenReturn(1L);
 
-      Boolean result = service.addSequenceToQueue("sub", "song-a", 0f, 0f, "");
+      Boolean result = service.addSequenceToQueue("sub", "song-a", 0f, 0f, "", null);
       assertTrue(result);
 
       verify(showRepository).appendRequestAndJukeboxStat(eq("sub"), any(), any());
@@ -816,7 +816,7 @@ class GraphQLMutationServiceTest {
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
       when(showRepository.nextRequestPosition(show)).thenReturn(1L);
 
-      Boolean result = service.addSequenceToQueue("sub", "song-a", 0f, 0f, "");
+      Boolean result = service.addSequenceToQueue("sub", "song-a", 0f, 0f, "", null);
       assertTrue(result);
 
       verify(showRepository).appendRequestAndJukeboxStat(eq("sub"), any(), any());
@@ -840,7 +840,7 @@ class GraphQLMutationServiceTest {
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
       when(showRepository.nextRequestPosition(show)).thenReturn(1L);
 
-      Boolean result = service.addSequenceToQueue("sub", "Leader-Seq", 0f, 0f, "");
+      Boolean result = service.addSequenceToQueue("sub", "Leader-Seq", 0f, 0f, "", null);
       assertTrue(result);
 
       // Single-row path used; the leader is NOT injected as a second row.
@@ -869,7 +869,7 @@ class GraphQLMutationServiceTest {
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
       when(showRepository.nextRequestPosition(show)).thenReturn(1L);
 
-      Boolean result = service.addSequenceToQueue("sub", "song-a", 0f, 0f, "");
+      Boolean result = service.addSequenceToQueue("sub", "song-a", 0f, 0f, "", null);
       assertTrue(result);
 
       verify(showRepository).appendRequestAndJukeboxStat(eq("sub"), argThat(req ->
@@ -899,7 +899,7 @@ class GraphQLMutationServiceTest {
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
       when(showRepository.nextRequestPosition(show)).thenReturn(5L);
 
-      Boolean result = service.addSequenceToQueue("sub", "song-a", 0f, 0f, "");
+      Boolean result = service.addSequenceToQueue("sub", "song-a", 0f, 0f, "", null);
       assertTrue(result);
 
       verify(showRepository).appendMultipleRequestsAndJukeboxStat(eq("sub"), argThat(reqs ->
@@ -1076,7 +1076,7 @@ class GraphQLMutationServiceTest {
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
 
       try {
-        service.addSequenceToQueue("sub", "song-a", 0f, 0f, "");
+        service.addSequenceToQueue("sub", "song-a", 0f, 0f, "", null);
         fail("expected exception");
       } catch (CustomGraphQLExceptionResolver e) {
         assertEquals("SEQUENCE_UNAVAILABLE", e.getMessage());
@@ -1116,7 +1116,7 @@ class GraphQLMutationServiceTest {
       when(showRepository.findByShowSubdomainForMutations("sub")).thenReturn(Optional.of(show));
 
       try {
-        service.addSequenceToQueue("sub", "song-a", 0f, 0f, "");
+        service.addSequenceToQueue("sub", "song-a", 0f, 0f, "", null);
         fail("expected exception");
       } catch (CustomGraphQLExceptionResolver e) {
         assertEquals("SEQUENCE_UNAVAILABLE", e.getMessage());
@@ -1142,7 +1142,7 @@ class GraphQLMutationServiceTest {
 
       // Guard must let this through — consistent with the play-selection path in
       // plugins-api — so the request completes and reaches the DB append.
-      Boolean result = service.addSequenceToQueue("sub", "song-a", 0f, 0f, "");
+      Boolean result = service.addSequenceToQueue("sub", "song-a", 0f, 0f, "", null);
       assertTrue(result);
       verify(showRepository).appendRequestAndJukeboxStat(eq("sub"), any(), any());
     }
