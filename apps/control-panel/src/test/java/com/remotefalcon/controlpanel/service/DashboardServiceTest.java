@@ -75,6 +75,12 @@ class DashboardServiceTest {
         return ZonedDateTime.of(y, mo, d, 0, 0, 0, 0, TZ_ID).toInstant().toEpochMilli();
     }
 
+    private static long endOfDayMs(int y, int mo, int d) {
+        // The UI sends the range end as the last millisecond of the last
+        // selected day in the show's timezone.
+        return ZonedDateTime.of(y, mo, d, 23, 59, 59, 999_000_000, TZ_ID).toInstant().toEpochMilli();
+    }
+
     private static LocalDateTime at(int y, int mo, int d, int h, int min) {
         // Stat times are stored as wall-clock LocalDateTime in the user's tz.
         return LocalDateTime.of(y, mo, d, h, min);
@@ -191,6 +197,43 @@ class DashboardServiceTest {
         assertThat(totalPage).as("null-dateTime element dropped, well-formed element kept").isEqualTo(1);
     }
 
+    @Test
+    void dashboardStats_excludesEventsAfterRequestedEnd() {
+        stubAuth(SHOW_TOKEN);
+        when(statsRepository.hasStatsByShowToken(SHOW_TOKEN)).thenReturn(true);
+        when(statsRepository.pageStatsInRange(eq(SHOW_TOKEN), any(), any())).thenReturn(List.of(
+                Stat.Page.builder().ip("1.1.1.1").dateTime(at(2025, 10, 16, 19, 0)).build(),
+                Stat.Page.builder().ip("2.2.2.2").dateTime(at(2025, 10, 17, 19, 0)).build(),
+                Stat.Page.builder().ip("3.3.3.3").dateTime(at(2025, 10, 18, 19, 0)).build()));
+
+        DashboardStatsResponse resp = service.dashboardStats(ms(2025, 10, 14), endOfDayMs(2025, 10, 16), TZ);
+
+        assertThat(resp.getPage().stream().mapToInt(DashboardStatsResponse.Stat::getTotal).sum())
+                .as("days past the requested end must not be counted").isEqualTo(1);
+        assertThat(resp.getPage()).extracting(DashboardStatsResponse.Stat::getDate)
+                .containsExactly(ms(2025, 10, 14), ms(2025, 10, 15), ms(2025, 10, 16));
+    }
+
+    @Test
+    void dashboardStats_gapFillsThroughLastRequestedDay_whenItHasNoEvents() {
+        // The last requested day must still appear as a zero bucket; charts
+        // drop a day entirely when the gap-fill stops short of the range end.
+        stubAuth(SHOW_TOKEN);
+        when(statsRepository.hasStatsByShowToken(SHOW_TOKEN)).thenReturn(true);
+        when(statsRepository.pageStatsInRange(eq(SHOW_TOKEN), any(), any())).thenReturn(List.of(
+                Stat.Page.builder().ip("1.1.1.1").dateTime(at(2025, 10, 14, 19, 0)).build()));
+        when(statsRepository.jukeboxStatsInRange(eq(SHOW_TOKEN), any(), any())).thenReturn(List.of(
+                Stat.Jukebox.builder().name("Carol").dateTime(at(2025, 10, 15, 2, 0)).build()));
+
+        DashboardStatsResponse resp = service.dashboardStats(ms(2025, 10, 14), endOfDayMs(2025, 10, 16), TZ);
+
+        assertThat(resp.getPage()).extracting(DashboardStatsResponse.Stat::getDate)
+                .containsExactly(ms(2025, 10, 14), ms(2025, 10, 15), ms(2025, 10, 16));
+        assertThat(resp.getPage().get(2).getTotal()).isZero();
+        assertThat(resp.getJukeboxByDate()).extracting(DashboardStatsResponse.Stat::getDate)
+                .containsExactly(ms(2025, 10, 14), ms(2025, 10, 15), ms(2025, 10, 16));
+    }
+
     // ---- requestConversion ----
 
     @Test
@@ -260,6 +303,26 @@ class DashboardServiceTest {
         RequestConversionResponse r = service.requestConversion(ms(2025, 10, 14), ms(2025, 10, 17), TZ);
 
         assertThat(r.getRejectionsByReason()).extracting("reason").containsExactly("UNKNOWN");
+    }
+
+    @Test
+    void requestConversion_excludesAttemptsAfterRequestedEnd() {
+        stubAuth(SHOW_TOKEN);
+        when(statsRepository.existsByShowToken(SHOW_TOKEN)).thenReturn(true);
+        // Server-stamped UTC: 10/16 02:00Z is 10/15 21:00 local (in range),
+        // 10/18 02:00Z is 10/17 21:00 local (past the requested end).
+        when(statsRepository.jukeboxStatsInRange(eq(SHOW_TOKEN), any(), any())).thenReturn(List.of(
+                Stat.Jukebox.builder().name("in").dateTime(at(2025, 10, 16, 2, 0)).build(),
+                Stat.Jukebox.builder().name("after").dateTime(at(2025, 10, 18, 2, 0)).build()));
+        when(statsRepository.rejectedRequestsInRange(eq(SHOW_TOKEN), any(), any())).thenReturn(List.of(
+                Stat.RejectedRequest.builder().reason("LIMIT").dateTime(at(2025, 10, 16, 2, 0)).build(),
+                Stat.RejectedRequest.builder().reason("LIMIT").dateTime(at(2025, 10, 18, 2, 0)).build()));
+
+        RequestConversionResponse r = service.requestConversion(ms(2025, 10, 14), endOfDayMs(2025, 10, 16), TZ);
+
+        assertThat(r.getAccepted()).isEqualTo(1);
+        assertThat(r.getRejected()).isEqualTo(1);
+        assertThat(r.getAttempted()).isEqualTo(2);
     }
 
     // ---- psaEffectiveness ----
@@ -409,6 +472,29 @@ class DashboardServiceTest {
                 .hasMessage(StatusResponse.SHOW_NOT_FOUND.name());
     }
 
+    @Test
+    void viewerSessions_excludesSessionsAfterRequestedEnd() {
+        ViewerSession inRange = ViewerSession.builder()
+                .ip("1.2.3.4").viewerId("in")
+                .firstSeen(at(2025, 10, 16, 19, 0))
+                .lastSeen(at(2025, 10, 16, 19, 30))
+                .build();
+        ViewerSession afterEnd = ViewerSession.builder()
+                .ip("5.6.7.8").viewerId("after")
+                .firstSeen(at(2025, 10, 17, 19, 0))
+                .lastSeen(at(2025, 10, 17, 19, 30))
+                .build();
+        Show show = Show.builder().showToken(SHOW_TOKEN).showSubdomain("sub")
+                .viewerSessions(new ArrayList<>(List.of(inRange, afterEnd))).build();
+        stubAuth(SHOW_TOKEN);
+        when(showRepository.findByShowTokenForViewerSessions(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        ViewerSessionsResponse r = service.viewerSessions(ms(2025, 10, 14), endOfDayMs(2025, 10, 16), TZ);
+
+        assertThat(r.getSessions()).extracting(ViewerSessionsResponse.Session::getViewerId)
+                .containsExactly("in");
+    }
+
     // ---- dashboardStatsByHour ----
 
     @Test
@@ -453,6 +539,20 @@ class DashboardServiceTest {
         assertThatThrownBy(() -> service.dashboardStatsByHour(0L, 1L, TZ))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessage(StatusResponse.SHOW_NOT_FOUND.name());
+    }
+
+    @Test
+    void dashboardStatsByHour_excludesEventsAfterRequestedEnd() {
+        stubAuth(SHOW_TOKEN);
+        when(statsRepository.existsByShowToken(SHOW_TOKEN)).thenReturn(true);
+        when(statsRepository.pageStatsInRange(eq(SHOW_TOKEN), any(), any())).thenReturn(List.of(
+                Stat.Page.builder().ip("a").dateTime(at(2025, 10, 16, 19, 0)).build(),
+                Stat.Page.builder().ip("b").dateTime(at(2025, 10, 17, 19, 0)).build()));
+
+        DashboardHourlyStatsResponse r = service.dashboardStatsByHour(ms(2025, 10, 14), endOfDayMs(2025, 10, 16), TZ);
+
+        assertThat(r.getBuckets()).hasSize(1);
+        assertThat(r.getBuckets().get(0).getDate()).isEqualTo(ms(2025, 10, 16));
     }
 
     // ---- dashboardLiveStats ----

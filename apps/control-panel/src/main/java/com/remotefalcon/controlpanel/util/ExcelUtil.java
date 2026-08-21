@@ -29,7 +29,6 @@ public class ExcelUtil {
 
   public ResponseEntity<ByteArrayResource> generateDashboardExcel(DashboardStatsResponse dashboardStats,
       String timezone) {
-    ResponseEntity<ByteArrayResource> response = ResponseEntity.status(204).build();
     StringBuilder csvBuilder = new StringBuilder();
 
     this.appendUniquePageVisitsByDate(csvBuilder, dashboardStats, timezone);
@@ -46,10 +45,9 @@ public class ExcelUtil {
     HttpHeaders httpHeaders = new HttpHeaders();
     httpHeaders.add(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=stats.csv");
     httpHeaders.add(HttpHeaders.CONTENT_LENGTH, String.valueOf(csvBytes.length));
-    response = ResponseEntity.ok().headers(httpHeaders)
+    return ResponseEntity.ok().headers(httpHeaders)
         .contentType(MediaType.parseMediaType("text/csv"))
         .body(resource);
-    return response;
   }
 
   private void appendUniquePageVisitsByDate(StringBuilder csvBuilder, DashboardStatsResponse dashboardStats,
