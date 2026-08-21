@@ -53,14 +53,10 @@ public class ExcelUtil {
   private void appendUniquePageVisitsByDate(StringBuilder csvBuilder, DashboardStatsResponse dashboardStats,
       String timezone) {
     appendSectionHeader(csvBuilder, "Unique Page Visits by Date");
-    appendRow(csvBuilder, List.of("Date", "Unique Visits", "Viewer IPs"));
-    dashboardStats.getPage().forEach(visit -> {
-      String viewerIps = String.join(" | ", visit.getViewerIps());
-      appendRow(csvBuilder, List.of(
-          formatDateColumn(visit.getDate(), timezone),
-          visit.getUnique(),
-          viewerIps));
-    });
+    appendRow(csvBuilder, List.of("Date", "Unique Visits"));
+    dashboardStats.getPage().forEach(visit -> appendRow(csvBuilder, List.of(
+        formatDateColumn(visit.getDate(), timezone),
+        visit.getUnique())));
   }
 
   private void appendTotalPageVisitsByDate(StringBuilder csvBuilder, DashboardStatsResponse dashboardStats,

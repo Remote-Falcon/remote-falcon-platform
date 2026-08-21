@@ -17,7 +17,6 @@ import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -107,7 +106,6 @@ class ExcelUtilTest {
                 .date(oct31)
                 .total(9)
                 .unique(7)
-                .viewerIps(Set.of("1.1.1.1", "2.2.2.2"))
                 .build();
         DashboardStatsResponse dash = DashboardStatsResponse.builder()
                 .page(List.of(page))
@@ -123,14 +121,35 @@ class ExcelUtilTest {
 
         assertThat(csv).contains("\"2025-10-31\"");
         assertThat(csv).contains("\"7\"");
-        // IPs may appear in either order due to Set iteration; assert each.
-        assertThat(csv).contains("1.1.1.1").contains("2.2.2.2").contains(" | ");
+    }
+
+    @Test
+    void generateDashboardExcel_omitsViewerIpColumn() {
+        // The export used to pipe-join raw viewer IPs into a third column; it was
+        // the only path by which unhashed addresses left the backend.
+        long oct31 = epochMillis(2025, 10, 31, "America/Chicago");
+        Stat page = Stat.builder().date(oct31).total(9).unique(7).build();
+        DashboardStatsResponse dash = DashboardStatsResponse.builder()
+                .page(List.of(page))
+                .jukeboxByDate(List.of())
+                .jukeboxBySequence(Stat.builder().sequences(List.of()).build())
+                .votingByDate(List.of())
+                .votingBySequence(Stat.builder().sequences(List.of()).build())
+                .votingWinByDate(List.of())
+                .votingWinBySequence(Stat.builder().sequences(List.of()).build())
+                .build();
+
+        String csv = body(excelUtil.generateDashboardExcel(dash, "America/Chicago"));
+
+        assertThat(csv).doesNotContain("Viewer IPs");
+        // Exactly two columns in the unique-page-visits section.
+        assertThat(csv).contains("\"Date\",\"Unique Visits\"\n\"2025-10-31\",\"7\"\n");
     }
 
     @Test
     void generateDashboardExcel_nullTimezone_fallsBackToAmericaChicago() {
         long oct31 = epochMillis(2025, 10, 31, "America/Chicago");
-        Stat page = Stat.builder().date(oct31).total(1).unique(1).viewerIps(Set.of("1.1.1.1")).build();
+        Stat page = Stat.builder().date(oct31).total(1).unique(1).build();
         DashboardStatsResponse dash = DashboardStatsResponse.builder()
                 .page(List.of(page))
                 .jukeboxByDate(List.of())

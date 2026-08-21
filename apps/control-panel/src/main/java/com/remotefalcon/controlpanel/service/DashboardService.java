@@ -747,7 +747,6 @@ public class DashboardService {
             .date(ZonedDateTime.of(date, date.atStartOfDay().toLocalTime(), userZone).toInstant().toEpochMilli())
             .total(stat.size())
             .unique(stat.stream().collect(Collectors.groupingBy(Stat.Page::getIp)).size())
-            .viewerIps(stat.stream().map(Stat.Page::getIp).collect(Collectors.toSet()))
             .build()));
 
     pageStats.sort(Comparator.comparing(DashboardStatsResponse.Stat::getDate));
