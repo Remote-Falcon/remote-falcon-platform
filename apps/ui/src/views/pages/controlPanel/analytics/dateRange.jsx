@@ -163,3 +163,77 @@ export const buildPresets = ({ timezone = 'UTC', customSeasons = [], yearRoundMo
 };
 
 export const DEFAULT_PRESET_ID = 'last-7';
+
+// --- Custom range -----------------------------------------------------
+//
+// Stats are swept nightly once they pass this age. Selecting further back
+// is allowed — the query simply comes back empty — so this drives a notice
+// in the picker, never a block.
+export const RETENTION_MONTHS = 18;
+
+// Read the calendar day a picker value *displays* — year/month/day as the
+// operator saw them. The MUI DatePicker hands back a browser-local Date, so
+// converting the instant into the show's tz would slide the day by one for
+// any operator whose own zone sits ahead of the show's. We keep the day and
+// re-anchor it below instead.
+const pickerDayParts = (value) => {
+  if (value === null || value === undefined || value === '') return null;
+  const m = moment.isMoment(value) ? value : moment(value);
+  if (!m.isValid()) return null;
+  return { year: m.year(), month: m.month(), day: m.date() };
+};
+
+const showDayBoundary = (value, timezone, edge) => {
+  const parts = pickerDayParts(value);
+  if (!parts) return null;
+  return moment.tz({ year: parts.year, month: parts.month, day: parts.day }, timezone)[edge]('day').valueOf();
+};
+
+// Local-midnight boundaries in the SHOW's timezone for the day a picker
+// value names. Never use `new Date().setHours(...)` for this — that is the
+// operator's browser clock, which is the wrong zone the moment they travel
+// or run a show outside their own.
+export const startOfShowDay = (value, timezone = 'UTC') => showDayBoundary(value, timezone, 'startOf');
+export const endOfShowDay = (value, timezone = 'UTC') => showDayBoundary(value, timezone, 'endOf');
+
+// Inverse of startOfShowDay: given a resolved boundary, produce the Date the
+// picker should display so the field shows the show-tz day that is actually
+// being queried.
+export const showDayToPickerDate = (millis, timezone = 'UTC') => {
+  if (!Number.isFinite(millis)) return null;
+  const m = moment.tz(millis, timezone);
+  if (!m.isValid()) return null;
+  return new Date(m.year(), m.month(), m.date());
+};
+
+// Validate + resolve a custom range picked in the UI.
+//
+// Written fresh rather than reviving the dashboard's old `validateDatePicker`
+// (deleted alongside DashboardCharts): that helper fed millisecond values into
+// `moment.unix()` (which expects seconds), double-subtracted its own lower
+// bound so the warning text and the comparison disagreed, and rejected a
+// backwards pair outright. Here:
+//   - both ends must be real dates
+//   - a backwards pair is swapped, not rejected — picking the later day
+//     first is a click order, not an error
+//   - there is no lower bound; past the retention horizon is flagged so the
+//     UI can explain the empty result, but it stays selectable
+//
+// `now` is injected for testability, same convention as buildPresets.
+export const validateCustomRange = (startValue, endValue, timezone = 'UTC', now = null) => {
+  const a = startOfShowDay(startValue, timezone);
+  const b = startOfShowDay(endValue, timezone);
+  if (a === null || b === null) {
+    return { valid: false, error: 'Pick a start and an end date.', range: null, swapped: false, beyondRetention: false };
+  }
+
+  const swapped = b < a;
+  const first = swapped ? endValue : startValue;
+  const last = swapped ? startValue : endValue;
+  const range = { start: startOfShowDay(first, timezone), end: endOfShowDay(last, timezone) };
+
+  const reference = now || moment.tz(undefined, timezone);
+  const horizon = reference.clone().subtract(RETENTION_MONTHS, 'months').startOf('day').valueOf();
+
+  return { valid: true, error: null, range, swapped, beyondRetention: range.start < horizon };
+};

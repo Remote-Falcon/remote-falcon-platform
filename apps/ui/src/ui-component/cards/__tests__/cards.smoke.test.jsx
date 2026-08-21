@@ -5,7 +5,6 @@ import { ThemeProvider, createTheme } from '@mui/material/styles';
 import MainCard from '../MainCard';
 import RevenueCard from '../RevenueCard';
 import SubCard from '../SubCard';
-import DashboardChartsSkeleton from '../Skeleton/DashboardChartsSkeleton';
 import DashboardStatsSkeleton from '../Skeleton/DashboardStatsSkeleton';
 import HtmlValidationSkeleton from '../Skeleton/HtmlValidationSkeleton';
 import SequencesSkeleton from '../Skeleton/SequencesSkeleton';
@@ -49,7 +48,6 @@ describe('cards — base cards', () => {
 
 describe('cards — Skeletons', () => {
   it.each([
-    ['DashboardChartsSkeleton', DashboardChartsSkeleton],
     ['DashboardStatsSkeleton', DashboardStatsSkeleton],
     ['HtmlValidationSkeleton', HtmlValidationSkeleton],
     ['SequencesSkeleton', SequencesSkeleton],

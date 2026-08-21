@@ -1,7 +1,7 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 
-import { Box, Grid, Skeleton, Stack, Typography } from '@mui/material';
-import { IconArrowLeft, IconCalendar, IconMusic, IconTrendingUp } from '@tabler/icons-react';
+import { Box, Button, CircularProgress, Grid, Skeleton, Stack, Typography } from '@mui/material';
+import { IconArrowLeft, IconCalendar, IconDownload, IconMusic, IconTrendingUp } from '@tabler/icons-react';
 import moment from 'moment-timezone';
 import { Link as RouterLink, useParams } from 'react-router-dom';
 
@@ -9,10 +9,12 @@ import EmptyState from '../../../../ui-component/EmptyState';
 import MainCard from '../../../../ui-component/cards/MainCard';
 import PageHead from '../../../../ui-component/PageHead';
 import StatTile from '../../../../ui-component/StatTile';
-import { useSelector } from '../../../../store';
+import { useDispatch, useSelector } from '../../../../store';
+import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
 import { ViewerControlMode } from '../../../../utils/enum';
 import ApexLineChart from '../dashboard/ApexLineChart';
 
+import { downloadStatsExport } from './analyticsExport.service';
 import DateRangePicker from './DateRangePicker';
 import useAnalyticsFilters from './useAnalyticsFilters';
 import useDashboardStats from './useDashboardStats';
@@ -33,9 +35,19 @@ import useDashboardStats from './useDashboardStats';
 const SequenceDetail = () => {
   const { sequenceName: encodedName } = useParams();
   const sequenceName = decodeURIComponent(encodedName);
-  const { range, timezone, presetLabel } = useAnalyticsFilters();
+  const { range, timezone, presetLabel, presetId } = useAnalyticsFilters();
   const { show } = useSelector((state) => state.show);
+  const dispatch = useDispatch();
   const stats = useDashboardStats(range);
+  const [isExporting, setIsExporting] = useState(false);
+
+  // The drill-down renders outside the Analytics shell, so it needs its own
+  // export alongside its own date picker. Same file as the shell's export:
+  // the full selected range, every section, not just this sequence.
+  const handleExport = () => {
+    trackPosthogEvent('analytics_export_downloaded', { preset_id: presetId, surface: 'sequence_detail' });
+    downloadStatsExport(dispatch, { showSubdomain: show?.showSubdomain, timezone, range }, setIsExporting);
+  };
 
   const isJukebox = show?.preferences?.viewerControlMode === ViewerControlMode.JUKEBOX;
   const sourceField = isJukebox ? 'jukeboxByDate' : 'votingByDate';
@@ -112,7 +124,25 @@ const SequenceDetail = () => {
             Back to sequences
           </Typography>
         </Stack>
-        <DateRangePicker />
+        {/* flex-start so the picker's date caption hangs below its button
+            without dragging Export out of line with it. */}
+        <Stack direction="row" spacing={1} alignItems="flex-start">
+          <DateRangePicker />
+          {/* Plain Button, not RFLoadingButton — that one hardcodes
+              size="large" and would sit taller than the picker beside it. */}
+          <Button
+            variant="outlined"
+            color="primary"
+            disabled={isExporting}
+            startIcon={
+              isExporting ? <CircularProgress size={16} color="inherit" /> : <IconDownload size={16} stroke={1.75} />
+            }
+            sx={{ whiteSpace: 'nowrap' }}
+            onClick={handleExport}
+          >
+            Export CSV
+          </Button>
+        </Stack>
       </Stack>
 
       <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 3 }}>

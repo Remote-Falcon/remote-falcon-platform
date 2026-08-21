@@ -71,7 +71,7 @@ public class DashboardService {
     }
 
     ZonedDateTime startDateAtZone = ZonedDateTime.ofInstant(Instant.ofEpochMilli(startDate), ZoneId.of(timezone));
-    ZonedDateTime endDateAtZone = ZonedDateTime.ofInstant(Instant.ofEpochMilli(endDate), ZoneId.of(timezone)).plusDays(2);
+    ZonedDateTime endDateAtZone = ZonedDateTime.ofInstant(Instant.ofEpochMilli(endDate), ZoneId.of(timezone));
 
     // Pull only the in-range stat slices from Mongo (window widened ±1 day; the
     // helpers' unchanged Java filter trims to exact — see StatsRepository).
@@ -117,7 +117,7 @@ public class DashboardService {
 
     ZoneId userZone = ZoneId.of(timezone);
     ZonedDateTime startDateAtZone = ZonedDateTime.ofInstant(Instant.ofEpochMilli(startDate), userZone);
-    ZonedDateTime endDateAtZone = ZonedDateTime.ofInstant(Instant.ofEpochMilli(endDate), userZone).plusDays(2);
+    ZonedDateTime endDateAtZone = ZonedDateTime.ofInstant(Instant.ofEpochMilli(endDate), userZone);
     Date lower = statsWindowLower(startDateAtZone);
     Date upper = statsWindowUpper(endDateAtZone);
 
@@ -265,7 +265,7 @@ public class DashboardService {
 
     ZoneId userZone = ZoneId.of(timezone);
     ZonedDateTime startDateAtZone = ZonedDateTime.ofInstant(Instant.ofEpochMilli(startDate), userZone);
-    ZonedDateTime endDateAtZone = ZonedDateTime.ofInstant(Instant.ofEpochMilli(endDate), userZone).plusDays(2);
+    ZonedDateTime endDateAtZone = ZonedDateTime.ofInstant(Instant.ofEpochMilli(endDate), userZone);
 
     String saltSeed = existingShow.getShowToken() == null ? existingShow.getShowSubdomain() : existingShow.getShowToken();
 
@@ -547,7 +547,7 @@ public class DashboardService {
 
     ZoneId userZone = ZoneId.of(timezone);
     ZonedDateTime startDateAtZone = ZonedDateTime.ofInstant(Instant.ofEpochMilli(startDate), userZone);
-    ZonedDateTime endDateAtZone = ZonedDateTime.ofInstant(Instant.ofEpochMilli(endDate), userZone).plusDays(2);
+    ZonedDateTime endDateAtZone = ZonedDateTime.ofInstant(Instant.ofEpochMilli(endDate), userZone);
 
     // Group events by (LocalDate, hour) pair, deduping IPs within each pair.
     Map<String, List<Stat.Page>> grouped = this.statsRepository
@@ -723,10 +723,7 @@ public class DashboardService {
 
   public ResponseEntity<ByteArrayResource> downloadStatsToExcel(DownloadStatsToExcelRequest downloadStatsToExcelRequest) {
     DashboardStatsResponse dashboardStats = this.dashboardStats(downloadStatsToExcelRequest.getDateFilterStart(), downloadStatsToExcelRequest.getDateFilterEnd(), downloadStatsToExcelRequest.getTimezone());
-    if(dashboardStats != null) {
-      return excelUtil.generateDashboardExcel(dashboardStats, downloadStatsToExcelRequest.getTimezone());
-    }
-    return ResponseEntity.status(204).build();
+    return excelUtil.generateDashboardExcel(dashboardStats, downloadStatsToExcelRequest.getTimezone());
   }
 
   private List<DashboardStatsResponse.Stat> buildPageStats(ZonedDateTime startDateAtZone, ZonedDateTime endDateAtZone, String timezone, List<Stat.Page> inRange, boolean statsPresent) {
@@ -750,7 +747,6 @@ public class DashboardService {
             .date(ZonedDateTime.of(date, date.atStartOfDay().toLocalTime(), userZone).toInstant().toEpochMilli())
             .total(stat.size())
             .unique(stat.stream().collect(Collectors.groupingBy(Stat.Page::getIp)).size())
-            .viewerIps(stat.stream().map(Stat.Page::getIp).collect(Collectors.toSet()))
             .build()));
 
     pageStats.sort(Comparator.comparing(DashboardStatsResponse.Stat::getDate));
@@ -1017,7 +1013,10 @@ public class DashboardService {
 
   @SuppressWarnings("unchecked")
   private <V> void fillStatDateGaps(ZonedDateTime startDateAtZone, ZonedDateTime endDateAtZone, Map<LocalDate, V> statMap) {
-    List<LocalDate> datesInRange = startDateAtZone.toLocalDate().datesUntil(endDateAtZone.toLocalDate()).toList();
+    // datesUntil is exclusive of its bound, so step past the end date to keep
+    // the last requested day zero-filled — otherwise a quiet final night
+    // vanishes from the charts instead of rendering as a zero bucket.
+    List<LocalDate> datesInRange = startDateAtZone.toLocalDate().datesUntil(endDateAtZone.toLocalDate().plusDays(1)).toList();
     datesInRange.forEach(date -> {
       if(!statMap.containsKey(date)) {
         statMap.put(date, (V) new ArrayList<>());
