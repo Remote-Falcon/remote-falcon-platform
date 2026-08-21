@@ -22,7 +22,7 @@ import { IconCalendar, IconChevronDown } from '@tabler/icons-react';
 import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
 
 import { RETENTION_MONTHS, showDayToPickerDate, validateCustomRange } from './dateRange';
-import useAnalyticsFilters from './useAnalyticsFilters';
+import useAnalyticsFilters, { formatRangeLabel } from './useAnalyticsFilters';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -36,6 +36,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const DateRangePicker = () => {
   const {
     presetId,
+    range,
     presetLabel,
     setPreset,
     presets,
@@ -90,20 +91,37 @@ const DateRangePicker = () => {
   };
   const activeNotice = notice();
 
+  // A preset names a rule ("Last 7 nights"), not a window, and which nights
+  // that covers is exactly what an operator reading a chart needs to know.
+  // Custom already renders its dates as the label, so captioning it would
+  // just say the same thing twice.
+  const rangeCaption = presetId === 'custom' ? null : formatRangeLabel(range, timezone);
+
   return (
     <>
-      <Button
-        ref={anchorRef}
-        variant="outlined"
-        color="primary"
-        startIcon={<IconCalendar size={16} stroke={1.75} />}
-        endIcon={<IconChevronDown size={14} stroke={1.75} />}
-        onClick={() => setOpen(true)}
-        aria-haspopup="true"
-        aria-expanded={open ? 'true' : undefined}
-      >
-        {presetLabel}
-      </Button>
+      <Box sx={{ display: 'inline-flex', flexDirection: 'column' }}>
+        <Button
+          ref={anchorRef}
+          variant="outlined"
+          color="primary"
+          startIcon={<IconCalendar size={16} stroke={1.75} />}
+          endIcon={<IconChevronDown size={14} stroke={1.75} />}
+          onClick={() => setOpen(true)}
+          aria-haspopup="true"
+          aria-expanded={open ? 'true' : undefined}
+        >
+          {presetLabel}
+        </Button>
+        {rangeCaption && (
+          <Typography
+            variant="caption"
+            data-testid="date-range-caption"
+            sx={{ mt: 0.25, textAlign: 'center', lineHeight: 1.2, color: 'text.secondary' }}
+          >
+            {rangeCaption}
+          </Typography>
+        )}
+      </Box>
 
       <Menu
         anchorEl={anchorRef.current}

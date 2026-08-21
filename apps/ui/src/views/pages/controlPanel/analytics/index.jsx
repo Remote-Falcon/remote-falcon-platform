@@ -43,7 +43,10 @@ const Analytics = () => {
         title="Analytics"
         description="Reflect on your audience and how the show is landing. Filter, compare, and share."
         actions={
-          <Stack direction="row" spacing={1} alignItems="center">
+          // flex-start, not center: the picker carries a caption under its
+          // button, and centering would float Export halfway down against it
+          // instead of lining the two buttons up.
+          <Stack direction="row" spacing={1} alignItems="flex-start">
             <DateRangePicker />
             {/* Deliberately a plain Button rather than RFLoadingButton: that
                 shared component hardcodes size="large", which sits a step

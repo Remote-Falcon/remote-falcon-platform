@@ -124,7 +124,9 @@ const SequenceDetail = () => {
             Back to sequences
           </Typography>
         </Stack>
-        <Stack direction="row" spacing={1} alignItems="center">
+        {/* flex-start so the picker's date caption hangs below its button
+            without dragging Export out of line with it. */}
+        <Stack direction="row" spacing={1} alignItems="flex-start">
           <DateRangePicker />
           {/* Plain Button, not RFLoadingButton — that one hardcodes
               size="large" and would sit taller than the picker beside it. */}
