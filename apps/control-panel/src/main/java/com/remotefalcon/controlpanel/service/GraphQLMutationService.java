@@ -1039,19 +1039,71 @@ public class GraphQLMutationService {
         throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());
     }
 
+    /**
+     * Admin Account-Details edit — a targeted update of exactly the fields
+     * ShowInput can carry, never a document replace.
+     *
+     * <p>The previous implementation rebuilt the Show from the GraphQL input,
+     * carried over only {@code id}/{@code password}/{@code mfa}, and called
+     * {@code save()}. Everything on Show but absent from ShowInput was
+     * silently erased on every admin edit: {@code stats} (the season's
+     * analytics), {@code viewerSessions}, {@code showNotifications},
+     * {@code heartbeatGaps}, {@code versionChanges}, {@code lastFppHeartbeat},
+     * and — with compliance weight, since it cannot be reconstructed — the
+     * PRD-013 consent pair {@code marketingOptIn}/{@code optInUpdatedAt}.
+     * The admin saw "Show Updated" and nothing else.
+     *
+     * <p>Semantics now: a non-null input field is written, a null one leaves
+     * the stored value untouched. The trade-off is that an admin cannot null
+     * a field out through the JSON editor — acceptable, because the editor is
+     * seeded from a query that omits most of these fields, so "absent from
+     * the payload" overwhelmingly means "not being edited", not "clear this".
+     * Server-owned state (password, mfa, serviceToken, consent, telemetry) is
+     * simply not in the settable list, which replaces the carry-over dance —
+     * there is nothing to carry when nothing is replaced.
+     */
     public Boolean adminUpdateShow(Show show) {
-        Optional<Show> optionalShow = this.showRepository.findByShowToken(show.getShowToken());
-        if(optionalShow.isPresent()) {
-            show.setId(optionalShow.get().getId());
-            show.setPassword(optionalShow.get().getPassword());
-            // mfa is not part of ShowInput (secrets never transit GraphQL),
-            // so like password it must be carried over from the stored
-            // document — otherwise any admin JSON edit would silently strip
-            // the user's second factor.
-            show.setMfa(optionalShow.get().getMfa());
-            this.showRepository.save(show);
+        if (show == null || StringUtils.isBlank(show.getShowToken())) {
+            return true; // legacy contract: unknown target is a quiet no-op
         }
+        Update update = new Update();
+        setIfProvided(update, "email", show.getEmail());
+        setIfProvided(update, "showName", show.getShowName());
+        setIfProvided(update, "showSubdomain", show.getShowSubdomain());
+        setIfProvided(update, "emailVerified", show.getEmailVerified());
+        setIfProvided(update, "createdDate", show.getCreatedDate());
+        setIfProvided(update, "lastLoginDate", show.getLastLoginDate());
+        setIfProvided(update, "expireDate", show.getExpireDate());
+        setIfProvided(update, "pluginVersion", show.getPluginVersion());
+        setIfProvided(update, "fppVersion", show.getFppVersion());
+        setIfProvided(update, "lastLoginIp", show.getLastLoginIp());
+        setIfProvided(update, "showRole", show.getShowRole());
+        setIfProvided(update, "apiAccess", show.getApiAccess());
+        setIfProvided(update, "userProfile", show.getUserProfile());
+        setIfProvided(update, "preferences", show.getPreferences());
+        setIfProvided(update, "sequences", show.getSequences());
+        setIfProvided(update, "sequenceGroups", show.getSequenceGroups());
+        setIfProvided(update, "categories", show.getCategories());
+        setIfProvided(update, "psaSequences", show.getPsaSequences());
+        setIfProvided(update, "pages", show.getPages());
+        setIfProvided(update, "requests", show.getRequests());
+        setIfProvided(update, "votes", show.getVotes());
+        setIfProvided(update, "activeViewers", show.getActiveViewers());
+        setIfProvided(update, "playingNow", show.getPlayingNow());
+        setIfProvided(update, "playingNext", show.getPlayingNext());
+        if (update.getUpdateObject().isEmpty()) {
+            return true; // token-only payload: nothing to write
+        }
+        this.mongoTemplate.updateFirst(
+                new Query(Criteria.where("showToken").is(show.getShowToken())),
+                update, Show.class);
         return true;
+    }
+
+    private static void setIfProvided(Update update, String field, Object value) {
+        if (value != null) {
+            update.set(field, value);
+        }
     }
 
     public Boolean deleteAllRequests() {

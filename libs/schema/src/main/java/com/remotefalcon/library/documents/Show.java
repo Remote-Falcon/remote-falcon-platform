@@ -8,6 +8,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.springframework.data.annotation.Id;
+import org.springframework.data.annotation.Transient;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.LocalDateTime;
@@ -98,6 +99,13 @@ public class Show {
     private Boolean marketingOptIn;
     private LocalDateTime optInUpdatedAt;
 
+    // @Transient (Spring Data), not just @JsonIgnore: Jackson annotations are
+    // invisible to MappingMongoConverter, so this field was PERSISTABLE on the
+    // Spring side — one full-document save() of a populated object away from
+    // writing a bearer token to disk. The Quarkus variant already blocks it
+    // with @BsonIgnore; this closes the same door here. Runtime-only: set on
+    // responses (signIn, getShow), never loaded or stored.
+    @Transient
     @JsonIgnore
     private String serviceToken;
 }
