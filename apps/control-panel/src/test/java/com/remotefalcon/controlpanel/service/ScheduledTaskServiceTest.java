@@ -22,6 +22,7 @@ import org.springframework.data.mongodb.core.query.Update;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -29,10 +30,18 @@ import static org.mockito.Mockito.when;
 
 /**
  * fppHeartbeatTask flood-guard behavior (2026-07-19 enablement):
- * replace-not-append, renotify window (incl. null default), viewer-control
- * gate, recovery clear, and the 24h TTL sweep. The task must NEVER call
- * showRepository.save() — a full-document write from this minute cron can
- * clobber concurrent plugins-api queue updates mid-show.
+ * replace-not-append, exponential renotify backoff (incl. null default and
+ * the zero clamp), viewer-control gate, recovery clear, and the 24h TTL
+ * sweep. The task must NEVER call showRepository.save() — a full-document
+ * write from this minute cron can clobber concurrent plugins-api queue
+ * updates mid-show.
+ *
+ * <p>The renotify guard changed from a fixed window to backoff on 2026-08-22
+ * after prod measurement showed ~40 shows emitting ~3,000 alerts/day. Volume
+ * is now asserted directly in {@code backoff_*} below, because that is the
+ * property that regressed unnoticed for five weeks — no assertion existed on
+ * how MANY notifications an outage produces, only on whether a given pair of
+ * timestamps sent one.
  */
 @ExtendWith(MockitoExtension.class)
 class ScheduledTaskServiceTest {
@@ -43,15 +52,38 @@ class ScheduledTaskServiceTest {
     @InjectMocks private ScheduledTaskService service;
 
     private Show staleShow(NotificationPreference notificationPreference, Boolean viewerControlEnabled) {
+        return staleShow(notificationPreference, viewerControlEnabled, 10L);
+    }
+
+    /**
+     * Outage age is now load-bearing: the renotify decision is a function of
+     * how long THIS outage has run, so a fixture's lastFppHeartbeat and its
+     * fppHeartbeatLastNotification have to be mutually consistent.
+     */
+    private Show staleShow(NotificationPreference notificationPreference, Boolean viewerControlEnabled,
+                           long heartbeatAgeMinutes) {
         return Show.builder()
                 .showToken("token-1")
                 .showName("Test Show")
-                .lastFppHeartbeat(LocalDateTime.now().minusMinutes(10))
+                .lastFppHeartbeat(LocalDateTime.now().minusMinutes(heartbeatAgeMinutes))
                 .preferences(Preference.builder()
                         .viewerControlEnabled(viewerControlEnabled)
                         .notificationPreferences(notificationPreference)
                         .build())
                 .build();
+    }
+
+    /**
+     * Stamp "already alerted N minutes into THIS outage", derived from the
+     * show's own frozen lastFppHeartbeat. Building the two from separate
+     * LocalDateTime.now() calls silently truncates the gap by the microseconds
+     * between them, which flips a 5-minute stamp to 4 and reads as a stamp
+     * from a previous outage.
+     */
+    private Show alertedAtOutageAge(Show show, long outageAgeMinutes) {
+        show.getPreferences().getNotificationPreferences()
+                .setFppHeartbeatLastNotification(show.getLastFppHeartbeat().plusMinutes(outageAgeMinutes));
+        return show;
     }
 
     private List<Update> capturedUpdateFirstUpdates() {
@@ -90,12 +122,16 @@ class ScheduledTaskServiceTest {
     }
 
     @Test
-    void suppressed_whenWithinRenotifyWindow() {
-        Show show = staleShow(NotificationPreference.builder()
+    void suppressed_whenStillOnTheSameBackoffStep() {
+        // 10-minute outage, already alerted at the 5-minute stale mark. Both
+        // sit on step 0 (the next step for a 30-minute interval is 30m), so
+        // nothing is due. Previously the fixture stamped the notification at
+        // the same instant the heartbeat froze, which cannot happen -- the
+        // stale gate means the earliest possible alert is 5 minutes in.
+        Show show = alertedAtOutageAge(staleShow(NotificationPreference.builder()
                 .enableFppHeartbeat(true)
                 .fppHeartbeatRenotifyAfterMinutes(30)
-                .fppHeartbeatLastNotification(LocalDateTime.now().minusMinutes(10))
-                .build(), true);
+                .build(), true), 5L);
         when(showRepository.findFppHeartbeatAlertCandidates(
                 any(LocalDateTime.class), any(LocalDateTime.class))).thenReturn(List.of(show));
 
@@ -105,12 +141,13 @@ class ScheduledTaskServiceTest {
     }
 
     @Test
-    void notifies_whenRenotifyWindowElapsed() {
-        Show show = staleShow(NotificationPreference.builder()
+    void notifies_whenBackoffStepAdvances() {
+        // 35-minute outage, last alerted at its 5-minute mark: step 0 -> step 1
+        // (the 30-minute threshold) is due.
+        Show show = alertedAtOutageAge(staleShow(NotificationPreference.builder()
                 .enableFppHeartbeat(true)
                 .fppHeartbeatRenotifyAfterMinutes(30)
-                .fppHeartbeatLastNotification(LocalDateTime.now().minusMinutes(35))
-                .build(), true);
+                .build(), true, 35L), 5L);
         when(showRepository.findFppHeartbeatAlertCandidates(
                 any(LocalDateTime.class), any(LocalDateTime.class))).thenReturn(List.of(show));
 
@@ -123,11 +160,10 @@ class ScheduledTaskServiceTest {
     void nullRenotifyMinutes_defaultsTo30_insteadOfNPE() {
         // Shows that opted in before the renotify field existed have null here;
         // the pre-enablement code auto-unboxed it and would have thrown.
-        Show show = staleShow(NotificationPreference.builder()
+        Show show = alertedAtOutageAge(staleShow(NotificationPreference.builder()
                 .enableFppHeartbeat(true)
                 .fppHeartbeatRenotifyAfterMinutes(null)
-                .fppHeartbeatLastNotification(LocalDateTime.now().minusMinutes(10))
-                .build(), true);
+                .build(), true), 5L);
         when(showRepository.findFppHeartbeatAlertCandidates(
                 any(LocalDateTime.class), any(LocalDateTime.class))).thenReturn(List.of(show));
 
@@ -173,13 +209,14 @@ class ScheduledTaskServiceTest {
     @Test
     void renotifyZero_clampedToMinimum_noPerMinuteFlood() {
         // The UI enforces >= 5 client-side only; a crafted GraphQL request can
-        // persist 0, which unclamped makes the guard always-false (per-minute
-        // re-alerts). Last notification 3 min ago + clamped floor 5 → suppressed.
-        Show show = staleShow(NotificationPreference.builder()
+        // persist 0. Unclamped that is now worse than a flood: the backoff
+        // ladder doubles from the interval, so a 0 base would spin forever.
+        // Clamped to 5, a 6-minute outage alerted at its 5-minute mark is
+        // still on step 1 → suppressed.
+        Show show = alertedAtOutageAge(staleShow(NotificationPreference.builder()
                 .enableFppHeartbeat(true)
                 .fppHeartbeatRenotifyAfterMinutes(0)
-                .fppHeartbeatLastNotification(LocalDateTime.now().minusMinutes(3))
-                .build(), true);
+                .build(), true, 6L), 5L);
         when(showRepository.findFppHeartbeatAlertCandidates(
                 any(LocalDateTime.class), any(LocalDateTime.class))).thenReturn(List.of(show));
 
@@ -194,7 +231,7 @@ class ScheduledTaskServiceTest {
         // replacements within one outage (dismiss sticks) and change when a
         // new outage begins (bell re-lights). Derived from showToken + the
         // frozen lastFppHeartbeat.
-        LocalDateTime outageStart = LocalDateTime.now().minusMinutes(10);
+        LocalDateTime outageStart = LocalDateTime.now().minusHours(3);
         NotificationPreference prefs = NotificationPreference.builder()
                 .enableFppHeartbeat(true)
                 .fppHeartbeatRenotifyAfterMinutes(5)
@@ -299,5 +336,61 @@ class ScheduledTaskServiceTest {
         assertThat(ttlPull.getString("notification.type")).isEqualTo("FPP_HEALTH");
         assertThat(ttlPull.get("notification.createdDate", org.bson.Document.class))
                 .containsKey("$lt");
+    }
+
+    // ---- backoff ladder -------------------------------------------------
+    // These assert alert VOLUME per outage, which is what actually caused the
+    // incident. A per-pair send/suppress test cannot catch a cadence that is
+    // individually correct at every step but ruinous in aggregate.
+
+    @Test
+    void backoff_defaultInterval_yieldsEightAlertsAcrossA48hOutage() {
+        assertThat(alertsAcrossOutage(30)).isEqualTo(8);
+    }
+
+    @Test
+    void backoff_atTheMinimumInterval_staysBounded() {
+        // The show that was generating 279 alerts/day sat at this floor. Fast
+        // early alerts are preserved; the sustained rate is not.
+        assertThat(alertsAcrossOutage(5)).isEqualTo(10);
+    }
+
+    @Test
+    void backoff_firstAlertStillFiresAtTheStaleThreshold() {
+        // Detection speed must not regress: nothing before 5 minutes, and an
+        // alert due the moment the stale gate opens.
+        assertThat(ScheduledTaskService.backoffStep(4, 30)).isEqualTo(-1);
+        assertThat(ScheduledTaskService.backoffStep(5, 30)).isEqualTo(0);
+    }
+
+    @Test
+    void backoff_treatsAStampFromAPriorOutageAsNeverNotified() {
+        // lastFppHeartbeat moves forward when a plugin recovers, so a stale
+        // fppHeartbeatLastNotification yields a negative age. That must read as
+        // "not yet alerted for this outage", not as a suppression.
+        assertThat(ScheduledTaskService.backoffStep(-25, 30)).isEqualTo(-1);
+    }
+
+    @Test
+    void backoff_clampsZeroInterval_andTerminates() {
+        // Guards the doubling loop: an unclamped 0 base never advances the
+        // threshold and hangs the every-minute scheduler.
+        assertTimeoutPreemptively(java.time.Duration.ofSeconds(2), () ->
+                assertThat(ScheduledTaskService.backoffStep(600, 0))
+                        .isEqualTo(ScheduledTaskService.backoffStep(600, 5)));
+    }
+
+    /** One alert per step transition, walking a 48h outage minute by minute. */
+    private int alertsAcrossOutage(int renotifyMinutes) {
+        int alerts = 0;
+        int previousStep = -1;
+        for (long minute = 0; minute <= ScheduledTaskService.HEARTBEAT_OUTAGE_WINDOW_HOURS * 60L; minute++) {
+            int step = ScheduledTaskService.backoffStep(minute, renotifyMinutes);
+            if (step > previousStep) {
+                alerts++;
+                previousStep = step;
+            }
+        }
+        return alerts;
     }
 }
