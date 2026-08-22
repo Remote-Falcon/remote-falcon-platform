@@ -14,7 +14,7 @@ import { setShow } from '../../../../store/slices/show';
 import MainCard from '../../../../ui-component/cards/MainCard';
 import { visibleEnabledPsas } from './psaQuickPlay.helpers';
 import { SET_NEXT_PSA_OVERRIDE } from '../../../../utils/graphql/controlPanel/mutations';
-import { GET_SHOW } from '../../../../utils/graphql/controlPanel/queries';
+import { GET_SHOW_DASHBOARD_POLL } from '../../../../utils/graphql/controlPanel/queries';
 import { showAlert } from '../../globalPageHelpers';
 
 // Matches plugins-api's heartbeat-fresh window / HealthRow's "Connected" pill.
@@ -35,7 +35,7 @@ const PsaQuickPlayCard = () => {
   const { data: liveStats } = useDashboardLiveStats();
 
   const [setNextPsaOverrideMutation] = useMutation(SET_NEXT_PSA_OVERRIDE);
-  const [refetchShowQuery] = useLazyQuery(GET_SHOW, { fetchPolicy: 'network-only' });
+  const [refetchShowQuery] = useLazyQuery(GET_SHOW_DASHBOARD_POLL, { fetchPolicy: 'network-only' });
 
   const pendingOverride = show?.nextPsaOverride || '';
 
@@ -49,8 +49,8 @@ const PsaQuickPlayCard = () => {
 
   // Poll for the override clearing while one is pending. FPP consumes it at the
   // next sequence boundary and PluginService persists nextPsaOverride=null;
-  // we just surface that. Merge (don't replace) so GET_SHOW's omitted fields
-  // (e.g. timezone) don't blank out other dashboard surfaces. Mirrors
+  // we just surface that. Merge (don't replace) so GET_SHOW_DASHBOARD_POLL's
+  // omitted fields (e.g. timezone, pages) don't blank out other surfaces. Mirrors
   // SpecialRoles' poll. The ref guards onCompleted from closing over a stale show.
   const showRef = useRef(show);
   useEffect(() => {

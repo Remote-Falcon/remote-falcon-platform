@@ -418,6 +418,114 @@ export const GET_SHOW = gql`
   }
 `;
 
+// Lean selection for the dashboard's 5s poll (and the PSA quick-play
+// refetch). Consumers merge the result into Redux with a SHALLOW spread
+// ({ ...show, ...data.getShow }), so the contract is:
+//   - Top-level fields OMITTED here keep their value from the initial
+//     full GET_SHOW load in JWTContext — that's how we drop pages[]
+//     (operator page HTML rode the poll every 5s), apiAccess tokens,
+//     userProfile, activeViewers, and the identity scalars that can't
+//     change mid-session.
+//   - Top-level fields KEPT here replace the whole object, so their
+//     sub-selections must stay identical to GET_SHOW's or the missing
+//     sub-fields get nulled in Redux on the first poll tick.
+// Selection sets are duplicated from GET_SHOW on purpose — NEVER use a
+// GraphQL fragment in this app (MultiAPILink hangs forever on any
+// document with a FragmentDefinition; see PR #146).
+export const GET_SHOW_DASHBOARD_POLL = gql`
+  query @api(name: controlPanel) {
+    getShow {
+      playingNow
+      playingNext
+      pluginVersion
+      fppVersion
+      requestLeaderSequence
+      voteLeaderSequence
+      nextPsaOverride
+      preferences {
+        viewerControlEnabled
+        viewerPageViewOnly
+        viewerControlMode
+        resetVotes
+        jukeboxDepth
+        locationCheckMethod
+        showLatitude
+        showLongitude
+        allowedRadius
+        checkIfVoted
+        checkIfRequested
+        psaEnabled
+        psaFrequency
+        jukeboxRequestLimit
+        locationCode
+        hideSequenceCount
+        nightlyPlayLimit
+        makeItSnow
+        managePsa
+        playAllPsas
+        sequencesPlayed
+        pageTitle
+        pageIconUrl
+        showOnMap
+        showOnMapPublic
+        selfHostedRedirectUrl
+        blockedViewerIps
+        dailyVoteLimit
+        votingExemptIps
+        statsExcludedIps
+        additionalGpsLocations {
+          latitude
+          longitude
+        }
+        notificationPreferences {
+          enableFppHeartbeat
+          fppHeartbeatIfControlEnabled
+          fppHeartbeatRenotifyAfterMinutes
+          fppHeartbeatLastNotification
+        }
+        analyticsBetaOptIn
+      }
+      sequences {
+        name
+        key
+        displayName
+        duration
+        visible
+        index
+        order
+        imageUrl
+        active
+        visibilityCount
+        type
+        group
+        category
+        artist
+      }
+      psaSequences {
+        name
+        order
+        lastPlayed
+        enabled
+      }
+      requests {
+        sequence {
+          name
+        }
+        position
+        ownerRequested
+      }
+      votes {
+        sequence {
+          name
+        }
+        votes
+        lastVoteTime
+        ownerVoted
+      }
+    }
+  }
+`;
+
 // V15 — request → play conversion funnel for the Sequences analytics tab.
 export const REQUEST_CONVERSION = gql`
   query ($startDate: Long!, $endDate: Long!, $timezone: String) @api(name: controlPanel) {
