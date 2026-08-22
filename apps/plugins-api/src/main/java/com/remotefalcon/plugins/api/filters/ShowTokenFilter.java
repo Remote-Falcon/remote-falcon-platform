@@ -45,7 +45,14 @@ public class ShowTokenFilter implements ContainerRequestFilter {
       return;
     }
 
-    Optional<Show> showOptional = this.showRepository.findByShowToken(showToken);
+    // Heartbeat fast path: /fppHeartbeat only reads showToken +
+    // lastFppHeartbeat (PluginService.fppHeartbeat), and it's the
+    // highest-frequency plugin call (~every 30s per show fleet-wide).
+    // Loading the full filter projection for it moves votes/requests/
+    // sequences for nothing.
+    Optional<Show> showOptional = path.endsWith("/fppHeartbeat")
+        ? this.showRepository.findHeartbeatSliceByShowToken(showToken)
+        : this.showRepository.findByShowToken(showToken);
     if (showOptional.isEmpty()) {
       requestContext.abortWith(
           Response.status(Response.Status.NOT_FOUND)
