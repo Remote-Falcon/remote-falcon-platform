@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { Box, Button } from '@mui/material';
 import { Link as RouterLink, useParams } from 'react-router-dom';
@@ -26,14 +26,23 @@ const STATUS = {
 
 const VerifyEmail = () => {
   const { verifyEmail } = useAuth();
-  const { showToken } = useParams();
+  const { showToken, showSubdomain } = useParams();
   const [status, setStatus] = useState('verifying');
+  // A verification token is single-use and the mutation is not idempotent
+  // from an analytics standpoint, so this must run exactly once per token no
+  // matter how often the effect is re-entered - a re-rendering provider (the
+  // bug this replaces), React 18 StrictMode's dev double-mount, or a future
+  // dependency that stops being stable.
+  const submittedToken = useRef(null);
 
   useEffect(() => {
+    if (submittedToken.current === showToken) return undefined;
+    submittedToken.current = showToken;
+
     let cancelled = false;
     (async () => {
       try {
-        await verifyEmail(showToken);
+        await verifyEmail(showToken, showSubdomain);
         if (!cancelled) setStatus('verified');
       } catch {
         if (!cancelled) setStatus('error');
@@ -42,7 +51,7 @@ const VerifyEmail = () => {
     return () => {
       cancelled = true;
     };
-  }, [showToken, verifyEmail]);
+  }, [showToken, showSubdomain, verifyEmail]);
 
   const copy = STATUS[status];
 
