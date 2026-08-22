@@ -2,13 +2,25 @@ package com.remotefalcon.controlpanel.scheduler;
 
 import com.remotefalcon.controlpanel.service.ScheduledTaskService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
+
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ScheduledTaskController {
     private final ScheduledTaskService scheduledTaskService;
+    private final SchedulerLock schedulerLock;
+
+    // TTLs are shorter than their own cron interval so the next tick can always
+    // reclaim, but long enough to cover a normal run. Locks are never released
+    // early -- see SchedulerLock: holding for the TTL is what makes a duplicate
+    // run within the SAME tick impossible.
+    private static final Duration HEARTBEAT_LOCK_TTL = Duration.ofSeconds(50);
+    private static final Duration NIGHTLY_LOCK_TTL = Duration.ofMinutes(30);
 
     /**
      * FPP plugin-health alerting (Account Settings → Notifications toggle).
@@ -19,6 +31,9 @@ public class ScheduledTaskController {
      */
     @Scheduled(cron = "0 * * * * *")
     public void runTask() {
+        if (!schedulerLock.tryAcquire("fppHeartbeatTask", HEARTBEAT_LOCK_TTL)) {
+            return;
+        }
         scheduledTaskService.fppHeartbeatTask();
     }
 
@@ -32,6 +47,15 @@ public class ScheduledTaskController {
      */
     @Scheduled(cron = "0 0 3 * * ?")
     public void purgeStaleStats() {
+        // The heaviest job in the service: the retention sweep streams every
+        // show (~2,600 docs averaging ~130 KB) and the orphan purge is a
+        // deliberate unindexed pass. Running that once per replica is what put
+        // 29 of the last fortnight's control-panel pod starts inside this one
+        // UTC hour.
+        if (!schedulerLock.tryAcquire("nightlyMaintenance", NIGHTLY_LOCK_TTL)) {
+            log.info("Nightly maintenance already claimed by another replica, skipping");
+            return;
+        }
         scheduledTaskService.purgeStaleStatsForAllShows();
         scheduledTaskService.alarmOnOversizedShows();
         scheduledTaskService.purgeOrphanedFppHealthNotifications();

@@ -51,6 +51,54 @@ public class ScheduledTaskService {
     // always-false and floods the bell every minute.
     static final int MIN_RENOTIFY_MINUTES = 5;
 
+    /**
+     * Renotify cadence for an ongoing outage: the show's own interval, then
+     * doubling. With the default 30 that is 5m (the stale threshold, first
+     * alert), 30m, 1h, 2h, 4h, 8h, 16h, 32h -- 8 alerts across the 48h window
+     * instead of the 96 a fixed 30-minute cadence produced.
+     *
+     * <p>Why this changed (prod measurement 2026-08-22): ~40 shows were
+     * generating ~3,000 alerts/day. Two causes, and the fixed cadence was the
+     * bigger one -- 96 notifications about a single unplugged Pi is both
+     * useless to the operator and ~192 rewrites of a ~130 KB Show document,
+     * since each send is a $pull plus a $push on showNotifications. The other
+     * cause was cross-replica duplication, fixed by
+     * {@link com.remotefalcon.controlpanel.scheduler.SchedulerLock}.
+     *
+     * <p>Detection speed is deliberately unchanged: the FIRST alert still
+     * fires as soon as the show crosses HEARTBEAT_STALE_MINUTES. Backoff only
+     * thins the repeats. A show that lowered its interval to the
+     * MIN_RENOTIFY_MINUTES floor still gets faster EARLY alerts (5m, 10m, 20m,
+     * 40m ...) -- which is what that setting is for -- without the 279
+     * alerts/day one such show was producing.
+     *
+     * <p>No new persisted state. lastFppHeartbeat freezes the instant a plugin
+     * dies (the dedup uuid already depends on that), so outage age is exactly
+     * derivable, and the step already alerted for is derivable from the
+     * existing fppHeartbeatLastNotification.
+     */
+    static int backoffStep(long outageMinutes, int renotifyMinutes) {
+        // Clamp here as well as at the call site, and not just for tidiness: a
+        // persisted 0 (the crafted-GraphQL case MIN_RENOTIFY_MINUTES exists to
+        // stop) would make the doubling loop below spin on threshold 0 forever,
+        // inside a task that runs every minute. Total function, no bad input.
+        int base = Math.max(renotifyMinutes, MIN_RENOTIFY_MINUTES);
+        if (outageMinutes < HEARTBEAT_STALE_MINUTES) {
+            return -1; // not alertable yet, or the stamp predates this outage
+        }
+        if (outageMinutes < base) {
+            return 0; // the first alert, at the stale threshold
+        }
+        long windowMinutes = HEARTBEAT_OUTAGE_WINDOW_HOURS * 60L;
+        int step = 1;
+        long threshold = base;
+        while (threshold < windowMinutes && outageMinutes >= threshold * 2L) {
+            threshold *= 2L;
+            step++;
+        }
+        return step;
+    }
+
     private static final Document FPP_HEALTH_PULL =
             new Document("notification.type", NotificationType.FPP_HEALTH.name());
 
@@ -68,17 +116,29 @@ public class ScheduledTaskService {
                             ? prefs.getFppHeartbeatRenotifyAfterMinutes()
                             : DEFAULT_RENOTIFY_MINUTES,
                     MIN_RENOTIFY_MINUTES);
-            boolean shouldSendPush = true;
-            if (prefs.getFppHeartbeatLastNotification() != null
-                    && prefs.getFppHeartbeatLastNotification().isAfter(now.minusMinutes(renotifyMinutes - 1L))) {
-                shouldSendPush = false;
+            // Exponential backoff keyed on how long THIS outage has run, not on
+            // wall-clock since the last send. Both ends are measured from the
+            // frozen lastFppHeartbeat, so the step already notified for is
+            // recoverable from existing state and no schema field is needed.
+            long outageMinutes = Duration.between(show.getLastFppHeartbeat(), now).toMinutes();
+            int currentStep = backoffStep(outageMinutes, renotifyMinutes);
+            int notifiedStep = -1;
+            if (prefs.getFppHeartbeatLastNotification() != null) {
+                // Negative when the stamp predates this outage (the plugin
+                // recovered and died again) -- backoffStep maps that to -1, so
+                // a fresh outage correctly alerts immediately.
+                notifiedStep = backoffStep(
+                        Duration.between(show.getLastFppHeartbeat(),
+                                prefs.getFppHeartbeatLastNotification()).toMinutes(),
+                        renotifyMinutes);
             }
+            boolean shouldSendPush = currentStep > notifiedStep;
             if (Boolean.TRUE.equals(prefs.getFppHeartbeatIfControlEnabled())
                     && !Boolean.TRUE.equals(show.getPreferences().getViewerControlEnabled())) {
                 shouldSendPush = false;
             }
             if (shouldSendPush) {
-                long minutesDiff = Duration.between(show.getLastFppHeartbeat(), now).toMinutes();
+                long minutesDiff = outageMinutes;
                 Notification notification = Notification.builder()
                         .subject("FPP Plugin Health")
                         .preview("FPP Plugin last checked in " + minutesDiff + " minutes ago")
@@ -110,7 +170,8 @@ public class ScheduledTaskService {
                         new Update().push("showNotifications", showNotification)
                                 .set("preferences.notificationPreferences.fppHeartbeatLastNotification", now),
                         Show.class);
-                log.info("Sent FPP heartbeat notification to {}", show.getShowName());
+                log.info("Sent FPP heartbeat notification to {} (outage {}m, backoff step {})",
+                        show.getShowName(), outageMinutes, currentStep);
             }
         });
 
