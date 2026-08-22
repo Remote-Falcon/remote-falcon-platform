@@ -15,6 +15,21 @@ export const isHostedBuild = !!import.meta.env.VITE_PUBLIC_POSTHOG_KEY;
 // Every identity-affecting helper below checks this.
 export const isImpersonationSession = () => !!safeStorage.getItem('isImpersonating');
 
+// The show subdomain is the ONLY key that joins a browser-side `sign_up` to
+// the `email_verified` that follows it. Those two events almost never share a
+// PostHog person: `person_profiles: 'identified_only'` gives anonymous events
+// a deterministic id derived from the device's distinct_id and never merges
+// them, and the verification link is routinely opened on a different device
+// (mail app WebView, phone vs desktop). Funnels across the pair must aggregate
+// on this property, not on the person.
+//
+// Derivation mirrors the server, which is the authority: showSubdomain is
+// `showName.replaceAll("\\s", "").toLowerCase()` at BOTH sites in
+// GraphQLMutationService.java (signUp and the show-name change). If that rule
+// ever changes, change it here in the same commit or the funnel silently
+// stops joining.
+export const deriveShowSubdomain = (showName) => (showName ? showName.replace(/\s/g, '').toLowerCase() : '');
+
 export const trackPosthogEvent = (name, data = {}) => {
   if (import.meta.env?.MODE !== 'production') {
     // eslint-disable-next-line no-console

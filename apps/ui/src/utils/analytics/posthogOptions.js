@@ -6,6 +6,11 @@
  * most of PostHog's automatic capture is expensive noise there.
  */
 const viewerCaptureOverrides = {
+  // Viewer pages are a single route with no client-side navigation, so
+  // history_change would never fire. Pinned back to the page-load-only
+  // default so this surface's event volume is unchanged by the control
+  // panel's SPA pageview fix below.
+  capture_pageview: true,
   // ~9.4k sessions/mo at 1-5 MB per recording. Never deliberately enabled for
   // viewers — it came on by itself via remote config.
   disable_session_recording: true,
@@ -55,6 +60,17 @@ export const buildPosthogOptions = ({ onViewerPage }) => ({
   // $pageview/$pageleave stay on everywhere: they're what PostHog Web Analytics
   // (sessions, bounce rate, referrers) is built from, and dropping them would
   // remove viewer traffic from it entirely.
+
+  // The control panel is a react-router SPA, and posthog-js' legacy default
+  // ($config_defaults unset => capture_pageview: true) fires $pageview only on
+  // a full page load. Every in-app route was therefore invisible to Web
+  // Analytics: 1,193 pageviews against 16,804 autocaptures in Aug 2026 (~1.7
+  // vs ~24 per person), and /signup showed 14 persons against 46 real signups
+  // because operators land on / and click through. 'history_change' patches
+  // pushState/replaceState and listens for popstate, capturing $pageview on
+  // pathname changes. Set explicitly rather than via the `defaults` bundle so
+  // it can't drag other behaviour changes in with it.
+  capture_pageview: 'history_change',
 
   ...(onViewerPage ? viewerCaptureOverrides : {})
 });

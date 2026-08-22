@@ -34,9 +34,17 @@ describe('buildPosthogOptions', () => {
       expect(viewer.capture_performance).toEqual({ web_vitals: true });
     });
 
-    it('leaves $pageview/$pageleave alone so viewer traffic stays in Web Analytics', () => {
-      expect(viewer.capture_pageview).toBeUndefined();
+    it('leaves $pageleave alone so viewer traffic stays in Web Analytics', () => {
       expect(viewer.capture_pageleave).toBeUndefined();
+    });
+
+    // A viewer page is one route with no client-side navigation, so
+    // history_change would never fire there anyway. Pinning it back to the
+    // page-load-only default keeps this surface's volume identical to what it
+    // was before the control panel's SPA pageview fix — worth an assertion,
+    // because viewers out-session the control panel ~4.7 to 1.
+    it('keeps page-load-only pageviews, unaffected by the control panel SPA fix', () => {
+      expect(viewer.capture_pageview).toBe(true);
     });
   });
 
@@ -47,6 +55,12 @@ describe('buildPosthogOptions', () => {
         expect(controlPanel[key]).toBeUndefined();
       }
     );
+
+    // posthog-js' legacy default fires $pageview only on a full page load, so
+    // every react-router route change was invisible to Web Analytics.
+    it('captures $pageview on SPA route changes', () => {
+      expect(controlPanel.capture_pageview).toBe('history_change');
+    });
   });
 
   it('routes ingest through the same-origin relay on both surfaces', () => {

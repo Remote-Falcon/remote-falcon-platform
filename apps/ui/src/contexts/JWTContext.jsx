@@ -1,6 +1,6 @@
 import { Buffer } from 'buffer';
 
-import { createContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useEffect, useState } from 'react';
 import { usePostHog } from 'posthog-js/react';
 
 import { useLazyQuery, useMutation, useApolloClient } from '@apollo/client';
@@ -17,7 +17,7 @@ import { StatusResponse } from '../utils/enum';
 import safeStorage from '../utils/safeStorage';
 import { SIGN_UP, VERIFY_EMAIL, FORGOT_PASSWORD, RESET_PASSWORD } from '../utils/graphql/controlPanel/mutations';
 import { SIGN_IN, GET_SHOW, VERIFY_MFA } from '../utils/graphql/controlPanel/queries';
-import { isImpersonationSession, trackPosthogEvent } from '../utils/analytics/posthog';
+import { deriveShowSubdomain, isImpersonationSession, trackPosthogEvent } from '../utils/analytics/posthog';
 import { showAlert } from '../views/pages/globalPageHelpers';
 
 const verifyToken = (serviceToken) => {
@@ -288,7 +288,11 @@ export const JWTProvider = ({ children }) => {
       },
       onCompleted: () => {
         trackPosthogEvent('sign_up', {
-          show_name: showName
+          show_name: showName,
+          // Join key for the signup -> verification funnel. See
+          // deriveShowSubdomain — these two events land on different
+          // PostHog persons, so the funnel aggregates on this instead.
+          show_subdomain: deriveShowSubdomain(showName)
         });
         showAlert(dispatch, { id: 'snackbar-sign-up', message: `A verification email has been sent to ${email}` });
         setTimeout(() => {
@@ -307,28 +311,42 @@ export const JWTProvider = ({ children }) => {
     });
   };
 
-  const verifyEmail = async (showToken) => {
-    await verifyEmailMutation({
-      context: {
-        headers: {
-          Route: 'Control-Panel'
+  // useCallback is load-bearing, not an optimization. VerifyEmail runs this
+  // from a useEffect that lists it as a dependency; while it was rebuilt on
+  // every provider render, each completion re-rendered the provider, handed
+  // down a fresh identity, and re-fired the effect. That loop ran the mutation
+  // 50-90 times per verification (86 email_verified events in 3.0s on one
+  // session) until the old 3s auto-navigate tore the page down.
+  //
+  // showSubdomain comes from the route (/verifyEmail/:showToken/:showSubdomain)
+  // so it is the server's own value, not a re-derivation.
+  const verifyEmail = useCallback(
+    async (showToken, showSubdomain) => {
+      await verifyEmailMutation({
+        context: {
+          headers: {
+            Route: 'Control-Panel'
+          }
+        },
+        variables: {
+          showToken
+        },
+        onCompleted: () => {
+          trackPosthogEvent('email_verified', { show_subdomain: showSubdomain });
+          showAlert(dispatch, { message: 'Email successfully verified' });
+          // Deliberately no auto-navigate: VerifyEmail renders an explicit
+          // "Sign in" button on success. Bouncing the page out after 3s hid
+          // that the verification had worked, and operators re-clicked the
+          // emailed link to check - one show was verified from 5 separate
+          // profiles over 4.5 hours that way.
+        },
+        onError: () => {
+          showAlert(dispatch, { alert: 'error' });
         }
-      },
-      variables: {
-        showToken
-      },
-      onCompleted: () => {
-        trackPosthogEvent('email_verified');
-        showAlert(dispatch, { message: 'Email successfully verified' });
-        setTimeout(() => {
-          navigate('/signin', { replace: true });
-        }, 3000);
-      },
-      onError: () => {
-        showAlert(dispatch, { alert: 'error' });
-      }
-    });
-  };
+      });
+    },
+    [verifyEmailMutation, dispatch]
+  );
 
   const sendResetPassword = async (email) => {
     await forgotPasswordMutation({
