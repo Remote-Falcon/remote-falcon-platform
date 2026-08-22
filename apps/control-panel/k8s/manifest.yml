@@ -199,3 +199,20 @@ spec:
         target:
           type: Utilization
           averageUtilization: 70
+  # Damp the HPA. Utilization is measured against the REQUEST (200m), and the
+  # dashboard's 5s polls are spiky, so without a scale-down window the HPA
+  # flaps replicas on every poll burst. Scale up fast (1 pod/min, no wait),
+  # scale down slowly (1 pod / 2 min after a 5-min quiet window).
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120

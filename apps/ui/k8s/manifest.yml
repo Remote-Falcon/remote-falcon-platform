@@ -40,7 +40,10 @@ spec:
           httpGet:
             path: /health.json
             port: 3000
-          failureThreshold: 120
+          # Static file server — up in seconds. 5s x 24 = 2 min ceiling; the
+          # old default-period 10s x 120 allowed a 20-minute silent hang.
+          periodSeconds: 5
+          failureThreshold: 24
         livenessProbe:
           httpGet:
             path: /health.json

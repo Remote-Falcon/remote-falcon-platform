@@ -45,8 +45,8 @@ This is the operator's map of the Remote Falcon stack: every service, what it do
 | **Purpose** | Frontend SPA — control panel UI plus public viewer pages on per-show subdomains |
 | **Stack** | Vite + React, served by Node 22 in the production image |
 | **Container port** | 3000 |
-| **Replicas** | 1 |
-| **Resources** | req 64Mi / 5m → lim 128Mi / 100m |
+| **Replicas** | 2 |
+| **Resources** | req 64Mi / 20m → lim 128Mi / 100m |
 | **Ingress** | Host `remotefalcon.com` (path `/`) **and** subdomain catch-all `*.remotefalcon.com` (path `/`) |
 | **Health probe** | `GET /health.json` |
 | **Talks to** | Control Panel API, Viewer API (URLs baked in at build time) |
@@ -62,7 +62,7 @@ This is the operator's map of the Remote Falcon stack: every service, what it do
 | **Stack** | Spring Cloud Gateway, Java 17 (JVM JAR — the only non-native service) |
 | **Container port** | 8080 |
 | **Replicas** | 2 |
-| **Resources** | req 1000Mi / 750m → lim 1250Mi / 1000m (largest footprint in the stack) |
+| **Resources** | req 384Mi / 100m → lim 1250Mi / 1000m (limits untouched — the JVM sizes its heap from the container limit) |
 | **Ingress** | Host `remotefalcon.com`, path prefix `/remote-falcon-gateway` |
 | **Health probe** | `GET /actuator/health` |
 | **Talks to** | Downstream services (config in app properties) |
@@ -76,8 +76,8 @@ This is the operator's map of the Remote Falcon stack: every service, what it do
 | **Purpose** | Authenticated REST + GraphQL API for show owners (auth, account mgmt, sequence config, integrations) |
 | **Stack** | Spring Boot 3, Java 21 GraalVM **native image** |
 | **Container port** | 8080 |
-| **Replicas** | 1 |
-| **Resources** | req 256Mi / 100m → lim 512Mi / 500m |
+| **Replicas** | 2 (HPA: min 2, max 4, scale at 70% CPU, damped scale-down) |
+| **Resources** | req 256Mi / 200m → lim 512Mi / 500m |
 | **Ingress** | Host `remotefalcon.com`, path prefix `/remote-falcon-control-panel` (proxy body size: 3 MB) |
 | **Health probe** | `GET /remote-falcon-control-panel/actuator/health` |
 | **Talks to** | MongoDB, GitHub (PAT), SendGrid, S3 (DigitalOcean Spaces), OpenAI / "Wattson" |
@@ -91,8 +91,8 @@ This is the operator's map of the Remote Falcon stack: every service, what it do
 | **Purpose** | Public viewer-facing API — current/next sequence, request/vote, page stats, geo-fencing, blocked-IP rules |
 | **Stack** | Quarkus + SmallRye GraphQL + RESTEasy, Java 21 native image |
 | **Container port** | 8080 |
-| **Replicas** | 1 (HPA: min 1, max 1, scale at 85% CPU — effectively pinned today) |
-| **Resources** | req 160Mi / 50m → lim 320Mi / 500m |
+| **Replicas** | 1 (HPA: min 1, max 3, scale at 85% CPU) |
+| **Resources** | req 160Mi / 100m → lim 320Mi / 500m |
 | **Ingress** | Host `remotefalcon.com`, path prefix `/remote-falcon-viewer` (forwarded headers enabled for client-IP) |
 | **Health probe** | `GET /remote-falcon-viewer/q/health{,/live,/ready}` |
 | **Talks to** | MongoDB |
@@ -107,8 +107,8 @@ This is the operator's map of the Remote Falcon stack: every service, what it do
 | **Purpose** | API consumed by the FPP / show plugins — playlist sync, viewer control modes, votes, "what's playing" updates |
 | **Stack** | Quarkus, Java 21 native image |
 | **Container port** | 8080 |
-| **Replicas** | 1 (HPA: min 1, max 1, scale at 85% CPU) |
-| **Resources** | req 192Mi / 150m → lim 384Mi / 750m |
+| **Replicas** | 1 (HPA: min 1, max 3, scale at 85% CPU) |
+| **Resources** | req 192Mi / 200m → lim 384Mi / 750m |
 | **Ingress** | Host `remotefalcon.com`, path prefixes `/remote-falcon-plugins-api(...)` **and** `/remotefalcon/api(...)` (rewrite-target) |
 | **Health probe** | `GET /q/health{,/live,/ready}` |
 | **Talks to** | MongoDB |
@@ -122,7 +122,7 @@ This is the operator's map of the Remote Falcon stack: every service, what it do
 | **Purpose** | Third-party / external integrations API (GraphQL surface) for partners **plus** the RFPB-facing `/v1/**` REST surface (viewer-page CRUD + session exchange) |
 | **Stack** | Spring Boot 3, Java 21 native image |
 | **Container port** | 8080 |
-| **Replicas** | 1 |
+| **Replicas** | 2 (HPA: min 2, max 4, scale at 70% CPU) |
 | **Resources** | req 256Mi / 100m → lim 512Mi / 500m |
 | **Ingress** | Host `remotefalcon.com`, paths `/remote-falcon-external-api(...)` **and** `/remotefalcon/api/external(...)` (rewrite-target) |
 | **Health probe** | `GET /actuator/health` |
@@ -184,7 +184,7 @@ Sanitized — no path echo, no header echo, no exception message. The 412 confli
 | **Stack** | Quarkus, Java 21 native image |
 | **Container port** | 8080 |
 | **Replicas** | 1 |
-| **Resources** | req 64Mi / 10m → lim 128Mi / 100m |
+| **Resources** | req 64Mi / 10m → lim 384Mi / 100m |
 | **Ingress** | none — internal Service only (`ClusterIP` on 8080, no Ingress resource) |
 | **Health probe** | `GET /remote-falcon-account-archive/q/health{,/live,/ready}` |
 | **Talks to** | MongoDB |
