@@ -1328,27 +1328,71 @@ class GraphQLMutationServiceTest {
     }
 
     // ---- adminUpdateShow ----
+    //
+    // These pin the targeted-update contract that replaced the full-document
+    // save(). The old implementation erased every field absent from ShowInput
+    // (stats, viewerSessions, notifications, heartbeat state, the PRD-013
+    // consent pair) on every admin edit; the tests it had only pinned
+    // id/password carry-over, which is why the wipe ran unnoticed.
 
     @Test
-    void adminUpdateShow_preservesExistingIdAndPassword_onSave() {
-        Show existing = Show.builder().id("mongo-id-1").password("hashed").showToken("tok-admin").build();
-        Show incoming = Show.builder().showToken("tok-admin").email("changed@x.com").password("attack-pw").build();
-        when(showRepository.findByShowToken("tok-admin")).thenReturn(Optional.of(existing));
+    void adminUpdateShow_writesOnlyProvidedFields_neverServerOwnedState() {
+        // password set on the incoming object simulates a crafted payload —
+        // ShowInput has no password field, but defense-in-depth: nothing the
+        // caller sends may reach password/mfa/consent/telemetry.
+        Show incoming = Show.builder().showToken("tok-admin")
+                .email("changed@x.com").password("attack-pw").build();
 
         assertThat(service.adminUpdateShow(incoming)).isTrue();
-        ArgumentCaptor<Show> saved = ArgumentCaptor.forClass(Show.class);
-        verify(showRepository).save(saved.capture());
-        assertThat(saved.getValue().getId()).isEqualTo("mongo-id-1");
-        // Password from DB, NOT what the caller tried to inject.
-        assertThat(saved.getValue().getPassword()).isEqualTo("hashed");
-        assertThat(saved.getValue().getEmail()).isEqualTo("changed@x.com");
+
+        verify(showRepository, never()).save(any(Show.class));
+        verify(showRepository, never()).findByShowToken(any());
+        ArgumentCaptor<org.springframework.data.mongodb.core.query.Update> cap =
+                ArgumentCaptor.forClass(org.springframework.data.mongodb.core.query.Update.class);
+        verify(mongoTemplate).updateFirst(
+                any(org.springframework.data.mongodb.core.query.Query.class),
+                cap.capture(), eq(Show.class));
+        Document set = cap.getValue().getUpdateObject().get("$set", Document.class);
+        assertThat(set).containsEntry("email", "changed@x.com");
+        assertThat(set).doesNotContainKeys(
+                "password", "mfa", "serviceToken", "id", "_id",
+                "stats", "viewerSessions", "showNotifications",
+                "heartbeatGaps", "versionChanges", "lastFppHeartbeat",
+                "marketingOptIn", "optInUpdatedAt",
+                "passwordResetLink", "passwordResetExpiry");
     }
 
     @Test
-    void adminUpdateShow_noop_whenShowTokenMissing_andReturnsTrue() {
-        Show incoming = Show.builder().showToken("nope").build();
-        when(showRepository.findByShowToken("nope")).thenReturn(Optional.empty());
+    void adminUpdateShow_nullInputFields_leaveStoredValuesUntouched() {
+        Show incoming = Show.builder().showToken("tok-admin")
+                .showName("Renamed").build(); // everything else null
+
         assertThat(service.adminUpdateShow(incoming)).isTrue();
+
+        ArgumentCaptor<org.springframework.data.mongodb.core.query.Update> cap =
+                ArgumentCaptor.forClass(org.springframework.data.mongodb.core.query.Update.class);
+        verify(mongoTemplate).updateFirst(
+                any(org.springframework.data.mongodb.core.query.Query.class),
+                cap.capture(), eq(Show.class));
+        Document set = cap.getValue().getUpdateObject().get("$set", Document.class);
+        assertThat(set.keySet()).containsExactly("showName");
+    }
+
+    @Test
+    void adminUpdateShow_tokenOnlyPayload_writesNothing() {
+        assertThat(service.adminUpdateShow(Show.builder().showToken("tok-admin").build())).isTrue();
+        verify(mongoTemplate, never()).updateFirst(
+                any(org.springframework.data.mongodb.core.query.Query.class),
+                any(org.springframework.data.mongodb.core.query.Update.class), eq(Show.class));
+        verify(showRepository, never()).save(any(Show.class));
+    }
+
+    @Test
+    void adminUpdateShow_blankToken_isQuietNoop() {
+        assertThat(service.adminUpdateShow(Show.builder().email("x@y.z").build())).isTrue();
+        verify(mongoTemplate, never()).updateFirst(
+                any(org.springframework.data.mongodb.core.query.Query.class),
+                any(org.springframework.data.mongodb.core.query.Update.class), eq(Show.class));
         verify(showRepository, never()).save(any(Show.class));
     }
 
