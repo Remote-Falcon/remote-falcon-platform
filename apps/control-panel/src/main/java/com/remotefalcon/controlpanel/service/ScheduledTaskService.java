@@ -3,12 +3,14 @@ package com.remotefalcon.controlpanel.service;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.Date;
-import java.util.Iterator;
 import java.util.List;
 import java.util.UUID;
-import java.util.stream.Stream;
+
+import com.mongodb.client.result.UpdateResult;
 
 import com.remotefalcon.controlpanel.repository.ShowRepository;
 import com.remotefalcon.library.documents.Notification;
@@ -30,7 +32,6 @@ import org.springframework.stereotype.Service;
 @Slf4j
 public class ScheduledTaskService {
     private final ShowRepository showRepository;
-    private final GraphQLMutationService graphQLMutationService;
     private final MongoTemplate mongoTemplate;
 
     // Heartbeat considered dropped after this long without a check-in. Matches
@@ -232,67 +233,166 @@ public class ScheduledTaskService {
         }
     }
 
+    static final int STATS_RETENTION_MONTHS = 18;
     /**
-     * Iterates every show via a streaming Mongo cursor and applies the 18-month
-     * stats retention policy one document at a time. Uses {@link MongoTemplate#stream}
-     * (not {@code findAll}) to avoid materializing the full collection in memory:
-     * populated show documents average ~130 KB, so 1000+ shows would otherwise
-     * exceed the control-panel pod's 512 Mi memory limit.
+     * Votes are only meaningful within a single show session (the vote cap is
+     * session-anchored by design), so any entry a full day old is stranded.
+     * This is the guarantee that the 2026-08-22 whale cannot recur: one show
+     * accumulated 6,066 stale systemInjected PSA votes (~3 MB), which made
+     * every read AND every read-modify-save() on that document take seconds.
+     * The exact leak path is jukebox-mode PSA votes with no plugin consuming;
+     * this expiry bounds the array for every show regardless of leak path.
+     */
+    static final int VOTES_MAX_AGE_HOURS = 24;
+
+    /**
+     * Nightly retention, entirely server-side: one {@code updateMulti} whose
+     * {@code $pull}s prune every retention-bounded array in place.
+     *
+     * <p>This replaces a streaming loop that read every show UNPROJECTED
+     * (~2,600 docs x ~130 KB = ~340 MB decoded nightly) and wrote each changed
+     * show back with a full-document {@code save()} - the exact lost-update
+     * hazard every other write path in this service was already converted away
+     * from: a request queued or vote cast between that read and write was
+     * silently reverted for any show live during the sweep. Server-side pulls
+     * move zero documents over the wire and race nothing.
+     *
+     * <p>Stats/viewerSessions cutoffs use {@code $lt}, which by BSON type
+     * bracketing does NOT match a null/missing dateTime - malformed legacy
+     * entries are left in place, inert, instead of aborting the sweep. The
+     * votes cutoff deliberately inverts that: {@code $not $gte} matches
+     * old, null, AND missing lastVoteTime, because a vote without a readable
+     * age is exactly the stranded junk the expiry exists to remove.
+     *
+     * <p>Cutoff conversion uses the system default zone on purpose: Spring
+     * Data's Jsr310 write converter stores these zone-naive LocalDateTimes
+     * via the system zone, so the read-side condition must mirror it. In the
+     * prod pod both are UTC; in local tests both are the developer's zone -
+     * symmetric either way.
      */
     public void purgeStaleStatsForAllShows() {
-        int swept = 0;
-        int errored = 0;
         long startMillis = System.currentTimeMillis();
-        try (Stream<Show> shows = mongoTemplate.stream(new Query(), Show.class)) {
-            Iterator<Show> it = shows.iterator();
-            while (it.hasNext()) {
-                Show show = it.next();
-                try {
-                    graphQLMutationService.purgeStatsForShow(show);
-                    swept++;
-                } catch (Exception e) {
-                    log.warn("Stats retention sweep failed for show {}: {}",
-                            show.getShowToken(), e.getMessage());
-                    errored++;
-                }
-            }
-        }
-        log.info("Stats retention sweep complete: {} shows processed, {} errored, {} ms",
-                swept, errored, System.currentTimeMillis() - startMillis);
+        Date statsCutoff = Date.from(LocalDateTime.now().minusMonths(STATS_RETENTION_MONTHS)
+                .atZone(ZoneId.systemDefault()).toInstant());
+        Date votesCutoff = Date.from(LocalDateTime.now().minusHours(VOTES_MAX_AGE_HOURS)
+                .atZone(ZoneId.systemDefault()).toInstant());
+
+        Update pulls = new Update()
+                .pull("stats.page", new Document("dateTime", new Document("$lt", statsCutoff)))
+                .pull("stats.jukebox", new Document("dateTime", new Document("$lt", statsCutoff)))
+                .pull("stats.voting", new Document("dateTime", new Document("$lt", statsCutoff)))
+                .pull("stats.votingWin", new Document("dateTime", new Document("$lt", statsCutoff)))
+                // PRD-013-era arrays that had NO retention anywhere (the
+                // ViewerSession javadoc claimed an 18-month trim that was
+                // never written - this is that trim, finally real).
+                .pull("viewerSessions", new Document("lastSeen", new Document("$lt", statsCutoff)))
+                .pull("votes", new Document("lastVoteTime",
+                        new Document("$not", new Document("$gte", votesCutoff))));
+
+        UpdateResult result = mongoTemplate.updateMulti(new Query(), pulls, Show.class);
+        log.info("Stats retention sweep complete: {} of {} shows modified, {} ms",
+                result.getModifiedCount(), result.getMatchedCount(),
+                System.currentTimeMillis() - startMillis);
     }
 
     // ~75% of Mongo's hard 16 MB BSON document cap. A Show that crosses 16 MB
     // becomes unreadable AND unwritable (DocumentTooLargeError) — a total outage
     // for that show with no automatic recovery — so we warn well before the cliff.
     static final long DOC_SIZE_WARN_BYTES = 12L * 1024 * 1024;
+    // Independent UX-degradation alarm: the 2026-08-22 whale made every
+    // operation on its show take seconds at only ~3 MB, far below the size
+    // alarm. Fleet norm for `votes` is one entry per sequence carrying votes
+    // (0-6 observed); crossing this means entries are stranding, not voting.
+    static final int VOTES_COUNT_ALARM = 1_000;
+
+    // Per-entry BSON size estimates, derived from the model classes' wire
+    // encodings (2026-08-22 data-model audit). Vote and Request embed a full
+    // Sequence, hence the larger conservative figures.
+    private static final Document EST_BYTES_EXPR = estimatedBytesExpression();
 
     /**
-     * Catch-all safety net for the 16 MB document-size cliff. Computes each show's
-     * BSON size server-side ({@code $bsonSize}) and logs a WARN for any show over
-     * {@link #DOC_SIZE_WARN_BYTES}, regardless of which field is the culprit
-     * (stats, viewer-page HTML, votes, etc.). The observability layer alerts on this
-     * log line. Runs nightly right after the retention sweep so the size reflects
-     * the post-prune reality. Read-only and cheap — no document is materialized in
-     * the JVM; only {showToken, showSubdomain, bytes} for the few oversized shows.
+     * Catch-all safety net for the 16 MB document-size cliff, plus a
+     * votes-bloat tripwire.
+     *
+     * <p>The previous implementation measured {@code $bsonSize}, which returns
+     * null on DigitalOcean Managed MongoDB 8.0 — so its {@code $match} matched
+     * nothing and it logged "0 show(s) over 12 MB" every night unconditionally,
+     * including any night a show actually crossed the cliff. This version
+     * estimates size from array lengths (times audited per-entry BSON
+     * constants) plus the REAL byte length of embedded viewer-page HTML via
+     * {@code $strLenBytes} — all operators that work on this cluster.
+     *
+     * <p>An estimate is the right tool here: the alarm's job is a loud early
+     * warning with a named culprit, not an audit-grade byte count. Runs
+     * nightly right after the retention sweep so it reflects post-prune
+     * reality. Returns the flagged shows so tests can assert on them directly.
      */
-    public void alarmOnOversizedShows() {
+    public List<Document> alarmOnOversizedShows() {
         var pipeline = List.of(
                 new Document("$project", new Document("showToken", 1)
                         .append("showSubdomain", 1)
-                        .append("bytes", new Document("$bsonSize", "$$ROOT"))),
-                new Document("$match", new Document("bytes", new Document("$gt", DOC_SIZE_WARN_BYTES))),
-                new Document("$sort", new Document("bytes", -1)));
-        int oversized = 0;
+                        .append("votesCount", sizeOf("$votes"))
+                        .append("estBytes", EST_BYTES_EXPR)),
+                new Document("$match", new Document("$or", List.of(
+                        new Document("estBytes", new Document("$gt", DOC_SIZE_WARN_BYTES)),
+                        new Document("votesCount", new Document("$gt", VOTES_COUNT_ALARM))))),
+                new Document("$sort", new Document("estBytes", -1)));
+        List<Document> flagged = new ArrayList<>();
         for (Document d : mongoTemplate.getCollection("show").aggregate(pipeline)) {
-            long bytes = d.get("bytes") instanceof Number n ? n.longValue() : 0L;
-            log.warn("DOC_SIZE_ALARM show '{}' ({}) is {} MB ({}% of the 16 MB MongoDB document cap) — "
-                            + "approaching the hard limit; a doc over 16 MB becomes unreadable/unwritable.",
-                    d.getString("showSubdomain"), d.getString("showToken"),
-                    String.format("%.1f", bytes / 1048576.0),
-                    String.format("%.0f", bytes / (16.0 * 1048576) * 100));
-            oversized++;
+            long bytes = d.get("estBytes") instanceof Number n ? n.longValue() : 0L;
+            int votes = d.get("votesCount") instanceof Number n ? n.intValue() : 0;
+            if (bytes > DOC_SIZE_WARN_BYTES) {
+                log.warn("DOC_SIZE_ALARM show '{}' ({}) is ~{} MB estimated ({}% of the 16 MB MongoDB "
+                                + "document cap) — approaching the hard limit; a doc over 16 MB becomes "
+                                + "unreadable/unwritable.",
+                        d.getString("showSubdomain"), d.getString("showToken"),
+                        String.format("%.1f", bytes / 1048576.0),
+                        String.format("%.0f", bytes / (16.0 * 1048576) * 100));
+            } else {
+                log.warn("DOC_SIZE_ALARM show '{}' ({}) has {} votes entries (fleet norm 0-6) — "
+                                + "stale votes are stranding; every operation on this show slows "
+                                + "with each one. See the votes expiry in the retention sweep.",
+                        d.getString("showSubdomain"), d.getString("showToken"), votes);
+            }
+            flagged.add(d);
         }
-        log.info("Document-size alarm sweep complete: {} show(s) over {} MB",
-                oversized, DOC_SIZE_WARN_BYTES / (1024 * 1024));
+        log.info("Document-size alarm sweep complete: {} show(s) flagged (est > {} MB or votes > {})",
+                flagged.size(), DOC_SIZE_WARN_BYTES / (1024 * 1024), VOTES_COUNT_ALARM);
+        return flagged;
+    }
+
+    /** {@code $size} with an {@code $ifNull} guard — {@code $size} on a missing field errors. */
+    private static Document sizeOf(String fieldRef) {
+        return new Document("$size", new Document("$ifNull", List.of(fieldRef, List.of())));
+    }
+
+    private static Document weighted(String fieldRef, int bytesPerEntry) {
+        return new Document("$multiply", List.of(sizeOf(fieldRef), bytesPerEntry));
+    }
+
+    private static Document estimatedBytesExpression() {
+        // Viewer-page HTML is the one field where a count is useless (a page is
+        // 1 byte to 1 MB), so measure it for real: sum of $strLenBytes over
+        // pages[].html.
+        Document pagesBytes = new Document("$sum", new Document("$map",
+                new Document("input", new Document("$ifNull", List.of("$pages", List.of())))
+                        .append("as", "p")
+                        .append("in", new Document("$strLenBytes",
+                                new Document("$ifNull", List.of("$$p.html", ""))))));
+        return new Document("$add", List.of(
+                pagesBytes,
+                weighted("$stats.page", 103),
+                weighted("$stats.jukebox", 109),
+                weighted("$stats.voting", 109),
+                weighted("$stats.votingWin", 69),
+                weighted("$stats.rejectedRequests", 138),
+                weighted("$viewerSessions", 159),
+                weighted("$activeViewers", 115),
+                weighted("$votes", 500),
+                weighted("$requests", 400),
+                weighted("$sequences", 332),
+                weighted("$showNotifications", 600),
+                // Fixed slack for scalars, preferences, and estimate error.
+                65_536));
     }
 }

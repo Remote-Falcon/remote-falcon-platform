@@ -38,20 +38,21 @@ public class ScheduledTaskController {
     }
 
     /**
-     * Nightly 03:00 UTC maintenance: (1) the 18-month stats retention sweep
-     * (streaming cursor, trims stats older than 18 months — replaces the
-     * dashboard-mount trigger removed in UI PR #67 / PERF-FIX-PLAN Phase 1), then
-     * (2) a document-size alarm that warns on any show approaching Mongo's 16 MB
-     * BSON cap (the catch-all safety net for the doc-bloat outage class). The
-     * alarm runs after the prune so it measures post-retention sizes.
+     * Nightly 09:00 UTC maintenance: (1) the retention sweep (server-side
+     * {@code $pull}s: 18-month stats + viewerSessions windows, 24 h votes
+     * expiry), then (2) the document-size / votes-bloat alarm, which runs
+     * after the prune so it measures post-retention reality.
+     *
+     * <p>09:00 UTC is deliberate. The job previously ran at 03:00 UTC, which
+     * is 22:00 Eastern — peak viewing hour for US shows in December, and the
+     * hour that held 29 of one fortnight's control-panel pod starts. 09:00 UTC
+     * is 04:00 ET / 01:00 PT: after the last West Coast show ends, before
+     * anything wakes up.
      */
-    @Scheduled(cron = "0 0 3 * * ?")
+    @Scheduled(cron = "0 0 9 * * ?")
     public void purgeStaleStats() {
-        // The heaviest job in the service: the retention sweep streams every
-        // show (~2,600 docs averaging ~130 KB) and the orphan purge is a
-        // deliberate unindexed pass. Running that once per replica is what put
-        // 29 of the last fortnight's control-panel pod starts inside this one
-        // UTC hour.
+        // Still the heaviest job in the service even now that the sweep is
+        // server-side: the orphan purge remains a deliberate unindexed pass.
         if (!schedulerLock.tryAcquire("nightlyMaintenance", NIGHTLY_LOCK_TTL)) {
             log.info("Nightly maintenance already claimed by another replica, skipping");
             return;
