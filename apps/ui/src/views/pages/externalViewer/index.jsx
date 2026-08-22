@@ -1084,7 +1084,7 @@ const ExternalViewerPage = () => {
   // react-helmet append a second one, because browsers don't reliably honor the later
   // tag when multiple <link rel="icon"> elements are present (issue #98).
   useEffect(() => {
-    const defaultIconHref = '/rf-icon.png';
+    const defaultIconHref = '/rf-favicon.png';
     const iconLink = document.getElementById('rf-favicon');
     if (!iconLink) return undefined;
     const desiredHref = show?.preferences?.pageIconUrl?.trim() || defaultIconHref;

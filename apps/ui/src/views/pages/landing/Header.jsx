@@ -111,21 +111,31 @@ const HeaderPage = () => {
 
           {/* Image column */}
           <Grid item xs={12} md={7} sx={{ display: { xs: 'none', md: 'flex' }, justifyContent: 'center' }}>
-            <Box
-              component="img"
-              src={jukebox}
-              alt="Remote Falcon"
-              sx={{
-                position: 'relative',
-                maxWidth: 760,
-                width: '100%',
-                maxHeight: 600,
-                height: 'auto',
-                objectFit: 'contain',
-                display: 'block',
-                filter: 'drop-shadow(0 20px 40px rgba(239,43,61,0.25))'
-              }}
-            />
+            {/* The column is display:none below md, but a plain <img> still
+                downloads its 578KB source on mobile — CSS hiding doesn't stop
+                the fetch. The <picture> serves a 1px data-URI below the md
+                breakpoint (900px) so phones never request the real asset. */}
+            <picture style={{ display: 'contents' }}>
+              <source
+                media="(max-width: 899.95px)"
+                srcSet="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=="
+              />
+              <Box
+                component="img"
+                src={jukebox}
+                alt="Remote Falcon"
+                sx={{
+                  position: 'relative',
+                  maxWidth: 760,
+                  width: '100%',
+                  maxHeight: 600,
+                  height: 'auto',
+                  objectFit: 'contain',
+                  display: 'block',
+                  filter: 'drop-shadow(0 20px 40px rgba(239,43,61,0.25))'
+                }}
+              />
+            </picture>
           </Grid>
         </Grid>
       </Container>
