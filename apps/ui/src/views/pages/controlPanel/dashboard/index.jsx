@@ -40,7 +40,7 @@ import {
   DELETE_NOW_PLAYING,
   UPDATE_PREFERENCES
 } from '../../../../utils/graphql/controlPanel/mutations';
-import { GET_SHOW, NOTIFICATIONS } from '../../../../utils/graphql/controlPanel/queries';
+import { GET_SHOW_DASHBOARD_POLL, NOTIFICATIONS } from '../../../../utils/graphql/controlPanel/queries';
 import { showAlert } from '../../globalPageHelpers';
 
 import LiveStatsRow from './LiveStatsRow';
@@ -142,20 +142,21 @@ const Dashboard = () => {
   // Redux `show.*` — queue rows, PSA/Leader chip classification, leader
   // settings, override pill, etc.
   //
-  // **Merge, don't replace.** GET_SHOW selects a subset of Show fields —
-  // notably it omits `timezone`. If we replaced the Redux show outright,
-  // timezone would null out and useDashboardLiveStats would short-circuit
-  // forever (it gates on show.timezone), parking the cards in their
-  // skeleton-loading state. The ref pattern is needed because onCompleted
+  // **Merge, don't replace.** GET_SHOW_DASHBOARD_POLL selects only the
+  // live-changing subset of Show fields — it omits `timezone`, pages[],
+  // apiAccess, and the identity scalars. If we replaced the Redux show
+  // outright, timezone would null out and useDashboardLiveStats would
+  // short-circuit forever (it gates on show.timezone), parking the cards
+  // in their skeleton-loading state. The ref pattern is needed because onCompleted
   // would otherwise close over the show snapshot from when the interval
   // tick was scheduled.
-  const [refetchShowQuery] = useLazyQuery(GET_SHOW, { fetchPolicy: 'network-only' });
+  const [refetchShowQuery] = useLazyQuery(GET_SHOW_DASHBOARD_POLL, { fetchPolicy: 'network-only' });
   const showRef = useRef(show);
   useEffect(() => {
     showRef.current = show;
   }, [show]);
   useInterval(() => {
-    // Only poll the (heavy) full GET_SHOW while the operator is actively
+    // Only poll the show document while the operator is actively
     // looking at a live show. A hidden tab needs no updates, and an idle
     // (non-live) dashboard's queue can't change — viewers can't request or
     // vote until viewer control is on. This keeps the heaviest query off
