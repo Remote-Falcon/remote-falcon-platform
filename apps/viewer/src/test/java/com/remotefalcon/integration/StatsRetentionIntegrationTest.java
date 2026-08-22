@@ -20,10 +20,17 @@ import static org.hamcrest.Matchers.is;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * End-to-end test for the embedded stat-array retention prune (PRD-009 #132,
- * ADR-5): a stat append first prunes entries older than the 90-day window, so
- * the array can't grow unbounded toward Mongo's 16 MB document limit.
- * Uses Testcontainers for MongoDB (CI / Docker-enabled environments).
+ * End-to-end tests for the embedded stat-array write behavior.
+ *
+ * <p>History: until 2026-08 every stat append ran a 90-day {@code $pull}
+ * before its push (PRD-009 #132, ADR-5) — doubling the Mongo writes on the
+ * viewer hot path and silently overriding the nightly sweep's 18-month
+ * retention. Appends are now a single write; retention belongs exclusively
+ * to control-panel's {@code purgeStaleStatsForAllShows}, and the only
+ * viewer-side bound is a {@code $slice} hard cap that keeps the newest
+ * {@code STAT_ARRAY_HARD_CAP} entries as a runaway backstop.
+ *
+ * <p>Uses Testcontainers for MongoDB (CI / Docker-enabled environments).
  */
 @QuarkusTest
 @QuarkusTestResource(MongoTestResource.class)
@@ -52,9 +59,11 @@ class StatsRetentionIntegrationTest {
   }
 
   @Test
-  @DisplayName("E2E: a vote prunes stats.voting entries older than the retention window")
-  void vote_prunesExpiredVotingStats() {
-    // Seed one stat well outside the 90-day window and one inside it.
+  @DisplayName("E2E: a vote no longer prunes old stats — retention is the nightly sweep's job")
+  void vote_keepsOldStats_retentionBelongsToTheSweep() {
+    // Seed one stat far older than the old 90-day window and one recent.
+    // Both must survive the append: the viewer write path does retention
+    // zero times, not once per vote.
     Show seeded = showRepository.findByShowSubdomain(TEST_SUBDOMAIN).orElseThrow();
     seeded.getStats().getVoting().add(Stat.Voting.builder()
         .name("Old Song").dateTime(LocalDateTime.now().minusDays(120)).build());
@@ -79,9 +88,35 @@ class StatsRetentionIntegrationTest {
     List<Stat.Voting> voting = showRepository.findByShowSubdomain(TEST_SUBDOMAIN).orElseThrow().getStats().getVoting();
     List<String> names = voting.stream().map(Stat.Voting::getName).toList();
 
-    assertFalse(names.contains("Old Song"), "the 120-day-old stat should be pruned");
+    assertTrue(names.contains("Old Song"),
+        "old stats must survive viewer writes — 18-month retention is purgeStaleStatsForAllShows' job");
     assertTrue(names.contains("Recent Song"), "the 10-day-old stat should be retained");
     assertTrue(names.contains("Jingle Bells"), "the new vote's stat should be appended");
+  }
+
+  @Test
+  @DisplayName("appendPageStat: $slice hard cap keeps the newest entries")
+  void appendPageStat_capsArrayAtHardLimit_keepingNewest() {
+    // Seed the array exactly at the cap, then append one more. The $slice
+    // backstop must hold the array at the cap and drop the OLDEST entry.
+    final int cap = 50_000;
+    Show seeded = showRepository.findByShowSubdomain(TEST_SUBDOMAIN).orElseThrow();
+    List<Stat.Page> pages = new ArrayList<>(cap);
+    LocalDateTime base = LocalDateTime.now().minusDays(30);
+    for (int i = 0; i < cap; i++) {
+      pages.add(Stat.Page.builder().ip("seed-" + i).dateTime(base.plusSeconds(i)).build());
+    }
+    seeded.getStats().setPage(pages);
+    showRepository.update(seeded);
+
+    showRepository.appendPageStat(TEST_SUBDOMAIN,
+        Stat.Page.builder().ip("the-newest").dateTime(LocalDateTime.now()).build());
+
+    List<Stat.Page> after = showRepository.findByShowSubdomain(TEST_SUBDOMAIN).orElseThrow().getStats().getPage();
+    assertEquals(cap, after.size(), "array must not grow past STAT_ARRAY_HARD_CAP");
+    assertEquals("the-newest", after.get(after.size() - 1).getIp(), "newest entry must be kept");
+    assertFalse(after.stream().anyMatch(pg -> "seed-0".equals(pg.getIp())),
+        "the oldest entry must be the one sliced away");
   }
 
   private Show createTestShow() {
