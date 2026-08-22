@@ -69,4 +69,23 @@ describe('useDashboardLiveStats', () => {
     expect(result.current).toHaveProperty('error');
     expect(typeof result.current.refetch).toBe('function');
   });
+
+  it('does not fetch while the tab is hidden', async () => {
+    // Hidden tabs keep their timers (throttled, not stopped) — without the
+    // visibilityState gate a backgrounded dashboard polls the heaviest
+    // control-panel query indefinitely (one forgotten tab was observed still
+    // polling 70+ minutes later). No mocks are provided, so an attempted
+    // fetch would surface as a MockedProvider "no more mocked responses"
+    // error on the hook's error field.
+    const store = buildStore({ timezone: 'UTC' });
+    const spy = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    try {
+      const { result } = renderHook(() => useDashboardLiveStats(), { wrapper: wrap(store) });
+      await new Promise((r) => setTimeout(r, 50));
+      expect(result.current.data).toBeNull();
+      expect(result.current.error).toBeNull();
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });

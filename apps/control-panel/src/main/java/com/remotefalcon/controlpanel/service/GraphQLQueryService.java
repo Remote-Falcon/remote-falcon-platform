@@ -189,7 +189,16 @@ public class GraphQLQueryService {
     }
 
     public Show getShow() {
-        Optional<Show> show = this.showRepository.findByShowToken(authUtil.getTokenDTO().getShowToken());
+        // ForAuth, not the bare finder: GET_SHOW selects none of the fields
+        // this projection excludes (stats, viewerSessions, showNotifications,
+        // heartbeatGaps, versionChanges), yet the unprojected read shipped and
+        // decoded all of them — on a query the dashboard re-polls every 5s.
+        // CONTRACT: the projection MUST keep pages + psaSequences (the two
+        // lazy backfills below write them back from this object — a projection
+        // that dropped them would null every viewer page on next backfill) and
+        // mfa (the mfaEnabled @SchemaMapping reads it). Pinned by
+        // ShowRepositoryProjectionTest.forAuth_keepsBackfillAndAuthFields.
+        Optional<Show> show = this.showRepository.findByShowTokenForAuth(authUtil.getTokenDTO().getShowToken());
         if(show.isPresent()) {
             Show s = show.get();
             LocalDateTime now = LocalDateTime.now();
@@ -369,8 +378,15 @@ public class GraphQLQueryService {
     }
 
     public List<NotificationModel> getNotifications() {
-        Stream<NotificationModel> globalStream = Optional.ofNullable(this.notificationRepository.findAll())
-                .orElseGet(List::of)
+        // Bounded + sorted server-side. findAll() loaded every ADMIN broadcast
+        // ever created and applied the 20-cap in Java after the fact — small
+        // today, monotonically growing forever. 20 globals is always enough to
+        // fill a 20-item bell even before merging show notifications.
+        Stream<NotificationModel> globalStream = this.notificationRepository
+                .findAll(org.springframework.data.domain.PageRequest.of(0, 20,
+                        org.springframework.data.domain.Sort.by(
+                                org.springframework.data.domain.Sort.Direction.DESC, "createdDate")))
+                .getContent()
                 .stream()
                 .filter(Objects::nonNull)
                 .map(n -> NotificationModel.builder()
@@ -383,7 +399,9 @@ public class GraphQLQueryService {
                         .createdDate(n.getCreatedDate())
                         .build());
 
-        Show show = this.showRepository.findByShowToken(authUtil.getTokenDTO().getShowToken())
+        // Projected: the bell is in the always-mounted header, so this ran the
+        // full-document load on every control-panel navigation.
+        Show show = this.showRepository.findByShowTokenForNotifications(authUtil.getTokenDTO().getShowToken())
                 .orElseThrow(() -> new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name()));
 
         Stream<NotificationModel> showStream = Optional.ofNullable(show.getShowNotifications())

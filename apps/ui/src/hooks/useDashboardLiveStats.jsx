@@ -35,6 +35,13 @@ const useDashboardLiveStats = () => {
   const [liveStatsQuery] = useLazyQuery(DASHBOARD_LIVE_STATS);
 
   const fetch = useCallback(async () => {
+    // Hidden tabs keep their timers (throttled, not stopped), so without this
+    // gate a backgrounded dashboard polls the heaviest control-panel query
+    // indefinitely — one forgotten tab was observed still polling 70+ minutes
+    // later. Mirrors the GET_SHOW poll's gate in dashboard/index.jsx. Manual
+    // refetch() after a mutation is unaffected: the user just clicked, so the
+    // tab is visible.
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
     if (!show?.timezone) return;
     await liveStatsQuery({
       context: { headers: { Route: 'Control-Panel' } },

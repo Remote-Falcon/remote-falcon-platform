@@ -596,6 +596,15 @@ public class DashboardService {
     ZonedDateTime startDateAtZone = ZonedDateTime.now(userZone).toLocalDate().atStartOfDay(userZone);
     ZonedDateTime endDateAtZone = startDateAtZone.plusDays(1);
 
+    // Today's totals server-side ($size of $filter) instead of decoding the
+    // season's stats.jukebox/stats.voting on every 5s poll — those arrays are
+    // now excluded from findByShowTokenForLiveStats entirely.
+    StatsRepository.LiveTotals liveTotals = statsRepository
+            .todaysLiveTotals(tokenDTO.getShowToken(),
+                    Date.from(startDateAtZone.toInstant()),
+                    Date.from(endDateAtZone.toInstant()))
+            .stream().findFirst().orElseGet(StatsRepository.LiveTotals::new);
+
     // V22 — current viewer count (deduped by viewerId-or-IP, last 5 min)
     Integer currentViewers = null;
     if (existingShow.getActiveViewers() != null) {
@@ -665,7 +674,7 @@ public class DashboardService {
             // an operator sees "5 of 5" while the cap predicate sees "3 of 5"
             // and accepts a new request, which is confusing.
             .currentRequests(PluginQueueHelper.countViewerRequests(show.get()))
-            .totalRequests(this.buildTotalRequestsLiveStat(startDateAtZone, endDateAtZone, timezone, show.get(), false))
+            .totalRequests(liveTotals.getTotalRequests())
             // Count only viewer-cast votes. PSA cadence/override, leader-promoted
             // winners, and grouped-winner ordering are injected into show.votes
             // with a priority sentinel so they win playback selection — they are
@@ -673,7 +682,7 @@ public class DashboardService {
             .currentVotes(show.get().getVotes() != null
                     ? show.get().getVotes().stream().filter(v -> !Vote.isSystemInjected(v)).mapToInt(Vote::getVotes).sum()
                     : 0)
-            .totalVotes(this.buildTotalVotesLiveStat(startDateAtZone, endDateAtZone, timezone, show.get(), false))
+            .totalVotes(liveTotals.getTotalVotes())
             .playingNow(getPlayingNow(existingShow))
             .playingNext(getPlayingNext(existingShow))
             .currentViewers(currentViewers)
@@ -953,63 +962,7 @@ public class DashboardService {
             .build();
   }
 
-  private Integer buildTotalRequestsLiveStat(ZonedDateTime startDateAtZone, ZonedDateTime endDateAtZone, String timezone, Show show, Boolean fillDays) {
-    List<DashboardStatsResponse.Stat> jukeboxStats = new ArrayList<>();
-    if(show.getStats() == null) {
-      return 0;
-    }
-    ZoneId userZone = ZoneId.of(timezone);
-    Map<LocalDate, List<Stat.Jukebox>> jukeboxStatsGroupedByDate = show.getStats().getJukebox()
-            .stream()
-            .filter(stat -> stat.getDateTime() != null)
-            .map(stat -> Map.entry(stat, convertServerStatDateTime(stat.getDateTime(), userZone)))
-            .filter(stat -> stat.getValue().isAfter(startDateAtZone))
-            .filter(stat -> stat.getValue().isBefore(endDateAtZone))
-            .collect(Collectors.groupingBy(stat -> stat.getValue().toLocalDate(), Collectors.mapping(Map.Entry::getKey, Collectors.toList())));
 
-    if(fillDays) {
-      this.fillStatDateGaps(startDateAtZone, endDateAtZone, jukeboxStatsGroupedByDate);
-    }
-
-    jukeboxStatsGroupedByDate.forEach((date, stat) -> jukeboxStats.add(DashboardStatsResponse.Stat.builder()
-            .date(ZonedDateTime.of(date, date.atStartOfDay().toLocalTime(), userZone).toInstant().toEpochMilli())
-            .total(stat.size())
-            .unique(stat.stream().collect(Collectors.groupingBy(Stat.Jukebox::getName)).size())
-            .build()));
-
-    return jukeboxStats.stream()
-            .mapToInt(DashboardStatsResponse.Stat::getTotal)
-            .sum();
-  }
-
-  private Integer buildTotalVotesLiveStat(ZonedDateTime startDateAtZone, ZonedDateTime endDateAtZone, String timezone, Show show, Boolean fillDays) {
-    List<DashboardStatsResponse.Stat> voteStats = new ArrayList<>();
-    if(show.getStats() == null) {
-      return 0;
-    }
-    ZoneId userZone = ZoneId.of(timezone);
-    Map<LocalDate, List<Stat.Voting>> voteStatsGroupedByDate = show.getStats().getVoting()
-            .stream()
-            .filter(stat -> stat.getDateTime() != null)
-            .map(stat -> Map.entry(stat, convertServerStatDateTime(stat.getDateTime(), userZone)))
-            .filter(stat -> stat.getValue().isAfter(startDateAtZone))
-            .filter(stat -> stat.getValue().isBefore(endDateAtZone))
-            .collect(Collectors.groupingBy(stat -> stat.getValue().toLocalDate(), Collectors.mapping(Map.Entry::getKey, Collectors.toList())));
-
-    if(fillDays) {
-      this.fillStatDateGaps(startDateAtZone, endDateAtZone, voteStatsGroupedByDate);
-    }
-
-    voteStatsGroupedByDate.forEach((date, stat) -> voteStats.add(DashboardStatsResponse.Stat.builder()
-            .date(ZonedDateTime.of(date, date.atStartOfDay().toLocalTime(), userZone).toInstant().toEpochMilli())
-            .total(stat.size())
-            .unique(stat.stream().collect(Collectors.groupingBy(Stat.Voting::getName)).size())
-            .build()));
-
-    return voteStats.stream()
-            .mapToInt(DashboardStatsResponse.Stat::getTotal)
-            .sum();
-  }
 
   @SuppressWarnings("unchecked")
   private <V> void fillStatDateGaps(ZonedDateTime startDateAtZone, ZonedDateTime endDateAtZone, Map<LocalDate, V> statMap) {

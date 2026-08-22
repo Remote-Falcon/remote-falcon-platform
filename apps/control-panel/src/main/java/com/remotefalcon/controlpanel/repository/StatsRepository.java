@@ -48,6 +48,48 @@ import java.util.List;
  */
 public interface StatsRepository extends MongoRepository<Show, String> {
 
+    /**
+     * Both live-dashboard "today" totals in one round trip, without shipping
+     * either array: {@code $filter} keeps the in-window entries server-side
+     * and {@code $size} returns just the two counts. Replaces the old path
+     * where dashboardLiveStats fetched the full-season {@code stats.jukebox} +
+     * {@code stats.voting} every 5 s and filtered them in Java.
+     *
+     * <p>NOT the {@code $unwind} shape used by the analytics methods below —
+     * that materializes one document per array element, a deliberate
+     * non-choice for a 5-second poll (the reason dashboardLiveStats was left
+     * out of the Pattern-B migration originally). {@code $filter} scans the
+     * array inside the one document Mongo already has in cache.
+     *
+     * <p>Window parity with the replaced Java filter: these stats are stamped
+     * server-side on UTC JVMs (see DashboardService.convertServerStatDateTime),
+     * so instant comparison is exact — {@code $gt lower, $lt upper} mirrors
+     * the old strict {@code isAfter/isBefore}, and a null/absent dateTime
+     * fails {@code $gt} and is excluded, matching the old null filter.
+     */
+    @Aggregation(pipeline = {
+            "{ '$match': { 'showToken': ?0 } }",
+            "{ '$project': { '_id': 0, " +
+            "  'totalRequests': { '$size': { '$filter': { " +
+            "      'input': { '$ifNull': ['$stats.jukebox', []] }, 'as': 's', " +
+            "      'cond': { '$and': [ { '$gt': ['$$s.dateTime', ?1] }, { '$lt': ['$$s.dateTime', ?2] } ] } } } }, " +
+            "  'totalVotes': { '$size': { '$filter': { " +
+            "      'input': { '$ifNull': ['$stats.voting', []] }, 'as': 's', " +
+            "      'cond': { '$and': [ { '$gt': ['$$s.dateTime', ?1] }, { '$lt': ['$$s.dateTime', ?2] } ] } } } } } }"
+    })
+    List<LiveTotals> todaysLiveTotals(String showToken, Date lower, Date upper);
+
+    /** Result holder for {@link #todaysLiveTotals}; mapped by field name. */
+    class LiveTotals {
+        private Integer totalRequests;
+        private Integer totalVotes;
+
+        public Integer getTotalRequests() { return totalRequests == null ? 0 : totalRequests; }
+        public Integer getTotalVotes() { return totalVotes == null ? 0 : totalVotes; }
+        public void setTotalRequests(Integer totalRequests) { this.totalRequests = totalRequests; }
+        public void setTotalVotes(Integer totalVotes) { this.totalVotes = totalVotes; }
+    }
+
     // Cheap existence check (idx_showToken) so analytics can preserve the
     // SHOW_NOT_FOUND behavior without loading the document.
     boolean existsByShowToken(String showToken);
