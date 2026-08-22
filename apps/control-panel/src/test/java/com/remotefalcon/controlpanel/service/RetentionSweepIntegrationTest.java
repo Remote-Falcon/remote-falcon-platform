@@ -1,23 +1,20 @@
 package com.remotefalcon.controlpanel.service;
 
-import com.remotefalcon.controlpanel.repository.NotificationRepository;
 import com.remotefalcon.controlpanel.repository.ShowRepository;
-import com.remotefalcon.controlpanel.util.AuthUtil;
-import com.remotefalcon.controlpanel.util.ClientUtil;
-import com.remotefalcon.controlpanel.util.EmailUtil;
 import com.remotefalcon.library.documents.Show;
 import com.remotefalcon.library.enums.ShowRole;
 import com.remotefalcon.library.models.Stat;
+import com.remotefalcon.library.models.ViewerPage;
+import com.remotefalcon.library.models.ViewerSession;
+import com.remotefalcon.library.models.Vote;
+import org.bson.Document;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.data.mongo.DataMongoTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
-import org.springframework.context.annotation.Import;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.test.util.ReflectionTestUtils;
 import org.testcontainers.containers.MongoDBContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -27,29 +24,30 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 
 /**
- * Integration test for the nightly stats retention sweep
- * ({@link ScheduledTaskService#purgeStaleStatsForAllShows()}).
+ * Integration tests for the nightly retention sweep and the document-size /
+ * votes-bloat alarm ({@link ScheduledTaskService}).
  *
- * <p>Uses a real MongoDB testcontainer + a real {@link MongoTemplate} +
- * the real Spring-Data {@link ShowRepository} so we exercise the
- * {@code mongoTemplate.stream(...)} cursor end-to-end. The
- * {@link GraphQLMutationService} dependency is constructed manually with
- * Mockito mocks for its non-Mongo collaborators (email, auth, etc.) — we
- * only need the {@code purgeStatsForShow(Show)} path, which depends on
- * the real {@link ShowRepository} for the if-changed-save persistence.
+ * <p>Uses a real MongoDB testcontainer because both code paths are now
+ * entirely server-side: the sweep is a single {@code updateMulti} of
+ * {@code $pull}s and the alarm is an aggregation over {@code $size} /
+ * {@code $strLenBytes}. Mocks can't exercise either — the operator semantics
+ * ARE the behavior under test (BSON type bracketing on null dates, the
+ * {@code $not $gte} inversion for votes, {@code $ifNull} guards on missing
+ * arrays).
  *
- * <p>This is sliced via {@code @DataMongoTest} rather than full
- * {@code @SpringBootTest} to avoid pulling in the dozen-plus
- * {@code @Value} secrets the full app context requires.
+ * <p>Sliced via {@code @DataMongoTest} rather than full {@code @SpringBootTest}
+ * to avoid pulling in the dozen-plus {@code @Value} secrets the full app
+ * context requires. {@link ScheduledTaskService} is constructed by hand — its
+ * only collaborators on these paths are the repository and the template.
  */
 @DataMongoTest
 @Testcontainers
-@Import(RetentionSweepIntegrationTest.NoopMockConfig.class)
 class RetentionSweepIntegrationTest {
 
     @Container
@@ -65,30 +63,12 @@ class RetentionSweepIntegrationTest {
     @Autowired private MongoTemplate mongoTemplate;
     @Autowired private ShowRepository showRepository;
 
-    // Mocked here so @DataMongoTest doesn't try to wire them from the full context.
-    @MockBean private EmailUtil emailUtil;
-    @MockBean private AuthUtil authUtil;
-    @MockBean private NotificationRepository notificationRepository;
-    @MockBean private ClientUtil clientUtil;
-
-    private GraphQLMutationService graphQLMutationService;
     private ScheduledTaskService scheduledTaskService;
 
     @BeforeEach
     void setUp() {
         mongoTemplate.dropCollection(Show.class);
-        graphQLMutationService = new GraphQLMutationService(
-                emailUtil, authUtil, showRepository, notificationRepository,
-                clientUtil, new ViewerPageService(), mongoTemplate,
-                new com.remotefalcon.controlpanel.util.PostHogUtil(),
-                new GraphQLQueryService(authUtil, clientUtil, showRepository,
-                        notificationRepository, new ViewerPageService(), mongoTemplate));
-        // @Value("${auto-validate-email}") field — not relevant to purge logic but
-        // populated to avoid null surprises if other code paths ever touch it.
-        ReflectionTestUtils.setField(graphQLMutationService, "autoValidateEmail", Boolean.TRUE);
-
-        scheduledTaskService = new ScheduledTaskService(
-                showRepository, graphQLMutationService, mongoTemplate);
+        scheduledTaskService = new ScheduledTaskService(showRepository, mongoTemplate);
     }
 
     private static LocalDateTime stale() {
@@ -146,6 +126,8 @@ class RetentionSweepIntegrationTest {
                 .build();
     }
 
+    // ---- retention sweep -------------------------------------------------
+
     @Test
     void sweep_emptyCollection_noOp() {
         assertThatCode(() -> scheduledTaskService.purgeStaleStatsForAllShows())
@@ -177,40 +159,27 @@ class RetentionSweepIntegrationTest {
     }
 
     @Test
-    void sweep_skipsSavesForUnchangedShows() {
-        // Persist 3 shows whose stats are all already within retention.
-        Show s1 = showRepository.save(buildShow("a", statsAllRecent()));
-        Show s2 = showRepository.save(buildShow("b", statsAllRecent()));
-        Show s3 = showRepository.save(buildShow("c", statsAllRecent()));
-        // We can't easily detect "didn't write" from the outside without a
-        // Mongo profiler hook, but we can at least assert payloads are byte-
-        // identical across the sweep — covers accidental mutation regressions.
-        List<Stat> before = List.of(
-                deepCopyStat(s1.getStats()),
-                deepCopyStat(s2.getStats()),
-                deepCopyStat(s3.getStats()));
+    void sweep_leavesInRetentionDataUntouched() {
+        showRepository.save(buildShow("a", statsAllRecent()));
+        showRepository.save(buildShow("b", statsAllRecent()));
 
         scheduledTaskService.purgeStaleStatsForAllShows();
 
-        List<Show> after = showRepository.findAll();
-        assertThat(after).hasSize(3);
-        for (Show s : after) {
-            assertThat(before).anySatisfy(b -> {
-                // Each post-sweep show must match exactly one pre-sweep snapshot.
-                // Counts equal across all four sub-lists, no additions/removals.
-                assertThat(s.getStats().getPage().size() + s.getStats().getJukebox().size()
-                        + s.getStats().getVoting().size() + s.getStats().getVotingWin().size())
-                        .isEqualTo(b.getPage().size() + b.getJukebox().size()
-                                + b.getVoting().size() + b.getVotingWin().size());
-            });
+        for (Show s : showRepository.findAll()) {
+            assertThat(s.getStats().getPage()).hasSize(1);
+            assertThat(s.getStats().getJukebox()).hasSize(1);
+            assertThat(s.getStats().getVoting()).hasSize(1);
+            assertThat(s.getStats().getVotingWin()).hasSize(1);
         }
     }
 
     @Test
-    void sweep_continuesOnPerShowError() {
-        // A "poison" show whose stats sub-list contains an entry with a null
-        // dateTime — this forces a NullPointerException inside the
-        // removeIf(...) lambda, simulating a malformed legacy document.
+    void sweep_nullDateTimeEntriesSurviveInertly() {
+        // The predecessor (Java removeIf over loaded documents) threw an NPE
+        // on a null dateTime and needed per-show error handling. Server-side
+        // $lt can't throw: BSON type bracketing means a null/missing dateTime
+        // simply never matches, so malformed legacy entries survive in place
+        // and the sweep is total by construction.
         Stat bad = Stat.builder()
                 .page(new ArrayList<>(List.of(
                         Stat.Page.builder().ip("nullDate").dateTime(null).build())))
@@ -219,35 +188,124 @@ class RetentionSweepIntegrationTest {
                 .votingWin(new ArrayList<>())
                 .build();
         Show poison = showRepository.save(buildShow("poison", bad));
-        Show ok1 = showRepository.save(buildShow("ok1", statsWithMixedAge()));
-        Show ok2 = showRepository.save(buildShow("ok2", statsWithMixedAge()));
+        Show ok = showRepository.save(buildShow("ok", statsWithMixedAge()));
 
-        // Sweep must NOT propagate the per-show error.
         assertThatCode(() -> scheduledTaskService.purgeStaleStatsForAllShows())
                 .doesNotThrowAnyException();
 
-        // Poison show is still in the collection (sweep didn't abort).
-        assertThat(showRepository.findByShowToken(poison.getShowToken())).isPresent();
-        // Healthy shows were trimmed normally.
-        Show ok1After = showRepository.findByShowToken(ok1.getShowToken()).orElseThrow();
-        Show ok2After = showRepository.findByShowToken(ok2.getShowToken()).orElseThrow();
-        assertThat(ok1After.getStats().getPage()).hasSize(1);
-        assertThat(ok2After.getStats().getPage()).hasSize(1);
+        Show poisonAfter = showRepository.findByShowToken(poison.getShowToken()).orElseThrow();
+        assertThat(poisonAfter.getStats().getPage()).hasSize(1);
+        Show okAfter = showRepository.findByShowToken(ok.getShowToken()).orElseThrow();
+        assertThat(okAfter.getStats().getPage()).hasSize(1);
     }
 
-    private static Stat deepCopyStat(Stat s) {
-        return Stat.builder()
-                .page(new ArrayList<>(s.getPage()))
-                .jukebox(new ArrayList<>(s.getJukebox()))
-                .voting(new ArrayList<>(s.getVoting()))
-                .votingWin(new ArrayList<>(s.getVotingWin()))
-                .build();
+    @Test
+    void sweep_trimsViewerSessions_theArrayWhoseRetentionWasNeverWritten() {
+        // ViewerSession's javadoc claimed an 18-month trim from the day it
+        // shipped (2026-05); the trim did not exist and the array grew
+        // unbounded for a full preseason. This is the regression test that
+        // was missing then.
+        Show show = buildShow("vs", statsAllRecent());
+        show.setViewerSessions(new ArrayList<>(List.of(
+                ViewerSession.builder().viewerId("stale").lastSeen(stale()).build(),
+                ViewerSession.builder().viewerId("fresh").lastSeen(recent()).build())));
+        showRepository.save(show);
+
+        scheduledTaskService.purgeStaleStatsForAllShows();
+
+        Show after = showRepository.findByShowToken(show.getShowToken()).orElseThrow();
+        assertThat(after.getViewerSessions()).hasSize(1);
+        assertThat(after.getViewerSessions().get(0).getViewerId()).isEqualTo("fresh");
     }
 
-    /**
-     * Empty config — placeholder so {@code @Import} has something to attach to
-     * if future test wiring needs it. Kept as a hook to avoid churning the
-     * class annotation list later.
-     */
-    static class NoopMockConfig {}
+    @Test
+    void sweep_expiresVotesOlderThanADay_includingUndatedOnes() {
+        // The 2026-08-22 whale: 6,066 stranded systemInjected PSA votes on one
+        // show made every operation on it take seconds. Expiry is deliberately
+        // inverted relative to the stats pulls ($not $gte instead of $lt): a
+        // vote with a null or missing lastVoteTime has no readable age and is
+        // exactly the junk this exists to remove, so it goes too. Margins are
+        // wide (30h vs 1h) so a DST hour can't flip a boundary.
+        Show show = buildShow("votes", statsAllRecent());
+        show.setVotes(new ArrayList<>(List.of(
+                Vote.builder().votes(1).lastVoteTime(LocalDateTime.now().minusHours(30))
+                        .systemInjected(true).build(),
+                Vote.builder().votes(1).lastVoteTime(null).build(),
+                Vote.builder().votes(1).lastVoteTime(LocalDateTime.now().minusHours(1)).build())));
+        showRepository.save(show);
+
+        scheduledTaskService.purgeStaleStatsForAllShows();
+
+        Show after = showRepository.findByShowToken(show.getShowToken()).orElseThrow();
+        assertThat(after.getVotes()).hasSize(1);
+        assertThat(after.getVotes().get(0).getLastVoteTime())
+                .isAfter(LocalDateTime.now().minusHours(2));
+    }
+
+    // ---- document-size / votes-bloat alarm -------------------------------
+
+    @Test
+    void alarm_cleanFleet_flagsNothing() {
+        showRepository.save(buildShow("clean1", statsAllRecent()));
+        showRepository.save(buildShow("clean2", statsWithMixedAge()));
+
+        assertThat(scheduledTaskService.alarmOnOversizedShows()).isEmpty();
+    }
+
+    @Test
+    void alarm_flagsVotesBloat_farBelowTheSizeThreshold() {
+        // The whale degraded UX at ~3 MB — a quarter of the size alarm. The
+        // votes tripwire exists so the next one is flagged by count, not by
+        // an operator noticing their dashboard crawling.
+        Show bloated = buildShow("bloated", statsAllRecent());
+        bloated.setVotes(new ArrayList<>(IntStream.range(0, ScheduledTaskService.VOTES_COUNT_ALARM + 1)
+                .mapToObj(i -> Vote.builder().votes(1)
+                        .lastVoteTime(LocalDateTime.now().minusHours(1)).build())
+                .toList()));
+        showRepository.save(bloated);
+        showRepository.save(buildShow("clean", statsAllRecent()));
+
+        List<Document> flagged = scheduledTaskService.alarmOnOversizedShows();
+
+        assertThat(flagged).hasSize(1);
+        assertThat(flagged.get(0).getString("showSubdomain")).isEqualTo("show-bloated");
+        assertThat(flagged.get(0).getInteger("votesCount"))
+                .isGreaterThan(ScheduledTaskService.VOTES_COUNT_ALARM);
+    }
+
+    @Test
+    void alarm_flagsEstimatedOversize_fromRealPageHtmlBytes() {
+        // $bsonSize returns null on DO Managed Mongo 8.0, which is how the
+        // previous alarm silently matched nothing forever. Viewer-page HTML is
+        // measured for real ($strLenBytes) because a page can be 1 byte or
+        // 1 MB — 13 x 1 MB clears the 12 MB threshold on pages alone.
+        String megabyte = "x".repeat(1_048_576);
+        Show big = buildShow("big", statsAllRecent());
+        big.setPages(new ArrayList<>(IntStream.range(0, 13)
+                .mapToObj(i -> ViewerPage.builder().name("p" + i).active(i == 0)
+                        .html(megabyte).build())
+                .toList()));
+        showRepository.save(big);
+        showRepository.save(buildShow("small", statsAllRecent()));
+
+        List<Document> flagged = scheduledTaskService.alarmOnOversizedShows();
+
+        assertThat(flagged).hasSize(1);
+        assertThat(flagged.get(0).getString("showSubdomain")).isEqualTo("show-big");
+        assertThat(flagged.get(0).get("estBytes", Number.class).longValue())
+                .isGreaterThan(ScheduledTaskService.DOC_SIZE_WARN_BYTES);
+    }
+
+    @Test
+    void alarm_toleratesShowsWithNoArraysAtAll() {
+        // $size on a missing field is an aggregation ERROR, not a zero — every
+        // count in the estimator must ride an $ifNull. A bare legacy show with
+        // no stats, pages, or votes must not blow up the whole sweep.
+        Show bare = buildShow("bare", null);
+        showRepository.save(bare);
+
+        assertThatCode(() -> scheduledTaskService.alarmOnOversizedShows())
+                .doesNotThrowAnyException();
+        assertThat(scheduledTaskService.alarmOnOversizedShows()).isEmpty();
+    }
 }

@@ -47,7 +47,6 @@ import static org.mockito.Mockito.when;
 class ScheduledTaskServiceTest {
 
     @Mock private ShowRepository showRepository;
-    @Mock private GraphQLMutationService graphQLMutationService;
     @Mock private MongoTemplate mongoTemplate;
     @InjectMocks private ScheduledTaskService service;
 

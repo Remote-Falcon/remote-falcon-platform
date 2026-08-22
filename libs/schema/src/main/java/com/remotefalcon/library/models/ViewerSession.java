@@ -16,8 +16,11 @@ import java.time.LocalDateTime;
 // "Same dwell session" = events from the same identifier within 5 minutes
 // of the last event. Crossing that threshold opens a new session entry.
 //
-// Persisted on Show.viewerSessions[]. Trimmed on the same 18-month purge
-// cycle that handles raw stats.
+// Persisted on Show.viewerSessions[]. Trimmed (by lastSeen) in the nightly
+// server-side retention sweep alongside the raw stats arrays — see
+// ScheduledTaskService.purgeStaleStatsForAllShows. NOTE: from this model's
+// introduction (2026-05, PR #26) until 2026-08 that trim did not exist and
+// this comment claimed it did; the array grew unbounded for a full preseason.
 @Type
 @Data
 @Builder
