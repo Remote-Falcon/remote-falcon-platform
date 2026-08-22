@@ -599,6 +599,10 @@ class DashboardServiceTest {
                 .build();
         stubAuth(SHOW_TOKEN);
         when(showRepository.findByShowTokenForLiveStats(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(statsRepository.todaysLiveTotals(org.mockito.ArgumentMatchers.eq(SHOW_TOKEN),
+                org.mockito.ArgumentMatchers.any(java.util.Date.class),
+                org.mockito.ArgumentMatchers.any(java.util.Date.class)))
+                .thenReturn(List.of());
 
         DashboardLiveStatsResponse r = service.dashboardLiveStats(0L, 0L, TZ);
 
@@ -619,46 +623,41 @@ class DashboardServiceTest {
     }
 
     @Test
-    void dashboardLiveStats_votesCastToday_excludesPriorEveningVotesStampedInUtc() {
-        // Regression for the #135 "votes cast today" shift (grinnallfamilylights):
-        // voting stats are stamped server-side with LocalDateTime.now() on a UTC
-        // JVM, so a vote cast at 9pm the PREVIOUS evening (America/Chicago) is
-        // stored as an early-morning UTC wall-clock reading. The old converter
-        // re-labelled those raw UTC digits as local time, counting last night's
-        // votes as "today". The fixed converter interprets them as UTC and
-        // converts by instant, so they fall on the correct local day.
-        ZoneOffset utc = ZoneOffset.UTC;
-        LocalDate today = ZonedDateTime.now(TZ_ID).toLocalDate();
-        // Two votes from YESTERDAY evening in America/Chicago, stored as the UTC
-        // wall-clock of that real instant (what the viewer service persists).
-        LocalDateTime yesterday9pm = LocalDateTime.ofInstant(
-                today.minusDays(1).atTime(21, 0).atZone(TZ_ID).toInstant(), utc);
-        LocalDateTime yesterday1030pm = LocalDateTime.ofInstant(
-                today.minusDays(1).atTime(22, 30).atZone(TZ_ID).toInstant(), utc);
-        // One vote from TODAY midday.
-        LocalDateTime todayNoon = LocalDateTime.ofInstant(
-                today.atTime(12, 0).atZone(TZ_ID).toInstant(), utc);
-
+    void dashboardLiveStats_passesUserZoneMidnightInstants_toTheTotalsAggregation() {
+        // The #135 prior-evening-UTC-votes regression is now guarded where the
+        // filtering actually lives: StatsRepositoryTest
+        // .todaysLiveTotals_priorEveningUtcStamps_stayOnYesterday (real Mongo,
+        // instant-frame). What this service still owns is the WINDOW —
+        // today-midnight..+1d in the operator's zone, handed to the
+        // aggregation as instants — and the passthrough of its two counts.
         Show show = Show.builder().showToken(SHOW_TOKEN)
                 .votes(new ArrayList<>())
                 .sequences(new ArrayList<>())
                 .playingNow("").playingNext("").playingNextFromSchedule("")
-                .stats(Stat.builder()
-                        .jukebox(new ArrayList<>())
-                        .voting(new ArrayList<>(List.of(
-                                Stat.Voting.builder().name("Carol").dateTime(yesterday9pm).build(),
-                                Stat.Voting.builder().name("Wizards").dateTime(yesterday1030pm).build(),
-                                Stat.Voting.builder().name("Carol").dateTime(todayNoon).build())))
-                        .build())
                 .build();
         stubAuth(SHOW_TOKEN);
         when(showRepository.findByShowTokenForLiveStats(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        StatsRepository.LiveTotals totals = new StatsRepository.LiveTotals();
+        totals.setTotalRequests(4);
+        totals.setTotalVotes(7);
+        when(statsRepository.todaysLiveTotals(org.mockito.ArgumentMatchers.eq(SHOW_TOKEN),
+                org.mockito.ArgumentMatchers.any(java.util.Date.class),
+                org.mockito.ArgumentMatchers.any(java.util.Date.class)))
+                .thenReturn(List.of(totals));
 
-        DashboardLiveStatsResponse r = service.dashboardLiveStats(0L, 0L, TZ);
+        DashboardLiveStatsResponse liveStatsResponse = service.dashboardLiveStats(0L, 0L, TZ);
 
-        // Only today's midday vote counts. Pre-fix this returned 3 — both
-        // prior-evening votes leaked across the local-midnight boundary.
-        assertThat(r.getTotalVotes()).isEqualTo(1);
+        assertThat(liveStatsResponse.getTotalRequests()).isEqualTo(4);
+        assertThat(liveStatsResponse.getTotalVotes()).isEqualTo(7);
+        org.mockito.ArgumentCaptor<java.util.Date> lower =
+                org.mockito.ArgumentCaptor.forClass(java.util.Date.class);
+        org.mockito.ArgumentCaptor<java.util.Date> upper =
+                org.mockito.ArgumentCaptor.forClass(java.util.Date.class);
+        org.mockito.Mockito.verify(statsRepository).todaysLiveTotals(
+                org.mockito.ArgumentMatchers.eq(SHOW_TOKEN), lower.capture(), upper.capture());
+        ZonedDateTime expectedStart = ZonedDateTime.now(TZ_ID).toLocalDate().atStartOfDay(TZ_ID);
+        assertThat(lower.getValue().toInstant()).isEqualTo(expectedStart.toInstant());
+        assertThat(upper.getValue().toInstant()).isEqualTo(expectedStart.plusDays(1).toInstant());
     }
 
     @Test
@@ -684,6 +683,10 @@ class DashboardServiceTest {
                 .build();
         stubAuth(SHOW_TOKEN);
         when(showRepository.findByShowTokenForLiveStats(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(statsRepository.todaysLiveTotals(org.mockito.ArgumentMatchers.eq(SHOW_TOKEN),
+                org.mockito.ArgumentMatchers.any(java.util.Date.class),
+                org.mockito.ArgumentMatchers.any(java.util.Date.class)))
+                .thenReturn(List.of());
 
         DashboardLiveStatsResponse r = service.dashboardLiveStats(0L, 0L, TZ);
         assertThat(r.getPlayingNext()).isEqualTo("Sched Display");
@@ -711,6 +714,10 @@ class DashboardServiceTest {
                 .build();
         stubAuth(SHOW_TOKEN);
         when(showRepository.findByShowTokenForLiveStats(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(statsRepository.todaysLiveTotals(org.mockito.ArgumentMatchers.eq(SHOW_TOKEN),
+                org.mockito.ArgumentMatchers.any(java.util.Date.class),
+                org.mockito.ArgumentMatchers.any(java.util.Date.class)))
+                .thenReturn(List.of());
 
         DashboardLiveStatsResponse r = service.dashboardLiveStats(0L, 0L, TZ);
         // PSA1 is excluded; 2 viewer requests counted.
@@ -734,6 +741,10 @@ class DashboardServiceTest {
                 .build();
         stubAuth(SHOW_TOKEN);
         when(showRepository.findByShowTokenForLiveStats(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(statsRepository.todaysLiveTotals(org.mockito.ArgumentMatchers.eq(SHOW_TOKEN),
+                org.mockito.ArgumentMatchers.any(java.util.Date.class),
+                org.mockito.ArgumentMatchers.any(java.util.Date.class)))
+                .thenReturn(List.of());
 
         DashboardLiveStatsResponse r = service.dashboardLiveStats(0L, 0L, TZ);
         assertThat(r.getCurrentRequests()).isEqualTo(1);
@@ -760,6 +771,10 @@ class DashboardServiceTest {
                 .build();
         stubAuth(SHOW_TOKEN);
         when(showRepository.findByShowTokenForLiveStats(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(statsRepository.todaysLiveTotals(org.mockito.ArgumentMatchers.eq(SHOW_TOKEN),
+                org.mockito.ArgumentMatchers.any(java.util.Date.class),
+                org.mockito.ArgumentMatchers.any(java.util.Date.class)))
+                .thenReturn(List.of());
 
         DashboardLiveStatsResponse r = service.dashboardLiveStats(0L, 0L, TZ);
         assertThat(r.getPlayingNext()).isEqualTo("PSA1 Display");
@@ -783,6 +798,10 @@ class DashboardServiceTest {
                 .build();
         stubAuth(SHOW_TOKEN);
         when(showRepository.findByShowTokenForLiveStats(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(statsRepository.todaysLiveTotals(org.mockito.ArgumentMatchers.eq(SHOW_TOKEN),
+                org.mockito.ArgumentMatchers.any(java.util.Date.class),
+                org.mockito.ArgumentMatchers.any(java.util.Date.class)))
+                .thenReturn(List.of());
 
         DashboardLiveStatsResponse r = service.dashboardLiveStats(0L, 0L, TZ);
         assertThat(r.getPlayingNext()).isEqualTo("PSA1 Display");
@@ -804,6 +823,10 @@ class DashboardServiceTest {
                 .build();
         stubAuth(SHOW_TOKEN);
         when(showRepository.findByShowTokenForLiveStats(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(statsRepository.todaysLiveTotals(org.mockito.ArgumentMatchers.eq(SHOW_TOKEN),
+                org.mockito.ArgumentMatchers.any(java.util.Date.class),
+                org.mockito.ArgumentMatchers.any(java.util.Date.class)))
+                .thenReturn(List.of());
 
         DashboardLiveStatsResponse r = service.dashboardLiveStats(0L, 0L, TZ);
         assertThat(r.getPlayingNext()).isEqualTo("Vote Leader");

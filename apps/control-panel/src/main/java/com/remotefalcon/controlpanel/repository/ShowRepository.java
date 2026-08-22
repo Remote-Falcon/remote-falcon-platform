@@ -148,17 +148,28 @@ public interface ShowRepository extends MongoRepository<Show, String> {
                      "'preferences': 1, 'viewerSessions': 1 }")
     Optional<Show> findByShowTokenForViewerSessions(String showToken);
 
-    // Live operator poll: dashboardLiveStats(), ~every 5s. Reads stats.jukebox +
-    // stats.voting (today's totals), the live operational arrays (activeViewers,
-    // viewerSessions, votes, sequences, requests) and heartbeat/version history.
-    // EXCLUDES the arrays it never touches: stats.page (the LARGEST stat array —
-    // one entry per page view), stats.votingWin, stats.rejectedRequests, the
-    // viewer-page HTML (pages), and showNotifications. Exclusion — not inclusion
-    // — so a missed live field can't silently break the highest-frequency poll.
+    // Live operator poll: dashboardLiveStats(), ~every 5s. Reads the live
+    // operational arrays (activeViewers, viewerSessions, votes, sequences,
+    // requests) and heartbeat/version history. EXCLUDES every stats.* array:
+    // today's request/vote totals moved to StatsRepository.todaysLiveTotals, a
+    // $size-of-$filter aggregation that returns two ints instead of shipping
+    // the season's arrays — measured 2026-08-22 at up to 1.2 MB per poll for
+    // in-season shows (stats.voting alone was 11,203 entries on the busiest).
+    // Also excludes viewer-page HTML (pages) and showNotifications. Exclusion
+    // — not inclusion — so a missed live field can't silently break the
+    // highest-frequency poll.
     @Query(value = "{ 'showToken': ?0 }",
             fields = "{ 'stats.page': 0, 'stats.votingWin': 0, 'stats.rejectedRequests': 0, " +
+                     "'stats.jukebox': 0, 'stats.voting': 0, " +
                      "'pages': 0, 'showNotifications': 0 }")
     Optional<Show> findByShowTokenForLiveStats(String showToken);
+
+    // Notification bell: getNotifications(). Mounted in the always-rendered
+    // header on every control-panel page, so before this projection every
+    // navigation loaded the full multi-MB Show to read one small array.
+    @Query(value = "{ 'showToken': ?0 }",
+            fields = "{ 'showToken': 1, 'showNotifications': 1 }")
+    Optional<Show> findByShowTokenForNotifications(String showToken);
 
     // PSA-effectiveness config: psaSequences is a small top-level field (NOT a
     // stats array). Load only it (+ identity) so psaEffectiveness can read each

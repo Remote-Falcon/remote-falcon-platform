@@ -129,27 +129,81 @@ class ShowRepositoryProjectionTest {
     }
 
     @Test
-    void forLiveStats_keepsLiveArraysAndTodaysStatCounts_dropsPageStatsAndContent() {
+    void forLiveStats_keepsLiveArrays_dropsEveryStatsArrayAndContent() {
         Show show = showRepository.findByShowTokenForLiveStats("token-abc").orElseThrow();
 
-        // Kept — the poll reads stats.jukebox + stats.voting (today's totals),
-        // the live operational arrays, and renders now/next from sequences.
-        assertThat(show.getStats()).isNotNull();
-        assertThat(show.getStats().getJukebox()).isNotEmpty();
-        assertThat(show.getStats().getVoting()).isNotEmpty();
+        // Kept — the live operational arrays and the now/next rendering inputs.
         assertThat(show.getViewerSessions()).isNotEmpty();
         assertThat(show.getActiveViewers()).isNotEmpty();
         assertThat(show.getVotes()).isNotEmpty();
         assertThat(show.getSequences()).isNotEmpty();
         assertThat(show.getRequests()).isNotEmpty();
 
-        // Dropped — never read by the poll. stats.page is the largest stat
-        // array (one entry per page view); pages is the viewer-page HTML.
-        assertThat(show.getStats().getPage())
-                .as("forLiveStats must drop stats.page — the per-pageview array the poll never reads")
-                .isNull();
-        assertThat(show.getStats().getVotingWin()).isNull();
+        // Dropped — every stats.* array. Today's request/vote totals no longer
+        // ride this read at all: they come from StatsRepository.todaysLiveTotals
+        // ($size of $filter), so the 5s poll stopped shipping the season's
+        // stats.jukebox/stats.voting — measured 2026-08-22 at up to 1.2 MB per
+        // poll on in-season shows. Plus the content the poll never reads.
+        if (show.getStats() != null) {
+            assertThat(show.getStats().getPage()).isNull();
+            assertThat(show.getStats().getJukebox())
+                    .as("stats.jukebox must not ride the 5s poll — totals come from todaysLiveTotals")
+                    .isNull();
+            assertThat(show.getStats().getVoting())
+                    .as("stats.voting must not ride the 5s poll — totals come from todaysLiveTotals")
+                    .isNull();
+            assertThat(show.getStats().getVotingWin()).isNull();
+            assertThat(show.getStats().getRejectedRequests()).isNull();
+        }
         assertThat(show.getPages()).isNull();
+    }
+
+    @Test
+    void forNotifications_keepsOnlyTheBell_dropsEverythingHeavy() {
+        mongoTemplate.insert(Show.builder()
+                .showToken("token-bell")
+                .email("bell@example.com")
+                .showNotifications(List.of(
+                        com.remotefalcon.library.models.ShowNotification.builder()
+                                .read(false).deleted(false).build()))
+                .stats(Stat.builder()
+                        .page(List.of(Stat.Page.builder().ip("9.9.9.9")
+                                .dateTime(LocalDateTime.now()).build()))
+                        .build())
+                .pages(List.of(ViewerPage.builder().name("home").active(true)
+                        .html("<p>big</p>").build()))
+                .viewerSessions(List.of(ViewerSession.builder().ip("9.9.9.9")
+                        .lastSeen(LocalDateTime.now()).build()))
+                .build());
+
+        Show show = showRepository.findByShowTokenForNotifications("token-bell").orElseThrow();
+
+        // The bell is in the always-mounted header: before this projection,
+        // every control-panel navigation loaded the full document for it.
+        assertThat(show.getShowNotifications()).isNotEmpty();
+        assertThat(show.getStats()).isNull();
+        assertThat(show.getPages()).isNull();
+        assertThat(show.getViewerSessions()).isNull();
+        assertThat(show.getSequences()).isNull();
+    }
+
+    @Test
+    void forAuthByToken_keepsBackfillAndAuthFields_dropsTelemetry() {
+        // getShow's contract (see GraphQLQueryService.getShow): its two lazy
+        // backfills write pages + psaSequences back FROM THIS OBJECT via
+        // targeted update.set — a projection that dropped either would null
+        // every viewer page / PSA timestamp on the next backfill. The
+        // telemetry GET_SHOW never selects is dropped.
+        Show show = showRepository.findByShowTokenForAuth("token-abc").orElseThrow();
+
+        assertThat(show.getPages()).isNotEmpty();
+        assertThat(show.getPsaSequences()).isNotEmpty();
+        assertThat(show.getSequences()).isNotEmpty();
+        assertThat(show.getRequests()).isNotEmpty();
+        assertThat(show.getPreferences()).isNotNull();
+
+        assertThat(show.getStats()).isNull();
+        assertThat(show.getViewerSessions()).isNull();
     }
 
     @Test

@@ -364,7 +364,7 @@ class GraphQLQueryServiceTest {
                 .requests(new ArrayList<>(List.of(r1, r2, r3)))
                 .psaSequences(new ArrayList<>(List.of(psaNeedsBackfill, psaKeepIt)))
                 .build();
-        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(showRepository.findByShowTokenForAuth(SHOW_TOKEN)).thenReturn(Optional.of(show));
 
         Show fetched = service.getShow();
 
@@ -384,7 +384,7 @@ class GraphQLQueryServiceTest {
     @Test
     void getShow_throwsUnexpected_whenTokenNotFound() {
         when(authUtil.getTokenDTO()).thenReturn(TokenDTO.builder().showToken(SHOW_TOKEN).build());
-        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.empty());
+        when(showRepository.findByShowTokenForAuth(SHOW_TOKEN)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.getShow())
                 .isInstanceOf(RuntimeException.class)
@@ -556,7 +556,9 @@ class GraphQLQueryServiceTest {
                     .subject("g-subj-" + i)
                     .build());
         }
-        when(notificationRepository.findAll()).thenReturn(globals);
+        when(notificationRepository.findAll(org.mockito.ArgumentMatchers.any(
+                org.springframework.data.domain.Pageable.class)))
+                .thenReturn(new PageImpl<>(globals));
 
         List<ShowNotification> showNotis = new ArrayList<>();
         for (int i = 0; i < 5; i++) {
@@ -570,7 +572,7 @@ class GraphQLQueryServiceTest {
                     .build());
         }
         Show show = Show.builder().showToken(SHOW_TOKEN).showNotifications(showNotis).build();
-        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(showRepository.findByShowTokenForNotifications(SHOW_TOKEN)).thenReturn(Optional.of(show));
 
         List<com.remotefalcon.library.models.NotificationModel> result = service.getNotifications();
 
@@ -586,11 +588,16 @@ class GraphQLQueryServiceTest {
     }
 
     @Test
-    void getNotifications_handlesNullGlobalAndShowNotifications() {
+    void getNotifications_handlesEmptyGlobalsAndNullShowNotifications() {
+        // The Page API can't return null (unlike the old unbounded findAll()),
+        // so the null-globals branch is gone; empty page + null show list is
+        // the degenerate case now.
         when(authUtil.getTokenDTO()).thenReturn(TokenDTO.builder().showToken(SHOW_TOKEN).build());
-        when(notificationRepository.findAll()).thenReturn(null);
+        when(notificationRepository.findAll(org.mockito.ArgumentMatchers.any(
+                org.springframework.data.domain.Pageable.class)))
+                .thenReturn(new PageImpl<>(new ArrayList<>()));
         Show show = Show.builder().showToken(SHOW_TOKEN).showNotifications(null).build();
-        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(showRepository.findByShowTokenForNotifications(SHOW_TOKEN)).thenReturn(Optional.of(show));
 
         assertThat(service.getNotifications()).isEmpty();
     }
@@ -598,8 +605,10 @@ class GraphQLQueryServiceTest {
     @Test
     void getNotifications_throwsUnexpected_whenShowMissing() {
         when(authUtil.getTokenDTO()).thenReturn(TokenDTO.builder().showToken(SHOW_TOKEN).build());
-        when(notificationRepository.findAll()).thenReturn(Collections.emptyList());
-        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.empty());
+        when(notificationRepository.findAll(org.mockito.ArgumentMatchers.any(
+                org.springframework.data.domain.Pageable.class)))
+                .thenReturn(new PageImpl<>(new ArrayList<>()));
+        when(showRepository.findByShowTokenForNotifications(SHOW_TOKEN)).thenReturn(Optional.empty());
         assertThatThrownBy(() -> service.getNotifications())
                 .isInstanceOf(RuntimeException.class)
                 .hasMessage(StatusResponse.UNEXPECTED_ERROR.name());

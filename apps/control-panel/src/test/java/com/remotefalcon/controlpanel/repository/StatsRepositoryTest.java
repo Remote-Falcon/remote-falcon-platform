@@ -204,6 +204,98 @@ class StatsRepositoryTest {
         return Date.from(localWallClock.toInstant(ZoneOffset.UTC));
     }
 
+    // ---- todaysLiveTotals (the 5s-poll counts that replaced shipping the
+    // season's stats.jukebox/stats.voting on every dashboardLiveStats read) ----
+
+    @Test
+    void todaysLiveTotals_countsBothArrays_strictWindow_ignoringUndated() {
+        java.time.ZonedDateTime midnight = java.time.ZonedDateTime
+                .now(java.time.ZoneId.systemDefault())
+                .toLocalDate().atStartOfDay(java.time.ZoneId.systemDefault());
+        LocalDateTime inWindow = at(midnight.plusHours(12));
+        LocalDateTime onLowerBound = at(midnight);            // strict $gt: excluded
+        LocalDateTime yesterday = at(midnight.minusHours(2)); // before window
+
+        mongoTemplate.insert(ShowFactory.builder().showToken("live1")
+                .stats(Stat.builder()
+                        .jukebox(java.util.List.of(
+                                jukebox("in", inWindow),
+                                jukebox("edge", onLowerBound),
+                                jukebox("old", yesterday)))
+                        .voting(java.util.List.of(
+                                voting("in1", inWindow),
+                                voting("in2", inWindow),
+                                Stat.Voting.builder().name("undated").viewerId("v")
+                                        .dateTime(null).build()))
+                        .build())
+                .build());
+
+        StatsRepository.LiveTotals totals = statsRepository.todaysLiveTotals("live1",
+                java.util.Date.from(midnight.toInstant()),
+                java.util.Date.from(midnight.plusDays(1).toInstant())).get(0);
+
+        assertThat(totals.getTotalRequests()).isEqualTo(1);
+        assertThat(totals.getTotalVotes()).isEqualTo(2);
+    }
+
+    @Test
+    void todaysLiveTotals_missingArraysReadAsZero_missingShowAsEmpty() {
+        // $size on a missing field is an aggregation ERROR — the $ifNull guard
+        // is what turns a stats-less legacy show into 0/0 instead of a 500 on
+        // the highest-frequency poll in the product.
+        mongoTemplate.insert(ShowFactory.builder().showToken("bare").stats(null).build());
+        java.util.Date now = new java.util.Date();
+        java.util.Date dayAgo = new java.util.Date(now.getTime() - 86_400_000L);
+
+        StatsRepository.LiveTotals totals =
+                statsRepository.todaysLiveTotals("bare", dayAgo, now).get(0);
+        assertThat(totals.getTotalRequests()).isZero();
+        assertThat(totals.getTotalVotes()).isZero();
+
+        assertThat(statsRepository.todaysLiveTotals("no-such-show", dayAgo, now)).isEmpty();
+    }
+
+    @Test
+    void todaysLiveTotals_priorEveningUtcStamps_stayOnYesterday() {
+        // The #135 instant-frame regression, moved here from
+        // DashboardServiceTest now that the filtering lives in this
+        // aggregation: a vote cast 9pm yesterday in America/Chicago must not
+        // count toward a today-window computed in that zone, regardless of
+        // the JVM/test zone.
+        java.time.ZoneId chicago = java.time.ZoneId.of("America/Chicago");
+        java.time.ZonedDateTime chicagoMidnight = java.time.ZonedDateTime.now(chicago)
+                .toLocalDate().atStartOfDay(chicago);
+        LocalDateTime lastNight9pm = at(chicagoMidnight.minusHours(3));
+        LocalDateTime todayNoon = at(chicagoMidnight.plusHours(12));
+
+        mongoTemplate.insert(ShowFactory.builder().showToken("tz1")
+                .stats(Stat.builder()
+                        .voting(java.util.List.of(
+                                voting("lastNight", lastNight9pm),
+                                voting("today", todayNoon)))
+                        .jukebox(java.util.List.of())
+                        .build())
+                .build());
+
+        StatsRepository.LiveTotals totals = statsRepository.todaysLiveTotals("tz1",
+                java.util.Date.from(chicagoMidnight.toInstant()),
+                java.util.Date.from(chicagoMidnight.plusDays(1).toInstant())).get(0);
+
+        assertThat(totals.getTotalVotes()).isEqualTo(1);
+        assertThat(totals.getTotalRequests()).isZero();
+    }
+
+    /**
+     * Stamp a stat at an exact INSTANT, zone-proof: Spring's Jsr310 write
+     * converter stores LocalDateTime via the system zone, so building the
+     * value from the instant through that same zone round-trips exactly. In
+     * prod (UTC JVM) this is the "stored wall-clock IS UTC" contract the
+     * aggregation's instant comparison relies on.
+     */
+    private static LocalDateTime at(java.time.ZonedDateTime instant) {
+        return LocalDateTime.ofInstant(instant.toInstant(), java.time.ZoneId.systemDefault());
+    }
+
     private static Stat.Page page(String ip, LocalDateTime dt) {
         return Stat.Page.builder().ip(ip).viewerId("v").dateTime(dt).build();
     }
