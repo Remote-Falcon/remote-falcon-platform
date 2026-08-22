@@ -52,7 +52,25 @@ public class ShowRepository implements PanacheMongoRepository<Show> {
                 "apiAccess",               // Not needed by viewers
                 "userProfile",             // Not needed by viewers
                 "showNotifications",       // Not needed by viewers
-                "activeViewers"            // Contains other viewers' IP addresses (PII)
+                "activeViewers",           // Contains other viewers' IP addresses (PII)
+                // 2026-08-22 audit additions — this projection backs the 5s
+                // per-viewer poll, the highest-frequency read in the platform:
+                "mfa",                     // TOTP config; 2FA shipped after this
+                                           // list was written and was never
+                                           // excluded — encrypted at rest, but
+                                           // it has no business on a PUBLIC
+                                           // endpoint (code-first schema exposes
+                                           // every non-excluded field)
+                "viewerSessions",          // Dwell history; decoded and discarded
+                                           // 720x/hour per open viewer page
+                "stats.rejectedRequests",  // Operator diagnostics
+                "heartbeatGaps",           // Operator plugin-uptime history
+                "versionChanges",          // Operator plugin-version history
+                "pages.html"               // The page HTML has its own dedicated
+                                           // query (getActiveViewerPage + ETag);
+                                           // metadata stays so a custom page
+                                           // selecting pages{} still works and
+                                           // filterActivePageOnly is unaffected
             )
         )
         .first();

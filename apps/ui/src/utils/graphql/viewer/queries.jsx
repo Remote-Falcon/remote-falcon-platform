@@ -16,6 +16,16 @@ export const VOTES_REMAINING = gql`
   }
 `;
 
+// Polled every 5s per viewer. Selections here were trimmed to READERS ONLY
+// (2026-08-22 audit): the removed fields had zero consumers in the viewer
+// tree, and two were live privacy leaks re-sent to every visitor twelve times
+// a minute — activeViewers { ipAddress } (every other viewer's IP; also
+// always null, since the resolver's projection excludes it as PII) and the
+// show's geofence (showLatitude/showLongitude/allowedRadius — GPS gating is
+// enforced server-side; the client only needs locationCheckMethod to know
+// whether to prompt). On a 300-viewer show, activeViewers alone re-sent a
+// few hundred rows to all 300 viewers every 5 seconds — the only selection
+// whose payload scaled with the show's own popularity.
 export const GET_SHOW_FOR_VIEWER = gql`
   query GetShowForViewer($showSubdomain: String!) @api(name: viewer) {
     getShow(showSubdomain: $showSubdomain) {
@@ -58,25 +68,13 @@ export const GET_SHOW_FOR_VIEWER = gql`
         viewerControlEnabled
         viewerPageViewOnly
         viewerControlMode
-        resetVotes
         jukeboxDepth
         locationCheckMethod
-        showLatitude
-        showLongitude
-        allowedRadius
-        checkIfVoted
-        checkIfRequested
-        psaEnabled
-        psaFrequency
-        jukeboxRequestLimit
         dailyVoteLimit
         locationCode
-        hideSequenceCount
         nightlyPlayLimit
         makeItSnow
         analyticsBetaOptIn
-        managePsa
-        sequencesPlayed
         pageTitle
         pageIconUrl
         selfHostedRedirectUrl
@@ -97,10 +95,6 @@ export const GET_SHOW_FOR_VIEWER = gql`
         artist
         playsToday
       }
-      sequenceGroups {
-        name
-        visibilityCount
-      }
       categories {
         name
         displayOrder
@@ -114,7 +108,6 @@ export const GET_SHOW_FOR_VIEWER = gql`
           displayName
         }
         position
-        ownerRequested
       }
       votes {
         sequence {
@@ -126,11 +119,6 @@ export const GET_SHOW_FOR_VIEWER = gql`
         }
         votes
         lastVoteTime
-        ownerVoted
-      }
-      activeViewers {
-        ipAddress
-        visitDateTime
       }
     }
   }
