@@ -28,14 +28,21 @@ public class AccountArchiveService {
 
     private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
 
-    @Scheduled(every = "24h")
+    // Fixed 10:00 UTC (05:00 ET) rather than every="24h": the interval form
+    // fires at pod start and then drifts with every restart/deploy — meaning
+    // a deploy immediately kicked off an account-archive pass at whatever
+    // time it happened to ship. Cron pins the run to a quiet hour, after the
+    // control-panel nightly sweep at 09:00 UTC.
+    @Scheduled(cron = "0 0 10 * * ?")
     void runArchiveProcess() {
         log.info("Running archive process");
         this.archiveAccounts();
         log.info("Finished archive process");
     }
 
-    @Scheduled(every = "24h")
+    // 10:30 UTC — same reasoning as runArchiveProcess, offset so the two
+    // jobs never overlap.
+    @Scheduled(cron = "0 30 10 * * ?")
     void runDeleteUnverifiedShowsProcess() {
         log.info("Running delete unverified shows process");
         this.deleteUnverifiedShows();
