@@ -100,3 +100,23 @@ alerts:
       window_minutes: 5
     cooldown_minutes: 30
     runbook: docs/runbooks/mongo-unreachable.md
+
+  - name: rf-doc-size-alarm
+    description: >-
+      The nightly control-panel sweep flagged a Show document approaching the
+      16 MB MongoDB cap (est > 12 MB) or carrying a whale votes array
+      (> 1,000 entries, fleet norm 0-6). This is the permanent detector for
+      the 2026-08-22 shortslights incident class: one oversized document makes
+      every operation on that show slow. Fires on the DOC_SIZE_ALARM log
+      marker from alarmOnOversizedShows (runs daily 09:00 UTC).
+    enabled: true
+    filters:
+      service_names: [remote-falcon-control-panel]
+      severity_levels: [warn]
+      message_contains: "DOC_SIZE_ALARM"
+    threshold:
+      count: 1
+      operator: above
+      window_minutes: 60
+    cooldown_minutes: 720
+    runbook: docs/runbooks/doc-size-alarm.md
