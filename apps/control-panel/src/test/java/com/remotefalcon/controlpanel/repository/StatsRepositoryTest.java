@@ -15,7 +15,6 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.LocalDateTime;
-import java.time.ZoneOffset;
 import java.util.Date;
 import java.util.List;
 
@@ -50,8 +49,12 @@ class StatsRepositoryTest {
     @Autowired
     private StatsRepository statsRepository;
 
-    // Window: 2025-10-14 .. 2025-10-17 (wall-clock), as the production code
-    // passes it — LocalDateTime bound reinterpreted as a UTC instant.
+    // Window: 2025-10-14 .. 2025-10-17 (wall-clock). Bounds must be built in
+    // the SAME zone Spring's Jsr310 converters use to store the fixtures'
+    // LocalDateTimes — the system default. Building them as UTC instants made
+    // this class zone-dependent: green on CI (UTC JVM, where the two frames
+    // coincide, as they do in prod) but red on any developer machine in a
+    // non-UTC zone, with elements near the bounds shifted in/out of window.
     private static final Date LOWER = date(LocalDateTime.of(2025, 10, 14, 0, 0));
     private static final Date UPPER = date(LocalDateTime.of(2025, 10, 17, 0, 0));
 
@@ -201,7 +204,7 @@ class StatsRepositoryTest {
     }
 
     private static Date date(LocalDateTime localWallClock) {
-        return Date.from(localWallClock.toInstant(ZoneOffset.UTC));
+        return Date.from(localWallClock.atZone(java.time.ZoneId.systemDefault()).toInstant());
     }
 
     // ---- todaysLiveTotals (the 5s-poll counts that replaced shipping the
