@@ -32,6 +32,7 @@ This is the operator's map of the Remote Falcon stack: every service, what it do
 | **Public hosts** | `remotefalcon.com`, `*.remotefalcon.com` (UI subdomain catch-all) |
 | **Image registry** | GHCR — `ghcr.io/remote-falcon/<service>:<git-sha>` |
 | **Image pull secret** | `remote-falcon-ghcr` (in `remote-falcon` namespace) |
+| **Disruption / spread** | Multi-replica services (ui, gateway, control-panel, external-api) each carry a per-app `PodDisruptionBudget` (`minAvailable: 1`) and a `topologySpreadConstraints` block (hostname, `ScheduleAnyway`) in their `apps/<svc>/k8s/manifest.yml`. Single-replica services deliberately have neither (a min-available PDB on 1 replica blocks node drains). |
 | **Metrics** | Prometheus via `kube-prometheus-stack-1768012917` (ServiceMonitors on viewer + plugins-api). Slated for retirement once OTel-collector-driven metrics are in place — tracked in [OBSERVABILITY-PLAN.md](OBSERVABILITY-PLAN.md) Obs-1c.6. |
 | **APM / logs** | **OTel Collector DaemonSet** (`otel-collector` in the `remote-falcon` namespace) ships container stdout + service-emitted OTLP signals to PostHog Logs. Manifests live in [`ops/k8s/otel-collector/`](../ops/k8s/otel-collector/); deployed by [`.github/workflows/deploy-collector.yml`](../.github/workflows/deploy-collector.yml). Per-service rollover via `OTEL_URI` env var pointing at `http://otel-collector.remote-falcon.svc.cluster.local:4317` — currently in place for `mongo-backup` and `account-archive` (prepositioned); other services pending their app-side OTel wiring. |
 

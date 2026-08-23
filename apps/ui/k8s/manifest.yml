@@ -24,6 +24,16 @@ spec:
       labels:
         app: #{Application}#
     spec:
+      # B-2 (2026-08-22 audit): don't stack both replicas on one node.
+      # ScheduleAnyway = prefer spreading but never block scheduling on a
+      # small/busy cluster.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: #{Application}#
       containers:
       - name: #{Application}#
         image: #{Image}#
@@ -113,3 +123,17 @@ spec:
             name: #{Application}#
             port:
               number: 3000
+---
+# B-2 (2026-08-22 audit): per-app disruption budget so a node drain always
+# leaves at least one replica serving. Only multi-replica services get one --
+# a PDB with minAvailable on a 1-replica deployment blocks drains outright.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: #{Application}#
+  namespace: #{Namespace}#
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: #{Application}#
