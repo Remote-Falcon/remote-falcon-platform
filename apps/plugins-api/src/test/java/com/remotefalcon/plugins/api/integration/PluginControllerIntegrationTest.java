@@ -276,6 +276,44 @@ class PluginControllerIntegrationTest {
   }
 
   @Test
+  @Order(19)
+  @DisplayName("E2E: highestVotedPlaylist - appends the win to stats.votingWin without rewriting history")
+  void testHighestVotedPlaylist_appendsVotingWin_keepsExistingEntries() {
+    // stats.votingWin is written as a $push of only this cycle's new wins
+    // (not a whole-array $set) so a concurrent retention-sweep prune can't be
+    // resurrected by a stale in-memory copy. This pins the observable half:
+    // the pre-existing entry survives exactly once and the winner is appended.
+    Show show = showRepository.findByShowToken(TEST_SHOW_TOKEN).orElseThrow();
+    Sequence seq1 = show.getSequences().get(0);
+    show.getStats().getVotingWin().add(Stat.VotingWin.builder()
+        .name("Pre-Existing Win")
+        .dateTime(LocalDateTime.now().minusDays(2))
+        .build());
+    show.getVotes().add(Vote.builder()
+        .sequence(seq1)
+        .votes(7)
+        .lastVoteTime(LocalDateTime.now())
+        .ownerVoted(false)
+        .build());
+    showRepository.update(show);
+
+    given()
+        .header("showtoken", TEST_SHOW_TOKEN)
+        .when()
+        .get("/highestVotedPlaylist")
+        .then()
+        .statusCode(200)
+        .body("winningPlaylist", equalTo(seq1.getName()));
+
+    List<Stat.VotingWin> wins = showRepository.findByShowToken(TEST_SHOW_TOKEN)
+        .orElseThrow().getStats().getVotingWin();
+    assertEquals(1, wins.stream().filter(w -> "Pre-Existing Win".equals(w.getName())).count(),
+        "the pre-existing win must survive exactly once");
+    assertEquals(1, wins.stream().filter(w -> seq1.getName().equals(w.getName())).count(),
+        "the new win must be appended exactly once");
+  }
+
+  @Test
   @Order(9)
   @DisplayName("E2E: pluginVersion - Updates plugin and FPP versions")
   void testPluginVersion_Success() {

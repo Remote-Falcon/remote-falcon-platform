@@ -1075,7 +1075,7 @@ public class PluginService {
         if (winningSequenceGroup != null) {
           return this.processWinningGroup(winningVote.get(), show);
         } else {
-          return this.processWinningVote(winningVote.get(), show);
+          return this.processWinningVote(winningVote.get(), show, new ArrayList<>());
         }
       }
     }
@@ -1086,6 +1086,7 @@ public class PluginService {
   private HighestVotedPlaylistResponse processWinningGroup(Vote winningVote, Show show) {
     SequenceGroup winningSequenceGroup = winningVote.getSequenceGroup();
     show.getVotes().remove(winningVote);
+    List<Stat.VotingWin> newWins = new ArrayList<>();
 
     if (winningSequenceGroup != null) {
       Optional<SequenceGroup> actualSequenceGroup = show.getSequenceGroups().stream()
@@ -1100,10 +1101,15 @@ public class PluginService {
           return null;
         }
 
-        show.getStats().getVotingWin().add(Stat.VotingWin.builder()
+        // Added to the in-memory list (voteWinsToday counts it downstream)
+        // AND to newWins (the only part that gets written — see the $push
+        // note at the updateOne).
+        Stat.VotingWin groupWin = Stat.VotingWin.builder()
             .name(actualSequenceGroup.get().getName())
             .dateTime(LocalDateTime.now())
-            .build());
+            .build();
+        show.getStats().getVotingWin().add(groupWin);
+        newWins.add(groupWin);
 
         //Set visibility counts
         if (show.getPreferences().getHideSequenceCount() != 0) {
@@ -1135,13 +1141,13 @@ public class PluginService {
           voteCount--;
         }
         show.getVotes().addAll(sequencesInGroupVotes);
-        return this.processWinningVote(updatedWinningVote, show);
+        return this.processWinningVote(updatedWinningVote, show, newWins);
       }
     }
     return null;
   }
 
-  private HighestVotedPlaylistResponse processWinningVote(Vote winningVote, Show show) {
+  private HighestVotedPlaylistResponse processWinningVote(Vote winningVote, Show show, List<Stat.VotingWin> newWins) {
     Sequence winningSequence = winningVote.getSequence();
     show.getVotes().remove(winningVote);
 
@@ -1177,10 +1183,12 @@ public class PluginService {
         //Only save stats for non-grouped sequences. A policy-injected winner
         //(PSA or #167 owner override) records no vote win.
         if (StringUtils.isEmpty(actualSequence.get().getGroup()) && !winnerIsPolicyInjected) {
-          show.getStats().getVotingWin().add(Stat.VotingWin.builder()
+          Stat.VotingWin win = Stat.VotingWin.builder()
               .name(actualSequence.get().getName())
               .dateTime(LocalDateTime.now())
-              .build());
+              .build();
+          show.getStats().getVotingWin().add(win);
+          newWins.add(win);
         }
 
         if (show.getPreferences().getPsaEnabled() && !show.getPreferences().getManagePsa()
@@ -1262,7 +1270,12 @@ public class PluginService {
               Filters.eq("showToken", show.getShowToken()),
               Updates.combine(
                   Updates.set("votes", show.getVotes()),
-                  Updates.set("stats.votingWin", show.getStats().getVotingWin()),
+                  // $push only this cycle's new wins. The old whole-array $set raced the
+                  // nightly retention sweep (#154): a sweep landing between this method's read
+                  // and write got its prune undone by the stale in-memory copy. Wins are
+                  // append-only here, so pushing the delta can't resurrect pruned entries. An
+                  // empty $each is a Mongo no-op (PSA/override winners add no win).
+                  Updates.pushEach("stats.votingWin", newWins),
                   Updates.set("sequences", show.getSequences()),
                   Updates.set("psaSequences", show.getPsaSequences())
               )
@@ -1281,7 +1294,12 @@ public class PluginService {
             Filters.eq("showToken", show.getShowToken()),
             Updates.combine(
                 Updates.set("votes", show.getVotes()),
-                Updates.set("stats.votingWin", show.getStats().getVotingWin()),
+                // $push only this cycle's new wins. The old whole-array $set raced the
+                // nightly retention sweep (#154): a sweep landing between this method's read
+                // and write got its prune undone by the stale in-memory copy. Wins are
+                // append-only here, so pushing the delta can't resurrect pruned entries. An
+                // empty $each is a Mongo no-op (PSA/override winners add no win).
+                Updates.pushEach("stats.votingWin", newWins),
                 Updates.set("sequences", show.getSequences()),
                 Updates.set("psaSequences", show.getPsaSequences())
             )
