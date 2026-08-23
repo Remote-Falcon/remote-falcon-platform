@@ -1,0 +1,75 @@
+A year of new features and a five-minute checklist to start the season right.
+
+Remote Falcon
+
+REMOTE FALCON
+
+Show season is coming.
+Hi {{ person.properties.showName | default: 'there' | raw }} — if this email is a
+surprise, that's because it's the first one like it we've ever sent. Remote
+Falcon has always been quiet by email; from now on we'll reach out a few times a
+year, when there's genuinely something worth your time. This is one of those
+times. We also understand if you don't want to receive these emails, so there's
+an easy unsubscribe link at the bottom if you'd like to use it.
+
+While your lights were in storage, Remote Falcon got a lot better. Highlights
+from this year:
+
+* A public show map — visitors can find shows near them at
+https://remotefalcon.com/map. It's opt-in, with separate switches for other
+Remote Falcon operators and for the public.
+* A rebuilt dashboard — live show health, plugin heartbeat history, and quick
+actions in one place.
+* Audience analytics (beta) — concurrent viewers, dwell time, new vs returning,
+and your season regulars, now with custom date ranges and CSV export.
+* A QR code generator — yard-sign-ready codes that put your viewer page one
+scan away.
+* Smarter PSAs — more control over announcements between songs, including
+leader sequences and on-demand overrides.
+* Sequence groups & categories — organize a big song library the way your show
+actually runs.
+* Fairness controls — vote caps per viewer, per-night play limits, no
+back-to-back repeats within a category, and already-played songs grayed out
+instead of quietly rejected.
+* A second chance at the location prompt — on shows that require viewers to be
+nearby, anyone who dismissed the browser's location prompt was stuck. They now
+get a way to turn it back on and request a song.
+* A faster viewer page — artwork and fonts no longer hold up the page, so it
+comes up quicker on a phone at the curb.
+* Artist and album art, filled in for you — one click looks up a sequence (or
+your whole library at once) and fills in the artist and cover art.
+* A documented public API — the public API now ships a full OpenAPI spec, and
+show details include each sequence's artwork.
+* Two-factor authentication — optional, and worth turning on.
+Want the full stories behind these? There's lots more detail about every one of
+them
+
+[on the blog]
+https://docs.remotefalcon.com/blog
+
+.
+
+Your five-minute preseason checklist
+Now that you've heard about all the cool new stuff, we'd like to make sure
+you're ready to go for the season. So here's a quick checklist to get started.
+
+1. Sign in and look around — the dashboard will show you anything that needs
+attention.
+2. Update the FPP plugin on your controller and confirm the dashboard shows
+Connected.
+3. Sync your sequences so this year's playlist is in and last year's leftovers
+are out.
+4. Refresh your viewer page — new season, new look (templates make it quick).
+5. Put your show on the map — two switches on the Shows Map page decide who
+sees you: other Remote Falcon operators, everyone, or neither.
+6. Turn on two-factor auth in Account Settings. Two minutes, once.
+
+[Start my season →]
+https://remotefalcon.com/control-panel/dashboard
+
+You're getting this because you run a show on Remote Falcon. Emails like this
+will stay rare — a few a year, only when there's real news. Questions? Just
+reply, it reaches a real person.
+
+[Unsubscribe from these emails]
+{{ unsubscribe_url | raw }}

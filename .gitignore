@@ -45,3 +45,7 @@ docs-output/
 # Agent({isolation: "worktree"}) — local-only, never committed).
 .claude/
 .eslintcache
+
+# Python bytecode
+__pycache__/
+*.pyc

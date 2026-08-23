@@ -111,31 +111,18 @@ def node_placeholder_warning(value: dict) -> str | None:
     return None
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument(
-        "--apply",
-        action="store_true",
-        help="Write the changes. Without this the script is a dry run.",
-    )
-    ap.add_argument("--drip-file", type=Path, default=DRIP_FILE)
-    args = ap.parse_args()
-
-    cfg = yaml.safe_load(args.drip_file.read_text())
-    project_id = cfg["project_id"]
-    host = cfg.get("posthog_host", "https://us.posthog.com").rstrip("/")
-    flow_id = cfg["flow_id"]
-    integration_id = cfg.get("email_integration_id")
-
-    token = os.environ.get("POSTHOG_API_KEY")
-    if not token:
-        sys.exit("ERROR: POSTHOG_API_KEY env var missing.")
-
-    mode = "APPLY" if args.apply else "DRY-RUN"
-    print(f"=== PostHog workflow template wiring ({mode}) ===")
-    print(f"project_id={project_id} host={host}")
-    print(f"flow={cfg.get('flow_name')} ({flow_id})")
-    print()
+def wire_flow(
+    host: str,
+    project_id: int,
+    token: str,
+    flow_cfg: dict,
+    integration_id: int | None,
+    sender: dict | None,
+    apply: bool,
+) -> int:
+    """Copy each configured template into its node on one flow."""
+    flow_id = flow_cfg["flow_id"]
+    print(f"flow={flow_cfg.get('flow_name')} ({flow_id})")
 
     flow = get_flow(host, project_id, token, flow_id)
     print(f"flow status: {flow.get('status')}  version: {flow.get('version')}")
@@ -151,7 +138,7 @@ def main() -> None:
     by_id = {a["id"]: a for a in actions}
 
     changed = 0
-    for node in cfg["nodes"]:
+    for node in flow_cfg["nodes"]:
         action_id = node["action_id"]
         template_id = node["template_id"]
         label = node.get("template_name", template_id)
@@ -177,14 +164,21 @@ def main() -> None:
         # no integrationId, and PostHog only validates that at send time —
         # so the flow looks fine in the editor and every send fails once
         # enabled. Guarantee it here rather than trusting authoring.
-        sender_fixed = False
-        if integration_id is not None:
-            sender = value.setdefault("from", {})
-            if sender.get("integrationId") != integration_id:
-                sender["integrationId"] = integration_id
-                sender_fixed = True
+        # The From identity is enforced for the same reason: PostHog
+        # substitutes the integration's verified address at send time
+        # rather than failing, so a node that names an unverified domain
+        # looks correct everywhere except in the delivered message.
+        sender_fixes = []
+        node_sender = value.setdefault("from", {})
+        if integration_id is not None and node_sender.get("integrationId") != integration_id:
+            node_sender["integrationId"] = integration_id
+            sender_fixes.append(f"integrationId = {integration_id}")
+        for field in ("name", "email"):
+            if sender and node_sender.get(field) != sender.get(field):
+                node_sender[field] = sender[field]
+                sender_fixes.append(f"{field} = {sender[field]}")
 
-        if not diff and not sender_fixed:
+        if not diff and not sender_fixes:
             print(f"[NOOP]   {action_id:<16} already matches {label!r}")
             continue
 
@@ -194,25 +188,79 @@ def main() -> None:
         if diff:
             print(f"         fields: {', '.join(diff)}")
             print(f"         subject: {wanted['subject']}")
-        if sender_fixed:
-            print(f"         sender: bind from.integrationId = {integration_id}")
+        for fix in sender_fixes:
+            print(f"         sender: {fix}")
         value.update(wanted)
         changed += 1
 
     print()
     if not changed:
-        print("Nothing to do — every node already matches its template.")
-        return
-    if not args.apply:
-        print(f"DRY-RUN: {changed} node(s) would be updated. Re-run with --apply.")
-        return
+        print(f"Nothing to do on {flow_id} — every node already matches.")
+    elif not apply:
+        print(f"DRY-RUN: {changed} node(s) on {flow_id} would be updated.")
+    else:
+        patch_flow_actions(host, project_id, token, flow_id, actions)
+        print(f"APPLIED: {changed} node(s) updated on flow {flow_id}.")
+        print(f"  {host}/project/{project_id}/workflows/{flow_id}/workflow")
+    print()
+    return changed
 
-    patch_flow_actions(host, project_id, token, flow_id, actions)
-    print(f"APPLIED: {changed} node(s) updated on flow {flow_id}.")
-    print(
-        "Next: verify in the editor, then run a test send before enabling.\n"
-        f"  {host}/project/{project_id}/workflows/{flow_id}/workflow"
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument(
+        "--apply",
+        action="store_true",
+        help="Write the changes. Without this the script is a dry run.",
     )
+    ap.add_argument("--drip-file", type=Path, default=DRIP_FILE)
+    ap.add_argument(
+        "--flow",
+        help="Wire only the flow with this id (default: every flow in the file).",
+    )
+    args = ap.parse_args()
+
+    cfg = yaml.safe_load(args.drip_file.read_text())
+    project_id = cfg["project_id"]
+    host = cfg.get("posthog_host", "https://us.posthog.com").rstrip("/")
+    integration_id = cfg.get("email_integration_id")
+    sender = cfg.get("email_from")
+
+    token = os.environ.get("POSTHOG_API_KEY")
+    if not token:
+        sys.exit("ERROR: POSTHOG_API_KEY env var missing.")
+
+    mode = "APPLY" if args.apply else "DRY-RUN"
+    print(f"=== PostHog workflow template wiring ({mode}) ===")
+    print(f"project_id={project_id} host={host}")
+    print()
+
+    # The drip is the primary flow; extra_flows carries any other flow
+    # whose email nodes are template-backed — the one-off Preseason
+    # broadcast, and whatever seasonal batch comes after it.
+    flows = [{
+        "flow_id": cfg["flow_id"],
+        "flow_name": cfg.get("flow_name"),
+        "nodes": cfg["nodes"],
+    }] + list(cfg.get("extra_flows", []))
+
+    if args.flow:
+        flows = [f for f in flows if f["flow_id"] == args.flow]
+        if not flows:
+            sys.exit(f"ERROR: no flow {args.flow!r} in {args.drip_file}.")
+
+    total = sum(
+        wire_flow(host, project_id, token, f, integration_id, sender, args.apply)
+        for f in flows
+    )
+
+    if not total:
+        print("Nothing to do — every node already matches its template.")
+    elif not args.apply:
+        print(f"DRY-RUN: {total} node(s) would be updated. Re-run with --apply.")
+    else:
+        print(f"APPLIED: {total} node(s) updated.")
+        print("Next: verify in the editor, then run a test send before enabling.")
 
 
 if __name__ == "__main__":

@@ -33,6 +33,21 @@ node and issues no write.
 
 - After editing any `Onboarding — N` template in the library.
 - Before enabling the drip, to replace the placeholder bodies.
+- Before dispatching the Preseason broadcast — its single node is a
+  placeholder until this runs.
+
+## More than one flow
+
+`drip.yml` describes the drip at the top level and any other
+template-backed flow under `extra_flows` (currently the one-off Preseason
+2026 broadcast). Every flow in the file is wired on each run; narrow it
+with `--flow <flow_id>` when you only want one.
+
+Loading a template into a node by hand is not equivalent: a node carries
+`subject`/`html`/`text` inline **and** a `from.integrationId` that only
+the editor's sender picker writes, and a half-copied node fails at send
+time rather than at author time. That is what this script exists to
+prevent.
 
 ## What it deliberately does not touch
 
