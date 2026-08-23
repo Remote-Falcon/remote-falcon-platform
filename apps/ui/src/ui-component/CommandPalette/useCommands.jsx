@@ -171,22 +171,26 @@ const useCommands = () => {
       }
     });
 
-    if (!isJukebox) {
-      commands.push({
-        id: 'act:reset-votes',
-        label: 'Reset all votes',
-        hint: 'Action · Show',
-        group: 'Actions',
-        icon: <IconTrash size={18} stroke={1.75} />,
-        run: () => {
-          resetAllVotesMutation({
-            context: { headers: { Route: 'Control-Panel' } },
-            onCompleted: () => showAlert(dispatch, { message: 'All Votes Reset' }),
-            onError: () => showAlert(dispatch, { alert: 'error' })
-          });
-        }
-      });
-    }
+    // Deliberately NOT gated on voting mode: jukebox-mode shows accumulate
+    // votes too (system-injected PSA/leader entries), and during the
+    // 2026-08-22 whale incident the operator couldn't reach this command
+    // because their show was in jukebox mode — the workaround was switching
+    // modes just to reset. Votes can exist regardless of mode; so must the
+    // reset.
+    commands.push({
+      id: 'act:reset-votes',
+      label: 'Reset all votes',
+      hint: 'Action · Show',
+      group: 'Actions',
+      icon: <IconTrash size={18} stroke={1.75} />,
+      run: () => {
+        resetAllVotesMutation({
+          context: { headers: { Route: 'Control-Panel' } },
+          onCompleted: () => showAlert(dispatch, { message: 'All Votes Reset' }),
+          onError: () => showAlert(dispatch, { alert: 'error' })
+        });
+      }
+    });
 
     commands.push({
       id: 'act:clear-now-playing',
