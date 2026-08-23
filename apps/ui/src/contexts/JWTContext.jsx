@@ -17,7 +17,7 @@ import { StatusResponse } from '../utils/enum';
 import safeStorage from '../utils/safeStorage';
 import { SIGN_UP, VERIFY_EMAIL, FORGOT_PASSWORD, RESET_PASSWORD } from '../utils/graphql/controlPanel/mutations';
 import { SIGN_IN, GET_SHOW, VERIFY_MFA } from '../utils/graphql/controlPanel/queries';
-import { deriveShowSubdomain, isImpersonationSession, trackPosthogEvent } from '../utils/analytics/posthog';
+import { deriveShowSubdomain, identifyShowAtSignup, isImpersonationSession, trackPosthogEvent } from '../utils/analytics/posthog';
 import { showAlert } from '../views/pages/globalPageHelpers';
 
 const verifyToken = (serviceToken) => {
@@ -287,11 +287,15 @@ export const JWTProvider = ({ children }) => {
         }
       },
       onCompleted: () => {
+        // PRD-013 P0-7 — identify the show FIRST so `sign_up` (the drip's
+        // trigger) is fired by the show person, with an email when opted
+        // in. Order matters: the drip enrols the event's person.
+        identifyShowAtSignup(showName, email, marketingOptIn);
         trackPosthogEvent('sign_up', {
           show_name: showName,
           // Join key for the signup -> verification funnel. See
-          // deriveShowSubdomain — these two events land on different
-          // PostHog persons, so the funnel aggregates on this instead.
+          // deriveShowSubdomain — `email_verified` is anonymous and often
+          // on another device, so the funnel aggregates on this instead.
           show_subdomain: deriveShowSubdomain(showName)
         });
         showAlert(dispatch, { id: 'snackbar-sign-up', message: `A verification email has been sent to ${email}` });
