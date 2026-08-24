@@ -14,14 +14,14 @@
 
 | Service | Stack | Test count | Coverage gate | CI enforces |
 |---|---|---:|---|:---:|
-| [`apps/viewer`](../apps/viewer) | Quarkus 21 native | 101 `@Test` | 60% line / 60% branch (JaCoCo) | ✓ |
+| [`apps/viewer`](../apps/viewer) | Quarkus 21 native | 172 `@Test` | 60% line / 60% branch (JaCoCo) | ✓ |
 | [`apps/plugins-api`](../apps/plugins-api) | Quarkus 21 native | 115 `@Test` | 80% line / 60% branch (JaCoCo, quarkus-jacoco capture) | ✓ |
 | [`apps/mongo-backup`](../apps/mongo-backup) | Quarkus 21 native | testcontainers + LocalStack | 80% line on service + resource packages (quarkus-jacoco capture) | ✓ |
 | [`apps/account-archive`](../apps/account-archive) | Quarkus 21 native | 9 `@Test` | 80% line on service + repository packages | ✓ |
 | [`apps/control-panel`](../apps/control-panel) | Spring Boot 3 native | 432 `@Test` | 76% line / 68% branch (JaCoCo, BUNDLE) | ✓ |
 | [`apps/external-api`](../apps/external-api) | Spring Boot 3 native | 166 `@Test` | 75% line / 85% branch (JaCoCo, BUNDLE) | ✓ |
 | [`apps/gateway`](../apps/gateway) | Spring Cloud Gateway | 0 | (skip — config-only service) | ✓ |
-| [`apps/ui`](../apps/ui) | Vite + React + Vitest | 743 tests across 90 files | 22% line (Vitest v8) | ✓ |
+| [`apps/ui`](../apps/ui) | Vite + React + Vitest | 817 tests across 95 files | 22% line (Vitest v8) | ✓ |
 | [`libs/schema`](../libs/schema) | JUnit 5 | 1 round-trip | n/a | ✓ |
 | [`libs/test-fixtures`](../libs/test-fixtures) | JUnit 5 | 1 drift test | n/a | ✓ |
 | [`tests/contract`](../tests/contract) | REST Assured + JUnit 5 | 7 fixture tests | n/a | ✓ |
@@ -405,7 +405,7 @@ Sprint 1 deliberately ships the *foundation* + one real test in each tier. Every
 ### Sprint 3 — see [PHASE-C-KICKOFF.md § 9](PHASE-C-KICKOFF.md#9-sprint-3--contract-tests-regression-e2e-post-deploy-smoke-35-days)
 
 - Real plugin contract tests (capture 3–5 real plugin requests from prod, replay against testcontainers `plugins-api`)
-- Cross-service control-panel ↔ viewer schema integration test
+- Cross-service control-panel ↔ viewer schema integration test (the UI ↔ viewer half shipped post-#150: `UiGraphQLContractTest` validates the UI's viewer gql documents against the served schema and keeps `viewer-schema.snapshot.graphql` current; `schemaContract.test.js` validates the same documents UI-side on UI-only changes)
 - Regression e2e tier: grow `tests/e2e/regression/` to ~20 specs (sequence editor, votes/requests config, account email change, page editor)
 - `nightly-regression.yml` workflow — cron + manual dispatch, files an issue on failure
 - Post-deploy smoke + auto-rollback — **shipped** (chore/ci-speedup): `deploy` split into a parallel `build` job + apply-only `deploy`, with a trailing `post-deploy-watch` that error-rate-checks each service and triggers `kubectl rollout undo` on a >3× baseline breach. (A literal health/critical-path smoke probe is still TODO; today's gate is the error-rate watch.)

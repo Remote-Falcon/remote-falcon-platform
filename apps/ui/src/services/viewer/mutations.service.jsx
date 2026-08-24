@@ -41,6 +41,9 @@ export const addSequenceToQueueService = (
   });
 };
 
+// No locationPermission here — the voteForSequence schema doesn't declare it
+// (vote denials aren't funnel-logged) and an unknown argument fails the whole
+// mutation at validation. See VOTE_FOR_SEQUENCE in utils/graphql/viewer.
 export const voteForSequenceService = (
   voteForSequenceMutation,
   showSubdomain,
@@ -48,7 +51,6 @@ export const voteForSequenceService = (
   viewerLatitude,
   viewerLongitude,
   viewerId,
-  locationPermission,
   callback
 ) => {
   voteForSequenceMutation({
@@ -62,8 +64,7 @@ export const voteForSequenceService = (
       name,
       latitude: parseFloat(viewerLatitude),
       longitude: parseFloat(viewerLongitude),
-      viewerId,
-      locationPermission
+      viewerId
     },
     onCompleted: (response) => {
       callback({

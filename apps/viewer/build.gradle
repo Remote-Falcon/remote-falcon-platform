@@ -45,6 +45,15 @@ java {
 
 test {
     systemProperty "java.util.logging.manager", "org.jboss.logmanager.LogManager"
+    // UiGraphQLContractTest validates the UI's gql documents against this
+    // service's schema; declare them as inputs so editing the UI documents
+    // re-runs the tests instead of hitting a stale UP-TO-DATE result.
+    inputs.files(fileTree('../ui/src/utils/graphql/viewer'))
+        .withPropertyName('uiViewerGraphqlDocuments')
+        .optional()
+    // Regenerate the UI-side schema snapshot with:
+    //   ./gradlew test --tests '*UiGraphQLContractTest' -DupdateViewerSchemaSnapshot=true
+    systemProperty 'updateViewerSchemaSnapshot', System.getProperty('updateViewerSchemaSnapshot', 'false')
     testLogging {
         exceptionFormat = 'full'
         showStackTraces = true
