@@ -1,0 +1,335 @@
+type ActiveViewer {
+  ipAddress: String
+  viewerId: String
+  "ISO-8601"
+  visitDateTime: DateTime
+}
+
+type ApiAccess {
+  apiAccessActive: Boolean
+  apiAccessSecret: String
+  apiAccessToken: String
+}
+
+type Category {
+  antiConsecutive: Boolean
+  color: String
+  displayOrder: Int
+  name: String
+  requestLimit: Int
+}
+
+type GpsLocation {
+  latitude: Float
+  longitude: Float
+}
+
+type HeartbeatGap {
+  "ISO-8601"
+  endedAt: DateTime
+  "ISO-8601"
+  startedAt: DateTime
+}
+
+type Jukebox {
+  "ISO-8601"
+  dateTime: DateTime
+  name: String
+  viewerId: String
+}
+
+"Mutation root"
+type Mutation {
+  "Add Sequence To Queue"
+  addSequenceToQueue(latitude: Float, locationPermission: String = "", longitude: Float, name: String, showSubdomain: String, viewerId: String = ""): Boolean
+  "Insert Viewer Page Stats"
+  insertViewerPageStats(
+    "ISO-8601"
+    date: DateTime,
+    showSubdomain: String,
+    viewerId: String = ""
+  ): Boolean
+  "Update Active Viewers"
+  updateActiveViewers(showSubdomain: String, viewerId: String = ""): Boolean
+  "Update Playing Next"
+  updatePlayingNext(playingNext: String, showSubdomain: String): Boolean
+  "Update Playing Now"
+  updatePlayingNow(playingNow: String, showSubdomain: String): Boolean
+  "Vote For Sequence"
+  voteForSequence(latitude: Float, longitude: Float, name: String, showSubdomain: String, viewerId: String = ""): Boolean
+}
+
+type NotificationModel {
+  "ISO-8601"
+  createdDate: DateTime
+  link: String
+  message: String
+  preview: String
+  subject: String
+  type: NotificationType
+  uuid: String
+}
+
+type NotificationPreference {
+  enableFppHeartbeat: Boolean
+  fppHeartbeatIfControlEnabled: Boolean
+  "ISO-8601"
+  fppHeartbeatLastNotification: DateTime
+  fppHeartbeatRenotifyAfterMinutes: Int
+}
+
+type Page {
+  "ISO-8601"
+  dateTime: DateTime
+  ip: String
+  viewerId: String
+}
+
+type Preference {
+  additionalGpsLocations: [GpsLocation]
+  allowedRadius: Float
+  analyticsBetaOptIn: Boolean
+  blockedViewerIps: [String]
+  checkIfRequested: Boolean
+  checkIfVoted: Boolean
+  dailyVoteLimit: Int
+  hideSequenceCount: Int
+  jukeboxDepth: Int
+  jukeboxRequestLimit: Int
+  "ISO-8601"
+  lastPlayCountedAt: DateTime
+  "ISO-8601"
+  lastVoteCountedAt: DateTime
+  locationCheckMethod: LocationCheckMethod
+  locationCode: Int
+  makeItSnow: Boolean
+  managePsa: Boolean
+  nightlyPlayLimit: Int
+  notificationPreferences: NotificationPreference
+  pageIconUrl: String
+  pageTitle: String
+  playAllPsas: Boolean
+  psaEnabled: Boolean
+  psaFrequency: Int
+  resetVotes: Boolean
+  selfHostedRedirectUrl: String
+  sequencesPlayed: Int
+  showLatitude: Float
+  showLongitude: Float
+  showOnMap: Boolean
+  showOnMapPublic: Boolean
+  statsExcludedIps: [String]
+  viewerControlEnabled: Boolean
+  viewerControlMode: ViewerControlMode
+  viewerPageViewOnly: Boolean
+  votingExemptIps: [String]
+  "ISO-8601"
+  votingWindowStartedAt: DateTime
+  wrappedPublic: Boolean
+  wrappedShareToken: String
+}
+
+type PsaSequence {
+  enabled: Boolean
+  "ISO-8601"
+  lastPlayed: DateTime
+  name: String
+  order: Int
+}
+
+"Query root"
+type Query {
+  "Get Active Viewer Page"
+  getActiveViewerPage(showSubdomain: String): String
+  "Get Show"
+  getShow(showSubdomain: String): Show
+  "Votes Remaining For Viewer"
+  votesRemaining(showSubdomain: String, viewerId: String = ""): Int
+}
+
+type RejectedRequest {
+  "ISO-8601"
+  dateTime: DateTime
+  name: String
+  reason: String
+  viewerId: String
+}
+
+type Request {
+  ownerRequested: Boolean
+  position: Int
+  sequence: Sequence
+  viewerRequested: String
+}
+
+type Sequence {
+  active: Boolean
+  artist: String
+  category: String
+  displayName: String
+  duration: Int
+  group: String
+  imageUrl: String
+  index: Int
+  name: String
+  order: Int
+  playsToday: Int
+  type: String
+  visibilityCount: Int
+  visible: Boolean
+}
+
+type SequenceGroup {
+  name: String
+  visibilityCount: Int
+}
+
+"Top level Show details"
+type Show {
+  activeViewers: [ActiveViewer]
+  apiAccess: ApiAccess
+  categories: [Category]
+  "ISO-8601"
+  createdDate: DateTime
+  email: String
+  emailVerified: Boolean
+  "ISO-8601"
+  expireDate: DateTime
+  fppVersion: String
+  heartbeatGaps: [HeartbeatGap]
+  id: String
+  "ISO-8601"
+  lastFppHeartbeat: DateTime
+  "ISO-8601"
+  lastLoginDate: DateTime
+  lastLoginIp: String
+  nextPsaOverride: String
+  pages: [ViewerPage]
+  "ISO-8601"
+  passwordResetExpiry: DateTime
+  passwordResetLink: String
+  playingNext: String
+  playingNextFromSchedule: String
+  playingNextSequence: Sequence
+  playingNow: String
+  playingNowSequence: Sequence
+  pluginVersion: String
+  preferences: Preference
+  psaSequences: [PsaSequence]
+  requestLeaderSequence: String
+  requests: [Request]
+  sequenceGroups: [SequenceGroup]
+  sequences: [Sequence]
+  serviceToken: String
+  showName: String
+  showNotifications: [ShowNotification]
+  showRole: ShowRole
+  showSubdomain: String
+  showToken: String
+  stats: Stat
+  userProfile: UserProfile
+  versionChanges: [VersionChange]
+  viewerSessions: [ViewerSession]
+  voteLeaderSequence: String
+  votes: [Vote]
+}
+
+type ShowNotification {
+  deleted: Boolean
+  notification: NotificationModel
+  read: Boolean
+}
+
+type Stat {
+  jukebox: [Jukebox]
+  page: [Page]
+  rejectedRequests: [RejectedRequest]
+  voting: [Voting]
+  votingWin: [VotingWin]
+}
+
+type UserProfile {
+  facebookUrl: String
+  firstName: String
+  lastName: String
+  "ISO-8601"
+  lastTokenResetDate: DateTime
+  totalTokens: Int
+  youtubeUrl: String
+}
+
+type VersionChange {
+  "ISO-8601"
+  at: DateTime
+  fppVersion: String
+  pluginVersion: String
+}
+
+type ViewerPage {
+  active: Boolean
+  html: String
+  name: String
+  pageId: String
+  "ISO-8601"
+  updatedAt: DateTime
+}
+
+type ViewerSession {
+  eventCount: Int
+  "ISO-8601"
+  firstSeen: DateTime
+  ip: String
+  "ISO-8601"
+  lastSeen: DateTime
+  "ISO-8601"
+  nightDate: Date
+  viewerId: String
+}
+
+type Vote {
+  "ISO-8601"
+  lastVoteTime: DateTime
+  ownerOverride: Boolean
+  ownerVoted: Boolean
+  sequence: Sequence
+  sequenceGroup: SequenceGroup
+  systemInjected: Boolean
+  viewersVoted: [String]
+  votes: Int
+}
+
+type Voting {
+  "ISO-8601"
+  dateTime: DateTime
+  name: String
+  viewerId: String
+}
+
+type VotingWin {
+  "ISO-8601"
+  dateTime: DateTime
+  name: String
+  total: Int
+}
+
+enum LocationCheckMethod {
+  CODE
+  GEO
+  NONE
+}
+
+enum NotificationType {
+  ADMIN
+  FPP_HEALTH
+  USER
+}
+
+enum ShowRole {
+  ADMIN
+  USER
+}
+
+enum ViewerControlMode {
+  JUKEBOX
+  VOTING
+}

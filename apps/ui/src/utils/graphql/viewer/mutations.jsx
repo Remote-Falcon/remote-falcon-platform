@@ -18,8 +18,12 @@ export const ADD_SEQUENCE_TO_QUEUE = gql`
   }
 `;
 
+// PRD-019 — locationPermission is deliberately NOT sent here: the server never
+// added it to voteForSequence (vote denials aren't logged to the rejection
+// funnel), and GraphQL rejects unknown arguments before execution. Sending it
+// broke every voting-mode show with UnknownArgument (fixed post-#150).
 export const VOTE_FOR_SEQUENCE = gql`
-  mutation VoteForSequence($showSubdomain: String!, $name: String!, $latitude: Float, $longitude: Float, $viewerId: String, $locationPermission: String) @api(name: viewer) {
-    voteForSequence(showSubdomain: $showSubdomain, name: $name, latitude: $latitude, longitude: $longitude, viewerId: $viewerId, locationPermission: $locationPermission)
+  mutation VoteForSequence($showSubdomain: String!, $name: String!, $latitude: Float, $longitude: Float, $viewerId: String) @api(name: viewer) {
+    voteForSequence(showSubdomain: $showSubdomain, name: $name, latitude: $latitude, longitude: $longitude, viewerId: $viewerId)
   }
 `;

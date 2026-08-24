@@ -72,28 +72,43 @@ describe('addSequenceToQueueService', () => {
 describe('voteForSequenceService', () => {
   it('routes to Viewer with parsed coordinates and viewerId', () => {
     const mutation = buildMutation('success');
-    voteForSequenceService(mutation, 'mattshow', 'Carol', '12', '-34', 'viewer-abc', 'granted', () => {});
+    voteForSequenceService(mutation, 'mattshow', 'Carol', '12', '-34', 'viewer-abc', () => {});
     const opts = mutation.mock.calls[0][0];
     expect(opts.variables).toEqual({
       showSubdomain: 'mattshow',
       name: 'Carol',
       latitude: 12,
       longitude: -34,
-      viewerId: 'viewer-abc',
-      locationPermission: 'granted'
+      viewerId: 'viewer-abc'
     });
     expect(opts.context.headers.Route).toBe('Viewer');
   });
 
+  // The voteForSequence schema has no locationPermission argument (vote denials
+  // aren't funnel-logged), and GraphQL fails the whole mutation on an unknown
+  // argument. Sending it broke every voting-mode show post-#150 — the exact
+  // variable set is the contract here, not a style choice.
+  it('never sends locationPermission (unknown-argument breaks the vote)', () => {
+    const mutation = buildMutation('success');
+    voteForSequenceService(mutation, 'mattshow', 'Carol', '12', '-34', 'viewer-abc', () => {});
+    expect(Object.keys(mutation.mock.calls[0][0].variables)).toEqual([
+      'showSubdomain',
+      'name',
+      'latitude',
+      'longitude',
+      'viewerId'
+    ]);
+  });
+
   it('callback receives {success:true, response} on completion', () => {
     const callback = vi.fn();
-    voteForSequenceService(buildMutation('success'), 's', 'n', '0', '0', 'viewer-abc', 'granted', callback);
+    voteForSequenceService(buildMutation('success'), 's', 'n', '0', '0', 'viewer-abc', callback);
     expect(callback).toHaveBeenCalledWith({ success: true, response: { ok: true } });
   });
 
   it('callback receives {success:false, error} on error', () => {
     const callback = vi.fn();
-    voteForSequenceService(buildMutation('error'), 's', 'n', '0', '0', 'viewer-abc', 'granted', callback);
+    voteForSequenceService(buildMutation('error'), 's', 'n', '0', '0', 'viewer-abc', callback);
     expect(callback.mock.calls[0][0].success).toBe(false);
     expect(callback.mock.calls[0][0].error).toBeInstanceOf(Error);
   });
