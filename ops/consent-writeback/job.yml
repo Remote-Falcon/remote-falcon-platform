@@ -1,0 +1,85 @@
+---
+# Writes PostHog unsubscribes back onto Show.marketingOptIn. Runs
+# in-cluster because prod Mongo is DO Managed and VPC-restricted — a
+# laptop cannot reach it.
+#
+# The script is mounted from a ConfigMap built out of the repo copy, so
+# what runs is what is reviewed here:
+#
+#   kubectl -n remote-falcon create configmap consent-writeback \
+#     --from-file=writeback.py=ops/consent-writeback/writeback.py \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl -n remote-falcon apply -f ops/consent-writeback/job.yml
+#   kubectl -n remote-falcon logs -f job/consent-writeback
+#
+# Defaults to a dry run. To write, edit ARGS below and re-create the Job
+# (a completed Job is immutable — delete it first).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: consent-writeback
+  namespace: remote-falcon
+  labels:
+    app: consent-writeback
+spec:
+  # Unlike the backfill this IS safe to retry: every write is an
+  # idempotent $set to a fixed value, and a re-run re-reads the list
+  # rather than replaying a cursor.
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: consent-writeback
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: writeback
+          # slim, not alpine: pymongo ships manylinux wheels, so no
+          # compiler is needed on glibc.
+          image: python:3.12-slim
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              memory: 128Mi
+              cpu: 100m
+            limits:
+              memory: 512Mi
+              cpu: 500m
+          env:
+            - name: MONGO_URI
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb-connection
+                  key: MONGO_URI
+            # Personal API key. Needs `hog_flow:read` — that one scope
+            # covers messaging_preferences AND messaging_suppressions,
+            # there is no separate messaging scope to hunt for. This is a
+            # real secret, unlike the public ingest key the script
+            # defaults to for the capture call.
+            - name: POSTHOG_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: posthog-api-key
+                  key: POSTHOG_API_KEY
+            - name: POSTHOG_API_HOST
+              value: https://us.posthog.com
+            - name: POSTHOG_HOST
+              value: https://us.i.posthog.com
+            # DRY RUN as committed. Set to "--apply-mongo --apply-posthog"
+            # to write. Add --apply-bounces to also revoke hard-bounced
+            # addresses (a deliverability call, not a consent one).
+            - name: ARGS
+              value: ""
+          command: ["/bin/sh", "-uec"]
+          args:
+            - |
+              pip install --quiet --no-cache-dir 'pymongo>=4.6'
+              python /script/writeback.py $ARGS
+          volumeMounts:
+            - name: script
+              mountPath: /script
+      volumes:
+        - name: script
+          configMap:
+            name: consent-writeback
