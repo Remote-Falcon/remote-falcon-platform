@@ -80,11 +80,25 @@ replaying a cursor. `backoffLimit: 2` reflects that.
 `remote-falcon` explicitly (override with `MONGO_DB`) and exits non-zero
 if `show` is empty rather than reporting nothing to correct.
 
-The personal API key needs **`hog_flow:read`**. That single scope governs
-`messaging_preferences` and `messaging_suppressions` as well as
-`hog_flows` — there is no separate messaging scope. A 403 is almost
-always the missing scope; the script says so and links the key settings
-page. It reads the in-cluster secret `posthog-api-key`.
+### Scopes
+
+The two lists want **different** scopes, which is easy to get wrong:
+
+| Endpoint | Scope | Required for |
+|---|---|---|
+| `messaging_preferences/opt_outs/` | `hog_flow:read` | unsubscribes — the whole point of this job |
+| `messaging_suppressions/suppressions/` | `person:read` | the bounce report and `--apply-bounces` only |
+
+The in-cluster secret `posthog-api-key` (populated from the GitHub Actions
+repo secret `POSTHOG_API_KEY` by `deploy-daily-digest.yml`) has
+`hog_flow:read` but **not** `person:read`. That is fine: the unsubscribe
+path works, and the bounce list degrades to a warning rather than failing
+the run. Grant `person:read` if you want bounce reporting or
+`--apply-bounces`.
+
+Do not assume a 403 means one particular scope — PostHog names the
+missing one in its response `detail`, and the script surfaces that
+verbatim instead of guessing.
 
 ## Manual process, until this is scheduled
 

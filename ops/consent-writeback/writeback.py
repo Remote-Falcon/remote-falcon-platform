@@ -74,6 +74,10 @@ DEFAULT_INGEST_HOST = "https://us.i.posthog.com"
 BATCH_SIZE = 500
 
 
+class Forbidden(Exception):
+    """A 403 carrying PostHog's own explanation of what scope is missing."""
+
+
 def get_paginated(host: str, api_key: str, path: str) -> list[dict]:
     """Walk a DRF-paginated PostHog endpoint to the end.
 
@@ -81,6 +85,11 @@ def get_paginated(host: str, api_key: str, path: str) -> list[dict]:
     event stream is deliberate: the list is current state and survives
     event retention, so a show that unsubscribed last season is still
     corrected by a run made today.
+
+    A 403 raises Forbidden with PostHog's own `detail` rather than a
+    guess. The two endpoints this script reads want DIFFERENT scopes —
+    opt_outs needs hog_flow:read, suppressions needs person:read — so
+    assuming one scope for every 403 sends you chasing the wrong fix.
     """
     url = f"{host}/api/projects/{PROJECT_ID}/{path}"
     out: list[dict] = []
@@ -99,12 +108,12 @@ def get_paginated(host: str, api_key: str, path: str) -> list[dict]:
                 break
             except urllib.error.HTTPError as e:
                 if e.code == 403:
-                    sys.exit(
-                        "ERROR: 403 from PostHog. The personal API key needs the "
-                        "`hog_flow:read` scope (it governs messaging_preferences and "
-                        "messaging_suppressions too). Add it at "
-                        f"{host}/settings/user-api-keys"
-                    )
+                    body = e.read().decode(errors="replace")
+                    try:
+                        detail = json.loads(body).get("detail") or body
+                    except ValueError:
+                        detail = body
+                    raise Forbidden(f"{path}: {detail}")
                 if e.code in (429, 500, 502, 503, 504) and attempt < 4:
                     time.sleep(2 ** attempt)
                     continue
@@ -137,10 +146,22 @@ def opted_out_emails(host: str, api_key: str) -> set[str]:
     return emails
 
 
-def suppressed_emails(host: str, api_key: str) -> set[str]:
-    """Addresses PostHog stopped mailing because they hard-bounced."""
+def suppressed_emails(host: str, api_key: str) -> set[str] | None:
+    """Addresses PostHog stopped mailing because they hard-bounced.
+
+    Returns None when the key cannot read them. This endpoint needs
+    `person:read`, which the unsubscribe path does not, so a key scoped
+    only for consent work still does the job it was pointed at — the
+    bounce report degrades to a warning instead of failing the run.
+    """
     emails: set[str] = set()
-    for row in get_paginated(host, api_key, "messaging_suppressions/suppressions/"):
+    try:
+        rows = get_paginated(host, api_key, "messaging_suppressions/suppressions/")
+    except Forbidden as e:
+        print(f"WARN: bounce list unavailable ({e}). Unsubscribes are unaffected.",
+              file=sys.stderr)
+        return None
+    for row in rows:
         if not row.get("suppressed", True):
             continue
         identifier = (row.get("identifier") or "").strip().lower()
@@ -206,10 +227,23 @@ def main() -> None:
               f"{client.list_database_names()}", file=sys.stderr)
         sys.exit(1)
 
-    unsubscribed = opted_out_emails(api_host, api_key)
+    try:
+        unsubscribed = opted_out_emails(api_host, api_key)
+    except Forbidden as e:
+        sys.exit(f"ERROR: cannot read the opt-out list -- {e}\n"
+                 f"       Grant the missing scope at {api_host}/settings/user-api-keys")
+
     bounced = suppressed_emails(api_host, api_key)
-    # An address on both lists is a consent decision first.
-    bounced -= unsubscribed
+    if bounced is None:
+        if args.apply_bounces:
+            sys.exit("ERROR: --apply-bounces needs the bounce list, which this key "
+                     "cannot read (see WARN above). Grant `person:read` or drop the flag.")
+        bounced = set()
+        bounce_note = "UNAVAILABLE (needs person:read)"
+    else:
+        # An address on both lists is a consent decision first.
+        bounced -= unsubscribed
+        bounce_note = "written (--apply-bounces)" if args.apply_bounces else "REPORT ONLY"
 
     revoke = set(unsubscribed)
     if args.apply_bounces:
@@ -217,7 +251,7 @@ def main() -> None:
 
     print(f"shows total          {total}")
     print(f"unsubscribed         {len(unsubscribed):>5}   <- consent, always written")
-    print(f"hard bounced         {len(bounced):>5}   <- {'written (--apply-bounces)' if args.apply_bounces else 'REPORT ONLY'}")
+    print(f"hard bounced         {len(bounced):>5}   <- {bounce_note}")
 
     if not revoke:
         print("\nNothing to write back.")
