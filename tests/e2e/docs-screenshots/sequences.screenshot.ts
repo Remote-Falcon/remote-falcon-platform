@@ -30,6 +30,28 @@ test.describe('docs-screenshots: sequences', () => {
     });
   });
 
+  // The sort banner only exists while a column sort is active, and the
+  // sort is client-side view state — no seed dependency, but the list has
+  // to be hydrated before the header click registers against real rows.
+  test('sequences-sort-preview', async ({ page }, testInfo) => {
+    await page.goto('/control-panel/sequences/list');
+    await page
+      .locator('[data-testid="sequences-list-root"]')
+      .waitFor({ state: 'visible' });
+    await page
+      .locator('[data-testid="sequences-sort-header-displayName"]')
+      .click();
+    // Banner renders on the same tick as the re-sort; waiting on it (rather
+    // than the rows) is what proves the preview state actually engaged.
+    await page
+      .locator('[data-testid="sequences-sort-banner"]')
+      .waitFor({ state: 'visible' });
+    await takeScreenshot(page, testInfo, 'fullPage', 'sequences-sort-preview', {
+      alt: 'Sequences list sorted by Display name with the preview banner offering to save the sort as the viewer page order',
+      state: 'sort-active',
+    });
+  });
+
   test('sequences-groups', async ({ page }, testInfo) => {
     await page.goto('/control-panel/sequences/groups');
     await page
