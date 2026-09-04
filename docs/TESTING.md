@@ -21,7 +21,7 @@
 | [`apps/control-panel`](../apps/control-panel) | Spring Boot 3 native | 432 `@Test` | 76% line / 68% branch (JaCoCo, BUNDLE) | ✓ |
 | [`apps/external-api`](../apps/external-api) | Spring Boot 3 native | 166 `@Test` | 75% line / 85% branch (JaCoCo, BUNDLE) | ✓ |
 | [`apps/gateway`](../apps/gateway) | Spring Cloud Gateway | 0 | (skip — config-only service) | ✓ |
-| [`apps/ui`](../apps/ui) | Vite + React + Vitest | 817 tests across 95 files | 22% line (Vitest v8) | ✓ |
+| [`apps/ui`](../apps/ui) | Vite + React + Vitest | 842 tests across 97 files | 22% line (Vitest v8) | ✓ |
 | [`libs/schema`](../libs/schema) | JUnit 5 | 1 round-trip | n/a | ✓ |
 | [`libs/test-fixtures`](../libs/test-fixtures) | JUnit 5 | 1 drift test | n/a | ✓ |
 | [`tests/contract`](../tests/contract) | REST Assured + JUnit 5 | 7 fixture tests | n/a | ✓ |
