@@ -20,3 +20,15 @@ if (typeof window !== 'undefined' && typeof window.localStorage === 'undefined')
     }
   });
 }
+
+// jsdom implements no ResizeObserver. Components that watch their own layout
+// (SequencesList's horizontal-scroll hints) construct one on mount and would
+// otherwise throw before the first assertion. A no-op observer is enough:
+// tests assert on behavior, never on measured geometry.
+if (typeof globalThis.ResizeObserver === 'undefined') {
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+}

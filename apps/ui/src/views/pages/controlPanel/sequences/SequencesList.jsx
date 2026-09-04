@@ -79,6 +79,7 @@ import { cleanLookupQuery } from '../../../../utils/musicMetadata';
 import BulkMetadataLookupDialog from './BulkMetadataLookupDialog';
 import EditableCell from './EditableCell';
 import SequenceMetadataLookup from './SequenceMetadataLookup';
+import { applySortAsOrder, sortSequencesByColumn } from './sequenceSortOrder';
 
 // Status chip palette helper. Keeps the JSX tight.
 const STATUS_CHIP = {
@@ -460,8 +461,10 @@ const SequencesList = () => {
           .some((v) => v.toString().toLowerCase().includes(needle))
       );
     }
-    if (orderBy !== 'order') list = _.orderBy(list, [orderBy], [order]);
-    else list = _.orderBy(list, ['order'], ['asc']);
+    // Canonical order is always ascending — `order` isn't a sortable column
+    // header, it's the persisted viewer-page position the table falls back to.
+    if (orderBy !== 'order') list = sortSequencesByColumn(list, orderBy, order);
+    else list = sortSequencesByColumn(list, 'order', 'asc');
     return list;
   }, [show?.sequences, filter, groupFilter, categoryFilter, search, orderBy, order]);
 
@@ -470,8 +473,19 @@ const SequencesList = () => {
     [filteredSequences, page, rowsPerPage]
   );
 
+  // Nothing masking the full list: every row is on screen, so both drag and
+  // "save this sort as the viewer order" act on the complete sequence set.
+  const viewIsUnfiltered = filter === 'all' && !groupFilter && !categoryFilter && !search;
+
   // Drag is meaningful only when nothing is masking the canonical order.
-  const dndEnabled = filter === 'all' && !groupFilter && !categoryFilter && !search && orderBy === 'order';
+  const dndEnabled = viewIsUnfiltered && orderBy === 'order';
+
+  // A column sort is a PREVIEW — it changes what this table shows, never
+  // `sequence.order`. When one is active we offer to commit it (see
+  // applySortToOrder), but only against the unfiltered list: `order` is
+  // global, so renumbering a filtered subset would reshuffle the rest.
+  const sortIsPreview = orderBy !== 'order';
+  const sortedColumnLabel = SORTABLE_COLUMNS.find((c) => c.key === orderBy)?.label || orderBy;
 
   // One-click escape hatch back to the dnd-enabled view — clears all four
   // pieces of view state at once so the user doesn't have to hunt for which
@@ -560,6 +574,46 @@ const SequencesList = () => {
         showAlert(dispatch, { message: 'Sequences Order Updated' });
       }
       setBusy(false);
+    });
+  };
+
+  // Commit the current column sort as the viewer page order — the workflow
+  // the old control panel's "Sort Alphabetically" button covered, generalized
+  // to any sortable column ("* new this year" first, artist grouping, etc.).
+  //
+  // flush() first so a pending coalesced cell edit (both paths write the whole
+  // sequences[]) can't be clobbered by this write, then read the store's
+  // post-flush state rather than this render's closure.
+  const applySortToOrder = async (column, direction, source) => {
+    await flush();
+    const currentSequences = store.getState().show.show?.sequences || [];
+    if (currentSequences.length === 0) return;
+    const updated = applySortAsOrder(currentSequences, column, direction);
+    persistSequences(updated, 'Viewer page order updated', () => {
+      // Drop back to the canonical view: it now renders identically to the
+      // sort that was just applied, and it re-enables drag for fine-tuning.
+      resetSort();
+      setPage(0);
+      trackPosthogEvent('sequence_order_applied_from_sort', {
+        column,
+        direction,
+        source,
+        sequence_count: updated.length
+      });
+    });
+  };
+
+  const confirmApplySortToOrder = (column, direction, source) => {
+    const label = SORTABLE_COLUMNS.find((c) => c.key === column)?.label || column;
+    setConfirm({
+      title: 'Save this order to your viewer page?',
+      message:
+        `All ${totalCount} ${totalCount === 1 ? 'sequence' : 'sequences'} will be reordered by ` +
+        `${label} (${direction === 'asc' ? 'A→Z' : 'Z→A'}), replacing your current viewer page order. ` +
+        `You can still drag individual rows afterward.`,
+      confirmLabel: 'Save order',
+      confirmColor: 'primary',
+      action: () => applySortToOrder(column, direction, source)
     });
   };
 
@@ -875,6 +929,18 @@ const SequencesList = () => {
                 </IconButton>
               </Tooltip>
               <Menu anchorEl={bulkAnchor} open={Boolean(bulkAnchor)} onClose={() => setBulkAnchor(null)}>
+                {/* Muscle memory from the old dashboard's "Sort
+                    Alphabetically" button — same result, one click, without
+                    having to sort the column first. */}
+                <MenuItem
+                  disabled={totalCount === 0 || !viewIsUnfiltered}
+                  onClick={() => {
+                    setBulkAnchor(null);
+                    confirmApplySortToOrder('displayName', 'asc', 'bulk_menu');
+                  }}
+                >
+                  Sort A→Z by display name and save order
+                </MenuItem>
                 <MenuItem
                   disabled={metadataMissing.length === 0}
                   onClick={() => {
@@ -1188,9 +1254,60 @@ const SequencesList = () => {
                 </Tooltip>
               </Stack>
             )}
-            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 0.5, px: 1 }}>
-              Drag rows to reorder — this is the order songs appear on your viewer page.
-            </Typography>
+            {/* Sorting a column used to look like it set the viewer page
+                order (the old dashboard's "Sort Alphabetically" button did
+                exactly that), so owners sorted by Display name and wondered
+                why their page didn't change. Say plainly that the sort is a
+                preview, and offer the one-click commit. */}
+            {sortIsPreview ? (
+              <Stack
+                direction="row"
+                spacing={1}
+                alignItems="center"
+                flexWrap="wrap"
+                useFlexGap
+                sx={{
+                  mb: 0.5,
+                  mx: 1,
+                  px: 1.5,
+                  py: 1,
+                  borderRadius: 1,
+                  bgcolor: (t) => (t.palette.mode === 'dark' ? 'rgba(244,169,58,0.10)' : 'rgba(244,169,58,0.12)')
+                }}
+              >
+                <Typography variant="caption" sx={{ color: 'text.secondary', flex: 1, minWidth: 240 }}>
+                  Sorted by <strong>{sortedColumnLabel}</strong> ({order === 'asc' ? 'A→Z' : 'Z→A'}) — preview only.
+                  Your viewer page still uses your saved order.
+                </Typography>
+                <Tooltip
+                  title={
+                    viewIsUnfiltered
+                      ? 'Reorder every sequence to match this sort, and save it to your viewer page'
+                      : 'Clear filters and search first — the viewer page order covers every sequence, not just the ones shown'
+                  }
+                >
+                  <span>
+                    <Button
+                      size="small"
+                      variant="contained"
+                      color="primary"
+                      disabled={!viewIsUnfiltered || busy || totalCount === 0}
+                      onClick={() => confirmApplySortToOrder(orderBy, order, 'sort_banner')}
+                    >
+                      Save as viewer page order
+                    </Button>
+                  </span>
+                </Tooltip>
+                <Button size="small" onClick={resetSort}>
+                  Cancel sort
+                </Button>
+              </Stack>
+            ) : (
+              <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 0.5, px: 1 }}>
+                Drag rows to reorder — this is the order songs appear on your viewer page. Or sort a column and save
+                that sort as your order.
+              </Typography>
+            )}
             <TableContainer ref={tableContainerRef}>
               <Table size="small" aria-label="sequences">
                 <TableHead sx={{ '& th,& td': { whiteSpace: 'nowrap' } }}>
@@ -1258,7 +1375,15 @@ const SequencesList = () => {
                                     />
                                   </TableCell>
                                   <TableCell sx={{ width: 28, p: 0, color: 'text.disabled' }}>
-                                    <Tooltip title={dndEnabled ? 'Drag to reorder' : 'Reordering disabled while filtering or sorting'}>
+                                    <Tooltip
+                                      title={
+                                        dndEnabled
+                                          ? 'Drag to reorder'
+                                          : sortIsPreview
+                                            ? 'Dragging is off while a column sort is previewing — save the sort as your order, or cancel it'
+                                            : 'Reordering disabled while filtering'
+                                      }
+                                    >
                                       <Box
                                         {...(dndEnabled ? dragProvided.dragHandleProps : {})}
                                         sx={{
