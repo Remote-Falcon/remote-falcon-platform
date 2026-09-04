@@ -1261,6 +1261,7 @@ const SequencesList = () => {
                 preview, and offer the one-click commit. */}
             {sortIsPreview ? (
               <Stack
+                data-testid="sequences-sort-banner"
                 direction="row"
                 spacing={1}
                 alignItems="center"
@@ -1333,6 +1334,7 @@ const SequencesList = () => {
                         }}
                       >
                         <TableSortLabel
+                          data-testid={`sequences-sort-header-${col.key}`}
                           active={orderBy === col.key}
                           direction={orderBy === col.key ? order : 'asc'}
                           onClick={() => requestSort(col.key)}

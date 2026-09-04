@@ -213,3 +213,30 @@ Notes:
 - PRD source: **Appendix B** of
   `RemoteFalcon-Docs-Screenshot-Automation-PRD.md`
 - Shot inventory and seed-state map: **Appendix A.1** of the same PRD
+
+## Sequence sort order — new shot added 2026-09-04
+
+Shot 19 (`sequences-sort-preview`) covers the sort-preview banner added in
+#171, which lets an owner commit a column sort to `sequence.order` — the
+workflow the old dashboard's "Sort Alphabetically" button used to cover.
+
+| # | Shot name | Component file | Element | `data-testid` |
+|---|-----------|----------------|---------|---------------|
+| 19 | `sequences-sort-preview` | `apps/ui/src/views/pages/controlPanel/sequences/SequencesList.jsx` | the banner `<Stack>` rendered while `sortIsPreview` | `sequences-sort-banner` |
+| — | (interaction only, no shot) | same file | each column header's `<TableSortLabel>` | `sequences-sort-header-<col.key>` |
+
+Notes:
+
+- **`sequences-sort-banner`** is a readiness anchor, not the capture target:
+  the shot is a full-page capture anchored on the existing
+  `sequences-list-root`, and the banner is what the spec waits on to prove
+  the preview state engaged. It only exists while `orderBy !== 'order'`, so
+  waiting on it is strictly stronger than waiting on the rows.
+- **`sequences-sort-header-<col.key>`** is templated over `SORTABLE_COLUMNS`,
+  so every sortable header carries one (`...-active`, `...-index`, `...-name`,
+  `...-displayName`, `...-artist`, `...-group`, `...-category`). The spec
+  clicks `displayName`. Text-based targeting was rejected here: "Name" is a
+  substring of "Display name", and the labels are user-visible copy that can
+  change without anyone thinking about the pipeline.
+- **No seed dependency.** The sort is client-side view state over the
+  sequences the docs fixture already provides.
