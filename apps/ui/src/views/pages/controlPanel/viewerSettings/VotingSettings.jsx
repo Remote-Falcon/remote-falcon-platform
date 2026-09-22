@@ -2,9 +2,10 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { useMutation } from '@apollo/client';
 import InfoTwoToneIcon from '@mui/icons-material/InfoTwoTone';
-import { Grid, CardActions, Divider, Typography, Switch, Stack, TextField, Autocomplete } from '@mui/material';
+import { Grid, CardActions, Divider, Typography, Switch, Stack, TextField } from '@mui/material';
 import _ from 'lodash';
 
+import IpListField from '../../../../ui-component/IpListField';
 import MainCard from '../../../../ui-component/cards/MainCard';
 import StickyFormBar from '../../../../ui-component/StickyFormBar';
 import useAutoSave from '../../../../hooks/useAutoSave';
@@ -159,19 +160,15 @@ const VotingSettings = () => {
                   <Typography variant="h4">Voting-Exempt Devices</Typography>
                 </Stack>
                 <Typography component="div" variant="caption">
-                  IP addresses exempt from the multiple-vote restriction and the daily vote limit — e.g. a shared lawn kiosk. Type an IP and press Enter.
+                  IP addresses exempt from the multiple-vote restriction and the daily vote limit — e.g. a shared lawn kiosk. Accepts a
+                  single address, a CIDR block (203.0.113.0/24), or a range (203.0.113.10-203.0.113.40). Type an address and press Enter.
                 </Typography>
               </Grid>
               <Grid item xs={12} md={6} lg={4}>
-                <Autocomplete
-                  freeSolo
-                  multiple
-                  disableCloseOnSelect
-                  filterSelectedOptions
-                  options={[]}
+                <IpListField
+                  label="Exempt IPs"
                   value={values.votingExemptIps}
-                  renderInput={(params) => <TextField {...params} label="Exempt IPs" />}
-                  onChange={(_e, v) => setValues((prev) => ({ ...prev, votingExemptIps: v }))}
+                  onChange={(v) => setValues((prev) => ({ ...prev, votingExemptIps: v }))}
                 />
               </Grid>
             </Grid>
