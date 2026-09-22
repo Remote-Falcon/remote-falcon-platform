@@ -24,6 +24,7 @@ import { ADD_SEQUENCE_TO_QUEUE, INSERT_VIEWER_PAGE_STATS, VOTE_FOR_SEQUENCE } fr
 import { GET_ACTIVE_VIEWER_PAGE, GET_SHOW_FOR_VIEWER, VOTES_REMAINING } from '../../../utils/graphql/viewer/queries';
 import { showAlert } from '../globalPageHelpers';
 import { orderSequencesByCategory } from './helpers/categoryOrder';
+import { isSequenceUnavailable as checkSequenceUnavailable } from './helpers/sequenceAvailability';
 import LocationRecoveryControl from './LocationRecoveryControl';
 import { LocationPermission, acquireViewerLocation, clientClassFromUserAgent } from './helpers/locationPermission';
 import {
@@ -610,9 +611,10 @@ const ExternalViewerPage = () => {
     // and voteForSequence never call it, so the server never rejects a grouped
     // request/vote on the nightly cap. Keeping the client exemption in sync means
     // we don't gray out something the server would actually accept.
-    const isSequenceUnavailable = (seq) =>
-      (seq?.visibilityCount ?? 0) > 0 ||
-      (!seq?.group && nightlyPlayLimit > 0 && (seq?.playsToday ?? 0) >= nightlyPlayLimit);
+    //
+    // #177 — the limit now resolves per category, so the predicate lives in a
+    // pure module pinned to the same matrix as the server's shared helper.
+    const isSequenceUnavailable = (seq) => checkSequenceUnavailable(seq, nightlyPlayLimit, show?.categories);
     const unavailableStyle = { opacity: 0.4, pointerEvents: 'none' };
     const unavailableHint = (seq) => ((seq?.visibilityCount ?? 0) > 0 ? 'Available again soon' : 'Back next show');
 

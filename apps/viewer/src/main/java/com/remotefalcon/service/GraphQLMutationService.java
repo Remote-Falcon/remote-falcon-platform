@@ -4,6 +4,7 @@ import com.remotefalcon.exception.CustomGraphQLExceptionResolver;
 import com.remotefalcon.library.enums.StatusResponse;
 import com.remotefalcon.library.models.*;
 import com.remotefalcon.library.quarkus.entity.Show;
+import com.remotefalcon.library.util.NightlyPlayLimitHelper;
 import com.remotefalcon.library.util.PluginQueueHelper;
 import com.remotefalcon.metrics.ViewerMetrics;
 import com.remotefalcon.repository.ShowRepository;
@@ -498,7 +499,6 @@ public class GraphQLMutationService {
       throw new CustomGraphQLExceptionResolver(StatusResponse.SEQUENCE_UNAVAILABLE.name());
     }
     Integer nightlyLimit = show.getPreferences().getNightlyPlayLimit();
-    Integer playsToday = requestedSequence.getPlaysToday();
     // #163 — only trust playsToday while the tally belongs to the current
     // show-night. At a new night's first selection playsToday still holds last
     // night's counts until the first play records and resets them (the reset
@@ -506,11 +506,16 @@ public class GraphQLMutationService {
     // plugins-api's isNewShowNight gate exactly — same bare now() clock (the
     // field's writer) + NIGHTLY_RESET_GAP_HOURS — so this guard can't reject a
     // sequence that the play-selection path would happily play.
+    //
+    // #177 — anyLimitActive rather than a bare show-limit check, since a
+    // category may carry its own limit while the show sets none. The
+    // per-sequence decision is shared with plugins-api's play selection and
+    // the viewer page's gray-out so all three agree on what is capped.
     LocalDateTime lastPlayCounted = show.getPreferences().getLastPlayCountedAt();
-    boolean nightlyActive = nightlyLimit != null && nightlyLimit > 0
+    boolean nightlyActive = NightlyPlayLimitHelper.anyLimitActive(nightlyLimit, show.getCategories())
         && lastPlayCounted != null
         && !lastPlayCounted.isBefore(LocalDateTime.now().minusHours(NIGHTLY_RESET_GAP_HOURS));
-    if (nightlyActive && playsToday != null && playsToday >= nightlyLimit) {
+    if (nightlyActive && NightlyPlayLimitHelper.isCapped(requestedSequence, nightlyLimit, show.getCategories())) {
       this.logRejectedRequest(show.getShowSubdomain(), requestedSequence.getName(), null,
           StatusResponse.SEQUENCE_UNAVAILABLE.name());
       throw new CustomGraphQLExceptionResolver(StatusResponse.SEQUENCE_UNAVAILABLE.name());

@@ -30,4 +30,15 @@ public class Category {
     private Boolean antiConsecutive;
     private String color;
     private Integer displayOrder;
+    /**
+     * #177 — per-category override of the show's nightly play limit (#163).
+     * null = inherit the show setting, 0 = never capped, &gt;0 = this
+     * category's own limit. Zero means "no cap" on both this and the show
+     * preference, so the two read consistently.
+     *
+     * <p>Resolved by {@code NightlyPlayLimitHelper}, which every enforcement
+     * site shares. Absent on existing documents, which reads as null (inherit),
+     * so shows behave exactly as before until an operator sets one.
+     */
+    private Integer nightlyPlayLimit;
 }

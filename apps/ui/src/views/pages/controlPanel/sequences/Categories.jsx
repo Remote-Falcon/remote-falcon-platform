@@ -46,6 +46,17 @@ import EditableCell from './EditableCell';
 // of the category together) and anti-consecutive (#109 flag). Renaming a
 // category patches every sequence whose `category` field referenced the old
 // name so memberships stay intact.
+// What a category's nightly-play-limit cell means, spelled out under the
+// field. Blank and 0 look almost identical in a number input but do opposite
+// things (inherit vs never capped), so neither is left to be guessed at.
+export const nightlyLimitHint = (categoryLimit, showLimit) => {
+  if (categoryLimit === null || categoryLimit === undefined || categoryLimit === '') {
+    return showLimit > 0 ? `Using show limit (${showLimit})` : 'No limit set';
+  }
+  if (categoryLimit === 0) return 'Never capped';
+  return `${categoryLimit} per night`;
+};
+
 const Categories = () => {
   const dispatch = useDispatch();
   const navigate = useNavigate();
@@ -60,6 +71,9 @@ const Categories = () => {
 
   const categories = show?.categories || [];
   const sequences = show?.sequences || [];
+  // Shown in each row's hint so an operator can see what "blank" resolves to
+  // without going back to the settings screen.
+  const showNightlyPlayLimit = show?.preferences?.nightlyPlayLimit ?? 0;
 
   const membersByCategory = useMemo(() => {
     const map = new Map();
@@ -183,6 +197,9 @@ const Categories = () => {
       showAlert(dispatch, { alert: 'error', message: `A category named "${trimmed}" already exists.` });
       return;
     }
+    // nightlyPlayLimit is deliberately absent, not 0: absent means "inherit
+    // the show limit", while 0 would exempt every newly created category from
+    // the nightly cap.
     const updated = [...categories, { name: trimmed, requestLimit: 0, antiConsecutive: false, displayOrder: categories.length }];
     persistCategories(updated, `Category "${trimmed}" created`);
     setNewName('');
@@ -249,6 +266,7 @@ const Categories = () => {
                   <TableCell>Category name</TableCell>
                   <TableCell>Members</TableCell>
                   <TableCell>Request limit</TableCell>
+                  <TableCell>Nightly play limit</TableCell>
                   <TableCell>No back-to-back</TableCell>
                   <TableCell align="right">Actions</TableCell>
                 </TableRow>
@@ -315,6 +333,29 @@ const Categories = () => {
                                     />
                                   </Tooltip>
                                 </TableCell>
+                                <TableCell sx={{ minWidth: 150 }}>
+                                  <Tooltip title="How many times a song in this category can play per night. Leave blank to use the show's nightly play limit, or enter 0 to exempt this category from it.">
+                                    <TextField
+                                      size="small"
+                                      type="number"
+                                      placeholder="Show limit"
+                                      defaultValue={category?.nightlyPlayLimit ?? ''}
+                                      // Blank means "inherit the show limit", which is a
+                                      // different thing from 0 ("never capped"), so this
+                                      // can't use the `|| 0` coercion the request limit
+                                      // above uses — that would turn inherit into exempt.
+                                      onBlur={(e) => {
+                                        const raw = e.target.value.trim();
+                                        const parsed = raw === '' ? null : parseInt(raw, 10);
+                                        updateCategory(category?.name, {
+                                          nightlyPlayLimit: Number.isNaN(parsed) ? null : parsed
+                                        });
+                                      }}
+                                      helperText={nightlyLimitHint(category?.nightlyPlayLimit, showNightlyPlayLimit)}
+                                      sx={{ width: 130 }}
+                                    />
+                                  </Tooltip>
+                                </TableCell>
                                 <TableCell sx={{ minWidth: 100 }}>
                                   <Tooltip title="Don't let two songs from this category play back-to-back.">
                                     <Switch
@@ -369,7 +410,7 @@ const Categories = () => {
                       fullWidth
                     />
                   </TableCell>
-                  <TableCell colSpan={3} sx={{ borderBottom: 'none' }}>
+                  <TableCell colSpan={4} sx={{ borderBottom: 'none' }}>
                     <Typography variant="caption" sx={{ color: 'text.disabled' }}>
                       Press Enter or click Add
                     </Typography>
