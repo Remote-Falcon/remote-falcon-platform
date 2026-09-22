@@ -263,7 +263,20 @@ public class PluginService {
       return Optional.of(ordered.getFirst());
     }
     for (Vote vote : ordered) {
-      if (Vote.isSystemInjected(vote) || vote.getSequenceGroup() != null || vote.getSequence() == null) {
+      // Operator injections (PSA/leader/override) are never skipped.
+      if (Vote.isSystemInjected(vote) || (vote.getSequenceGroup() == null && vote.getSequence() == null)) {
+        return Optional.of(vote);
+      }
+      // #177: a group vote used to return here unconditionally, bypassing the
+      // cap outright — the unofficial exemption operators relied on. Now that
+      // a category can be exempted properly, a group is subject to the cap
+      // like anything else: capped as soon as any member is, since winning
+      // plays every member.
+      if (vote.getSequenceGroup() != null) {
+        if (nightlyActive && NightlyPlayLimitHelper.isGroupCapped(
+            vote.getSequenceGroup().getName(), show.getSequences(), nightlyLimit, show.getCategories())) {
+          continue;
+        }
         return Optional.of(vote);
       }
       String name = vote.getSequence().getName();
@@ -343,7 +356,12 @@ public class PluginService {
   private void applyNightlyPlayCount(Show show, List<Sequence> sequences, String playlistName) {
     Preference prefs = show.getPreferences();
     Integer limit = prefs.getNightlyPlayLimit();
-    if (limit == null || limit <= 0) {
+    // #177: this is the WRITE side of the cap, and it has to agree with the
+    // read side about whether counting is worth doing. A show limit of
+    // 0/null no longer means nothing is capped — a category can set its own
+    // while the show sets none — and if this returned early there, playsToday
+    // would never increment and a category-only limit could never fire.
+    if (!NightlyPlayLimitHelper.anyLimitActive(limit, show.getCategories())) {
       return;
     }
     LocalDateTime now = LocalDateTime.now();

@@ -71,6 +71,32 @@ public final class NightlyPlayLimitHelper {
   }
 
   /**
+   * True when a sequence group has reached its nightly limit.
+   *
+   * <p>A group plays every one of its members, and each member's own
+   * {@code playsToday} increments as it plays, so the group is capped as soon
+   * as ANY member is — playing it would push that member past its limit. A
+   * group with no members is never capped.
+   *
+   * <p>Before #177 a grouped request/vote bypassed the cap entirely, which
+   * operators used as an unofficial exemption. The supported exemption is now
+   * a category limit of 0.
+   */
+  public static boolean isGroupCapped(String groupName, List<Sequence> sequences, Integer showLimit,
+      List<Category> categories) {
+    if (groupName == null || groupName.isBlank() || sequences == null) {
+      return false;
+    }
+    for (Sequence sequence : sequences) {
+      if (sequence != null && groupName.equalsIgnoreCase(sequence.getGroup())
+          && isCapped(sequence, showLimit, categories)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * True when any limit could apply anywhere in the show.
    *
    * <p>Callers use this to skip the per-song work entirely. It exists because

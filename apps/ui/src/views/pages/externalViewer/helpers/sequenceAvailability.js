@@ -32,20 +32,38 @@ export const effectiveNightlyLimit = (showLimit, sequenceCategory, categories) =
   return showLimit ?? null;
 };
 
-/** True when the sequence has reached the nightly limit that applies to it. */
-export const isNightlyCapped = (seq, showLimit, categories) => {
-  // Group entries carry a representative member's playsToday, and the server
-  // never applies the nightly cap to a grouped request or vote, so the client
-  // must not either.
-  if (!seq || seq.group) return false;
-  const limit = effectiveNightlyLimit(showLimit, seq.category, categories);
+/** True when one sequence has reached the nightly limit that applies to it. */
+const isSingleCapped = (seq, showLimit, categories) => {
+  const limit = effectiveNightlyLimit(showLimit, seq?.category, categories);
   if (limit === null || limit === undefined || limit <= 0) return false;
-  return (seq.playsToday ?? 0) >= limit;
+  return (seq?.playsToday ?? 0) >= limit;
+};
+
+/**
+ * True when the sequence has reached the nightly limit that applies to it.
+ *
+ * A group entry stands for every member: requesting or voting it queues or
+ * plays them all, so it is capped as soon as ANY member is. #177 closed the
+ * bypass that used to exempt groups from the cap altogether, and the server
+ * now rejects a capped group, so this has to agree — otherwise a viewer gets
+ * an error on something that looked available.
+ */
+export const isNightlyCapped = (seq, showLimit, categories, allSequences) => {
+  if (!seq) return false;
+  if (seq.group) {
+    // Without the full list the other members aren't visible; fall back to
+    // this entry's own tally rather than declaring the group available.
+    if (!Array.isArray(allSequences)) return isSingleCapped(seq, showLimit, categories);
+    return allSequences
+      .filter((member) => member?.group && String(member.group).toLowerCase() === String(seq.group).toLowerCase())
+      .some((member) => isSingleCapped(member, showLimit, categories));
+  }
+  return isSingleCapped(seq, showLimit, categories);
 };
 
 /**
  * True when the sequence should render as unavailable: either in its
  * post-play cooldown (visibilityCount) or capped for the night.
  */
-export const isSequenceUnavailable = (seq, showLimit, categories) =>
-  (seq?.visibilityCount ?? 0) > 0 || isNightlyCapped(seq, showLimit, categories);
+export const isSequenceUnavailable = (seq, showLimit, categories, allSequences) =>
+  (seq?.visibilityCount ?? 0) > 0 || isNightlyCapped(seq, showLimit, categories, allSequences);

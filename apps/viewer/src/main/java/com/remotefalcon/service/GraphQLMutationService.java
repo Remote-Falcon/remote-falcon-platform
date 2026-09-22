@@ -278,6 +278,12 @@ public class GraphQLMutationService {
           for (Sequence sequence : sequencesInGroup) {
             this.checkIfSequenceRequested(show.get(), sequence);
           }
+          // #177 — a grouped request used to skip the nightly cap entirely,
+          // so it was accepted and then silently deprioritised by the
+          // plugin's play selection (which caps each member row by name).
+          // Reject it up front instead, so accepted means playable. Any
+          // capped member caps the group, since requesting it queues them all.
+          this.checkIfGroupUnavailable(show.get(), requestedSequenceGroup.get().getName(), sequencesInGroup);
 
           // Allocate all positions at once
           long startPosition = this.showRepository.allocatePositionBlock(existingShow, sequencesInGroup.size());
@@ -383,6 +389,12 @@ public class GraphQLMutationService {
             .filter(seq -> StringUtils.equalsIgnoreCase(seq.getName(), name))
             .findFirst();
         if (votedSequenceGroup.isPresent()) {
+          // #177 — group votes used to bypass the nightly cap outright (the
+          // plugin returned a group vote before the cap check). Now that a
+          // category can be exempted properly, they're subject to it: any
+          // capped member caps the group, since winning plays them all.
+          this.checkIfGroupUnavailable(existingShow, votedSequenceGroup.get().getName(),
+              existingShow.getSequences());
           this.saveSequenceGroupVote(existingShow, votedSequenceGroup.get(), clientIp, viewerId);
           this.recordVoteEvent(existingShow, votedSequenceGroup.get().getName(), clientIp, viewerId, latitude, longitude);
           this.persistVotingWindow(existingShow, votingWindowStart);
@@ -523,6 +535,28 @@ public class GraphQLMutationService {
         && !lastPlayCounted.isBefore(LocalDateTime.now().minusHours(NIGHTLY_RESET_GAP_HOURS));
     if (nightlyActive && NightlyPlayLimitHelper.isCapped(requestedSequence, nightlyLimit, show.getCategories())) {
       this.logRejectedRequest(show.getShowSubdomain(), requestedSequence.getName(), null,
+          StatusResponse.SEQUENCE_UNAVAILABLE.name());
+      throw new CustomGraphQLExceptionResolver(StatusResponse.SEQUENCE_UNAVAILABLE.name());
+    }
+  }
+
+  /**
+   * #177 — the grouped counterpart of {@link #checkIfSequenceUnavailable}.
+   *
+   * <p>Requesting or voting a group queues/plays every member, so the group is
+   * unavailable as soon as any member has hit its nightly limit. Uses the same
+   * new-show-night gate as the single-sequence path, so this can't reject
+   * something the plugin's play selection would happily play.
+   */
+  private void checkIfGroupUnavailable(Show show, String groupName, List<Sequence> sequences) {
+    Integer nightlyLimit = show.getPreferences().getNightlyPlayLimit();
+    LocalDateTime lastPlayCounted = show.getPreferences().getLastPlayCountedAt();
+    boolean nightlyActive = NightlyPlayLimitHelper.anyLimitActive(nightlyLimit, show.getCategories())
+        && lastPlayCounted != null
+        && !lastPlayCounted.isBefore(LocalDateTime.now().minusHours(NIGHTLY_RESET_GAP_HOURS));
+    if (nightlyActive
+        && NightlyPlayLimitHelper.isGroupCapped(groupName, sequences, nightlyLimit, show.getCategories())) {
+      this.logRejectedRequest(show.getShowSubdomain(), groupName, null,
           StatusResponse.SEQUENCE_UNAVAILABLE.name());
       throw new CustomGraphQLExceptionResolver(StatusResponse.SEQUENCE_UNAVAILABLE.name());
     }

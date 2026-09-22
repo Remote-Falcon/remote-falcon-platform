@@ -140,6 +140,87 @@ class NightlyPlayLimitHelperTest {
   }
 
   @Nested
+  @DisplayName("isGroupCapped")
+  class IsGroupCapped {
+
+    private Sequence member(String group, String categoryName, Integer playsToday) {
+      return Sequence.builder().name("song-" + playsToday).group(group)
+          .category(categoryName).playsToday(playsToday).build();
+    }
+
+    @Test
+    void cappedAsSoonAsAnyMemberIs() {
+      // Requesting or voting a group queues/plays every member, so one capped
+      // member makes the whole group unplayable. #177 closed the bypass that
+      // exempted groups from the cap entirely.
+      List<Sequence> sequences = List.of(
+          member("Sing-alongs", "Classic", 0),
+          member("Sing-alongs", "Classic", 3));
+      assertTrue(NightlyPlayLimitHelper.isGroupCapped("Sing-alongs", sequences, 3, List.of()));
+    }
+
+    @Test
+    void notCappedWhileEveryMemberIsUnderTheLimit() {
+      List<Sequence> sequences = List.of(
+          member("Sing-alongs", "Classic", 1),
+          member("Sing-alongs", "Classic", 2));
+      assertFalse(NightlyPlayLimitHelper.isGroupCapped("Sing-alongs", sequences, 3, List.of()));
+    }
+
+    @Test
+    void resolvesEachMemberAgainstItsOwnCategory() {
+      List<Category> categories = List.of(category("Kids", 0), category("Classic", null));
+      // An exempt member can't cap the group however often it has played.
+      List<Sequence> exempt = List.of(
+          member("Mixed", "Kids", 99),
+          member("Mixed", "Classic", 1));
+      assertFalse(NightlyPlayLimitHelper.isGroupCapped("Mixed", exempt, 3, categories));
+
+      List<Sequence> oneCapped = List.of(
+          member("Mixed", "Kids", 99),
+          member("Mixed", "Classic", 3));
+      assertTrue(NightlyPlayLimitHelper.isGroupCapped("Mixed", oneCapped, 3, categories));
+    }
+
+    @Test
+    void ignoresMembersOfOtherGroups() {
+      List<Sequence> sequences = List.of(
+          member("Other", "Classic", 3),
+          member("Sing-alongs", "Classic", 0));
+      assertFalse(NightlyPlayLimitHelper.isGroupCapped("Sing-alongs", sequences, 3, List.of()));
+    }
+
+    @Test
+    void matchesGroupNameCaseInsensitively() {
+      List<Sequence> sequences = List.of(member("Sing-alongs", "Classic", 3));
+      assertTrue(NightlyPlayLimitHelper.isGroupCapped("sing-alongs", sequences, 3, List.of()));
+    }
+
+    @Test
+    void anEmptyOrUnknownGroupIsNeverCapped() {
+      assertFalse(NightlyPlayLimitHelper.isGroupCapped("Nobody",
+          List.of(member("Other", "Classic", 9)), 3, List.of()));
+      assertFalse(NightlyPlayLimitHelper.isGroupCapped("Sing-alongs", List.of(), 3, List.of()));
+    }
+
+    @Test
+    void toleratesNullInputs() {
+      assertFalse(NightlyPlayLimitHelper.isGroupCapped(null, List.of(), 3, List.of()));
+      assertFalse(NightlyPlayLimitHelper.isGroupCapped("  ", List.of(), 3, List.of()));
+      assertFalse(NightlyPlayLimitHelper.isGroupCapped("Sing-alongs", null, 3, List.of()));
+      assertFalse(NightlyPlayLimitHelper.isGroupCapped("Sing-alongs",
+          java.util.Collections.singletonList(null), 3, List.of()));
+    }
+
+    @Test
+    void notCappedWhenNoLimitApplies() {
+      List<Sequence> sequences = List.of(member("Sing-alongs", "Classic", 99));
+      assertFalse(NightlyPlayLimitHelper.isGroupCapped("Sing-alongs", sequences, null, List.of()));
+      assertFalse(NightlyPlayLimitHelper.isGroupCapped("Sing-alongs", sequences, 0, List.of()));
+    }
+  }
+
+  @Nested
   @DisplayName("anyLimitActive")
   class AnyLimitActive {
 
