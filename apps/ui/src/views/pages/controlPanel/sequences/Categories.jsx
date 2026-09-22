@@ -20,7 +20,7 @@ import {
   Tooltip,
   Typography
 } from '@mui/material';
-import { IconGripVertical, IconPlus, IconTags, IconTrash } from '@tabler/icons-react';
+import { IconGripVertical, IconPlus, IconSortAZ, IconTags, IconTrash } from '@tabler/icons-react';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 
 import {
@@ -38,7 +38,7 @@ import {
 } from '../../../../utils/graphql/controlPanel/mutations';
 import { showAlert } from '../../globalPageHelpers';
 
-import { reorderCategories } from './categoriesReorder';
+import { reorderCategories, sortCategoriesAlphabetically } from './categoriesReorder';
 import EditableCell from './EditableCell';
 
 // Categories tab (PRD-009 #128). First-class categories carry the Cluster A
@@ -98,6 +98,33 @@ const Categories = () => {
         showAlert(dispatch, response?.toast);
       }
       setBusy(false);
+    });
+  };
+
+  // One-click alternative to dragging every row into alphabetical order.
+  // Categories only ever supported manual drag reorder; the ask this fixes
+  // (grouping sequence-tab category sort with an actual A→Z category-section
+  // order) needs an A→Z affordance to live *here*, since displayOrder — what
+  // the viewer page actually sorts category sections by — is owned by this
+  // tab, not by the Sequences tab's column sort.
+  const sortAlphabetically = () => {
+    // Unlike drag reorder, nothing has moved on screen yet, so there's no
+    // "settle back into place" concern — persistCategories's own dispatch
+    // (on success) is enough, no optimistic dispatch needed here.
+    const sorted = sortCategoriesAlphabetically(categories);
+    persistCategories(sorted, 'Categories sorted A→Z');
+  };
+
+  const confirmSortAlphabetically = () => {
+    setConfirm({
+      title: 'Sort categories A→Z?',
+      message:
+        `All ${categories.length} ${categories.length === 1 ? 'category' : 'categories'} will be reordered ` +
+        'alphabetically, replacing the order category sections currently appear in on your viewer page. ' +
+        'You can still drag individual categories afterward.',
+      confirmLabel: 'Sort A→Z',
+      confirmColor: 'primary',
+      action: sortAlphabetically
     });
   };
 
@@ -198,6 +225,23 @@ const Categories = () => {
           />
         ) : (
           <TableContainer>
+            {categories.length > 1 && (
+              <Box sx={{ display: 'flex', justifyContent: 'flex-end', px: 1.5, pt: 1.5 }}>
+                <Tooltip title="Alphabetize every category and save it as your viewer page's category order. You can still drag individual categories afterward.">
+                  <span>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      startIcon={<IconSortAZ size={14} stroke={1.75} />}
+                      disabled={busy}
+                      onClick={confirmSortAlphabetically}
+                    >
+                      Sort A→Z
+                    </Button>
+                  </span>
+                </Tooltip>
+              </Box>
+            )}
             <Table size="small" aria-label="categories">
               <TableHead sx={{ '& th,& td': { whiteSpace: 'nowrap' } }}>
                 <TableRow>

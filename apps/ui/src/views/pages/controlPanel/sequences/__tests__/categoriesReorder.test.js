@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { reorderCategories } from '../categoriesReorder';
+import { reorderCategories, sortCategoriesAlphabetically } from '../categoriesReorder';
 
 const cats = (...names) => names.map((name) => ({ name }));
 
@@ -55,5 +55,46 @@ describe('reorderCategories', () => {
   it('tolerates null/undefined categories', () => {
     expect(reorderCategories(undefined, 0, 1)).toEqual([]);
     expect(reorderCategories(null, 0, 1)).toEqual([]);
+  });
+});
+
+describe('sortCategoriesAlphabetically', () => {
+  it('sorts by name A→Z and renumbers displayOrder', () => {
+    const result = sortCategoriesAlphabetically(cats('Soundtrack', 'Classic', 'Novelty'));
+    expect(result.map((c) => c.name)).toEqual(['Classic', 'Novelty', 'Soundtrack']);
+    expect(result.map((c) => c.displayOrder)).toEqual([0, 1, 2]);
+  });
+
+  it('sorts case-insensitively', () => {
+    const result = sortCategoriesAlphabetically(cats('soundtrack', 'Classic'));
+    expect(result.map((c) => c.name)).toEqual(['Classic', 'soundtrack']);
+  });
+
+  it('preserves all other category fields', () => {
+    const input = [
+      { name: 'B', requestLimit: 5, antiConsecutive: true, color: '#fff' },
+      { name: 'A', requestLimit: 0, antiConsecutive: false }
+    ];
+    const result = sortCategoriesAlphabetically(input);
+    expect(result[0]).toEqual({ name: 'A', requestLimit: 0, antiConsecutive: false, displayOrder: 0 });
+    expect(result[1]).toEqual({ name: 'B', requestLimit: 5, antiConsecutive: true, color: '#fff', displayOrder: 1 });
+  });
+
+  it('does not mutate the input array or its objects', () => {
+    const input = cats('B', 'A');
+    const snapshot = JSON.parse(JSON.stringify(input));
+    sortCategoriesAlphabetically(input);
+    expect(input).toEqual(snapshot);
+  });
+
+  it('tolerates null/undefined categories', () => {
+    expect(sortCategoriesAlphabetically(undefined)).toEqual([]);
+    expect(sortCategoriesAlphabetically(null)).toEqual([]);
+  });
+
+  it('tolerates a category with a missing name by sorting it first', () => {
+    const result = sortCategoriesAlphabetically([{ name: 'Classic' }, { name: undefined }]);
+    expect(result.map((c) => c.name)).toEqual([undefined, 'Classic']);
+    expect(result.map((c) => c.displayOrder)).toEqual([0, 1]);
   });
 });

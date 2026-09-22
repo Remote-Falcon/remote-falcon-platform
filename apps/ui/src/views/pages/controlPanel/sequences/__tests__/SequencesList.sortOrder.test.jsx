@@ -79,6 +79,10 @@ const sortByDisplayName = async (user) => {
   await user.click(screen.getByRole('button', { name: /display name/i }));
 };
 
+const sortByCategory = async (user) => {
+  await user.click(screen.getByRole('button', { name: /^category$/i }));
+};
+
 describe('SequencesList — save a column sort as the viewer page order', () => {
   beforeEach(() => {
     saveSequencesService.mockClear();
@@ -153,5 +157,28 @@ describe('SequencesList — save a column sort as the viewer page order', () => 
     await user.click(screen.getByRole('button', { name: /cancel sort/i }));
     expect(screen.getByText(/Drag rows to reorder/i)).toBeInTheDocument();
     expect(saveSequencesService).not.toHaveBeenCalled();
+  });
+
+  // Sorting by Category only ever renumbers sequence.order (song order
+  // *within* a category group) — it never touches the category sections'
+  // own order, which is a separate field owned by the Categories tab. Say so
+  // right in the preview banner so it isn't mistaken for the old dashboard's
+  // "Sort Alphabetically" button, which did reorder everything in one shot.
+  it('warns that a Category sort only reorders within groups, with a link to the Categories tab', async () => {
+    const user = userEvent.setup();
+    renderList();
+    await sortByCategory(user);
+    expect(screen.getByText(/only reorders songs within each category group/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /the categories tab/i })).toHaveAttribute(
+      'href',
+      '/control-panel/sequences/categories'
+    );
+  });
+
+  it('does not show the category-specific warning for other column sorts', async () => {
+    const user = userEvent.setup();
+    renderList();
+    await sortByDisplayName(user);
+    expect(screen.queryByText(/only reorders songs within each category group/i)).not.toBeInTheDocument();
   });
 });
