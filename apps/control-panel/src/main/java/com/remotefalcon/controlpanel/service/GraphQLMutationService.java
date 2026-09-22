@@ -16,6 +16,7 @@ import com.remotefalcon.library.enums.ShowRole;
 import com.remotefalcon.library.enums.StatusResponse;
 import com.remotefalcon.library.enums.ViewerControlMode;
 import com.remotefalcon.library.models.*;
+import com.remotefalcon.library.util.IpMatcher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections.CollectionUtils;
@@ -163,6 +164,22 @@ public class GraphQLMutationService {
         } catch (Exception ex) {
             return "";
         }
+    }
+
+    /**
+     * Keep only the IP-list entries {@link IpMatcher} can evaluate, preserving
+     * order. A null list stays null so "not supplied" and "emptied" remain
+     * distinguishable to the caller.
+     */
+    private Set<String> retainUsableIpRules(Set<String> entries) {
+        if (entries == null) {
+            return null;
+        }
+        return entries.stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(IpMatcher::isValidRule)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
     private String validateShowToken(String showToken) {
@@ -417,6 +434,15 @@ public class GraphQLMutationService {
     public Boolean updatePreferences(Preference preferences) {
         Optional<Show> show = this.showRepository.findByShowToken(authUtil.getTokenDTO().getShowToken());
         if(show.isPresent()) {
+            // #175 — drop IP-list entries the viewer's matcher can't act on.
+            // The control panel validates these at entry, but an entry saved
+            // before that existed (or posted directly) would otherwise sit in
+            // the list looking active while matching nothing. Same grammar on
+            // both sides: IpMatcher is the single definition of what's valid.
+            preferences.setBlockedViewerIps(retainUsableIpRules(preferences.getBlockedViewerIps()));
+            preferences.setVotingExemptIps(retainUsableIpRules(preferences.getVotingExemptIps()));
+            preferences.setStatsExcludedIps(retainUsableIpRules(preferences.getStatsExcludedIps()));
+
             if(preferences.getViewerControlEnabled() != show.get().getPreferences().getViewerControlEnabled()) {
                 preferences.setSequencesPlayed(0);
             }

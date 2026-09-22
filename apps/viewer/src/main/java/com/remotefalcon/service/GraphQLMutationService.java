@@ -4,6 +4,7 @@ import com.remotefalcon.exception.CustomGraphQLExceptionResolver;
 import com.remotefalcon.library.enums.StatusResponse;
 import com.remotefalcon.library.models.*;
 import com.remotefalcon.library.quarkus.entity.Show;
+import com.remotefalcon.library.util.IpMatcher;
 import com.remotefalcon.library.util.PluginQueueHelper;
 import com.remotefalcon.metrics.ViewerMetrics;
 import com.remotefalcon.repository.ShowRepository;
@@ -205,7 +206,10 @@ public class GraphQLMutationService {
             .viewerRequested(StringUtils.isEmpty(clientIp) ? "" : clientIp)
             .position(Math.toIntExact(leaderSequence.isPresent() ? nextPosition + 1 : nextPosition))
             .build();
-        Stat.Jukebox jukeboxStat = Stat.Jukebox.builder()
+        // #175 — the stats-excluded list is documented as covering requests
+        // as well as votes and page views, but requests were counted
+        // regardless. Suppress the stat (not the request) like the vote path.
+        Stat.Jukebox jukeboxStat = isStatsExcluded(existingShow, clientIp) ? null : Stat.Jukebox.builder()
             .dateTime(LocalDateTime.now())
             .name(requestedSequence.get().getName())
             .viewerId(viewerId)
@@ -288,7 +292,9 @@ public class GraphQLMutationService {
                 .build();
             requests.add(request);
           }
-          Stat.Jukebox jukeboxStat = Stat.Jukebox.builder()
+          // #175 — suppress the stat for excluded IPs; the group request
+          // itself still queues.
+          Stat.Jukebox jukeboxStat = isStatsExcluded(existingShow, clientIp) ? null : Stat.Jukebox.builder()
               .dateTime(LocalDateTime.now())
               .name(requestedSequenceGroup.get().getName())
               .viewerId(viewerId)
@@ -707,8 +713,8 @@ public class GraphQLMutationService {
   // #168 — operator-managed list of IPs (their own test/record devices) whose
   // interactions are kept out of statistics. Null/empty list = nobody excluded.
   private static boolean isStatsExcluded(Show show, String ip) {
-    var excludedIps = show.getPreferences().getStatsExcludedIps();
-    return excludedIps != null && excludedIps.contains(ip);
+    // Entries may be single addresses, CIDR blocks or ranges (#175).
+    return IpMatcher.matchesAny(show.getPreferences().getStatsExcludedIps(), ip);
   }
 
   private void saveSequenceGroupVote(Show show, SequenceGroup votedSequenceGroup, String ipAddress, String viewerId) {

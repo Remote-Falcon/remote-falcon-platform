@@ -1,7 +1,7 @@
 package com.remotefalcon.rules;
 
 import com.remotefalcon.library.enums.StatusResponse;
-import org.apache.commons.collections.CollectionUtils;
+import com.remotefalcon.library.util.IpMatcher;
 
 /**
  * Denies a vote/request from an IP on the show's block list (#164).
@@ -10,8 +10,9 @@ import org.apache.commons.collections.CollectionUtils;
 public final class BlockedIpRule implements Rule {
   @Override
   public Decision evaluate(EvaluationContext ctx) {
+    // Entries may be single addresses, CIDR blocks or ranges (#175).
     var blockedIps = ctx.show().getPreferences().getBlockedViewerIps();
-    if (CollectionUtils.isNotEmpty(blockedIps) && blockedIps.contains(ctx.ip())) {
+    if (IpMatcher.matchesAny(blockedIps, ctx.ip())) {
       return Decision.deny(StatusResponse.NAUGHTY.name());
     }
     return Decision.allow();
