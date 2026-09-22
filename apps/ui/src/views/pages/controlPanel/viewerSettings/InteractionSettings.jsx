@@ -9,6 +9,7 @@ import _ from 'lodash';
 import moment from 'moment/moment';
 import { Link as RouterLink } from 'react-router-dom';
 
+import IpListField from '../../../../ui-component/IpListField';
 import MainCard from '../../../../ui-component/cards/MainCard';
 import StickyFormBar from '../../../../ui-component/StickyFormBar';
 import useAutoSave from '../../../../hooks/useAutoSave';
@@ -688,20 +689,14 @@ const InteractionSettings = () => {
                   />
                 </Stack>
                 <Typography component="div" variant="caption">
-                  Adding an IP address here will prevent the device from being able to request or vote on a sequence. After entering an IP
-                  address, press enter.
+                  Adding an IP address here will prevent the device from being able to request or vote on a sequence. Accepts a single
+                  address, a CIDR block (203.0.113.0/24), or a range (203.0.113.10-203.0.113.40). After entering an address, press enter.
                 </Typography>
               </Grid>
               <Grid item xs={12} md={6} lg={4}>
-                <Autocomplete
-                  freeSolo
-                  multiple
-                  disableCloseOnSelect
-                  filterSelectedOptions
-                  options={[]}
+                <IpListField
                   value={values.blockedViewerIps}
-                  renderInput={(params) => <TextField {...params} />}
-                  onChange={(_e, v) => setValues((prev) => ({ ...prev, blockedViewerIps: v }))}
+                  onChange={(v) => setValues((prev) => ({ ...prev, blockedViewerIps: v }))}
                 />
               </Grid>
             </Grid>
@@ -715,19 +710,15 @@ const InteractionSettings = () => {
                 </Stack>
                 <Typography component="div" variant="caption">
                   Requests, votes, and page views from these IP addresses are kept out of your statistics — handy for excluding your own
-                  test/recording devices. The interaction still works; it just is not counted. After entering an IP address, press enter.
+                  test/recording devices, or a workplace whose traffic leaves from many addresses. The interaction still works; it just is
+                  not counted. Accepts a single address, a CIDR block (203.0.113.0/24), or a range (203.0.113.10-203.0.113.40). After
+                  entering an address, press enter.
                 </Typography>
               </Grid>
               <Grid item xs={12} md={6} lg={4}>
-                <Autocomplete
-                  freeSolo
-                  multiple
-                  disableCloseOnSelect
-                  filterSelectedOptions
-                  options={[]}
+                <IpListField
                   value={values.statsExcludedIps}
-                  renderInput={(params) => <TextField {...params} />}
-                  onChange={(_e, v) => setValues((prev) => ({ ...prev, statsExcludedIps: v }))}
+                  onChange={(v) => setValues((prev) => ({ ...prev, statsExcludedIps: v }))}
                 />
               </Grid>
             </Grid>
