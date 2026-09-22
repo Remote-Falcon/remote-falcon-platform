@@ -230,6 +230,7 @@ export const VERIFY_MFA = gql`
         antiConsecutive
         color
         displayOrder
+        nightlyPlayLimit
       }
       psaSequences {
         name
@@ -378,6 +379,7 @@ export const GET_SHOW = gql`
         antiConsecutive
         color
         displayOrder
+        nightlyPlayLimit
       }
       psaSequences {
         name
@@ -817,6 +819,7 @@ export const GET_SHOW_BY_SHOW_NAME = gql`
         antiConsecutive
         color
         displayOrder
+        nightlyPlayLimit
       }
       psaSequences {
         name
@@ -950,6 +953,7 @@ export const GET_SHOW_BY_EMAIL = gql`
         antiConsecutive
         color
         displayOrder
+        nightlyPlayLimit
       }
       psaSequences {
         name

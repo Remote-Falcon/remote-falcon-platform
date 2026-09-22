@@ -176,6 +176,7 @@ type Category {
     antiConsecutive: Boolean
     color: String
     displayOrder: Int
+    nightlyPlayLimit: Int
 }
 
 type Request {

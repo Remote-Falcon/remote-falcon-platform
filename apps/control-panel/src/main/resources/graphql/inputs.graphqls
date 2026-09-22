@@ -126,6 +126,7 @@ input CategoryInput {
     antiConsecutive: Boolean
     color: String
     displayOrder: Int
+    nightlyPlayLimit: Int
 }
 
 input RequestInput {
