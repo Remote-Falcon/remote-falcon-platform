@@ -240,3 +240,25 @@ Notes:
   change without anyone thinking about the pipeline.
 - **No seed dependency.** The sort is client-side view state over the
   sequences the docs fixture already provides.
+
+## Category sort + nightly play limit — new shot added 2026-09-23
+
+The 2026-09-22 release (#173) added a column-header sort with a preview
+banner to the Categories tab (same flow as `sequences-sort-preview`) and a
+per-category **Nightly play limit** column.
+
+| # | Shot name | Component file | Element | `data-testid` |
+|---|-----------|----------------|---------|---------------|
+| — | `sequences-categories-sort-preview` | `apps/ui/src/views/pages/controlPanel/sequences/Categories.jsx` | the banner `<Box>` rendered while `sortIsPreview` | `categories-sort-banner` |
+| — | (interaction only, no shot) | same file | the Category name header's `<TableSortLabel>` | `categories-sort-header-name` |
+
+Notes:
+
+- Both testids shipped with the feature. `categories-sort-banner` is a
+  readiness anchor, not the capture target: the shot is full-page, and the
+  spec waits on the banner to prove the preview state engaged.
+- **Seed dependency:** `preferences.nightlyPlayLimit: 3` on the demo show,
+  plus `nightlyPlayLimit` on two categories (Traditional `0` = never capped,
+  Spooky `1` = own limit). The other four have no value, so they render the
+  inherit hint ("Using show limit (3)"). All three states show on both
+  `sequences-categories` (refreshed) and the new sort-preview shot.

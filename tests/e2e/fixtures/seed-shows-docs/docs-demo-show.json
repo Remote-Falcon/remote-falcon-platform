@@ -37,7 +37,8 @@
     "showOnMap": true,
     "showOnMapPublic": true,
     "showLatitude": 33.95246,
-    "showLongitude": -117.58479
+    "showLongitude": -117.58479,
+    "nightlyPlayLimit": 3
   },
   "sequences": [
     {
@@ -275,6 +276,7 @@
     {
       "name": "Traditional",
       "requestLimit": 0,
+      "nightlyPlayLimit": 0,
       "antiConsecutive": false,
       "displayOrder": 1
     },
@@ -299,6 +301,7 @@
     {
       "name": "Spooky",
       "requestLimit": 2,
+      "nightlyPlayLimit": 1,
       "antiConsecutive": false,
       "displayOrder": 5
     }
