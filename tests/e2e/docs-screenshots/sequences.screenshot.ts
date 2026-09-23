@@ -75,8 +75,29 @@ test.describe('docs-screenshots: sequences', () => {
       .getByText('Traditional', { exact: true })
       .waitFor({ state: 'visible', timeout: 15_000 });
     await takeScreenshot(page, testInfo, 'fullPage', 'sequences-categories', {
-      alt: 'Categories tab with request limits, no-back-to-back toggles, and drag-to-reorder rows',
+      alt: 'Categories tab with request limits, nightly play limits, no-back-to-back toggles, and drag-to-reorder rows',
       state: 'default',
+    });
+  });
+
+  // Same preview-then-save flow as sequences-sort-preview. The seeded
+  // displayOrder (Rock, Traditional, Pop, …) differs from A→Z, so the
+  // captured rows visibly re-sort rather than looking unchanged.
+  test('sequences-categories-sort-preview', async ({ page }, testInfo) => {
+    await page.goto('/control-panel/sequences/categories');
+    await page
+      .locator('[data-testid="sequences-categories-root"]')
+      .getByText('Traditional', { exact: true })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    await page
+      .locator('[data-testid="categories-sort-header-name"]')
+      .click();
+    await page
+      .locator('[data-testid="categories-sort-banner"]')
+      .waitFor({ state: 'visible' });
+    await takeScreenshot(page, testInfo, 'fullPage', 'sequences-categories-sort-preview', {
+      alt: 'Categories tab sorted by Category name with the preview banner offering to save the sort as the viewer page category order',
+      state: 'sort-active',
     });
   });
 
