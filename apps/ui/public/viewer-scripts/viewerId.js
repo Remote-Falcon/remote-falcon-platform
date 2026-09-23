@@ -143,6 +143,11 @@
   // created afterwards, while every operator already running it would have to
   // hand-edit their own page. This script is served centrally, so measuring
   // fixes existing shows on their next load.
+  // How far above the viewport bottom an element can sit and still count as
+  // bottom chrome. Covers the usual floating-button offsets and iOS safe-area
+  // insets, while staying well clear of ordinary page content.
+  var BOTTOM_ANCHOR_SLACK = 96;
+
   function measureBottomChrome(wrap) {
     var vh = window.innerHeight || document.documentElement.clientHeight || 0;
     var vw = window.innerWidth || document.documentElement.clientWidth || 0;
@@ -169,8 +174,11 @@
 
       var r = el.getBoundingClientRect();
       if (!r.height || !r.width) continue;
-      // Anchored to the bottom of the viewport.
-      if (r.bottom < vh - 2) continue;
+      // Anchored NEAR the bottom of the viewport, deliberately not flush with
+      // it: a floating action button normally sits at bottom:16-24px, and in
+      // the original report it was a button like that, not the nav bar,
+      // sitting under the note. Demanding a flush edge skipped it entirely.
+      if (r.bottom < vh - BOTTOM_ANCHOR_SLACK) continue;
       // A full-height overlay is not chrome to clear — skip it, or the note
       // would fly to the top of the screen.
       if (r.height > vh * 0.25) continue;
@@ -178,7 +186,10 @@
       // bottom-LEFT element doesn't overlap it.
       if (r.right < vw - 80) continue;
 
-      clearance = Math.max(clearance, r.height);
+      // Measure from the viewport bottom up to the TOP of the chrome, not the
+      // chrome's own height: an element offset from the bottom needs its
+      // height AND that offset cleared.
+      clearance = Math.max(clearance, vh - r.top);
     }
     return clearance;
   }

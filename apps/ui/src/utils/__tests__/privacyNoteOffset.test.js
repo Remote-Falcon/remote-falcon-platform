@@ -89,6 +89,29 @@ describe('privacy note bottom-chrome clearance', () => {
     expect(noteBottom()).toBe('56px');
   });
 
+  it('clears a floating button that sits ABOVE the viewport bottom', () => {
+    // The case from the original report: a circular menu button at the
+    // conventional bottom:16px. Requiring chrome to be flush with the
+    // viewport skipped it, so the note kept covering it.
+    addChrome({ height: 48, width: 48, right: VIEWPORT_W - 16, bottom: VIEWPORT_H - 16 });
+    runScript();
+    // 48 tall + 16 off the bottom = 64 to clear, + the 8px gap.
+    expect(noteBottom()).toBe('72px');
+  });
+
+  it('clears an offset nav bar by its height plus its offset', () => {
+    addChrome({ height: 56, bottom: VIEWPORT_H - 8 });
+    runScript();
+    expect(noteBottom()).toBe('72px');
+  });
+
+  it('ignores chrome sitting well above the bottom', () => {
+    // Ordinary page content that happens to be fixed shouldn't push the note.
+    addChrome({ height: 40, bottom: VIEWPORT_H - 300 });
+    runScript();
+    expect(noteBottom()).toBe('var(--rf-privacy-offset, 6px)');
+  });
+
   it('ignores a full-screen overlay so the note never flies up the page', () => {
     addChrome({ height: VIEWPORT_H });
     runScript();

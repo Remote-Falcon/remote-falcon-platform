@@ -8,6 +8,7 @@ import com.remotefalcon.library.models.Sequence;
 import com.remotefalcon.library.models.SequenceGroup;
 import com.remotefalcon.library.models.ViewerPage;
 import com.remotefalcon.library.quarkus.entity.Show;
+import com.remotefalcon.library.util.IpMatcher;
 import com.remotefalcon.library.util.NightlyPlayLimitHelper;
 import com.remotefalcon.library.util.PluginQueueHelper;
 import com.remotefalcon.repository.ShowRepository;
@@ -25,7 +26,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 
 @JBossLog
 @ApplicationScoped
@@ -98,8 +98,10 @@ public class GraphQLQueryService {
       return null; // no cap configured → no countdown
     }
     String clientIp = ClientUtil.getClientIP(context);
-    Set<String> exemptIps = prefs.getVotingExemptIps();
-    if (exemptIps != null && clientIp != null && exemptIps.contains(clientIp)) {
+    // #175 — the same matcher the enforcement path uses, so a kiosk exempted
+    // by a CIDR block or range hides the countdown rather than showing one
+    // that ticks to "0 of 3 votes left" while its votes keep succeeding.
+    if (IpMatcher.matchesAny(prefs.getVotingExemptIps(), clientIp)) {
       return null; // #156 exempt → effectively unlimited, hide the countdown
     }
     // Replicate resolveVotingWindowStart's gap-roll read-only: a null window,
@@ -302,6 +304,18 @@ public class GraphQLQueryService {
         showLimit, representative.getCategory(), categories);
     if (clientLimit != null && clientLimit > 0) {
       representative.setPlaysToday(clientLimit);
+      return;
+    }
+    // The representative itself resolves to no limit (its category is exempt,
+    // or nothing sets one), so no playsToday value can make the client's
+    // comparison fire. That is reachable in an ordinary config: show cap off,
+    // one category capped, representative uncategorized. Fall back to
+    // visibilityCount, the other field the client already treats as
+    // unavailable, so the group greys out instead of erroring on tap. The
+    // hint then reads "Available again soon" rather than "Back next show" — a
+    // slightly wrong explanation beats offering a song the server will refuse.
+    if (representative.getVisibilityCount() == null || representative.getVisibilityCount() <= 0) {
+      representative.setVisibilityCount(1);
     }
   }
 
