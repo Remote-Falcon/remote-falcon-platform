@@ -63,7 +63,7 @@ const renderCategories = () => {
   );
 };
 
-describe('Categories — sort A→Z', () => {
+describe('Categories — sort the name column and save it as the order', () => {
   beforeEach(() => {
     saveCategoriesService.mockClear();
     store.dispatch(setShow(null));
@@ -73,9 +73,11 @@ describe('Categories — sort A→Z', () => {
     const user = userEvent.setup();
     renderCategories();
 
-    await user.click(screen.getByRole('button', { name: /sort a→z/i }));
+    // Clicking the header previews the sort; only saving commits it.
+    await user.click(screen.getByRole('button', { name: /category name/i }));
+    await user.click(screen.getByRole('button', { name: /save as category order/i }));
     // Confirm dialog guards the overwrite of the dashboard-dragged order.
-    await user.click(await screen.findByRole('button', { name: /^sort a→z$/i }));
+    await user.click(await screen.findByRole('button', { name: /^save order$/i }));
 
     await waitFor(() => expect(saveCategoriesService).toHaveBeenCalledTimes(1));
     const [saved] = saveCategoriesService.mock.calls[0];
@@ -89,11 +91,48 @@ describe('Categories — sort A→Z', () => {
   it('does not save until the confirm dialog is accepted', async () => {
     const user = userEvent.setup();
     renderCategories();
-    await user.click(screen.getByRole('button', { name: /sort a→z/i }));
+    await user.click(screen.getByRole('button', { name: /category name/i }));
+    await user.click(screen.getByRole('button', { name: /save as category order/i }));
     expect(saveCategoriesService).not.toHaveBeenCalled();
   });
 
-  it('hides the sort control when there are fewer than 2 categories', () => {
+  it('previewing the sort alone never saves anything', async () => {
+    // The whole point of preview-then-save: a click must not overwrite the
+    // order the operator dragged into place.
+    const user = userEvent.setup();
+    renderCategories();
+    await user.click(screen.getByRole('button', { name: /category name/i }));
+    expect(screen.getByTestId('categories-sort-banner')).toBeInTheDocument();
+    expect(saveCategoriesService).not.toHaveBeenCalled();
+  });
+
+  it('cancel sort drops the preview without saving', async () => {
+    const user = userEvent.setup();
+    renderCategories();
+    await user.click(screen.getByRole('button', { name: /category name/i }));
+    await user.click(screen.getByRole('button', { name: /cancel sort/i }));
+    expect(screen.queryByTestId('categories-sort-banner')).not.toBeInTheDocument();
+    expect(saveCategoriesService).not.toHaveBeenCalled();
+  });
+
+  it('sorts Z→A when the header is clicked twice', async () => {
+    const user = userEvent.setup();
+    renderCategories();
+    await user.click(screen.getByRole('button', { name: /category name/i }));
+    await user.click(screen.getByRole('button', { name: /category name/i }));
+    await user.click(screen.getByRole('button', { name: /save as category order/i }));
+    await user.click(await screen.findByRole('button', { name: /^save order$/i }));
+
+    await waitFor(() => expect(saveCategoriesService).toHaveBeenCalledTimes(1));
+    const [saved] = saveCategoriesService.mock.calls[0];
+    expect(saved.map((c) => [c.name, c.displayOrder])).toEqual([
+      ['Soundtrack', 0],
+      ['Novelty', 1],
+      ['Classic', 2]
+    ]);
+  });
+
+  it('still offers the sort header with a single category', () => {
     store.dispatch(setShow({ ...baseShow, categories: [category('Classic', 0)] }));
     render(
       <Provider store={store}>
@@ -106,6 +145,6 @@ describe('Categories — sort A→Z', () => {
         </MockedProvider>
       </Provider>
     );
-    expect(screen.queryByRole('button', { name: /sort a→z/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /category name/i })).toBeInTheDocument();
   });
 });
