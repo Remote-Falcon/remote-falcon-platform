@@ -48,6 +48,7 @@ export const SIGN_IN = gql`
         jukeboxRequestLimit
         locationCode
         hideSequenceCount
+        nightlyPlayLimit
         makeItSnow
         managePsa
         playAllPsas
@@ -58,6 +59,13 @@ export const SIGN_IN = gql`
         showOnMapPublic
         selfHostedRedirectUrl
         blockedViewerIps
+        dailyVoteLimit
+        votingExemptIps
+        statsExcludedIps
+        additionalGpsLocations {
+          latitude
+          longitude
+        }
         notificationPreferences {
           enableFppHeartbeat
           fppHeartbeatIfControlEnabled
@@ -85,6 +93,14 @@ export const SIGN_IN = gql`
       sequenceGroups {
         name
         visibilityCount
+      }
+      categories {
+        name
+        requestLimit
+        antiConsecutive
+        color
+        displayOrder
+        nightlyPlayLimit
       }
       psaSequences {
         name
