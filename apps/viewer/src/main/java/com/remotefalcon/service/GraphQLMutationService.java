@@ -523,8 +523,10 @@ public class GraphQLMutationService {
   private void checkIfSequenceUnavailable(Show show, Sequence requestedSequence) {
     Integer visibilityCount = requestedSequence.getVisibilityCount();
     if (visibilityCount != null && visibilityCount > 0) {
+      // PRD-019 pattern: the LOGGED reason narrows so the funnel can tell these
+      // causes apart; the THROWN reason stays the client contract.
       this.logRejectedRequest(show.getShowSubdomain(), requestedSequence.getName(), null,
-          StatusResponse.SEQUENCE_UNAVAILABLE.name());
+          RejectionReason.SEQUENCE_UNAVAILABLE_COOLDOWN);
       throw new CustomGraphQLExceptionResolver(StatusResponse.SEQUENCE_UNAVAILABLE.name());
     }
     Integer nightlyLimit = show.getPreferences().getNightlyPlayLimit();
@@ -546,7 +548,7 @@ public class GraphQLMutationService {
         && !lastPlayCounted.isBefore(LocalDateTime.now().minusHours(NIGHTLY_RESET_GAP_HOURS));
     if (nightlyActive && NightlyPlayLimitHelper.isCapped(requestedSequence, nightlyLimit, show.getCategories())) {
       this.logRejectedRequest(show.getShowSubdomain(), requestedSequence.getName(), null,
-          StatusResponse.SEQUENCE_UNAVAILABLE.name());
+          RejectionReason.SEQUENCE_UNAVAILABLE_NIGHTLY_CAP);
       throw new CustomGraphQLExceptionResolver(StatusResponse.SEQUENCE_UNAVAILABLE.name());
     }
   }
@@ -568,7 +570,7 @@ public class GraphQLMutationService {
     if (nightlyActive
         && NightlyPlayLimitHelper.isGroupCapped(groupName, sequences, nightlyLimit, show.getCategories())) {
       this.logRejectedRequest(show.getShowSubdomain(), groupName, null,
-          StatusResponse.SEQUENCE_UNAVAILABLE.name());
+          RejectionReason.SEQUENCE_UNAVAILABLE_GROUP_CAP);
       throw new CustomGraphQLExceptionResolver(StatusResponse.SEQUENCE_UNAVAILABLE.name());
     }
   }

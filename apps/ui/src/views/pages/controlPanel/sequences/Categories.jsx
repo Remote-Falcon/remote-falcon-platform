@@ -38,6 +38,7 @@ import {
   UPDATE_CATEGORIES,
   UPDATE_SEQUENCES
 } from '../../../../utils/graphql/controlPanel/mutations';
+import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
 import { showAlert } from '../../globalPageHelpers';
 
 import { reorderCategories, sortCategoriesAlphabetically } from './categoriesReorder';
@@ -141,6 +142,12 @@ const Categories = () => {
     // dispatch on success is enough; no optimistic dispatch needed.
     const sorted = sortCategoriesAlphabetically(categories, order);
     persistCategories(sorted, 'Category order updated');
+    // Mirrors sequence_order_applied_from_sort on the Sequences tab — without
+    // it there is no way to tell whether operators use this at all.
+    trackPosthogEvent('category_order_applied_from_sort', {
+      direction: order,
+      category_count: sorted.length
+    });
     resetSort();
   };
 
@@ -263,6 +270,8 @@ const Categories = () => {
             {sortIsPreview && (
               <Box
                 data-testid="categories-sort-banner"
+                role="status"
+                aria-live="polite"
                 sx={{
                   display: 'flex',
                   alignItems: 'center',
@@ -302,7 +311,7 @@ const Categories = () => {
               <TableHead sx={{ '& th,& td': { whiteSpace: 'nowrap' } }}>
                 <TableRow>
                   <TableCell sx={{ width: 28, p: 0 }} />
-                  <TableCell>
+                  <TableCell sortDirection={orderBy === 'name' ? order : false}>
                     <TableSortLabel
                       data-testid="categories-sort-header-name"
                       active={orderBy === 'name'}
@@ -381,6 +390,7 @@ const Categories = () => {
                                     <TextField
                                       size="small"
                                       type="number"
+                                      inputProps={{ 'aria-label': `Request limit for ${category?.name ?? 'category'}` }}
                                       defaultValue={category?.requestLimit ?? 0}
                                       onBlur={(e) =>
                                         updateCategory(category?.name, { requestLimit: parseInt(e.target.value, 10) || 0 })
@@ -401,7 +411,14 @@ const Categories = () => {
                                         size="small"
                                         type="number"
                                         placeholder="Show limit"
-                                        inputProps={{ min: 0 }}
+                                        // The visible label is a column header, not a
+                                        // <label>, and the Tooltip's title lands on MUI's
+                                        // wrapper rather than the input — so without this
+                                        // the field has no accessible name at all.
+                                        inputProps={{
+                                          min: 0,
+                                          'aria-label': `Nightly play limit for ${category?.name ?? 'category'}`
+                                        }}
                                         defaultValue={category?.nightlyPlayLimit ?? ''}
                                         // Blank means "inherit the show limit", which is a
                                         // different thing from 0 ("never capped"), so this
@@ -416,6 +433,12 @@ const Categories = () => {
                                           // Anything that isn't a usable count means inherit.
                                           const usable =
                                             parsed === null || Number.isNaN(parsed) || parsed < 0 ? null : parsed;
+                                          // Uncontrolled input: without this a rejected value
+                                          // stays on screen ("-1") while the hint beside it
+                                          // reports the value we actually stored.
+                                          if (String(usable ?? '') !== raw) {
+                                            e.target.value = usable ?? '';
+                                          }
                                           updateCategory(category?.name, { nightlyPlayLimit: usable });
                                         }}
                                         sx={{ width: 90 }}
@@ -430,6 +453,7 @@ const Categories = () => {
                                   <Tooltip title="Don't let two songs from this category play back-to-back.">
                                     <Switch
                                       color="primary"
+                                      inputProps={{ 'aria-label': `No back-to-back for ${category?.name ?? 'category'}` }}
                                       checked={!!category?.antiConsecutive}
                                       onChange={(_e, v) => updateCategory(category?.name, { antiConsecutive: v })}
                                     />

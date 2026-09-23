@@ -925,11 +925,32 @@ public class GraphQLMutationService {
                     this.namesOf(show.get().getCategories(), Category::getName),
                     this.namesOf(categories, Category::getName),
                     Sequence::getCategory, Sequence::setCategory);
+            // #177 — a negative nightly limit reads as "<= 0" everywhere
+            // downstream, which means NEVER CAPPED: the exact opposite of what
+            // an operator typing "-7" intends, while the control panel would
+            // still render it as "-7 per night". The UI rejects it on blur, but
+            // this mutation is reachable directly, so normalise here as well.
+            this.normaliseCategoryLimits(categories);
             show.get().setCategories(categories);
             this.showRepository.save(show.get());
             return true;
         }
         throw new RuntimeException(StatusResponse.UNEXPECTED_ERROR.name());
+    }
+
+    /**
+     * Coerce any unusable per-category nightly limit to null ("inherit the show
+     * limit"). Only a negative is unusable: 0 legitimately means "never capped"
+     * and a positive is the category's own limit.
+     */
+    private void normaliseCategoryLimits(List<Category> categories) {
+        if (categories == null) {
+            return;
+        }
+        categories.stream()
+                .filter(Objects::nonNull)
+                .filter(category -> category.getNightlyPlayLimit() != null && category.getNightlyPlayLimit() < 0)
+                .forEach(category -> category.setNightlyPlayLimit(null));
     }
 
     public Boolean playSequenceFromControlPanel(Sequence sequence) {

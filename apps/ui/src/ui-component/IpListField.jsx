@@ -40,7 +40,17 @@ const IpListField = ({ value, onChange, label }) => {
           {...params}
           label={label}
           error={hasRejected}
+          // The message replaces itself under existing focus, so without a live
+          // role a screen reader never hears why the entry vanished.
+          FormHelperTextProps={hasRejected ? { role: 'alert' } : undefined}
           helperText={hasRejected ? `Not added: ${rejected.join(', ')}. ${IP_ENTRY_FORMAT_HINT}` : ' '}
+          // Clear a stale rejection as soon as the operator edits again —
+          // otherwise the red error outlives the mistake, surviving blur, a
+          // successful add in the next field, and a save.
+          onChange={(e) => {
+            if (hasRejected) setRejected([]);
+            params.inputProps?.onChange?.(e);
+          }}
         />
       )}
     />

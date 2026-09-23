@@ -10,6 +10,7 @@ import com.remotefalcon.library.quarkus.entity.Show;
 import com.remotefalcon.library.util.IpMatcher;
 import io.quarkus.mongodb.panache.PanacheMongoRepository;
 import jakarta.enterprise.context.ApplicationScoped;
+import lombok.extern.jbosslog.JBossLog;
 import org.bson.conversions.Bson;
 
 import java.time.LocalDate;
@@ -19,6 +20,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
+@JBossLog
 @ApplicationScoped
 public class ShowRepository implements PanacheMongoRepository<Show> {
   // V15 security fix — bound the rejectedRequests array so a hostile viewer
@@ -487,6 +489,13 @@ public class ShowRepository implements PanacheMongoRepository<Show> {
     } catch (Exception e) {
       // Never let a rules lookup failure drop a stat. The Mongo filter still
       // applies, and the next call retries.
+      //
+      // Logged because this silently CHANGES BEHAVIOUR: exact-IP exclusions
+      // keep working via the filter, while CIDR/range ones stop applying, on
+      // the highest-volume write in the service. Silence here reads as
+      // "exclusions are broken" with nothing to point at.
+      log.warnf("statsExcludedRules lookup failed for showSubdomain=%s (CIDR/range exclusions "
+          + "will not apply until this recovers): %s", showSubdomain, e.getMessage());
       return Collections.emptySet();
     }
 

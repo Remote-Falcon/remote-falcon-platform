@@ -695,6 +695,7 @@ const InteractionSettings = () => {
               </Grid>
               <Grid item xs={12} md={6} lg={4}>
                 <IpListField
+                  label="Blocked IPs"
                   value={values.blockedViewerIps}
                   onChange={(v) => setValues((prev) => ({ ...prev, blockedViewerIps: v }))}
                 />
@@ -717,6 +718,7 @@ const InteractionSettings = () => {
               </Grid>
               <Grid item xs={12} md={6} lg={4}>
                 <IpListField
+                  label="Excluded IPs"
                   value={values.statsExcludedIps}
                   onChange={(v) => setValues((prev) => ({ ...prev, statsExcludedIps: v }))}
                 />

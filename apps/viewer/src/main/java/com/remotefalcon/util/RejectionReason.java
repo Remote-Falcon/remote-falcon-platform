@@ -32,6 +32,21 @@ public final class RejectionReason {
   /** Rejected because the browser never handed over a location. */
   public static final String INVALID_LOCATION_PERMISSION = "INVALID_LOCATION_PERMISSION";
 
+  // #177 — SEQUENCE_UNAVAILABLE has the same problem INVALID_LOCATION had: it
+  // now covers four unrelated causes, and an operator reading the funnel cannot
+  // tell "my cooldown is too long" from "my nightly cap is too strict". These
+  // cannot be separated retroactively, so recording the blend for a season
+  // loses the answer permanently.
+
+  /** In its post-play cooldown (visibilityCount). */
+  public static final String SEQUENCE_UNAVAILABLE_COOLDOWN = "SEQUENCE_UNAVAILABLE_COOLDOWN";
+
+  /** Hit the nightly play limit that applies to it (show-level or per-category). */
+  public static final String SEQUENCE_UNAVAILABLE_NIGHTLY_CAP = "SEQUENCE_UNAVAILABLE_NIGHTLY_CAP";
+
+  /** A sequence group where at least one member hit its nightly limit. */
+  public static final String SEQUENCE_UNAVAILABLE_GROUP_CAP = "SEQUENCE_UNAVAILABLE_GROUP_CAP";
+
   /** The one client-reported permission state meaning "a real fix was obtained". */
   private static final String GRANTED = "granted";
 
