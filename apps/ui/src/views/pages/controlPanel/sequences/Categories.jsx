@@ -3,6 +3,7 @@ import * as React from 'react';
 
 import { useMutation } from '@apollo/client';
 import { DragDropContext, Draggable, Droppable } from '@hello-pangea/dnd';
+import InfoTwoToneIcon from '@mui/icons-material/InfoTwoTone';
 import {
   Box,
   Button,
@@ -323,7 +324,23 @@ const Categories = () => {
                   </TableCell>
                   <TableCell>Members</TableCell>
                   <TableCell>Request limit</TableCell>
-                  <TableCell>Nightly play limit</TableCell>
+                  <TableCell>
+                    <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
+                      Nightly play limit
+                      <InfoTwoToneIcon
+                        data-testid="categories-nightly-limit-docs"
+                        onClick={() =>
+                          window.open(
+                            'https://docs.remotefalcon.com/docs/docs/control-panel/show/sequences#nightly-play-limit',
+                            '_blank',
+                            'noreferrer'
+                          )
+                        }
+                        fontSize="small"
+                        sx={{ cursor: 'pointer' }}
+                      />
+                    </Box>
+                  </TableCell>
                   <TableCell>No back-to-back</TableCell>
                   <TableCell align="right">Actions</TableCell>
                 </TableRow>

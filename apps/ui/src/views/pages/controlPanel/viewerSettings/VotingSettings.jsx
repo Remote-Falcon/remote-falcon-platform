@@ -136,6 +136,16 @@ const VotingSettings = () => {
               <Grid item xs={12} md={6} lg={4}>
                 <Stack direction="row" spacing={2} pb={1}>
                   <Typography variant="h4">Daily Vote Limit</Typography>
+                  <InfoTwoToneIcon
+                    onClick={() =>
+                      window.open(
+                        'https://docs.remotefalcon.com/docs/docs/control-panel/account/remote-falcon-settings#daily-vote-limit',
+                        '_blank',
+                        'noreferrer'
+                      )
+                    }
+                    fontSize="small"
+                  />
                 </Stack>
                 <Typography component="div" variant="caption">
                   Limits how many times a viewer can vote per day (0 = no limit). Exempt devices below are not affected.
@@ -158,6 +168,16 @@ const VotingSettings = () => {
               <Grid item xs={12} md={6} lg={4}>
                 <Stack direction="row" spacing={2} pb={1}>
                   <Typography variant="h4">Voting-Exempt Devices</Typography>
+                  <InfoTwoToneIcon
+                    onClick={() =>
+                      window.open(
+                        'https://docs.remotefalcon.com/docs/docs/control-panel/account/remote-falcon-settings#voting-exempt-devices',
+                        '_blank',
+                        'noreferrer'
+                      )
+                    }
+                    fontSize="small"
+                  />
                 </Stack>
                 <Typography component="div" variant="caption">
                   IP addresses exempt from the multiple-vote restriction and the daily vote limit — e.g. a shared lawn kiosk. Accepts a

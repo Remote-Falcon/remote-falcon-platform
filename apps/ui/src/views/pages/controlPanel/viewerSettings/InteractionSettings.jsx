@@ -290,6 +290,16 @@ const InteractionSettings = () => {
                   <Grid item xs={12} md={6} lg={4} ml={2}>
                     <Stack direction="row" spacing={2} pb={1}>
                       <Typography variant="h4">PSA Sequences</Typography>
+                      <InfoTwoToneIcon
+                        onClick={() =>
+                          window.open(
+                            'https://docs.remotefalcon.com/docs/docs/control-panel/account/remote-falcon-settings#psa-sequences',
+                            '_blank',
+                            'noreferrer'
+                          )
+                        }
+                        fontSize="small"
+                      />
                     </Stack>
                     <Typography component="div" variant="caption">
                       PSA management moved to the Sequences page. Add, remove, enable, and
@@ -355,6 +365,16 @@ const InteractionSettings = () => {
                   <Grid item xs={12} md={6} lg={4} ml={2}>
                     <Stack direction="row" spacing={2} pb={1}>
                       <Typography variant="h4">Play all PSAs at cadence</Typography>
+                      <InfoTwoToneIcon
+                        onClick={() =>
+                          window.open(
+                            'https://docs.remotefalcon.com/docs/docs/control-panel/account/remote-falcon-settings#play-all-psas-at-cadence',
+                            '_blank',
+                            'noreferrer'
+                          )
+                        }
+                        fontSize="small"
+                      />
                     </Stack>
                     <Typography component="div" variant="caption">
                       Burst every enabled PSA back-to-back at each cadence tick instead
@@ -539,6 +559,16 @@ const InteractionSettings = () => {
                       <Grid item xs={12} md={6} lg={4} ml={4}>
                         <Stack direction="row" spacing={2} pb={1}>
                           <Typography variant="h4">Additional Allowed Locations</Typography>
+                          <InfoTwoToneIcon
+                            onClick={() =>
+                              window.open(
+                                'https://docs.remotefalcon.com/docs/docs/control-panel/account/remote-falcon-settings#additional-allowed-locations',
+                                '_blank',
+                                'noreferrer'
+                              )
+                            }
+                            fontSize="small"
+                          />
                         </Stack>
                         <Typography component="div" variant="caption">
                           Permit voting/requests from more than one place (e.g. family watching on a shared camera at another house). A
@@ -654,6 +684,16 @@ const InteractionSettings = () => {
               <Grid item xs={12} md={6} lg={4}>
                 <Stack direction="row" spacing={2} pb={1}>
                   <Typography variant="h4">Nightly Play Limit</Typography>
+                  <InfoTwoToneIcon
+                    onClick={() =>
+                      window.open(
+                        'https://docs.remotefalcon.com/docs/docs/control-panel/account/remote-falcon-settings#nightly-play-limit',
+                        '_blank',
+                        'noreferrer'
+                      )
+                    }
+                    fontSize="small"
+                  />
                 </Stack>
                 <Typography component="div" variant="caption">
                   The maximum number of times any single song may play per night, so no one song dominates the show. When a song reaches this
@@ -708,6 +748,16 @@ const InteractionSettings = () => {
               <Grid item xs={12} md={6} lg={4}>
                 <Stack direction="row" spacing={2} pb={1}>
                   <Typography variant="h4">Exclude IPs From Statistics</Typography>
+                  <InfoTwoToneIcon
+                    onClick={() =>
+                      window.open(
+                        'https://docs.remotefalcon.com/docs/docs/control-panel/account/remote-falcon-settings#exclude-ips-from-statistics',
+                        '_blank',
+                        'noreferrer'
+                      )
+                    }
+                    fontSize="small"
+                  />
                 </Stack>
                 <Typography component="div" variant="caption">
                   Requests, votes, and page views from these IP addresses are kept out of your statistics — handy for excluding your own
