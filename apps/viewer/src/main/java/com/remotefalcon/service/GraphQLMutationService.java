@@ -252,7 +252,14 @@ public class GraphQLMutationService {
         show.get().getRequests().add(request);
 
         // Handle PSA if needed (calculate inline without re-fetching)
-        if (show.get().getPreferences().getPsaEnabled() && !show.get().getPreferences().getManagePsa()
+        // jukeboxStat == null means this request is stats-excluded (#175). The
+        // PSA cadence is derived from the recorded stats, so a suppressed
+        // request leaves the count frozen — running this anyway would re-hit
+        // the same `% psaFrequency == 0` on EVERY request from that device and
+        // inject a PSA each time. An excluded test device shouldn't drive the
+        // show-wide PSA cadence at all.
+        if (jukeboxStat != null && show.get().getPreferences().getPsaEnabled()
+            && !show.get().getPreferences().getManagePsa()
             && CollectionUtils.isNotEmpty(show.get().getPsaSequences())) {
           // Calculate total requests today (existing + 1 we just added)
           int requestsMadeToday = (int) show.get().getStats().getJukebox().stream()
@@ -322,8 +329,12 @@ public class GraphQLMutationService {
           }
           show.get().getRequests().addAll(requests);
 
-          // Handle PSA if needed (calculate inline without re-fetching)
-          if (show.get().getPreferences().getPsaEnabled() && !show.get().getPreferences().getManagePsa()
+          // Handle PSA if needed (calculate inline without re-fetching).
+          // Skipped when the stat was suppressed (#175) — see the note on the
+          // single-sequence path: the cadence counts recorded stats, so acting
+          // on a frozen count would inject a PSA on every excluded request.
+          if (jukeboxStat != null && show.get().getPreferences().getPsaEnabled()
+              && !show.get().getPreferences().getManagePsa()
               && CollectionUtils.isNotEmpty(show.get().getPsaSequences())) {
             // Calculate total requests today (existing + 1 we just added for the group)
             int requestsMadeToday = (int) show.get().getStats().getJukebox().stream()

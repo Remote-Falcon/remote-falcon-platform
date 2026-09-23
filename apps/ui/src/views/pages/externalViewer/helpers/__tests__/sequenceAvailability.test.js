@@ -94,44 +94,23 @@ describe('isNightlyCapped', () => {
     expect(isNightlyCapped(seq('Classic', 0), 3, categories)).toBe(false);
   });
 
-  it('caps a group as soon as any member is capped', () => {
-    // #177 closed the old bypass. Requesting or voting a group queues/plays
-    // every member, so one capped member makes the group unplayable — and the
-    // server now rejects it, so the client must gray it out to match.
-    const members = [seq('Classic', 0, { group: 'Sing-alongs' }), seq('Classic', 3, { group: 'Sing-alongs' })];
-    const entry = seq('Classic', 0, { group: 'Sing-alongs' });
-    expect(isNightlyCapped(entry, 3, [category('Classic', null)], members)).toBe(true);
-  });
-
-  it('leaves a group available while every member is under its limit', () => {
-    const members = [seq('Classic', 1, { group: 'Sing-alongs' }), seq('Classic', 2, { group: 'Sing-alongs' })];
-    const entry = seq('Classic', 1, { group: 'Sing-alongs' });
-    expect(isNightlyCapped(entry, 3, [category('Classic', null)], members)).toBe(false);
-  });
-
-  it('resolves each group member against its own category', () => {
-    // A member in an exempt category can't cap the group; one in a capped
-    // category still can.
-    const categories = [category('Kids', 0), category('Classic', null)];
-    const entry = seq('Kids', 99, { group: 'Mixed' });
-    const allExempt = [seq('Kids', 99, { group: 'Mixed' }), seq('Classic', 1, { group: 'Mixed' })];
-    expect(isNightlyCapped(entry, 3, categories, allExempt)).toBe(false);
-
-    const oneCapped = [seq('Kids', 99, { group: 'Mixed' }), seq('Classic', 3, { group: 'Mixed' })];
-    expect(isNightlyCapped(entry, 3, categories, oneCapped)).toBe(true);
-  });
-
-  it('ignores members of other groups', () => {
-    const members = [seq('Classic', 3, { group: 'Other' }), seq('Classic', 0, { group: 'Sing-alongs' })];
-    const entry = seq('Classic', 0, { group: 'Sing-alongs' });
-    expect(isNightlyCapped(entry, 3, [category('Classic', null)], members)).toBe(false);
-  });
-
-  it("falls back to the entry's own tally when the member list is unavailable", () => {
-    // Better to gray out a capped-looking entry than to claim a group is
-    // available when its members can't be seen.
+  // The viewer query collapses a group to ONE representative row and never
+  // sends the other members, so the client cannot scan them. The server stamps
+  // that row's playsToday when the group is capped, and these pin that the
+  // stamped row then reads as capped like any other sequence.
+  it('treats a stamped group row as capped', () => {
     const entry = seq('Classic', 3, { group: 'Sing-alongs' });
     expect(isNightlyCapped(entry, 3, [category('Classic', null)])).toBe(true);
+  });
+
+  it('leaves an unstamped group row available', () => {
+    const entry = seq('Classic', 1, { group: 'Sing-alongs' });
+    expect(isNightlyCapped(entry, 3, [category('Classic', null)])).toBe(false);
+  });
+
+  it('resolves a group row against its own category like any other row', () => {
+    const entry = seq('Kids', 99, { group: 'Mixed' });
+    expect(isNightlyCapped(entry, 3, [category('Kids', 0)])).toBe(false);
   });
 
   it('tolerates a missing sequence', () => {

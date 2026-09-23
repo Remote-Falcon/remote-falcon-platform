@@ -92,6 +92,15 @@ class IpMatcherTest {
     }
 
     @Test
+    void matchesAnIpv4MappedClientAgainstIpv4Rules() {
+      // The self-host shape: client arrives as ::ffff:a.b.c.d, rules are IPv4.
+      assertTrue(IpMatcher.matches("203.0.113.0/24", "::ffff:203.0.113.5"));
+      assertTrue(IpMatcher.matches("203.0.113.5", "::ffff:203.0.113.5"));
+      assertTrue(IpMatcher.matches("203.0.113.1-203.0.113.9", "::ffff:203.0.113.5"));
+      assertFalse(IpMatcher.matches("203.0.113.0/24", "::ffff:203.0.114.5"));
+    }
+
+    @Test
     void neverMatchesAcrossFamilies() {
       assertFalse(IpMatcher.matches("203.0.113.0/24", "2001:db8::1"));
       assertFalse(IpMatcher.matches("2001:db8::/32", "203.0.113.1"));
@@ -211,6 +220,14 @@ class IpMatcherTest {
       assertNull(IpMatcher.parse("2001:db8:zzzz::1"));
       assertNull(IpMatcher.parse("1:2:3:4:5:6:7:8:9"));
       assertNull(IpMatcher.parse("12345::1"));
+    }
+
+    @Test
+    void normalizesIpv4MappedIpv6ToFourBytes() {
+      // A self-hosted stack with no proxy header reports clients this way.
+      // Left as 16 bytes it would never match an IPv4 rule the operator set.
+      assertArrayEquals(IpMatcher.parse("192.168.1.50"), IpMatcher.parse("::ffff:192.168.1.50"));
+      assertArrayEquals(IpMatcher.parse("192.168.1.50"), IpMatcher.parse("::ffff:c0a8:132"));
     }
 
     @Test

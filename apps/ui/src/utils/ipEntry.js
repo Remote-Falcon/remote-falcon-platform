@@ -29,7 +29,8 @@ const isIpv4 = (value) => {
 // the proxy chain can hand us a compressed form.
 const isIpv6 = (value) => {
   if (!value.includes(':')) return false;
-  if ((value.match(/::/g) || []).length > 1) return false;
+  const compressions = (value.match(/::/g) || []).length;
+  if (compressions > 1) return false;
   const withoutZone = value.split('%')[0];
   const groups = withoutZone.split(':');
   if (groups.length > 8) return false;
@@ -40,11 +41,22 @@ const isIpv6 = (value) => {
     if (!isIpv4(groups[embeddedV4Index])) return false;
   }
 
-  return groups.every((group, i) => {
+  const groupsWellFormed = groups.every((group, i) => {
     if (group === '') return true; // from :: compression
     if (i === embeddedV4Index) return true;
     return /^[0-9a-fA-F]{1,4}$/.test(group);
   });
+  if (!groupsWellFormed) return false;
+
+  // Without '::' the address has to be complete. Otherwise "2001:db8:1" passes
+  // here, saves with no error, and is then dropped by the stricter server-side
+  // matcher — exactly the silent-save failure this validation exists to stop.
+  // An embedded IPv4 tail occupies two groups, not one.
+  if (compressions === 0) {
+    const slots = embeddedV4Index === -1 ? groups.length : groups.length + 1;
+    return slots === 8;
+  }
+  return true;
 };
 
 /**

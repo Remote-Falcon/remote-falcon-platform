@@ -339,6 +339,7 @@ const Categories = () => {
                                       size="small"
                                       type="number"
                                       placeholder="Show limit"
+                                      inputProps={{ min: 0 }}
                                       defaultValue={category?.nightlyPlayLimit ?? ''}
                                       // Blank means "inherit the show limit", which is a
                                       // different thing from 0 ("never capped"), so this
@@ -347,9 +348,13 @@ const Categories = () => {
                                       onBlur={(e) => {
                                         const raw = e.target.value.trim();
                                         const parsed = raw === '' ? null : parseInt(raw, 10);
-                                        updateCategory(category?.name, {
-                                          nightlyPlayLimit: Number.isNaN(parsed) ? null : parsed
-                                        });
+                                        // A negative parses cleanly but reads as "<= 0"
+                                        // downstream, which would silently exempt the
+                                        // category while the hint claimed a real limit.
+                                        // Anything that isn't a usable count means inherit.
+                                        const usable =
+                                          parsed === null || Number.isNaN(parsed) || parsed < 0 ? null : parsed;
+                                        updateCategory(category?.name, { nightlyPlayLimit: usable });
                                       }}
                                       helperText={nightlyLimitHint(category?.nightlyPlayLimit, showNightlyPlayLimit)}
                                       sx={{ width: 130 }}

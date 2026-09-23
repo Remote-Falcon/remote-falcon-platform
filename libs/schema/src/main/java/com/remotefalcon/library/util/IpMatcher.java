@@ -167,7 +167,35 @@ public final class IpMatcher {
     if (zone >= 0) {
       value = value.substring(0, zone);
     }
-    return value.indexOf(':') >= 0 ? parseIpv6(value) : parseIpv4(value);
+    if (value.indexOf(':') < 0) {
+      return parseIpv4(value);
+    }
+    byte[] parsed = parseIpv6(value);
+    return parsed == null ? null : unmapIpv4(parsed);
+  }
+
+  /**
+   * Collapse an IPv4-mapped IPv6 address (::ffff:a.b.c.d) to its four IPv4
+   * bytes, leaving every other address untouched.
+   *
+   * <p>A self-hosted stack with no proxy header in front reports client
+   * addresses in this form. Without this the family-length guards refuse to
+   * match such a client against any IPv4 rule, CIDR or range the operator
+   * entered, so the rules would look configured and quietly do nothing.
+   */
+  private static byte[] unmapIpv4(byte[] address) {
+    if (address.length != 16) {
+      return address;
+    }
+    for (int i = 0; i < 10; i++) {
+      if (address[i] != 0) {
+        return address;
+      }
+    }
+    if ((address[10] & 0xFF) != 0xFF || (address[11] & 0xFF) != 0xFF) {
+      return address;
+    }
+    return new byte[] {address[12], address[13], address[14], address[15]};
   }
 
   private static byte[] parseIpv4(String value) {

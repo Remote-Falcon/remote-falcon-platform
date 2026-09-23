@@ -617,7 +617,7 @@ const ExternalViewerPage = () => {
     // The predicate lives in a pure module pinned to the same matrix as the
     // server's shared NightlyPlayLimitHelper.
     const isSequenceUnavailable = (seq) =>
-      checkSequenceUnavailable(seq, nightlyPlayLimit, show?.categories, show?.sequences);
+      checkSequenceUnavailable(seq, nightlyPlayLimit, show?.categories);
     const unavailableStyle = { opacity: 0.4, pointerEvents: 'none' };
     const unavailableHint = (seq) => ((seq?.visibilityCount ?? 0) > 0 ? 'Available again soon' : 'Back next show');
 

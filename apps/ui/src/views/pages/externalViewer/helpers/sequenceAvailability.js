@@ -42,28 +42,18 @@ const isSingleCapped = (seq, showLimit, categories) => {
 /**
  * True when the sequence has reached the nightly limit that applies to it.
  *
- * A group entry stands for every member: requesting or voting it queues or
- * plays them all, so it is capped as soon as ANY member is. #177 closed the
- * bypass that used to exempt groups from the cap altogether, and the server
- * now rejects a capped group, so this has to agree — otherwise a viewer gets
- * an error on something that looked available.
+ * Group rows need no special case here. The viewer query collapses a group to
+ * a single representative row and never sends the other members, so the
+ * client cannot evaluate "is any member capped" itself. Instead the server
+ * stamps that row's playsToday when the group is capped
+ * (GraphQLQueryService.stampGroupNightlyCap), so the same comparison below
+ * gives the group the right answer.
  */
-export const isNightlyCapped = (seq, showLimit, categories, allSequences) => {
-  if (!seq) return false;
-  if (seq.group) {
-    // Without the full list the other members aren't visible; fall back to
-    // this entry's own tally rather than declaring the group available.
-    if (!Array.isArray(allSequences)) return isSingleCapped(seq, showLimit, categories);
-    return allSequences
-      .filter((member) => member?.group && String(member.group).toLowerCase() === String(seq.group).toLowerCase())
-      .some((member) => isSingleCapped(member, showLimit, categories));
-  }
-  return isSingleCapped(seq, showLimit, categories);
-};
+export const isNightlyCapped = (seq, showLimit, categories) => isSingleCapped(seq, showLimit, categories);
 
 /**
  * True when the sequence should render as unavailable: either in its
  * post-play cooldown (visibilityCount) or capped for the night.
  */
-export const isSequenceUnavailable = (seq, showLimit, categories, allSequences) =>
-  (seq?.visibilityCount ?? 0) > 0 || isNightlyCapped(seq, showLimit, categories, allSequences);
+export const isSequenceUnavailable = (seq, showLimit, categories) =>
+  (seq?.visibilityCount ?? 0) > 0 || isNightlyCapped(seq, showLimit, categories);

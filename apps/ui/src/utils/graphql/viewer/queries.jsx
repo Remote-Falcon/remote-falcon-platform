@@ -98,6 +98,7 @@ export const GET_SHOW_FOR_VIEWER = gql`
       categories {
         name
         displayOrder
+        nightlyPlayLimit
       }
       requests {
         sequence {

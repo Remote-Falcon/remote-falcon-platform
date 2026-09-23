@@ -37,6 +37,18 @@ describe('classifyIpEntry', () => {
     expect(classifyIpEntry('::ffff:192.168.1.1')).toBe('ipv6');
   });
 
+  it('rejects an incomplete uncompressed IPv6 address', () => {
+    // Without '::' the address must be complete. These used to pass here,
+    // save with no error, and then be dropped by the stricter server-side
+    // matcher — the silent-save failure this validation exists to stop.
+    expect(classifyIpEntry('2001:db8:1')).toBe('invalid');
+    expect(classifyIpEntry('2001:db8:85a3:0:0:8a2e:370')).toBe('invalid');
+  });
+
+  it('still accepts a complete uncompressed IPv6 address', () => {
+    expect(classifyIpEntry('2001:0db8:85a3:0000:0000:8a2e:0370:7334')).toBe('ipv6');
+  });
+
   it('rejects malformed IPv6', () => {
     expect(classifyIpEntry('2001:db8::1::2')).toBe('invalid'); // two '::'
     expect(classifyIpEntry('2001:db8:zzzz::1')).toBe('invalid');
