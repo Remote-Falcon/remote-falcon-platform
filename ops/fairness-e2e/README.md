@@ -17,6 +17,8 @@ real FPP is also talking to.
 | Blocked IPs | `NAUGHTY` |
 | Queue full | `QUEUE_FULL` |
 | Category request limit | `SEQUENCE_REQUESTED`, category-scoped (#72/#128) |
+| Per-category nightly limit | inherit / exempt (`0`) / own limit, and play counting with the show cap off (#177) |
+| Group nightly cap | a group is capped when any member is, in jukebox and voting (#177) |
 | FPP request → play loop | request → `nextPlaylistInQueue` pop → `updateWhatsPlaying` → `fppHeartbeat` |
 | Voting → play loop | votes → `highestVotedPlaylist` winner |
 

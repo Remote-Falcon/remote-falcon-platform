@@ -4,6 +4,8 @@ import com.remotefalcon.exception.CustomGraphQLExceptionResolver;
 import com.remotefalcon.library.enums.StatusResponse;
 import com.remotefalcon.library.models.*;
 import com.remotefalcon.library.quarkus.entity.Show;
+import com.remotefalcon.library.util.IpMatcher;
+import com.remotefalcon.library.util.NightlyPlayLimitHelper;
 import com.remotefalcon.library.util.PluginQueueHelper;
 import com.remotefalcon.metrics.ViewerMetrics;
 import com.remotefalcon.repository.ShowRepository;
@@ -205,7 +207,10 @@ public class GraphQLMutationService {
             .viewerRequested(StringUtils.isEmpty(clientIp) ? "" : clientIp)
             .position(Math.toIntExact(leaderSequence.isPresent() ? nextPosition + 1 : nextPosition))
             .build();
-        Stat.Jukebox jukeboxStat = Stat.Jukebox.builder()
+        // #175 — the stats-excluded list is documented as covering requests
+        // as well as votes and page views, but requests were counted
+        // regardless. Suppress the stat (not the request) like the vote path.
+        Stat.Jukebox jukeboxStat = isStatsExcluded(existingShow, clientIp) ? null : Stat.Jukebox.builder()
             .dateTime(LocalDateTime.now())
             .name(requestedSequence.get().getName())
             .viewerId(viewerId)
@@ -247,7 +252,14 @@ public class GraphQLMutationService {
         show.get().getRequests().add(request);
 
         // Handle PSA if needed (calculate inline without re-fetching)
-        if (show.get().getPreferences().getPsaEnabled() && !show.get().getPreferences().getManagePsa()
+        // jukeboxStat == null means this request is stats-excluded (#175). The
+        // PSA cadence is derived from the recorded stats, so a suppressed
+        // request leaves the count frozen — running this anyway would re-hit
+        // the same `% psaFrequency == 0` on EVERY request from that device and
+        // inject a PSA each time. An excluded test device shouldn't drive the
+        // show-wide PSA cadence at all.
+        if (jukeboxStat != null && show.get().getPreferences().getPsaEnabled()
+            && !show.get().getPreferences().getManagePsa()
             && CollectionUtils.isNotEmpty(show.get().getPsaSequences())) {
           // Calculate total requests today (existing + 1 we just added)
           int requestsMadeToday = (int) show.get().getStats().getJukebox().stream()
@@ -273,6 +285,12 @@ public class GraphQLMutationService {
           for (Sequence sequence : sequencesInGroup) {
             this.checkIfSequenceRequested(show.get(), sequence);
           }
+          // #177 — a grouped request used to skip the nightly cap entirely,
+          // so it was accepted and then silently deprioritised by the
+          // plugin's play selection (which caps each member row by name).
+          // Reject it up front instead, so accepted means playable. Any
+          // capped member caps the group, since requesting it queues them all.
+          this.checkIfGroupUnavailable(show.get(), requestedSequenceGroup.get().getName(), sequencesInGroup);
 
           // Allocate all positions at once
           long startPosition = this.showRepository.allocatePositionBlock(existingShow, sequencesInGroup.size());
@@ -288,7 +306,9 @@ public class GraphQLMutationService {
                 .build();
             requests.add(request);
           }
-          Stat.Jukebox jukeboxStat = Stat.Jukebox.builder()
+          // #175 — suppress the stat for excluded IPs; the group request
+          // itself still queues.
+          Stat.Jukebox jukeboxStat = isStatsExcluded(existingShow, clientIp) ? null : Stat.Jukebox.builder()
               .dateTime(LocalDateTime.now())
               .name(requestedSequenceGroup.get().getName())
               .viewerId(viewerId)
@@ -309,8 +329,12 @@ public class GraphQLMutationService {
           }
           show.get().getRequests().addAll(requests);
 
-          // Handle PSA if needed (calculate inline without re-fetching)
-          if (show.get().getPreferences().getPsaEnabled() && !show.get().getPreferences().getManagePsa()
+          // Handle PSA if needed (calculate inline without re-fetching).
+          // Skipped when the stat was suppressed (#175) — see the note on the
+          // single-sequence path: the cadence counts recorded stats, so acting
+          // on a frozen count would inject a PSA on every excluded request.
+          if (jukeboxStat != null && show.get().getPreferences().getPsaEnabled()
+              && !show.get().getPreferences().getManagePsa()
               && CollectionUtils.isNotEmpty(show.get().getPsaSequences())) {
             // Calculate total requests today (existing + 1 we just added for the group)
             int requestsMadeToday = (int) show.get().getStats().getJukebox().stream()
@@ -376,6 +400,12 @@ public class GraphQLMutationService {
             .filter(seq -> StringUtils.equalsIgnoreCase(seq.getName(), name))
             .findFirst();
         if (votedSequenceGroup.isPresent()) {
+          // #177 — group votes used to bypass the nightly cap outright (the
+          // plugin returned a group vote before the cap check). Now that a
+          // category can be exempted properly, they're subject to it: any
+          // capped member caps the group, since winning plays them all.
+          this.checkIfGroupUnavailable(existingShow, votedSequenceGroup.get().getName(),
+              existingShow.getSequences());
           this.saveSequenceGroupVote(existingShow, votedSequenceGroup.get(), clientIp, viewerId);
           this.recordVoteEvent(existingShow, votedSequenceGroup.get().getName(), clientIp, viewerId, latitude, longitude);
           this.persistVotingWindow(existingShow, votingWindowStart);
@@ -493,12 +523,13 @@ public class GraphQLMutationService {
   private void checkIfSequenceUnavailable(Show show, Sequence requestedSequence) {
     Integer visibilityCount = requestedSequence.getVisibilityCount();
     if (visibilityCount != null && visibilityCount > 0) {
+      // PRD-019 pattern: the LOGGED reason narrows so the funnel can tell these
+      // causes apart; the THROWN reason stays the client contract.
       this.logRejectedRequest(show.getShowSubdomain(), requestedSequence.getName(), null,
-          StatusResponse.SEQUENCE_UNAVAILABLE.name());
+          RejectionReason.SEQUENCE_UNAVAILABLE_COOLDOWN);
       throw new CustomGraphQLExceptionResolver(StatusResponse.SEQUENCE_UNAVAILABLE.name());
     }
     Integer nightlyLimit = show.getPreferences().getNightlyPlayLimit();
-    Integer playsToday = requestedSequence.getPlaysToday();
     // #163 — only trust playsToday while the tally belongs to the current
     // show-night. At a new night's first selection playsToday still holds last
     // night's counts until the first play records and resets them (the reset
@@ -506,13 +537,40 @@ public class GraphQLMutationService {
     // plugins-api's isNewShowNight gate exactly — same bare now() clock (the
     // field's writer) + NIGHTLY_RESET_GAP_HOURS — so this guard can't reject a
     // sequence that the play-selection path would happily play.
+    //
+    // #177 — anyLimitActive rather than a bare show-limit check, since a
+    // category may carry its own limit while the show sets none. The
+    // per-sequence decision is shared with plugins-api's play selection and
+    // the viewer page's gray-out so all three agree on what is capped.
     LocalDateTime lastPlayCounted = show.getPreferences().getLastPlayCountedAt();
-    boolean nightlyActive = nightlyLimit != null && nightlyLimit > 0
+    boolean nightlyActive = NightlyPlayLimitHelper.anyLimitActive(nightlyLimit, show.getCategories())
         && lastPlayCounted != null
         && !lastPlayCounted.isBefore(LocalDateTime.now().minusHours(NIGHTLY_RESET_GAP_HOURS));
-    if (nightlyActive && playsToday != null && playsToday >= nightlyLimit) {
+    if (nightlyActive && NightlyPlayLimitHelper.isCapped(requestedSequence, nightlyLimit, show.getCategories())) {
       this.logRejectedRequest(show.getShowSubdomain(), requestedSequence.getName(), null,
-          StatusResponse.SEQUENCE_UNAVAILABLE.name());
+          RejectionReason.SEQUENCE_UNAVAILABLE_NIGHTLY_CAP);
+      throw new CustomGraphQLExceptionResolver(StatusResponse.SEQUENCE_UNAVAILABLE.name());
+    }
+  }
+
+  /**
+   * #177 — the grouped counterpart of {@link #checkIfSequenceUnavailable}.
+   *
+   * <p>Requesting or voting a group queues/plays every member, so the group is
+   * unavailable as soon as any member has hit its nightly limit. Uses the same
+   * new-show-night gate as the single-sequence path, so this can't reject
+   * something the plugin's play selection would happily play.
+   */
+  private void checkIfGroupUnavailable(Show show, String groupName, List<Sequence> sequences) {
+    Integer nightlyLimit = show.getPreferences().getNightlyPlayLimit();
+    LocalDateTime lastPlayCounted = show.getPreferences().getLastPlayCountedAt();
+    boolean nightlyActive = NightlyPlayLimitHelper.anyLimitActive(nightlyLimit, show.getCategories())
+        && lastPlayCounted != null
+        && !lastPlayCounted.isBefore(LocalDateTime.now().minusHours(NIGHTLY_RESET_GAP_HOURS));
+    if (nightlyActive
+        && NightlyPlayLimitHelper.isGroupCapped(groupName, sequences, nightlyLimit, show.getCategories())) {
+      this.logRejectedRequest(show.getShowSubdomain(), groupName, null,
+          RejectionReason.SEQUENCE_UNAVAILABLE_GROUP_CAP);
       throw new CustomGraphQLExceptionResolver(StatusResponse.SEQUENCE_UNAVAILABLE.name());
     }
   }
@@ -707,8 +765,8 @@ public class GraphQLMutationService {
   // #168 — operator-managed list of IPs (their own test/record devices) whose
   // interactions are kept out of statistics. Null/empty list = nobody excluded.
   private static boolean isStatsExcluded(Show show, String ip) {
-    var excludedIps = show.getPreferences().getStatsExcludedIps();
-    return excludedIps != null && excludedIps.contains(ip);
+    // Entries may be single addresses, CIDR blocks or ranges (#175).
+    return IpMatcher.matchesAny(show.getPreferences().getStatsExcludedIps(), ip);
   }
 
   private void saveSequenceGroupVote(Show show, SequenceGroup votedSequenceGroup, String ipAddress, String viewerId) {

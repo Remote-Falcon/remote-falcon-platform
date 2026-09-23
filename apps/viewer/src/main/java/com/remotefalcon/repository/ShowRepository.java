@@ -7,14 +7,20 @@ import com.remotefalcon.library.models.Request;
 import com.remotefalcon.library.models.Stat;
 import com.remotefalcon.library.models.ViewerSession;
 import com.remotefalcon.library.quarkus.entity.Show;
+import com.remotefalcon.library.util.IpMatcher;
 import io.quarkus.mongodb.panache.PanacheMongoRepository;
 import jakarta.enterprise.context.ApplicationScoped;
+import lombok.extern.jbosslog.JBossLog;
 import org.bson.conversions.Bson;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
+@JBossLog
 @ApplicationScoped
 public class ShowRepository implements PanacheMongoRepository<Show> {
   // V15 security fix — bound the rejectedRequests array so a hostile viewer
@@ -35,6 +41,18 @@ public class ShowRepository implements PanacheMongoRepository<Show> {
   // between sweeps (~100 B/entry -> ~5 MB worst case per array, and the
   // 12 MB estimated-size alarm fires long before the 16 MB document cap).
   private static final int STAT_ARRAY_HARD_CAP = 50_000;
+
+  // Stats exclusion supports CIDR blocks and ranges (#175), which Mongo can't
+  // express as a query, so they're evaluated in Java. Caching the rules keeps
+  // that off the per-page-view read path; 60s is short enough that an operator
+  // adding an exclusion sees it take hold while they're still testing.
+  private static final long STATS_EXCLUDED_CACHE_TTL_MS = 60_000L;
+  private static final int STATS_EXCLUDED_CACHE_MAX_ENTRIES = 10_000;
+
+  private record CachedIpRules(Set<String> rules, long expiresAt) {
+  }
+
+  private final ConcurrentHashMap<String, CachedIpRules> statsExcludedCache = new ConcurrentHashMap<>();
 
   private static Bson pushStatCapped(String statArrayPath, Object stat) {
     return Updates.pushEach(statArrayPath, java.util.List.of(stat),
@@ -384,25 +402,28 @@ public class ShowRepository implements PanacheMongoRepository<Show> {
     );
   }
 
+  // A null stat means the interaction is excluded from statistics (#175): the
+  // request still queues and plays, it just isn't counted. Without the null
+  // check these would push a literal null into the stats array.
   public void appendRequestAndJukeboxStat(String showSubdomain, Request request, Stat.Jukebox stat) {
-    mongoCollection().updateOne(
-        Filters.eq("showSubdomain", showSubdomain),
-        Updates.combine(
+    Bson update = stat == null
+        ? Updates.push("requests", request)
+        : Updates.combine(
             Updates.push("requests", request),
             pushStatCapped("stats.jukebox", stat)
-        )
-    );
+        );
+    mongoCollection().updateOne(Filters.eq("showSubdomain", showSubdomain), update);
   }
 
   public void appendMultipleRequestsAndJukeboxStat(String showSubdomain, java.util.List<Request> requests,
       Stat.Jukebox stat) {
-    mongoCollection().updateOne(
-        Filters.eq("showSubdomain", showSubdomain),
-        Updates.combine(
+    Bson update = stat == null
+        ? Updates.pushEach("requests", requests)
+        : Updates.combine(
             Updates.pushEach("requests", requests),
             pushStatCapped("stats.jukebox", stat)
-        )
-    );
+        );
+    mongoCollection().updateOne(Filters.eq("showSubdomain", showSubdomain), update);
   }
 
   public void updatePsaSequences(String showSubdomain, java.util.List<com.remotefalcon.library.models.PsaSequence> psaSequences) {
@@ -413,10 +434,22 @@ public class ShowRepository implements PanacheMongoRepository<Show> {
   }
 
   public long appendPageStatIfNotOwner(String showSubdomain, String clientIp, Stat.Page stat) {
+    // CIDR blocks and ranges can't be expressed as a Mongo query, so they are
+    // resolved in Java before the write (#175). This is the highest-volume
+    // write in the service and deliberately does no document read, so the
+    // rules come from a short-TTL cache rather than a per-request lookup.
+    if (IpMatcher.matchesAny(statsExcludedRules(showSubdomain), clientIp)) {
+      return 0;
+    }
+
     // Append the page stat only if clientIp is neither the owner's lastLoginIp
     // nor on the operator's stats-excluded list (#168). $ne on an array field
     // matches when the array does not contain the value (and when it's absent),
     // so legacy shows without statsExcludedIps still record normally.
+    //
+    // The $ne stays even though the check above also covers exact matches: it
+    // needs no cache, so it closes the window where a just-added exact
+    // exclusion hasn't propagated yet.
     var result = mongoCollection().updateOne(
         Filters.and(
             Filters.eq("showSubdomain", showSubdomain),
@@ -426,6 +459,58 @@ public class ShowRepository implements PanacheMongoRepository<Show> {
         pushStatCapped("stats.page", stat)
     );
     return result.getModifiedCount();
+  }
+
+  /**
+   * The show's stats-excluded rules, cached briefly.
+   *
+   * <p>A newly saved non-exact rule takes up to
+   * {@link #STATS_EXCLUDED_CACHE_TTL_MS} to take effect, which is an
+   * acceptable trade for not adding a read to every page view. Exact-address
+   * rules are unaffected: the Mongo filter still enforces those on every write.
+   */
+  private Set<String> statsExcludedRules(String showSubdomain) {
+    long now = System.currentTimeMillis();
+    CachedIpRules cached = statsExcludedCache.get(showSubdomain);
+    if (cached != null && cached.expiresAt() > now) {
+      return cached.rules();
+    }
+
+    Set<String> rules = Collections.emptySet();
+    try {
+      Show projected = mongoCollection()
+          .find(Filters.eq("showSubdomain", showSubdomain))
+          .projection(com.mongodb.client.model.Projections.include("preferences.statsExcludedIps"))
+          .first();
+      if (projected != null && projected.getPreferences() != null
+          && projected.getPreferences().getStatsExcludedIps() != null) {
+        rules = Set.copyOf(projected.getPreferences().getStatsExcludedIps());
+      }
+    } catch (Exception e) {
+      // Never let a rules lookup failure drop a stat. The Mongo filter still
+      // applies, and the next call retries.
+      //
+      // Logged because this silently CHANGES BEHAVIOUR: exact-IP exclusions
+      // keep working via the filter, while CIDR/range ones stop applying, on
+      // the highest-volume write in the service. Silence here reads as
+      // "exclusions are broken" with nothing to point at.
+      log.warnf("statsExcludedRules lookup failed for showSubdomain=%s (CIDR/range exclusions "
+          + "will not apply until this recovers): %s", showSubdomain, e.getMessage());
+      return Collections.emptySet();
+    }
+
+    // Bound the map so a flood of unknown subdomains can't grow it without
+    // limit. Clearing is cheap: entries rebuild on demand.
+    if (statsExcludedCache.size() > STATS_EXCLUDED_CACHE_MAX_ENTRIES) {
+      statsExcludedCache.clear();
+    }
+    statsExcludedCache.put(showSubdomain, new CachedIpRules(rules, now + STATS_EXCLUDED_CACHE_TTL_MS));
+    return rules;
+  }
+
+  /** Visible for tests: drop cached rules so a change takes effect at once. */
+  public void invalidateStatsExcludedCache() {
+    statsExcludedCache.clear();
   }
 
   public Optional<Show> findPagesOnlyByShowSubdomain(String showSubdomain) {

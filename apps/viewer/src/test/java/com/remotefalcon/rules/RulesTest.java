@@ -68,6 +68,69 @@ class RulesTest {
     assertFalse(new BlockedIpRule().evaluate(ctx(showWith(p), "1.2.3.4")).denied());
   }
 
+  @Test
+  void blockedIp_deniesAddressInsideACidrBlock() {
+    // #175 — a CIDR entry used to be compared as a whole string, so it
+    // matched nothing and the operator's block silently did nothing.
+    Preference p = new Preference();
+    p.setBlockedViewerIps(new HashSet<>(List.of("203.0.113.0/24")));
+    Decision d = new BlockedIpRule().evaluate(ctx(showWith(p), "203.0.113.77"));
+    assertTrue(d.denied());
+    assertEquals(StatusResponse.NAUGHTY.name(), d.reason());
+  }
+
+  @Test
+  void blockedIp_allowsAddressOutsideTheCidrBlock() {
+    Preference p = new Preference();
+    p.setBlockedViewerIps(new HashSet<>(List.of("203.0.113.0/24")));
+    assertFalse(new BlockedIpRule().evaluate(ctx(showWith(p), "203.0.114.77")).denied());
+  }
+
+  @Test
+  void blockedIp_deniesAddressInsideARange() {
+    Preference p = new Preference();
+    p.setBlockedViewerIps(new HashSet<>(List.of("10.0.0.5-10.0.0.9")));
+    assertTrue(new BlockedIpRule().evaluate(ctx(showWith(p), "10.0.0.7")).denied());
+    assertFalse(new BlockedIpRule().evaluate(ctx(showWith(p), "10.0.0.10")).denied());
+  }
+
+  @Test
+  void blockedIp_junkEntryDoesNotBlockEveryone() {
+    // Lists saved before validation existed can hold junk. It must neither
+    // match nor stop a valid sibling rule from matching.
+    Preference p = new Preference();
+    p.setBlockedViewerIps(new HashSet<>(List.of("my office", "203.0.113.0/24")));
+    assertFalse(new BlockedIpRule().evaluate(ctx(showWith(p), "8.8.8.8")).denied());
+    assertTrue(new BlockedIpRule().evaluate(ctx(showWith(p), "203.0.113.1")).denied());
+  }
+
+  // --- votingExempt (EvaluationContext) ------------------------------------
+
+  @Test
+  void votingExempt_honoursCidrAndRangeEntries() {
+    Preference p = new Preference();
+    p.setVotingExemptIps(new HashSet<>(List.of("192.168.10.0/24", "10.1.1.5-10.1.1.9")));
+    assertTrue(ctx(showWith(p), "192.168.10.42").votingExempt());
+    assertTrue(ctx(showWith(p), "10.1.1.7").votingExempt());
+    assertFalse(ctx(showWith(p), "192.168.11.42").votingExempt());
+  }
+
+  @Test
+  void votingExempt_stillHonoursPlainAddresses() {
+    Preference p = new Preference();
+    p.setVotingExemptIps(new HashSet<>(List.of("1.2.3.4")));
+    assertTrue(ctx(showWith(p), "1.2.3.4").votingExempt());
+    assertFalse(ctx(showWith(p), "1.2.3.5").votingExempt());
+  }
+
+  @Test
+  void votingExempt_falseWhenListNullOrEmpty() {
+    Preference p = new Preference();
+    assertFalse(ctx(showWith(p), "1.2.3.4").votingExempt());
+    p.setVotingExemptIps(new HashSet<>());
+    assertFalse(ctx(showWith(p), "1.2.3.4").votingExempt());
+  }
+
   // --- AlreadyVotedRule ----------------------------------------------------
 
   @Test

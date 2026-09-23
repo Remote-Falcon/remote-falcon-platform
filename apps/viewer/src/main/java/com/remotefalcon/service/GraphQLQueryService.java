@@ -1,12 +1,15 @@
 package com.remotefalcon.service;
 
 import com.remotefalcon.library.enums.ViewerControlMode;
+import com.remotefalcon.library.models.Category;
 import com.remotefalcon.library.models.Preference;
 import com.remotefalcon.library.models.Request;
 import com.remotefalcon.library.models.Sequence;
 import com.remotefalcon.library.models.SequenceGroup;
 import com.remotefalcon.library.models.ViewerPage;
 import com.remotefalcon.library.quarkus.entity.Show;
+import com.remotefalcon.library.util.IpMatcher;
+import com.remotefalcon.library.util.NightlyPlayLimitHelper;
 import com.remotefalcon.library.util.PluginQueueHelper;
 import com.remotefalcon.repository.ShowRepository;
 import com.remotefalcon.repository.VoteEventRepository;
@@ -23,7 +26,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 
 @JBossLog
 @ApplicationScoped
@@ -96,8 +98,10 @@ public class GraphQLQueryService {
       return null; // no cap configured → no countdown
     }
     String clientIp = ClientUtil.getClientIP(context);
-    Set<String> exemptIps = prefs.getVotingExemptIps();
-    if (exemptIps != null && clientIp != null && exemptIps.contains(clientIp)) {
+    // #175 — the same matcher the enforcement path uses, so a kiosk exempted
+    // by a CIDR block or range hides the countdown rather than showing one
+    // that ticks to "0 of 3 votes left" while its votes keep succeeding.
+    if (IpMatcher.matchesAny(prefs.getVotingExemptIps(), clientIp)) {
       return null; // #156 exempt → effectively unlimited, hide the countdown
     }
     // Replicate resolveVotingWindowStart's gap-roll read-only: a null window,
@@ -216,9 +220,14 @@ public class GraphQLQueryService {
   private List<Sequence> processSequencesForViewer(Show show) {
     List<Sequence> updatedSequences = show.getSequences();
     List<SequenceGroup> updatedSequenceGroups = show.getSequenceGroups();
+    // Capture the full member list before the collapse below drops every
+    // group member but one — the nightly-cap stamp needs all of them.
+    List<Sequence> allSequences = show.getSequences() == null
+        ? java.util.List.of() : java.util.List.copyOf(show.getSequences());
     updatedSequences = this.sortAndFilterSequences(updatedSequences);
     updatedSequenceGroups = this.filterSequenceGroups(updatedSequenceGroups);
-    return this.replaceSequencesWithSequenceGroups(updatedSequences, updatedSequenceGroups);
+    return this.replaceSequencesWithSequenceGroups(updatedSequences, updatedSequenceGroups,
+        allSequences, show);
   }
 
   private List<ViewerPage> filterActivePageOnly(List<ViewerPage> pages) {
@@ -261,8 +270,57 @@ public class GraphQLQueryService {
         .toList();
   }
 
+  /**
+   * #177 — make the group's representative row carry the group's nightly-cap
+   * state, so the viewer page grays out exactly what the server would refuse.
+   *
+   * <p>A group is collapsed to ONE member here, so the client cannot evaluate
+   * "is any member capped" itself — it never receives the others. The server
+   * knows, so it encodes the answer in the only field the client's predicate
+   * reads: bump {@code playsToday} to the limit the client will compute for
+   * this row, and the existing {@code playsToday >= limit} check grays it out.
+   *
+   * <p>Residual case, deliberately left to the server: when the representative
+   * itself resolves to no limit (its category is exempt, or nothing sets one)
+   * there is no value of playsToday that makes the client's check fire, so
+   * such a group renders available and {@code checkIfGroupUnavailable} refuses
+   * it on tap. Encoding that would mean moving the row into another category's
+   * section, which would visibly reshuffle the page.
+   */
+  private void stampGroupNightlyCap(Sequence representative, String groupName,
+      List<Sequence> allSequences, Show show) {
+    if (show == null || show.getPreferences() == null) {
+      return;
+    }
+    Integer showLimit = show.getPreferences().getNightlyPlayLimit();
+    List<Category> categories = show.getCategories();
+    if (!NightlyPlayLimitHelper.anyLimitActive(showLimit, categories)) {
+      return;
+    }
+    if (!NightlyPlayLimitHelper.isGroupCapped(groupName, allSequences, showLimit, categories)) {
+      return;
+    }
+    Integer clientLimit = NightlyPlayLimitHelper.effectiveLimit(
+        showLimit, representative.getCategory(), categories);
+    if (clientLimit != null && clientLimit > 0) {
+      representative.setPlaysToday(clientLimit);
+      return;
+    }
+    // The representative itself resolves to no limit (its category is exempt,
+    // or nothing sets one), so no playsToday value can make the client's
+    // comparison fire. That is reachable in an ordinary config: show cap off,
+    // one category capped, representative uncategorized. Fall back to
+    // visibilityCount, the other field the client already treats as
+    // unavailable, so the group greys out instead of erroring on tap. The
+    // hint then reads "Available again soon" rather than "Back next show" — a
+    // slightly wrong explanation beats offering a song the server will refuse.
+    if (representative.getVisibilityCount() == null || representative.getVisibilityCount() <= 0) {
+      representative.setVisibilityCount(1);
+    }
+  }
+
   private List<Sequence> replaceSequencesWithSequenceGroups(List<Sequence> sequences,
-      List<SequenceGroup> sequenceGroups) {
+      List<SequenceGroup> sequenceGroups, List<Sequence> allSequences, Show show) {
     // Create a map for O(1) lookups instead of O(n) stream operations
     java.util.Map<String, SequenceGroup> groupMap = new java.util.HashMap<>();
     for (SequenceGroup group : sequenceGroups) {
@@ -283,6 +341,7 @@ public class GraphQLQueryService {
           sequence.setName(sequenceGroup.getName());
           sequence.setDisplayName(sequenceGroup.getName());
           sequence.setVisibilityCount(sequenceGroup.getVisibilityCount());
+          this.stampGroupNightlyCap(sequence, sequenceGroup.getName(), allSequences, show);
 
           sequencesWithGroups.add(sequence);
         }

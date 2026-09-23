@@ -23,3 +23,29 @@ export const reorderCategories = (categories, fromIndex, toIndex) => {
   // normalizing any legacy null/gapped values in the process.
   return next.map((category, index) => ({ ...category, displayOrder: index }));
 };
+
+/**
+ * Sort categories by name and renumber `displayOrder` to match — what the
+ * Categories tab commits when the operator sorts the name column and saves,
+ * instead of dragging every row into place by hand. Pure + non-mutating, same
+ * renumbering contract as reorderCategories.
+ *
+ * Sequences-tab "Sort A→Z... and save order" only ever wrote sequence.order
+ * (song order *within* a category), never displayOrder (category *section*
+ * order), which is what actually made "sort by Category" on that tab look
+ * broken — the section order never moved. This is the fix that lives where
+ * displayOrder is actually owned.
+ *
+ * @param {Array} categories current categories, in dashboard order
+ * @param {'asc'|'desc'} direction sort direction (defaults to A→Z)
+ * @returns {Array} categories sorted by name with contiguous displayOrder 0..n-1
+ */
+export const sortCategoriesAlphabetically = (categories, direction = 'asc') => {
+  const factor = direction === 'desc' ? -1 : 1;
+  return [...(categories ?? [])]
+    .sort(
+      (a, b) =>
+        factor * String(a?.name ?? '').localeCompare(String(b?.name ?? ''), undefined, { sensitivity: 'base' })
+    )
+    .map((category, index) => ({ ...category, displayOrder: index }));
+};

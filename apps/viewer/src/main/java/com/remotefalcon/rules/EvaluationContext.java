@@ -1,5 +1,7 @@
 package com.remotefalcon.rules;
 
+import com.remotefalcon.library.util.IpMatcher;
+
 import com.remotefalcon.library.quarkus.entity.Show;
 
 /**
@@ -20,7 +22,7 @@ public record EvaluationContext(Show show, String ip, String viewerId, Float lat
    * fixed lawn kiosk), so the per-voter rate limits don't apply to it.
    */
   public boolean votingExempt() {
-    var exemptIps = show.getPreferences().getVotingExemptIps();
-    return exemptIps != null && exemptIps.contains(ip);
+    // Entries may be single addresses, CIDR blocks or ranges (#175).
+    return IpMatcher.matchesAny(show.getPreferences().getVotingExemptIps(), ip);
   }
 }

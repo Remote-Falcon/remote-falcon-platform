@@ -16,6 +16,7 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  TableSortLabel,
   TextField,
   Tooltip,
   Typography
@@ -27,6 +28,7 @@ import {
   saveCategoriesService,
   saveSequencesService
 } from '../../../../services/controlPanel/mutations.service';
+import useTableSort from '../../../../hooks/useTableSort';
 import { useDispatch, useSelector } from '../../../../store';
 import { setShow } from '../../../../store/slices/show';
 import ConfirmDialog from '../../../../ui-component/ConfirmDialog';
@@ -36,9 +38,10 @@ import {
   UPDATE_CATEGORIES,
   UPDATE_SEQUENCES
 } from '../../../../utils/graphql/controlPanel/mutations';
+import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
 import { showAlert } from '../../globalPageHelpers';
 
-import { reorderCategories } from './categoriesReorder';
+import { reorderCategories, sortCategoriesAlphabetically } from './categoriesReorder';
 import EditableCell from './EditableCell';
 
 // Categories tab (PRD-009 #128). First-class categories carry the Cluster A
@@ -46,6 +49,17 @@ import EditableCell from './EditableCell';
 // of the category together) and anti-consecutive (#109 flag). Renaming a
 // category patches every sequence whose `category` field referenced the old
 // name so memberships stay intact.
+// What a category's nightly-play-limit cell means, spelled out under the
+// field. Blank and 0 look almost identical in a number input but do opposite
+// things (inherit vs never capped), so neither is left to be guessed at.
+export const nightlyLimitHint = (categoryLimit, showLimit) => {
+  if (categoryLimit === null || categoryLimit === undefined || categoryLimit === '') {
+    return showLimit > 0 ? `Using show limit (${showLimit})` : 'No limit set';
+  }
+  if (categoryLimit === 0) return 'Never capped';
+  return `${categoryLimit} per night`;
+};
+
 const Categories = () => {
   const dispatch = useDispatch();
   const navigate = useNavigate();
@@ -58,8 +72,26 @@ const Categories = () => {
   const [confirm, setConfirm] = useState(null);
   const [newName, setNewName] = useState('');
 
+  // Column sort mirrors the Sequences tab: clicking the header previews the
+  // sort, and the preview is only committed on save. Both tabs persist a
+  // hand-dragged order, so neither can silently overwrite it on a click.
+  const { orderBy, order, requestSort, resetSort } = useTableSort(null, 'asc');
+  const sortIsPreview = orderBy !== null;
+
   const categories = show?.categories || [];
   const sequences = show?.sequences || [];
+  // Shown beside each row's input so an operator can see what "blank"
+  // resolves to without going back to the settings screen.
+  const showNightlyPlayLimit = show?.preferences?.nightlyPlayLimit ?? 0;
+
+  // What the table renders: the saved (drag) order, or the previewed sort.
+  const visibleCategories = useMemo(
+    () => (sortIsPreview ? sortCategoriesAlphabetically(categories, order) : categories),
+    [sortIsPreview, categories, order]
+  );
+  // Same mutual exclusion as the Sequences tab — dragging a previewed order
+  // would be reordering something that isn't what's saved.
+  const dndEnabled = !busy && !sortIsPreview;
 
   const membersByCategory = useMemo(() => {
     const map = new Map();
@@ -98,6 +130,37 @@ const Categories = () => {
         showAlert(dispatch, response?.toast);
       }
       setBusy(false);
+    });
+  };
+
+  // Commit the previewed column sort as the saved category order. This is
+  // where an alphabetical ordering has to live: displayOrder — what the viewer
+  // page sorts category sections by — is owned by this tab, not by the
+  // Sequences tab's column sort, which only ever writes sequence.order.
+  const applySortToOrder = () => {
+    // Nothing has physically moved (unlike a drag), so persistCategories's own
+    // dispatch on success is enough; no optimistic dispatch needed.
+    const sorted = sortCategoriesAlphabetically(categories, order);
+    persistCategories(sorted, 'Category order updated');
+    // Mirrors sequence_order_applied_from_sort on the Sequences tab — without
+    // it there is no way to tell whether operators use this at all.
+    trackPosthogEvent('category_order_applied_from_sort', {
+      direction: order,
+      category_count: sorted.length
+    });
+    resetSort();
+  };
+
+  const confirmApplySortToOrder = () => {
+    setConfirm({
+      title: 'Save this order to your viewer page?',
+      message:
+        `All ${categories.length} ${categories.length === 1 ? 'category' : 'categories'} will be reordered by ` +
+        `name (${order === 'asc' ? 'A→Z' : 'Z→A'}), replacing the order category sections currently appear in ` +
+        'on your viewer page. You can still drag individual categories afterward.',
+      confirmLabel: 'Save order',
+      confirmColor: 'primary',
+      action: applySortToOrder
     });
   };
 
@@ -156,6 +219,9 @@ const Categories = () => {
       showAlert(dispatch, { alert: 'error', message: `A category named "${trimmed}" already exists.` });
       return;
     }
+    // nightlyPlayLimit is deliberately absent, not 0: absent means "inherit
+    // the show limit", while 0 would exempt every newly created category from
+    // the nightly cap.
     const updated = [...categories, { name: trimmed, requestLimit: 0, antiConsecutive: false, displayOrder: categories.length }];
     persistCategories(updated, `Category "${trimmed}" created`);
     setNewName('');
@@ -198,43 +264,104 @@ const Categories = () => {
           />
         ) : (
           <TableContainer>
+            {/* Same preview-then-save flow as the Sequences tab: a click on the
+                header shows what the sort would look like without overwriting
+                the order the operator dragged into place. */}
+            {sortIsPreview && (
+              <Box
+                data-testid="categories-sort-banner"
+                role="status"
+                aria-live="polite"
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: 1,
+                  mb: 0.5,
+                  mx: 1,
+                  px: 1.5,
+                  py: 1,
+                  borderRadius: 1,
+                  bgcolor: (t) => (t.palette.mode === 'dark' ? 'rgba(244,169,58,0.10)' : 'rgba(244,169,58,0.12)')
+                }}
+              >
+                <Typography variant="caption" sx={{ color: 'text.secondary', flex: 1, minWidth: 240 }}>
+                  Sorted by <strong>Category name</strong> ({order === 'asc' ? 'A→Z' : 'Z→A'}) — preview only. Your
+                  viewer page still uses your saved order.
+                </Typography>
+                <Tooltip title="Reorder every category to match this sort, and save it as your viewer page's category order">
+                  <span>
+                    <Button
+                      size="small"
+                      variant="contained"
+                      color="primary"
+                      disabled={busy || categories.length === 0}
+                      onClick={confirmApplySortToOrder}
+                    >
+                      Save as category order
+                    </Button>
+                  </span>
+                </Tooltip>
+                <Button size="small" onClick={resetSort}>
+                  Cancel sort
+                </Button>
+              </Box>
+            )}
             <Table size="small" aria-label="categories">
               <TableHead sx={{ '& th,& td': { whiteSpace: 'nowrap' } }}>
                 <TableRow>
                   <TableCell sx={{ width: 28, p: 0 }} />
-                  <TableCell>Category name</TableCell>
+                  <TableCell sortDirection={orderBy === 'name' ? order : false}>
+                    <TableSortLabel
+                      data-testid="categories-sort-header-name"
+                      active={orderBy === 'name'}
+                      direction={orderBy === 'name' ? order : 'asc'}
+                      onClick={() => requestSort('name')}
+                    >
+                      Category name
+                    </TableSortLabel>
+                  </TableCell>
                   <TableCell>Members</TableCell>
                   <TableCell>Request limit</TableCell>
+                  <TableCell>Nightly play limit</TableCell>
                   <TableCell>No back-to-back</TableCell>
                   <TableCell align="right">Actions</TableCell>
                 </TableRow>
               </TableHead>
               <DragDropContext onDragEnd={reorder}>
-                <Droppable droppableId="categories" isDropDisabled={busy}>
+                <Droppable droppableId="categories" isDropDisabled={!dndEnabled}>
                   {(provided) => (
                     <TableBody {...provided.droppableProps} ref={provided.innerRef}>
-                      {categories.map((category, index) => {
+                      {visibleCategories.map((category, index) => {
                         const members = membersByCategory.get(category?.name) || [];
                         return (
                           <Draggable
                             key={category?.name}
                             draggableId={String(category?.name)}
                             index={index}
-                            isDragDisabled={busy}
+                            isDragDisabled={!dndEnabled}
                           >
                             {(dragProvided) => (
                               <TableRow ref={dragProvided.innerRef} {...dragProvided.draggableProps} hover>
                                 <TableCell sx={{ width: 28, p: 0, color: 'text.disabled' }}>
-                                  <Tooltip title={busy ? 'Saving…' : 'Drag to reorder'}>
+                                  <Tooltip
+                                    title={
+                                      busy
+                                        ? 'Saving…'
+                                        : sortIsPreview
+                                          ? 'Dragging is off while a column sort is previewing — save the sort as your order, or cancel it'
+                                          : 'Drag to reorder'
+                                    }
+                                  >
                                     <Box
-                                      {...(!busy ? dragProvided.dragHandleProps : {})}
+                                      {...(dndEnabled ? dragProvided.dragHandleProps : {})}
                                       sx={{
                                         display: 'flex',
                                         alignItems: 'center',
                                         justifyContent: 'center',
                                         height: '100%',
-                                        cursor: busy ? 'default' : 'grab',
-                                        opacity: busy ? 0.3 : 1
+                                        cursor: dndEnabled ? 'grab' : 'default',
+                                        opacity: dndEnabled ? 1 : 0.3
                                       }}
                                     >
                                       <IconGripVertical size={14} />
@@ -263,6 +390,7 @@ const Categories = () => {
                                     <TextField
                                       size="small"
                                       type="number"
+                                      inputProps={{ 'aria-label': `Request limit for ${category?.name ?? 'category'}` }}
                                       defaultValue={category?.requestLimit ?? 0}
                                       onBlur={(e) =>
                                         updateCategory(category?.name, { requestLimit: parseInt(e.target.value, 10) || 0 })
@@ -271,10 +399,61 @@ const Categories = () => {
                                     />
                                   </Tooltip>
                                 </TableCell>
+                                <TableCell sx={{ minWidth: 220 }}>
+                                  {/* Hint sits BESIDE the input, not in helperText:
+                                      helperText renders on its own line under every
+                                      row (taller rows than the Sequences tab) and
+                                      wraps inside the input's width, which split
+                                      "Using show limit (3)" across two lines. */}
+                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                    <Tooltip title="How many times a song in this category can play per night. Leave blank to use the show's nightly play limit, or enter 0 to exempt this category from it.">
+                                      <TextField
+                                        size="small"
+                                        type="number"
+                                        placeholder="Show limit"
+                                        // The visible label is a column header, not a
+                                        // <label>, and the Tooltip's title lands on MUI's
+                                        // wrapper rather than the input — so without this
+                                        // the field has no accessible name at all.
+                                        inputProps={{
+                                          min: 0,
+                                          'aria-label': `Nightly play limit for ${category?.name ?? 'category'}`
+                                        }}
+                                        defaultValue={category?.nightlyPlayLimit ?? ''}
+                                        // Blank means "inherit the show limit", which is a
+                                        // different thing from 0 ("never capped"), so this
+                                        // can't use the `|| 0` coercion the request limit
+                                        // above uses — that would turn inherit into exempt.
+                                        onBlur={(e) => {
+                                          const raw = e.target.value.trim();
+                                          const parsed = raw === '' ? null : parseInt(raw, 10);
+                                          // A negative parses cleanly but reads as "<= 0"
+                                          // downstream, which would silently exempt the
+                                          // category while the hint claimed a real limit.
+                                          // Anything that isn't a usable count means inherit.
+                                          const usable =
+                                            parsed === null || Number.isNaN(parsed) || parsed < 0 ? null : parsed;
+                                          // Uncontrolled input: without this a rejected value
+                                          // stays on screen ("-1") while the hint beside it
+                                          // reports the value we actually stored.
+                                          if (String(usable ?? '') !== raw) {
+                                            e.target.value = usable ?? '';
+                                          }
+                                          updateCategory(category?.name, { nightlyPlayLimit: usable });
+                                        }}
+                                        sx={{ width: 90 }}
+                                      />
+                                    </Tooltip>
+                                    <Typography variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'nowrap' }}>
+                                      {nightlyLimitHint(category?.nightlyPlayLimit, showNightlyPlayLimit)}
+                                    </Typography>
+                                  </Box>
+                                </TableCell>
                                 <TableCell sx={{ minWidth: 100 }}>
                                   <Tooltip title="Don't let two songs from this category play back-to-back.">
                                     <Switch
                                       color="primary"
+                                      inputProps={{ 'aria-label': `No back-to-back for ${category?.name ?? 'category'}` }}
                                       checked={!!category?.antiConsecutive}
                                       onChange={(_e, v) => updateCategory(category?.name, { antiConsecutive: v })}
                                     />
@@ -325,7 +504,7 @@ const Categories = () => {
                       fullWidth
                     />
                   </TableCell>
-                  <TableCell colSpan={3} sx={{ borderBottom: 'none' }}>
+                  <TableCell colSpan={4} sx={{ borderBottom: 'none' }}>
                     <Typography variant="caption" sx={{ color: 'text.disabled' }}>
                       Press Enter or click Add
                     </Typography>
@@ -350,7 +529,8 @@ const Categories = () => {
 
       {!isEmpty && (
         <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 1, ml: 1 }}>
-          Drag rows to reorder — category sections appear on your viewer page in this order.
+          Drag rows to reorder — category sections appear on your viewer page in this order. Or sort the Category name
+          column and save that sort as your order.
         </Typography>
       )}
 

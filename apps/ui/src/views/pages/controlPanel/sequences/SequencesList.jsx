@@ -47,7 +47,7 @@ import {
 } from '@tabler/icons-react';
 import { DragDropContext, Draggable, Droppable } from '@hello-pangea/dnd';
 import _ from 'lodash';
-import { useSearchParams } from 'react-router-dom';
+import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 
 import {
   forceNextSongService,
@@ -1279,6 +1279,17 @@ const SequencesList = () => {
                 <Typography variant="caption" sx={{ color: 'text.secondary', flex: 1, minWidth: 240 }}>
                   Sorted by <strong>{sortedColumnLabel}</strong> ({order === 'asc' ? 'A→Z' : 'Z→A'}) — preview only.
                   Your viewer page still uses your saved order.
+                  {orderBy === 'category' && (
+                    <>
+                      {' '}
+                      This only reorders songs within each category group — it won&apos;t change the order category
+                      sections themselves appear in. For that, use{' '}
+                      <RouterLink to="/control-panel/sequences/categories" style={{ color: 'inherit' }}>
+                        the Categories tab
+                      </RouterLink>
+                      .
+                    </>
+                  )}
                 </Typography>
                 <Tooltip
                   title={

@@ -16,6 +16,7 @@ type Category {
   color: String
   displayOrder: Int
   name: String
+  nightlyPlayLimit: Int
   requestLimit: Int
 }
 

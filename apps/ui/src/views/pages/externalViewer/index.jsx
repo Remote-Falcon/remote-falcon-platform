@@ -24,6 +24,7 @@ import { ADD_SEQUENCE_TO_QUEUE, INSERT_VIEWER_PAGE_STATS, VOTE_FOR_SEQUENCE } fr
 import { GET_ACTIVE_VIEWER_PAGE, GET_SHOW_FOR_VIEWER, VOTES_REMAINING } from '../../../utils/graphql/viewer/queries';
 import { showAlert } from '../globalPageHelpers';
 import { orderSequencesByCategory } from './helpers/categoryOrder';
+import { isSequenceUnavailable as checkSequenceUnavailable } from './helpers/sequenceAvailability';
 import LocationRecoveryControl from './LocationRecoveryControl';
 import { LocationPermission, acquireViewerLocation, clientClassFromUserAgent } from './helpers/locationPermission';
 import {
@@ -600,19 +601,23 @@ const ExternalViewerPage = () => {
     // holds regardless of the operator's page CSS; the server-side
     // SEQUENCE_UNAVAILABLE guard backs it up for clients that don't re-check.
     const nightlyPlayLimit = show?.preferences?.nightlyPlayLimit;
-    // Nightly cap is per-song; skip it for group entries (which carry a
-    // representative member's playsToday). Cooldown (visibilityCount) applies to
-    // both — a group entry carries the group's own visibilityCount.
+    // The nightly cap applies to groups as well as single songs. Requesting or
+    // voting a group queues/plays every member, so a group is capped as soon as
+    // ANY member is — which is why the full sequence list is passed in.
+    // Cooldown (visibilityCount) applies to both; a group entry carries the
+    // group's own visibilityCount.
     //
-    // The `!seq?.group` exemption mirrors the server: GraphQLMutationService's
-    // checkIfSequenceUnavailable (the SEQUENCE_UNAVAILABLE guard) runs ONLY on
-    // single-sequence requests/votes. The grouped branches of addSequenceToQueue
-    // and voteForSequence never call it, so the server never rejects a grouped
-    // request/vote on the nightly cap. Keeping the client exemption in sync means
-    // we don't gray out something the server would actually accept.
+    // #177 removed the old `!seq?.group` exemption. It used to mirror the
+    // server, whose grouped request/vote branches skipped the cap entirely —
+    // an accidental bypass operators used as an unofficial exemption. Those
+    // branches now reject a capped group (checkIfGroupUnavailable), and a
+    // category limit of 0 is the supported way to exempt songs, so graying out
+    // here matches what the server would actually refuse.
+    //
+    // The predicate lives in a pure module pinned to the same matrix as the
+    // server's shared NightlyPlayLimitHelper.
     const isSequenceUnavailable = (seq) =>
-      (seq?.visibilityCount ?? 0) > 0 ||
-      (!seq?.group && nightlyPlayLimit > 0 && (seq?.playsToday ?? 0) >= nightlyPlayLimit);
+      checkSequenceUnavailable(seq, nightlyPlayLimit, show?.categories);
     const unavailableStyle = { opacity: 0.4, pointerEvents: 'none' };
     const unavailableHint = (seq) => ((seq?.visibilityCount ?? 0) > 0 ? 'Available again soon' : 'Back next show');
 

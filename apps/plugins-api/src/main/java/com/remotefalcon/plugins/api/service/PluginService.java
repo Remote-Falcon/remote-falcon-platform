@@ -3,6 +3,7 @@ package com.remotefalcon.plugins.api.service;
 import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.Updates;
 import com.remotefalcon.library.enums.ViewerControlMode;
+import com.remotefalcon.library.util.NightlyPlayLimitHelper;
 import com.remotefalcon.library.models.*;
 import com.remotefalcon.library.quarkus.entity.Show;
 import com.remotefalcon.library.util.PluginQueueHelper;
@@ -195,7 +196,10 @@ public class PluginService {
     // still holds last night's tallies until the first play records and resets
     // them (the reset lives in applyNightlyPlayCount, which runs on a play, not
     // on this read path). isNewShowNight matches that reset's gap test exactly.
-    boolean nightlyActive = nightlyLimit != null && nightlyLimit > 0 && !this.isNewShowNight(show);
+    // #177: a show limit of 0/null no longer proves nothing is capped — a
+    // category can set its own limit while the show sets none.
+    boolean nightlyActive = NightlyPlayLimitHelper.anyLimitActive(nightlyLimit, show.getCategories())
+        && !this.isNewShowNight(show);
     if (!antiActive && !nightlyActive) {
       return orderedByPosition.getFirst();
     }
@@ -251,12 +255,28 @@ public class PluginService {
     // still holds last night's tallies until the first play records and resets
     // them (the reset lives in applyNightlyPlayCount, which runs on a play, not
     // on this read path). isNewShowNight matches that reset's gap test exactly.
-    boolean nightlyActive = nightlyLimit != null && nightlyLimit > 0 && !this.isNewShowNight(show);
+    // #177: a show limit of 0/null no longer proves nothing is capped — a
+    // category can set its own limit while the show sets none.
+    boolean nightlyActive = NightlyPlayLimitHelper.anyLimitActive(nightlyLimit, show.getCategories())
+        && !this.isNewShowNight(show);
     if (!antiActive && !nightlyActive) {
       return Optional.of(ordered.getFirst());
     }
     for (Vote vote : ordered) {
-      if (Vote.isSystemInjected(vote) || vote.getSequenceGroup() != null || vote.getSequence() == null) {
+      // Operator injections (PSA/leader/override) are never skipped.
+      if (Vote.isSystemInjected(vote) || (vote.getSequenceGroup() == null && vote.getSequence() == null)) {
+        return Optional.of(vote);
+      }
+      // #177: a group vote used to return here unconditionally, bypassing the
+      // cap outright — the unofficial exemption operators relied on. Now that
+      // a category can be exempted properly, a group is subject to the cap
+      // like anything else: capped as soon as any member is, since winning
+      // plays every member.
+      if (vote.getSequenceGroup() != null) {
+        if (nightlyActive && NightlyPlayLimitHelper.isGroupCapped(
+            vote.getSequenceGroup().getName(), show.getSequences(), nightlyLimit, show.getCategories())) {
+          continue;
+        }
         return Optional.of(vote);
       }
       String name = vote.getSequence().getName();
@@ -312,15 +332,17 @@ public class PluginService {
 
   /** True when the named song has reached its nightly play limit. */
   private boolean isNightlyCapped(Show show, String sequenceName, Integer nightlyLimit) {
-    if (nightlyLimit == null || nightlyLimit <= 0
-        || StringUtils.isEmpty(sequenceName) || CollectionUtils.isEmpty(show.getSequences())) {
+    if (StringUtils.isEmpty(sequenceName) || CollectionUtils.isEmpty(show.getSequences())) {
       return false;
     }
+    // #177: the limit is resolved per sequence now, since its category may
+    // override (or be exempt from) the show's. Shared with the viewer's
+    // rejection and gray-out so all three agree on what's capped.
     return show.getSequences().stream()
         .filter(Objects::nonNull)
         .filter(seq -> StringUtils.equalsIgnoreCase(seq.getName(), sequenceName))
         .findFirst()
-        .map(seq -> seq.getPlaysToday() != null && seq.getPlaysToday() >= nightlyLimit)
+        .map(seq -> NightlyPlayLimitHelper.isCapped(seq, nightlyLimit, show.getCategories()))
         .orElse(false);
   }
 
@@ -334,7 +356,12 @@ public class PluginService {
   private void applyNightlyPlayCount(Show show, List<Sequence> sequences, String playlistName) {
     Preference prefs = show.getPreferences();
     Integer limit = prefs.getNightlyPlayLimit();
-    if (limit == null || limit <= 0) {
+    // #177: this is the WRITE side of the cap, and it has to agree with the
+    // read side about whether counting is worth doing. A show limit of
+    // 0/null no longer means nothing is capped — a category can set its own
+    // while the show sets none — and if this returned early there, playsToday
+    // would never increment and a category-only limit could never fire.
+    if (!NightlyPlayLimitHelper.anyLimitActive(limit, show.getCategories())) {
       return;
     }
     LocalDateTime now = LocalDateTime.now();

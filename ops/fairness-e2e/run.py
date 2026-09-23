@@ -140,6 +140,45 @@ def show_field(path_js: str):
     )
 
 
+def add_category(name: str, fields: dict | None = None) -> None:
+    """Append a test category if it isn't already there.
+
+    Append-if-absent rather than replacing the list, matching the #72 scenario:
+    even a skipped teardown then can't clobber the operator's real categories.
+    Teardown restores the snapshotted list wholesale, which drops these.
+    """
+    doc = {"name": name, "requestLimit": 0, "antiConsecutive": False}
+    doc.update(fields or {})
+    mongo(
+        f'db.show.updateOne({{email:{json.dumps(EMAIL)}, "categories.name":{{$ne:{json.dumps(name)}}}}}, '
+        f'{{$push:{{categories:{json.dumps(doc)}}}}})'
+    )
+
+
+def add_sequence_group(name: str) -> None:
+    """Append a test sequence group if absent (same safety rule as add_category)."""
+    doc = {"name": name, "visibilityCount": 0}
+    mongo(
+        f'db.show.updateOne({{email:{json.dumps(EMAIL)}, "sequenceGroups.name":{{$ne:{json.dumps(name)}}}}}, '
+        f'{{$push:{{sequenceGroups:{json.dumps(doc)}}}}})'
+    )
+
+
+def stamp_play_clock(recent: bool = True) -> None:
+    """Set (or clear) lastPlayCountedAt.
+
+    The nightly cap only applies while the tally belongs to the current
+    show-night: both plugins-api's selection and the viewer's request guard
+    bypass it after a >6h gap, since the counts are about to reset. Scenarios
+    that want a live cap must stamp this, or they silently assert nothing.
+    """
+    value = "new Date()" if recent else "null"
+    mongo(
+        f'db.show.updateOne({{email:{json.dumps(EMAIL)}}}, '
+        f'{{$set:{{"preferences.lastPlayCountedAt": {value}}}}})'
+    )
+
+
 def vote_event_count(show_id: str, ip: str) -> int:
     return mongo_json(
         f'print(JSON.stringify(db.voteEvent.countDocuments('
@@ -294,12 +333,17 @@ def setup() -> dict:
         # being dropped from the JSON and left mutated after teardown.
         "{prefs: " + "{" + ",".join(f'{f}:(s.preferences.{f}??null)' for f in SNAPSHOT_PREF_FIELDS) + "},"
         " categories: s.categories||[],"
+        # #177's group-cap scenario puts test sequences into a temporary group,
+        # so the show's group list and each member's `group` field both have to
+        # come back exactly as they were.
+        " sequenceGroups: s.sequenceGroups||[],"
         " playingNow: s.playingNow||null,"
         " playingNext: s.playingNext||null,"
         " requests: s.requests||[],"
         " votes: s.votes||[],"
         " seqState: (s.sequences||[]).filter(x=>" + json.dumps(seqs) + ".indexOf(x.name)>=0)"
         "   .map(x=>({name:x.name, category:x.category||null, active:x.active, visible:x.visible,"
+        "             group:(x.group??null),"
         "             playsToday:(x.playsToday??null), visibilityCount:(x.visibilityCount??null)}))"
         "}"
     )
@@ -323,6 +367,9 @@ def teardown(snap: dict) -> None:
         lambda: set_prefs(snap["prefs"]),
         lambda: set_show({
             "categories": snap["categories"],
+            # `.get` with a default so a .snapshot.json written by an older
+            # revision (before the group scenario existed) still restores.
+            "sequenceGroups": snap.get("sequenceGroups", []),
             "playingNow": snap["playingNow"],
             "playingNext": snap["playingNext"],
             "requests": snap["requests"],
@@ -332,6 +379,7 @@ def teardown(snap: dict) -> None:
     for st in snap["seqState"]:
         steps.append(lambda st=st: tag_sequences([st["name"]], {
             "category": st["category"], "active": st["active"], "visible": st["visible"],
+            "group": st.get("group"),
             "playsToday": st.get("playsToday"), "visibilityCount": st.get("visibilityCount"),
         }))
     steps.append(purge_test_vote_events)
@@ -723,6 +771,158 @@ def scn_nightly_play_cap(r: Results, seqs):
             spare_plays == 0, f"spare.playsToday={spare_plays!r}")
 
 
+def scn_category_nightly_limit(r: Results, seqs):
+    """#177 — a category can override (or opt out of) the show's nightly cap.
+
+    Covers the whole matrix end-to-end: absent = inherit, 0 = never capped,
+    >0 = its own limit. Unit tests pin the resolution; this proves the three
+    enforcement sites (request guard, play selection, play counting) actually
+    agree on a live stack.
+    """
+    g = "Per-category nightly play limit (#177)"
+    print(f"\n{g}")
+    exempt_song, inherit_song, override_song, spare = seqs[0], seqs[1], seqs[2], seqs[3]
+
+    set_prefs({"locationCheckMethod": "NONE", "checkIfRequested": False, "checkIfVoted": False,
+               "dailyVoteLimit": 0, "jukeboxDepth": 50, "blockedViewerIps": [],
+               "votingExemptIps": [], "statsExcludedIps": [],
+               "viewerControlMode": "JUKEBOX", "viewerControlEnabled": True,
+               "nightlyPlayLimit": 1})
+    clear_queue_and_votes()
+    stamp_play_clock(recent=True)
+
+    add_category("E2EExempt", {"nightlyPlayLimit": 0})      # never capped
+    add_category("E2EInherit")                              # no override -> show's 1
+    add_category("E2EOverride", {"nightlyPlayLimit": 3})    # its own limit
+
+    tag_sequences([exempt_song], {"category": "E2EExempt", "playsToday": 9,
+                                  "visibilityCount": 0, "group": None, "active": True, "visible": True})
+    tag_sequences([inherit_song], {"category": "E2EInherit", "playsToday": 1,
+                                   "visibilityCount": 0, "group": None, "active": True, "visible": True})
+    tag_sequences([override_song], {"category": "E2EOverride", "playsToday": 2,
+                                    "visibilityCount": 0, "group": None, "active": True, "visible": True})
+
+    # --- Request-time guard ---
+    r.expect_allow(g, "exempt category (0) is requestable far past the show limit",
+                   viewer_gql("addSequenceToQueue", exempt_song, IP["loop"]))
+    r.expect_deny(g, "inheriting category still uses the show limit",
+                  viewer_gql("addSequenceToQueue", inherit_song, IP["loop"]), "SEQUENCE_UNAVAILABLE")
+    r.expect_allow(g, "category override (3) allows what the show limit would block",
+                   viewer_gql("addSequenceToQueue", override_song, IP["loop"]))
+
+    clear_queue_and_votes()
+    tag_sequences([override_song], {"playsToday": 3})
+    r.expect_deny(g, "category override denies once its own limit is reached",
+                  viewer_gql("addSequenceToQueue", override_song, IP["loop"]), "SEQUENCE_UNAVAILABLE")
+
+    # --- Play selection agrees with the request guard ---
+    def req(name, position):
+        idx = show_field(f'((s.sequences||[]).find(x=>x.name=={json.dumps(name)})||{{}}).index ?? -1')
+        return {"position": position, "sequence": {"name": name, "index": idx}}
+
+    tag_sequences([inherit_song], {"playsToday": 1})
+    set_show({"playingNow": None, "votes": [],
+              "requests": [req(inherit_song, 1), req(exempt_song, 2)]})
+    stamp_play_clock(recent=True)
+    code, resp = plugin_req("GET", "/nextPlaylistInQueue")
+    got = (resp or {}).get("nextPlaylist")
+    r.check(g, "play selection skips the capped song and plays the exempt one",
+            code == 200 and got == exempt_song,
+            f"http={code} nextPlaylist={got!r} (expected {exempt_song!r})")
+
+    # --- A category-only limit, with the show's cap switched off entirely ---
+    # Regression guard: the play COUNTER used to return early whenever the show
+    # limit was 0/null, so playsToday never incremented and a category-only
+    # limit could never fire, however it was configured.
+    set_prefs({"nightlyPlayLimit": 0})
+    add_category("E2EOnly", {"nightlyPlayLimit": 2})
+    tag_sequences([spare], {"category": "E2EOnly", "playsToday": 0, "visibilityCount": 0,
+                            "group": None, "active": True, "visible": True})
+    clear_queue_and_votes()
+    stamp_play_clock(recent=True)
+
+    plugin_req("POST", "/updateWhatsPlaying", {"playlist": spare})
+    plays = show_field(
+        f'((s.sequences||[]).find(x=>x.name=={json.dumps(spare)})||{{}}).playsToday ?? null')
+    r.check(g, "a category-only limit still counts plays (show cap off)",
+            plays == 1, f"playsToday={plays!r} (expected 1)")
+
+    tag_sequences([spare], {"playsToday": 2})
+    # updateWhatsPlaying left this song as playingNow, and the
+    # already-requested guard would answer SEQUENCE_REQUESTED first — a deny
+    # for the wrong reason. Clear it so this asserts the cap and nothing else.
+    clear_queue_and_votes()
+    stamp_play_clock(recent=True)
+    r.expect_deny(g, "a category-only limit still rejects at its own threshold",
+                  viewer_gql("addSequenceToQueue", spare, IP["loop"]), "SEQUENCE_UNAVAILABLE")
+
+
+def scn_group_nightly_cap(r: Results, seqs):
+    """#177 — sequence groups are subject to the nightly cap in both modes.
+
+    A solo group used to bypass the cap outright, which operators relied on as
+    an unofficial exemption. Now that a category limit of 0 is the supported
+    way to exempt songs, the bypass is closed: a group is capped as soon as any
+    member is, because requesting or voting it queues/plays them all.
+    """
+    g = "Sequence group honours the nightly cap (#177)"
+    print(f"\n{g}")
+    member_a, member_b = seqs[0], seqs[1]
+    group = "E2EGroup"
+
+    set_prefs({"locationCheckMethod": "NONE", "checkIfRequested": False, "checkIfVoted": False,
+               "dailyVoteLimit": 0, "jukeboxDepth": 50, "blockedViewerIps": [],
+               "votingExemptIps": [], "statsExcludedIps": [],
+               "viewerControlMode": "JUKEBOX", "viewerControlEnabled": True,
+               "nightlyPlayLimit": 2})
+    clear_queue_and_votes()
+    stamp_play_clock(recent=True)
+    add_sequence_group(group)
+    tag_sequences([member_a, member_b], {"group": group, "category": None,
+                                         "visibilityCount": 0, "active": True, "visible": True})
+
+    # Both members under the limit -> the group is requestable.
+    tag_sequences([member_a], {"playsToday": 0})
+    tag_sequences([member_b], {"playsToday": 1})
+    r.expect_allow(g, "group is requestable while every member is under the limit",
+                   viewer_gql("addSequenceToQueue", group, IP["loop"]))
+
+    # One member at its limit -> the whole group is refused, rather than being
+    # accepted and then silently skipped by the play selection.
+    clear_queue_and_votes()
+    tag_sequences([member_b], {"playsToday": 2})
+    r.expect_deny(g, "group request is denied when one member is capped",
+                  viewer_gql("addSequenceToQueue", group, IP["loop"]), "SEQUENCE_UNAVAILABLE")
+
+    # Voting mode used to be a clean bypass: the winner was returned before the
+    # cap check ever ran.
+    set_prefs({"viewerControlMode": "VOTING"})
+    clear_queue_and_votes()
+    purge_test_vote_events()
+    stamp_play_clock(recent=True)
+    r.expect_deny(g, "group vote is denied when one member is capped",
+                  viewer_gql("voteForSequence", group, IP["vote_a"]), "SEQUENCE_UNAVAILABLE")
+
+    tag_sequences([member_b], {"playsToday": 0})
+    stamp_play_clock(recent=True)
+    r.expect_allow(g, "group vote is allowed once no member is capped",
+                   viewer_gql("voteForSequence", group, IP["vote_b"]))
+
+    # An exempt category on the capped member keeps the group playable — the
+    # supported replacement for the old solo-group trick.
+    set_prefs({"viewerControlMode": "JUKEBOX"})
+    clear_queue_and_votes()
+    add_category("E2EGroupExempt", {"nightlyPlayLimit": 0})
+    tag_sequences([member_b], {"playsToday": 9, "category": "E2EGroupExempt"})
+    stamp_play_clock(recent=True)
+    r.expect_allow(g, "exempt category keeps the group requestable (supported workaround)",
+                   viewer_gql("addSequenceToQueue", group, IP["loop"]))
+
+    # Leave no group membership behind for later scenarios; teardown also
+    # restores this from the snapshot.
+    tag_sequences([member_a, member_b], {"group": None, "category": None, "playsToday": 0})
+
+
 def scn_unavailable_sequence(r: Results, seqs):
     g = "Unavailable sequence rejected (#73)"
     print(f"\n{g}")
@@ -801,6 +1001,7 @@ SCENARIOS = [
     scn_geofence, scn_daily_vote_limit, scn_votes_remaining, scn_vote_exempt, scn_stats_excluded,
     scn_blocked_ip, scn_queue_full, scn_category_limit,
     scn_fpp_request_loop, scn_voting_loop, scn_nightly_play_cap, scn_anti_consecutive,
+    scn_category_nightly_limit, scn_group_nightly_cap,
     scn_unavailable_sequence, scn_force_to_top,
 ]
 
