@@ -28,10 +28,12 @@ const isIpv4 = (value) => {
 // still rejecting obvious junk. Viewer traffic does arrive over IPv6, and
 // the proxy chain can hand us a compressed form.
 const isIpv6 = (value) => {
-  if (!value.includes(':')) return false;
-  const compressions = (value.match(/::/g) || []).length;
-  if (compressions > 1) return false;
+  // Strip the zone id first: everything after '%' is an interface name, and
+  // a '::' or ':' in it must not count toward the address (#181).
   const withoutZone = value.split('%')[0];
+  if (!withoutZone.includes(':')) return false;
+  const compressions = (withoutZone.match(/::/g) || []).length;
+  if (compressions > 1) return false;
   const groups = withoutZone.split(':');
   if (groups.length > 8) return false;
 
@@ -40,6 +42,13 @@ const isIpv6 = (value) => {
     if (embeddedV4Index !== groups.length - 1) return false;
     if (!isIpv4(groups[embeddedV4Index])) return false;
   }
+
+  // An empty group is only legal as the '::' itself. A stray single colon at
+  // either end (":1::2", "1::2:", ":::") passes the per-group check below but
+  // the server-side matcher rejects it, so it would vanish on save (#181).
+  const [head, tail = ''] = withoutZone.split('::');
+  const sideWellFormed = (side) => side === '' || side.split(':').every((group) => group !== '');
+  if (!sideWellFormed(head) || !sideWellFormed(tail)) return false;
 
   const groupsWellFormed = groups.every((group, i) => {
     if (group === '') return true; // from :: compression
@@ -59,6 +68,27 @@ const isIpv6 = (value) => {
   return true;
 };
 
+// Whether an address that already passed isIpv6 is IPv4-mapped
+// (::ffff:a.b.c.d, in any spelling). The server-side matcher collapses these
+// to their four IPv4 bytes, so a block on one can't be longer than /32.
+const isIpv4Mapped = (value) => {
+  const withoutZone = value.split('%')[0];
+  const toWords = (side) =>
+    side
+      ? side.split(':').flatMap((group) => {
+          if (!group.includes('.')) return [parseInt(group, 16)];
+          const [a, b, c, d] = group.split('.').map(Number);
+          return [a * 256 + b, c * 256 + d];
+        })
+      : [];
+  const [head, tail] = withoutZone.split('::');
+  const headWords = toWords(head);
+  const tailWords = toWords(tail);
+  const words =
+    tail === undefined ? headWords : [...headWords, ...Array(8 - headWords.length - tailWords.length).fill(0), ...tailWords];
+  return words.slice(0, 5).every((word) => word === 0) && words[5] === 0xffff;
+};
+
 /**
  * Classify a single entry. Whitespace is the caller's to trim.
  * @returns {IpEntryType}
@@ -73,7 +103,7 @@ export const classifyIpEntry = (value) => {
     if (!/^\d{1,3}$/.test(prefix)) return 'invalid';
     const bits = Number(prefix);
     if (isIpv4(addr)) return bits <= 32 ? 'cidr' : 'invalid';
-    if (isIpv6(addr)) return bits <= 128 ? 'cidr' : 'invalid';
+    if (isIpv6(addr)) return bits <= (isIpv4Mapped(addr) ? 32 : 128) ? 'cidr' : 'invalid';
     return 'invalid';
   }
 
