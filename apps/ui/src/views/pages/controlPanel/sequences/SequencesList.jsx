@@ -79,6 +79,7 @@ import { cleanLookupQuery } from '../../../../utils/musicMetadata';
 import BulkMetadataLookupDialog from './BulkMetadataLookupDialog';
 import EditableCell from './EditableCell';
 import SequenceMetadataLookup from './SequenceMetadataLookup';
+import { ROWS_PER_PAGE_OPTIONS, loadRowsPerPage, saveRowsPerPage } from './rowsPerPageStorage';
 import { applySortAsOrder, sortSequencesByColumn } from './sequenceSortOrder';
 
 // Status chip palette helper. Keeps the JSX tight.
@@ -216,7 +217,7 @@ const SequencesList = () => {
   const [search, setSearch] = useState('');
   const { orderBy, order, requestSort, resetSort } = useTableSort('order', 'asc');
   const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(25);
+  const [rowsPerPage, setRowsPerPage] = useState(loadRowsPerPage);
   const [busy, setBusy] = useState(false);
 
   // Per-row save status (rowKey → 'dirty' | 'saving' | 'saved' | 'error')
@@ -1609,8 +1610,12 @@ const SequencesList = () => {
               page={page}
               onPageChange={(_e, p) => setPage(p)}
               rowsPerPage={rowsPerPage}
-              onRowsPerPageChange={(e) => setRowsPerPage(parseInt(e.target.value, 10))}
-              rowsPerPageOptions={[10, 25, 50, 100]}
+              onRowsPerPageChange={(e) => {
+                const next = parseInt(e.target.value, 10);
+                setRowsPerPage(next);
+                saveRowsPerPage(next);
+              }}
+              rowsPerPageOptions={ROWS_PER_PAGE_OPTIONS}
             />
           </>
         )}
