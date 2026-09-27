@@ -55,6 +55,27 @@ describe('classifyIpEntry', () => {
     expect(classifyIpEntry('1:2:3:4:5:6:7:8:9')).toBe('invalid');
   });
 
+  it('rejects a stray single colon next to the compression (#181)', () => {
+    // The server's IpMatcher rejects an empty group anywhere but inside the
+    // '::' itself. These passed here and were then dropped on save.
+    expect(classifyIpEntry(':::')).toBe('invalid');
+    expect(classifyIpEntry(':1:2::3')).toBe('invalid');
+    expect(classifyIpEntry('1:2::3:')).toBe('invalid');
+  });
+
+  it('does not read the zone id as part of the address (#181)', () => {
+    // The server strips everything after '%' before parsing, leaving "2001"
+    // here, which is not an address.
+    expect(classifyIpEntry('2001%eth0::255')).toBe('invalid');
+    expect(classifyIpEntry('%eth0::')).toBe('invalid');
+    expect(classifyIpEntry('fe80::1%eth0')).toBe('ipv6');
+  });
+
+  it('still accepts compression at either end', () => {
+    expect(classifyIpEntry('::')).toBe('ipv6');
+    expect(classifyIpEntry('2001:db8::')).toBe('ipv6');
+  });
+
   it('accepts CIDR blocks for both families', () => {
     // The operator's actual ask: a whole office block.
     expect(classifyIpEntry('203.0.113.0/24')).toBe('cidr');
@@ -68,6 +89,16 @@ describe('classifyIpEntry', () => {
     expect(classifyIpEntry('2001:db8::/129')).toBe('invalid');
     expect(classifyIpEntry('192.168.1.0/abc')).toBe('invalid');
     expect(classifyIpEntry('192.168.1.0/24/8')).toBe('invalid');
+  });
+
+  it('caps an IPv4-mapped IPv6 block at /32, as the server does (#181)', () => {
+    // IpMatcher collapses ::ffff:a.b.c.d to its four IPv4 bytes before
+    // checking the prefix, so anything past /32 was dropped on save.
+    expect(classifyIpEntry('::ffff:192.168.1.0/120')).toBe('invalid');
+    expect(classifyIpEntry('0:0:0:0:0:ffff:c0a8:100/33')).toBe('invalid');
+    expect(classifyIpEntry('::ffff:192.168.1.0/24')).toBe('cidr');
+    // Not mapped (wrong marker), so the full IPv6 length still applies.
+    expect(classifyIpEntry('::fffe:192.168.1.0/120')).toBe('cidr');
   });
 
   it('accepts IPv4 ranges', () => {
