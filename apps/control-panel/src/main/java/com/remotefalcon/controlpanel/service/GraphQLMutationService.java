@@ -1157,6 +1157,10 @@ public class GraphQLMutationService {
         Optional<Show> show = this.showRepository.findByShowToken(authUtil.getTokenDTO().getShowToken());
         if(show.isPresent()) {
             show.get().setRequests(new ArrayList<>());
+            // The viewer's addSequenceToQueue rejects a sequence matching the
+            // persisted playingNext, so a stale value here would keep that
+            // sequence unrequestable after the queue is emptied.
+            show.get().setPlayingNext("");
             Set<Sequence> sequenceSet = show.get().getSequences().stream()
                     .peek(sequence -> sequence.setVisibilityCount(0)).collect(Collectors.toSet());
             show.get().setSequences(sequenceSet.stream().toList());
