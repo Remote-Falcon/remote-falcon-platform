@@ -1244,6 +1244,7 @@ class GraphQLMutationServiceTest {
         Sequence s = Sequence.builder().name("a").visibilityCount(5).build();
         SequenceGroup g = SequenceGroup.builder().name("g").visibilityCount(7).build();
         Show show = Show.builder().showToken(SHOW_TOKEN)
+                .playingNext("Alpha")
                 .requests(new ArrayList<>(List.of(Request.builder().build())))
                 .sequences(new ArrayList<>(List.of(s)))
                 .sequenceGroups(new ArrayList<>(List.of(g)))
@@ -1253,6 +1254,7 @@ class GraphQLMutationServiceTest {
         service.deleteAllRequests();
 
         assertThat(show.getRequests()).isEmpty();
+        assertThat(show.getPlayingNext()).isEmpty();
         assertThat(show.getSequences().get(0).getVisibilityCount()).isZero();
         assertThat(show.getSequenceGroups().get(0).getVisibilityCount()).isZero();
     }

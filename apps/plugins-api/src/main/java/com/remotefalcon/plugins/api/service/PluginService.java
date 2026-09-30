@@ -1417,7 +1417,10 @@ public class PluginService {
         Filters.eq("showToken", show.getShowToken()),
         Updates.combine(
             Updates.set("requests", new ArrayList<>()),
-            Updates.set("votes", new ArrayList<>())
+            Updates.set("votes", new ArrayList<>()),
+            // Clear the persisted playingNext with the queue, or the viewer's
+            // addSequenceToQueue keeps rejecting it as already requested.
+            Updates.set("playingNext", "")
         )
     );
     return PluginResponse.builder().message("Success").build();
