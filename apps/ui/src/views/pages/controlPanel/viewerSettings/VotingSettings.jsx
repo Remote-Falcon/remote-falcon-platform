@@ -148,14 +148,14 @@ const VotingSettings = () => {
                   />
                 </Stack>
                 <Typography component="div" variant="caption">
-                  Limits how many times a viewer can vote per day (0 = no limit). Exempt devices below are not affected.
+                  Limits how many times a viewer can vote per show night (0 = no limit). The count resets when a new show night starts. Exempt devices below are not affected.
                 </Typography>
               </Grid>
               <Grid item xs={12} md={6} lg={4}>
                 <TextField
                   type="number"
                   fullWidth
-                  label="Votes Per Day"
+                  label="Votes Per Show Night"
                   value={Number.isFinite(values.dailyVoteLimit) ? values.dailyVoteLimit : ''}
                   onChange={(e) => setValues((prev) => ({ ...prev, dailyVoteLimit: parseInt(e.target.value, 10) }))}
                 />
