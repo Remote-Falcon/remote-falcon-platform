@@ -34,8 +34,8 @@ const REASON_LABEL = {
 };
 
 const REASON_HINT = {
-  QUEUE_FULL: 'Bump the jukebox depth limit (Settings → Show preferences) if these are frequent.',
-  ALREADY_REQUESTED: 'A viewer hit the limit on their own requests for the night. Working as designed.',
+  QUEUE_FULL: 'Raise Jukebox Queue Depth (Remote Falcon Settings → Jukebox) if these are frequent.',
+  ALREADY_REQUESTED: 'A viewer already had a request waiting (Prevent Multiple Requests). They can request again after the next song starts. Working as designed.',
   // PRD-019 — this used to read "Loosen the radius if you expect viewers from
   // further away", which is wrong in the large majority of cases and actively
   // harmful: an operator who follows it widens their geofence, weakens the

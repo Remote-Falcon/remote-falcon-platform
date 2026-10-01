@@ -537,8 +537,8 @@ const InteractionSettings = () => {
                           />
                         </Stack>
                         <Typography component="div" variant="caption">
-                          This number, in miles, determines how close the viewer should be to your location in order to place a request.
-                          Default is 0.5 miles.
+                          This number, in miles, determines how close the viewer should be to your location (or any additional location) in
+                          order to request or vote. New shows start at 1 mile.
                         </Typography>
                       </Grid>
                       <Grid item xs={12} md={6} lg={4}>
@@ -663,8 +663,8 @@ const InteractionSettings = () => {
                   />
                 </Stack>
                 <Typography component="div" variant="caption">
-                  When a requested sequence finishes, it will be hidden from the list until after this number of sequences has been played. If
-                  set to 0, the sequence will not be hidden after it is played.
+                  When a requested or voted-in sequence finishes, it is grayed out on the viewer page until this number of sequences has
+                  played. If set to 0, the sequence stays available after it is played.
                 </Typography>
               </Grid>
               <Grid item xs={12} md={6} lg={4}>
