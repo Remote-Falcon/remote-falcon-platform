@@ -1,3 +1,5 @@
+import { redactEventUrls } from './redactUrl';
+
 /**
  * Automatic capture switched off on viewer pages.
  *
@@ -71,6 +73,10 @@ export const buildPosthogOptions = ({ onViewerPage }) => ({
   // pathname changes. Set explicitly rather than via the `defaults` bundle so
   // it can't drag other behaviour changes in with it.
   capture_pageview: 'history_change',
+
+  // Strip the token from /verifyEmail/... links before any URL leaves the
+  // browser. Applies on both surfaces: the link opens on the apex.
+  before_send: redactEventUrls,
 
   ...(onViewerPage ? viewerCaptureOverrides : {})
 });

@@ -63,6 +63,13 @@ describe('buildPosthogOptions', () => {
     });
   });
 
+  it('redacts email verification tokens from captured URLs on both surfaces', () => {
+    for (const options of [viewer, controlPanel]) {
+      const out = options.before_send({ event: '$pageview', properties: { $current_url: 'https://x.com/verifyEmail/tok/show' } });
+      expect(out.properties.$current_url).toBe('https://x.com/verifyEmail/[redacted]/show');
+    }
+  });
+
   it('routes ingest through the same-origin relay on both surfaces', () => {
     for (const options of [viewer, controlPanel]) {
       expect(options.api_host).toBe('https://remotefalcon.com/rf-relay');
