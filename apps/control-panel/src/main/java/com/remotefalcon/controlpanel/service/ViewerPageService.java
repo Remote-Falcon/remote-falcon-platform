@@ -59,6 +59,14 @@ public class ViewerPageService {
      */
     public static final int MAX_HTML_BYTES = 1_000_000;
 
+    /**
+     * Max viewer pages per show (#191). The UI enforces the same cap
+     * (MAX_PAGES in the viewerPage editor); this is the authoritative copy,
+     * checked in GraphQLMutationService.updatePages. Only growth past the cap
+     * is rejected, so shows created before enforcement keep working.
+     */
+    public static final int MAX_PAGES_PER_SHOW = 5;
+
     private static final String BASE_URI = "https://placeholder.invalid/";
 
     /**

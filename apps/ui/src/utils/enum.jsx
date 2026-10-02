@@ -28,6 +28,9 @@ export const StatusResponse = {
   // PSA-v2 PR-5 — raised by updatePsaEnabled / setNextPsaOverride
   // when the name doesn't match any PSA in Show.psaSequences[].
   INVALID_PSA_NAME: 'INVALID_PSA_NAME',
+  // #191: raised by updatePages when a save would grow the page list past
+  // the per-show cap.
+  PAGE_LIMIT_REACHED: 'PAGE_LIMIT_REACHED',
   // TOTP 2FA — raised by verifyMfa / confirmMfaEnrollment / disableMfa /
   // regenerateRecoveryCodes.
   INVALID_MFA_CODE: 'INVALID_MFA_CODE',

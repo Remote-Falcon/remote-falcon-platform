@@ -191,11 +191,21 @@ export const savePagesService = (updatedPages, updatePagesMutation, callback) =>
         toast: { message: 'Viewer Pages Saved' }
       });
     },
-    onError: () => {
-      callback({
-        success: false,
-        toast: { alert: 'error' }
-      });
+    onError: (error) => {
+      // #191: the server rejects a save that would grow the page list past
+      // the per-show cap. Covers every page-adding path (duplicate, new
+      // page, template apply), including stale tabs that missed the UI cap.
+      if (error?.message === StatusResponse.PAGE_LIMIT_REACHED) {
+        callback({
+          success: false,
+          toast: { alert: 'warning', message: 'Viewer page limit reached. Delete a page before adding another.' }
+        });
+      } else {
+        callback({
+          success: false,
+          toast: { alert: 'error' }
+        });
+      }
     }
   });
 };

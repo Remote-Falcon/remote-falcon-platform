@@ -36,12 +36,14 @@ import { showAlert } from '../../globalPageHelpers';
 
 import EditorPane from './EditorPane';
 import { htmlValidator, isException } from './htmlValidator';
-import PageTabsBar from './PageTabsBar';
+import PageTabsBar, { pageLimitMessage } from './PageTabsBar';
 import PreviewPane from './PreviewPane';
 import ProblemsPanel from './ProblemsPanel';
 
 // Max viewer pages per show. Local-env override matches the speeddial
-// behavior we're replacing.
+// behavior we're replacing. Mirrors ViewerPageService.MAX_PAGES_PER_SHOW on
+// the control-panel server, which rejects saves that grow past it (#191)
+// regardless of this override.
 const MAX_PAGES = 5;
 const canExceedMax = import.meta.env.VITE_HOST_ENV === Environments.LOCAL;
 
@@ -512,6 +514,12 @@ const ViewerPage = () => {
   const handleDuplicate = async (name) => {
     const src = pages.find((p) => p.name === name);
     if (!src) return;
+    // The menu item is disabled at the cap, but guard here too so no other
+    // path can push the show past it (#191). The server enforces this as well.
+    if (!canExceedMax && pages.length >= MAX_PAGES) {
+      showAlert(dispatch, { alert: 'warning', message: pageLimitMessage(pages.length, MAX_PAGES) });
+      return;
+    }
     // Pick a fresh name: "<name> Copy", or "<name> Copy 2" etc.
     let candidate = `${src.name} Copy`;
     let n = 2;
