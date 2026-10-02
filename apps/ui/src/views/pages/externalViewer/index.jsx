@@ -689,8 +689,8 @@ const ExternalViewerPage = () => {
                 if (categorizedSequence.visible) {
                   if (categorizedSequence.category === sequence.category) {
                     sequenceImageElement = sequenceImage(categorizedSequence);
-                    const categorizedVotingListClassname = `cell-vote-playlist cell-vote-playlist-${sequence.index}`;
-                    const categorizedVotingListArtistClassname = `cell-vote-playlist-artist cell-vote-playlist-artist-${sequence.index}`;
+                    const categorizedVotingListClassname = `cell-vote-playlist cell-vote-playlist-${categorizedSequence.index}`;
+                    const categorizedVotingListArtistClassname = `cell-vote-playlist-artist cell-vote-playlist-artist-${categorizedSequence.index}`;
                     // Keep each card glued to its own vote count. Both live in the
                     // flex-wrap .category-section, so without this wrapper the browser
                     // greedy-packs them as independent items and the variable-width
