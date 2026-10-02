@@ -649,6 +649,10 @@ export const DASHBOARD_STATS = gql`
           total
         }
       }
+      qrVisits {
+        unique
+        total
+      }
     }
   }
 `;

@@ -84,6 +84,28 @@ class StatsRepositoryTest {
     }
 
     @Test
+    void pageStatsInRange_mapsUtmSourceAndMedium_andLeavesLegacyRowsNull() {
+        // #189: source/medium survive $replaceRoot; rows written before #189
+        // have no such fields and must map to null rather than fail.
+        mongoTemplate.insert(ShowFactory.builder()
+                .showToken("t1")
+                .stats(Stat.builder()
+                        .page(List.of(
+                                Stat.Page.builder().ip("1.1.1.1").viewerId("v").source("qr").medium("print")
+                                        .dateTime(LocalDateTime.of(2025, 10, 15, 12, 0)).build(),
+                                page("2.2.2.2", LocalDateTime.of(2025, 10, 15, 13, 0))))
+                        .build())
+                .build());
+
+        List<Stat.Page> result = statsRepository.pageStatsInRange("t1", LOWER, UPPER);
+
+        assertThat(result).extracting(Stat.Page::getIp, Stat.Page::getSource, Stat.Page::getMedium)
+                .containsExactlyInAnyOrder(
+                        org.assertj.core.groups.Tuple.tuple("1.1.1.1", "qr", "print"),
+                        org.assertj.core.groups.Tuple.tuple("2.2.2.2", null, null));
+    }
+
+    @Test
     void jukeboxStatsInRange_filtersToWindow_andMapsName() {
         mongoTemplate.insert(ShowFactory.builder()
                 .showToken("t1")
