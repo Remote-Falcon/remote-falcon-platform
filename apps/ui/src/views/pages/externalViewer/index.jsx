@@ -25,6 +25,7 @@ import { GET_ACTIVE_VIEWER_PAGE, GET_SHOW_FOR_VIEWER, VOTES_REMAINING } from '..
 import { showAlert } from '../globalPageHelpers';
 import { orderSequencesByCategory } from './helpers/categoryOrder';
 import { isSequenceUnavailable as checkSequenceUnavailable } from './helpers/sequenceAvailability';
+import { UNAVAILABLE_HINT_DEFAULT_CSS, sequenceRowContent, unavailableRowProps } from './helpers/unavailableRow';
 import LocationRecoveryControl from './LocationRecoveryControl';
 import { LocationPermission, acquireViewerLocation, clientClassFromUserAgent } from './helpers/locationPermission';
 import {
@@ -623,8 +624,8 @@ const ExternalViewerPage = () => {
     const nightlyOptions = { lastPlayCountedAt: show?.preferences?.lastPlayCountedAt ?? null, now: Date.now() };
     const isSequenceUnavailable = (seq) =>
       checkSequenceUnavailable(seq, nightlyPlayLimit, show?.categories, nightlyOptions);
-    const unavailableStyle = { opacity: 0.4, pointerEvents: 'none' };
-    const unavailableHint = (seq) => ((seq?.visibilityCount ?? 0) > 0 ? 'Available again soon' : 'Back next show');
+    // #190 - an unavailable row says why in visible text under the artist
+    // (helpers/unavailableRow), not in a hover-only title.
 
     // Category sections render in the operator's dashboard order. The walk below
     // opens a section on first-encounter of a member, so reorder the sequences by
@@ -678,20 +679,20 @@ const ExternalViewerPage = () => {
               sequencesElement.push(
                 <>
                   <div
-                    className={votingListClassname}
-                    style={isSequenceUnavailable(sequence) ? unavailableStyle : undefined}
-                    title={isSequenceUnavailable(sequence) ? unavailableHint(sequence) : undefined}
+                    {...unavailableRowProps(votingListClassname, sequence, isSequenceUnavailable(sequence))}
                     onClick={(e) =>
                       show?.preferences?.viewerPageViewOnly || isSequenceUnavailable(sequence) ? _.noop() : voteForSequence(e)
                     }
                     data-key={sequence.name}
                     data-key-2={sequence.displayName}
                   >
-                    {sequenceImageElement}
-                    {sequence.displayName}
-                    <div data-key={sequence.name} data-key-2={sequence.displayName} className={votingListArtistClassname}>
-                      {sequence.artist}
-                    </div>
+                    {sequenceRowContent({
+                      sequence,
+                      image: sequenceImageElement,
+                      artistClassName: votingListArtistClassname,
+                      artistProps: { 'data-key-2': sequence.displayName },
+                      unavailable: isSequenceUnavailable(sequence)
+                    })}
                   </div>
                   <div className="cell-vote">{sequenceVotes}</div>
                 </>
@@ -725,9 +726,11 @@ const ExternalViewerPage = () => {
                     const theElement = (
                       <div className="cell-vote-row" style={{ display: 'flex', width: '100%', alignItems: 'flex-end' }}>
                         <div
-                          className={categorizedVotingListClassname}
-                          style={isSequenceUnavailable(categorizedSequence) ? unavailableStyle : undefined}
-                          title={isSequenceUnavailable(categorizedSequence) ? unavailableHint(categorizedSequence) : undefined}
+                          {...unavailableRowProps(
+                            categorizedVotingListClassname,
+                            categorizedSequence,
+                            isSequenceUnavailable(categorizedSequence)
+                          )}
                           onClick={(e) =>
                             show?.preferences?.viewerPageViewOnly || isSequenceUnavailable(categorizedSequence)
                               ? _.noop()
@@ -735,11 +738,12 @@ const ExternalViewerPage = () => {
                           }
                           data-key={categorizedSequence.name}
                         >
-                          {sequenceImageElement}
-                          {categorizedSequence.displayName}
-                          <div data-key={categorizedSequence.name} className={categorizedVotingListArtistClassname}>
-                            {categorizedSequence.artist}
-                          </div>
+                          {sequenceRowContent({
+                            sequence: categorizedSequence,
+                            image: sequenceImageElement,
+                            artistClassName: categorizedVotingListArtistClassname,
+                            unavailable: isSequenceUnavailable(categorizedSequence)
+                          })}
                         </div>
                         <div className="cell-vote">{categorizedSequenceVotes}</div>
                       </div>
@@ -791,20 +795,20 @@ const ExternalViewerPage = () => {
             sequencesElement.push(
               <>
                 <div
-                  className={jukeboxListClassname}
-                  style={isSequenceUnavailable(sequence) ? unavailableStyle : undefined}
-                  title={isSequenceUnavailable(sequence) ? unavailableHint(sequence) : undefined}
+                  {...unavailableRowProps(jukeboxListClassname, sequence, isSequenceUnavailable(sequence))}
                   onClick={(e) =>
                     show?.preferences?.viewerPageViewOnly || isSequenceUnavailable(sequence) ? _.noop() : addSequenceToQueue(e)
                   }
                   data-key={sequence.name}
                   data-key-2={sequence.displayName}
                 >
-                  {sequenceImageElement}
-                  {sequence.displayName}
-                  <div data-key={sequence.name} data-key-2={sequence.displayName} className={jukeboxListArtistClassname}>
-                    {sequence.artist}
-                  </div>
+                  {sequenceRowContent({
+                    sequence,
+                    image: sequenceImageElement,
+                    artistClassName: jukeboxListArtistClassname,
+                    artistProps: { 'data-key-2': sequence.displayName },
+                    unavailable: isSequenceUnavailable(sequence)
+                  })}
                 </div>
               </>
             );
@@ -821,9 +825,11 @@ const ExternalViewerPage = () => {
                   const theElement = (
                     <>
                       <div
-                        className={categorizedJukeboxListClassname}
-                        style={isSequenceUnavailable(categorizedSequence) ? unavailableStyle : undefined}
-                        title={isSequenceUnavailable(categorizedSequence) ? unavailableHint(categorizedSequence) : undefined}
+                        {...unavailableRowProps(
+                          categorizedJukeboxListClassname,
+                          categorizedSequence,
+                          isSequenceUnavailable(categorizedSequence)
+                        )}
                         onClick={(e) =>
                           show?.preferences?.viewerPageViewOnly || isSequenceUnavailable(categorizedSequence)
                             ? _.noop()
@@ -831,11 +837,12 @@ const ExternalViewerPage = () => {
                         }
                         data-key={categorizedSequence.name}
                       >
-                        {sequenceImageElement}
-                        {categorizedSequence.displayName}
-                        <div data-key={categorizedSequence.name} className={categorizedJukeboxListArtistClassname}>
-                          {categorizedSequence.artist}
-                        </div>
+                        {sequenceRowContent({
+                          sequence: categorizedSequence,
+                          image: sequenceImageElement,
+                          artistClassName: categorizedJukeboxListArtistClassname,
+                          unavailable: isSequenceUnavailable(categorizedSequence)
+                        })}
                       </div>
                     </>
                   );
@@ -1171,6 +1178,7 @@ const ExternalViewerPage = () => {
               #embedim--snow {
                 text-align: inherit;
               }
+              ${UNAVAILABLE_HINT_DEFAULT_CSS}
             `}
           </style>
           <title>{show?.preferences?.pageTitle}</title>
