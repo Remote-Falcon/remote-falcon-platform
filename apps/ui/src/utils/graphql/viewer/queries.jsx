@@ -73,6 +73,7 @@ export const GET_SHOW_FOR_VIEWER = gql`
         dailyVoteLimit
         locationCode
         nightlyPlayLimit
+        lastPlayCountedAt
         makeItSnow
         analyticsBetaOptIn
         pageTitle

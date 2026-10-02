@@ -616,8 +616,13 @@ const ExternalViewerPage = () => {
     //
     // The predicate lives in a pure module pinned to the same matrix as the
     // server's shared NightlyPlayLimitHelper.
+    //
+    // #186 - playsToday only resets on the first play of a new show night, so
+    // pass lastPlayCountedAt and let the helper ignore a stale tally the same
+    // way the server does. Read once per render so every row uses one clock.
+    const nightlyOptions = { lastPlayCountedAt: show?.preferences?.lastPlayCountedAt ?? null, now: Date.now() };
     const isSequenceUnavailable = (seq) =>
-      checkSequenceUnavailable(seq, nightlyPlayLimit, show?.categories);
+      checkSequenceUnavailable(seq, nightlyPlayLimit, show?.categories, nightlyOptions);
     const unavailableStyle = { opacity: 0.4, pointerEvents: 'none' };
     const unavailableHint = (seq) => ((seq?.visibilityCount ?? 0) > 0 ? 'Available again soon' : 'Back next show');
 
@@ -960,6 +965,7 @@ const ExternalViewerPage = () => {
     show?.playingNowSequence,
     show?.playingNextSequence,
     show?.preferences?.nightlyPlayLimit,
+    show?.preferences?.lastPlayCountedAt,
     show?.preferences?.viewerPageViewOnly,
     locationPermission,
     retryViewerLocation,
