@@ -23,6 +23,7 @@ import com.remotefalcon.rules.RuleChain;
 import com.remotefalcon.util.ClientTypeUtil;
 import com.remotefalcon.util.RejectionReason;
 import com.remotefalcon.util.ClientUtil;
+import com.remotefalcon.util.UtmUtil;
 import io.vertx.ext.web.RoutingContext;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -64,7 +65,8 @@ public class GraphQLMutationService {
   private static final List<Rule> REQUEST_RULES = List.of(
       new BlockedIpRule(), new AlreadyRequestedRule(), new QueueFullRule(), new GeofenceRule());
 
-  public Boolean insertViewerPageStats(String showSubdomain, LocalDateTime date, String viewerId) {
+  public Boolean insertViewerPageStats(String showSubdomain, LocalDateTime date, String viewerId,
+      String utmSource, String utmMedium) {
     String clientIp = ClientUtil.getClientIP(context);
     if (StringUtils.isEmpty(clientIp)) {
       return true; // Skip if no IP available
@@ -76,6 +78,10 @@ public class GraphQLMutationService {
         .ip(clientIp)
         .viewerId(viewerId)
         .dateTime(date)
+        // Issue #189: QR / print-campaign attribution. Sanitized here as well
+        // as in the UI because the mutation is public; blank stays null.
+        .source(UtmUtil.sanitize(utmSource))
+        .medium(UtmUtil.sanitize(utmMedium))
         .build();
 
     long modifiedCount = this.showRepository.appendPageStatIfNotOwner(showSubdomain, clientIp, pageStat);

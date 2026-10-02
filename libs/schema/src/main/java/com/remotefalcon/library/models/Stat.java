@@ -49,6 +49,13 @@ public class Stat {
         private String ip;
         private String viewerId;
         private LocalDateTime dateTime;
+        // Issue #189: first-party utm_source / utm_medium from the viewer
+        // page URL (for example source=qr, medium=print from the QR code
+        // page's "Tag with print campaign" toggle). Lowercased, trimmed and
+        // capped at 32 chars by the viewer service. Nullable: untagged visits
+        // and every page stat written before #189 have neither field.
+        private String source;
+        private String medium;
     }
 
     @Type

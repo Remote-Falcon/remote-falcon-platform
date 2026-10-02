@@ -15,6 +15,7 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.List;
 
 @Component
@@ -33,6 +34,7 @@ public class ExcelUtil {
 
     this.appendUniquePageVisitsByDate(csvBuilder, dashboardStats, timezone);
     this.appendTotalPageVisitsByDate(csvBuilder, dashboardStats, timezone);
+    this.appendPageVisitsBySource(csvBuilder, dashboardStats, timezone);
     this.appendSequenceRequestsByDate(csvBuilder, dashboardStats, timezone);
     this.appendSequenceRequestsBySequence(csvBuilder, dashboardStats);
     this.appendSequenceVotesByDate(csvBuilder, dashboardStats, timezone);
@@ -66,6 +68,24 @@ public class ExcelUtil {
     dashboardStats.getPage().forEach(visit -> appendRow(csvBuilder, List.of(
         formatDateColumn(visit.getDate(), timezone),
         visit.getTotal())));
+  }
+
+  // Issue #189: page visits split by first-party utm_source / utm_medium
+  // (e.g. qr / print from the QR Code page). Blank source and medium means
+  // an untagged visit, including every visit recorded before #189.
+  private void appendPageVisitsBySource(StringBuilder csvBuilder, DashboardStatsResponse dashboardStats,
+      String timezone) {
+    appendSectionHeader(csvBuilder, "Page Visits by Source");
+    appendRow(csvBuilder, List.of("Date", "Source", "Medium", "Total Visits", "Unique Visits"));
+    if (dashboardStats.getPageBySource() == null) {
+      return;
+    }
+    dashboardStats.getPageBySource().forEach(visit -> appendRow(csvBuilder, Arrays.asList(
+        formatDateColumn(visit.getDate(), timezone),
+        visit.getSource(),
+        visit.getMedium(),
+        visit.getTotal(),
+        visit.getUnique())));
   }
 
   private void appendSequenceRequestsByDate(StringBuilder csvBuilder, DashboardStatsResponse dashboardStats,

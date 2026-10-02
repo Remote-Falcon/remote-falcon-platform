@@ -57,7 +57,16 @@ public class DashboardService {
   private final ConcurrentHashMap<String, ConcurrentLinkedDeque<Long>> wrappedRateLimitBuckets =
           new ConcurrentHashMap<>();
 
+  // utm_source value the QR Code page's print-campaign toggle appends (#189).
+  static final String QR_SOURCE = "qr";
+
   public DashboardStatsResponse dashboardStats(Long startDate, Long endDate, String timezone) {
+    return this.dashboardStats(startDate, endDate, timezone, false);
+  }
+
+  // includeSourceBreakdown adds the per-day utm source/medium rows (#189) that
+  // only the CSV export reads; the GraphQL resolver skips that work.
+  private DashboardStatsResponse dashboardStats(Long startDate, Long endDate, String timezone, boolean includeSourceBreakdown) {
     TokenDTO tokenDTO = this.jwtUtil.getJwtPayload();
     String showToken = tokenDTO.getShowToken();
 
@@ -89,6 +98,12 @@ public class DashboardService {
     DashboardStatsResponse.Stat voteStatsBySequence = this.buildVoteStatsBySequence(startDateAtZone, endDateAtZone, timezone, votingInRange, statsPresent);
     List<DashboardStatsResponse.Stat> voteWinStatsByDate = this.buildVoteWinStatsByDate(startDateAtZone, endDateAtZone, timezone, votingWinInRange, statsPresent);
     DashboardStatsResponse.Stat voteWinStatsBySequence = this.buildVoteWinStatsBySequence(startDateAtZone, endDateAtZone, timezone, votingWinInRange, statsPresent);
+    // #189: derived from the page slice already loaded above, so QR visits
+    // cost no extra Mongo round trip.
+    DashboardStatsResponse.SourceVisits qrVisits = this.buildSourceVisits(startDateAtZone, endDateAtZone, timezone, pageInRange, statsPresent, QR_SOURCE);
+    List<DashboardStatsResponse.SourceStat> pageBySource = includeSourceBreakdown
+            ? this.buildPageStatsBySource(startDateAtZone, endDateAtZone, timezone, pageInRange, statsPresent)
+            : null;
 
     return DashboardStatsResponse.builder()
             .page(pageStats)
@@ -98,6 +113,8 @@ public class DashboardService {
             .votingBySequence(voteStatsBySequence)
             .votingWinByDate(voteWinStatsByDate)
             .votingWinBySequence(voteWinStatsBySequence)
+            .qrVisits(qrVisits)
+            .pageBySource(pageBySource)
             .build();
   }
 
@@ -731,7 +748,7 @@ public class DashboardService {
   }
 
   public ResponseEntity<ByteArrayResource> downloadStatsToExcel(DownloadStatsToExcelRequest downloadStatsToExcelRequest) {
-    DashboardStatsResponse dashboardStats = this.dashboardStats(downloadStatsToExcelRequest.getDateFilterStart(), downloadStatsToExcelRequest.getDateFilterEnd(), downloadStatsToExcelRequest.getTimezone());
+    DashboardStatsResponse dashboardStats = this.dashboardStats(downloadStatsToExcelRequest.getDateFilterStart(), downloadStatsToExcelRequest.getDateFilterEnd(), downloadStatsToExcelRequest.getTimezone(), true);
     return excelUtil.generateDashboardExcel(dashboardStats, downloadStatsToExcelRequest.getTimezone());
   }
 
@@ -761,6 +778,66 @@ public class DashboardService {
     pageStats.sort(Comparator.comparing(DashboardStatsResponse.Stat::getDate));
 
     return pageStats;
+  }
+
+  // Page stats inside the requested wall-clock window, with the same filters
+  // buildPageStats applies (null dateTime / null ip dropped).
+  private List<Stat.Page> pageStatsWithinRange(ZonedDateTime startDateAtZone, ZonedDateTime endDateAtZone, ZoneId userZone, List<Stat.Page> inRange) {
+    return inRange.stream()
+            .filter(stat -> stat.getDateTime() != null)
+            .filter(stat -> stat.getIp() != null)
+            .filter(stat -> {
+              ZonedDateTime at = convertStatDateTime(stat.getDateTime(), userZone);
+              return at.isAfter(startDateAtZone) && at.isBefore(endDateAtZone);
+            })
+            .toList();
+  }
+
+  // #189: a viewer is their anonymous viewerId when the show opted into the
+  // analytics beta, otherwise their IP. Prefixed so an id can never collide
+  // with an address.
+  private static String viewerKey(Stat.Page stat) {
+    return StringUtils.isNotBlank(stat.getViewerId()) ? "v:" + stat.getViewerId() : "ip:" + stat.getIp();
+  }
+
+  // #189: visits tagged with the given utm_source (e.g. "qr") within the
+  // range. Page stats written before #189 have no source and never match.
+  private DashboardStatsResponse.SourceVisits buildSourceVisits(ZonedDateTime startDateAtZone, ZonedDateTime endDateAtZone, String timezone, List<Stat.Page> inRange, boolean statsPresent, String source) {
+    if (!statsPresent) {
+      return DashboardStatsResponse.SourceVisits.builder().unique(0).total(0).build();
+    }
+    List<Stat.Page> tagged = this.pageStatsWithinRange(startDateAtZone, endDateAtZone, ZoneId.of(timezone), inRange).stream()
+            .filter(stat -> source.equals(stat.getSource()))
+            .toList();
+    return DashboardStatsResponse.SourceVisits.builder()
+            .total(tagged.size())
+            .unique((int) tagged.stream().map(DashboardService::viewerKey).distinct().count())
+            .build();
+  }
+
+  // #189: CSV export rows, one per (date, source, medium) that had visits.
+  // Unique is by IP to match the export's other page-visit sections.
+  private List<DashboardStatsResponse.SourceStat> buildPageStatsBySource(ZonedDateTime startDateAtZone, ZonedDateTime endDateAtZone, String timezone, List<Stat.Page> inRange, boolean statsPresent) {
+    List<DashboardStatsResponse.SourceStat> rows = new ArrayList<>();
+    if (!statsPresent) {
+      return rows;
+    }
+    ZoneId userZone = ZoneId.of(timezone);
+    Map<LocalDate, Map<List<String>, List<Stat.Page>>> grouped = this.pageStatsWithinRange(startDateAtZone, endDateAtZone, userZone, inRange).stream()
+            .collect(Collectors.groupingBy(
+                    stat -> stat.getDateTime().toLocalDate(),
+                    Collectors.groupingBy(stat -> Arrays.asList(stat.getSource(), stat.getMedium()))));
+    grouped.forEach((date, bySource) -> bySource.forEach((key, stats) -> rows.add(DashboardStatsResponse.SourceStat.builder()
+            .date(ZonedDateTime.of(date, date.atStartOfDay().toLocalTime(), userZone).toInstant().toEpochMilli())
+            .source(key.get(0))
+            .medium(key.get(1))
+            .total(stats.size())
+            .unique((int) stats.stream().map(Stat.Page::getIp).distinct().count())
+            .build())));
+    rows.sort(Comparator.comparing(DashboardStatsResponse.SourceStat::getDate)
+            .thenComparing(DashboardStatsResponse.SourceStat::getSource, Comparator.nullsFirst(Comparator.naturalOrder()))
+            .thenComparing(DashboardStatsResponse.SourceStat::getMedium, Comparator.nullsFirst(Comparator.naturalOrder())));
+    return rows;
   }
 
   private List<DashboardStatsResponse.Stat> buildJukeboxStatsByDate(ZonedDateTime startDateAtZone, ZonedDateTime endDateAtZone, String timezone, List<Stat.Jukebox> inRange, boolean statsPresent) {

@@ -147,6 +147,52 @@ class ExcelUtilTest {
     }
 
     @Test
+    void generateDashboardExcel_pageVisitsBySource_emitsSourceAndMediumColumns() {
+        // Issue #189: source/medium columns, blank for untagged visits, in a
+        // section placed right after the other page-visit sections.
+        long oct31 = epochMillis(2025, 10, 31, "America/Chicago");
+        DashboardStatsResponse dash = DashboardStatsResponse.builder()
+                .page(List.of())
+                .pageBySource(List.of(
+                        DashboardStatsResponse.SourceStat.builder().date(oct31).total(4).unique(3).build(),
+                        DashboardStatsResponse.SourceStat.builder().date(oct31).source("qr").medium("print").total(2).unique(1).build()))
+                .jukeboxByDate(List.of())
+                .jukeboxBySequence(Stat.builder().sequences(List.of()).build())
+                .votingByDate(List.of())
+                .votingBySequence(Stat.builder().sequences(List.of()).build())
+                .votingWinByDate(List.of())
+                .votingWinBySequence(Stat.builder().sequences(List.of()).build())
+                .build();
+
+        String csv = body(excelUtil.generateDashboardExcel(dash, "America/Chicago"));
+
+        assertThat(csv).contains("Page Visits by Source\n"
+                + "\"Date\",\"Source\",\"Medium\",\"Total Visits\",\"Unique Visits\"\n"
+                + "\"2025-10-31\",\"\",\"\",\"4\",\"3\"\n"
+                + "\"2025-10-31\",\"qr\",\"print\",\"2\",\"1\"\n");
+        assertThat(csv.indexOf("Page Visits by Source")).isGreaterThan(csv.indexOf("Total Page Visits by Date"));
+        assertThat(csv.indexOf("Page Visits by Source")).isLessThan(csv.indexOf("Sequence Requests by Date"));
+    }
+
+    @Test
+    void generateDashboardExcel_pageVisitsBySource_absent_emitsHeaderOnly() {
+        DashboardStatsResponse dash = DashboardStatsResponse.builder()
+                .page(List.of())
+                .jukeboxByDate(List.of())
+                .jukeboxBySequence(Stat.builder().sequences(List.of()).build())
+                .votingByDate(List.of())
+                .votingBySequence(Stat.builder().sequences(List.of()).build())
+                .votingWinByDate(List.of())
+                .votingWinBySequence(Stat.builder().sequences(List.of()).build())
+                .build();
+
+        String csv = body(excelUtil.generateDashboardExcel(dash, "America/Chicago"));
+
+        assertThat(csv).contains("Page Visits by Source\n"
+                + "\"Date\",\"Source\",\"Medium\",\"Total Visits\",\"Unique Visits\"\n\n");
+    }
+
+    @Test
     void generateDashboardExcel_nullTimezone_fallsBackToAmericaChicago() {
         long oct31 = epochMillis(2025, 10, 31, "America/Chicago");
         Stat page = Stat.builder().date(oct31).total(1).unique(1).build();

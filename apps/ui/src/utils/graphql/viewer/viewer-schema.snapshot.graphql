@@ -48,6 +48,8 @@ type Mutation {
     "ISO-8601"
     date: DateTime,
     showSubdomain: String,
+    utmMedium: String = "",
+    utmSource: String = "",
     viewerId: String = ""
   ): Boolean
   "Update Active Viewers"
@@ -83,6 +85,8 @@ type Page {
   "ISO-8601"
   dateTime: DateTime
   ip: String
+  medium: String
+  source: String
   viewerId: String
 }
 

@@ -1,8 +1,9 @@
 import { gql } from '@apollo/client';
 
 export const INSERT_VIEWER_PAGE_STATS = gql`
-  mutation InsertViewerPageStats($showSubdomain: String!, $date: DateTime!, $viewerId: String) @api(name: viewer) {
-    insertViewerPageStats(showSubdomain: $showSubdomain, date: $date, viewerId: $viewerId)
+  mutation InsertViewerPageStats($showSubdomain: String!, $date: DateTime!, $viewerId: String, $utmSource: String, $utmMedium: String)
+  @api(name: viewer) {
+    insertViewerPageStats(showSubdomain: $showSubdomain, date: $date, viewerId: $viewerId, utmSource: $utmSource, utmMedium: $utmMedium)
   }
 `;
 

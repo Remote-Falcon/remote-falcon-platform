@@ -8,6 +8,7 @@ import { ViewerControlMode } from '../../../../utils/enum';
 
 import CalendarHeatmap from './CalendarHeatmap';
 import HourlyHeatmap from './HourlyHeatmap';
+import QrVisitsTile from './QrVisitsTile';
 import useAnalyticsFilters from './useAnalyticsFilters';
 import useDashboardStats from './useDashboardStats';
 
@@ -115,6 +116,16 @@ const HeroStatsRow = () => {
           accent="text.secondary"
           subtle
           delta={compareToPrior && priorStats ? formatPctDelta(stats.activeNights, priorStats.activeNights) : null}
+        />
+      </Grid>
+      <Grid item xs={12} sm={6} md={3}>
+        <QrVisitsTile
+          visits={current.data.qrVisits}
+          delta={
+            compareToPrior && prior.data
+              ? formatPctDelta(current.data.qrVisits?.unique || 0, prior.data.qrVisits?.unique || 0)
+              : null
+          }
         />
       </Grid>
     </Grid>
