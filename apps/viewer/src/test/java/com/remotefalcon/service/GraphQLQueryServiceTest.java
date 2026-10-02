@@ -1,6 +1,7 @@
 package com.remotefalcon.service;
 
 import com.remotefalcon.library.enums.ViewerControlMode;
+import com.remotefalcon.library.models.Category;
 import com.remotefalcon.library.models.Preference;
 import com.remotefalcon.library.models.PsaSequence;
 import com.remotefalcon.library.models.Request;
@@ -17,6 +18,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -514,6 +516,108 @@ class GraphQLQueryServiceTest {
       // Neither the queue scan nor the schedule fallback should surface the PSA.
       verify(show, never()).setPlayingNext("PSA One");
       verify(show, never()).setPlayingNextSequence(psa);
+    }
+  }
+  /**
+   * #186 - stampGroupNightlyCap must ignore a stale playsToday tally the same
+   * way the request/vote guards do: playsToday only resets on the first counted
+   * play of a new show night, so a lastPlayCountedAt that is null or older than
+   * NIGHTLY_RESET_GAP_HOURS means last night's counts and must not gray out a
+   * group the server would accept.
+   */
+  @Nested
+  @DisplayName("stampGroupNightlyCap staleness (#186)")
+  class StampGroupNightlyCapStalenessTests {
+    private Sequence member(String name, int order, String category, int playsToday) {
+      return Sequence.builder()
+          .name(name)
+          .displayName(name)
+          .order(order)
+          .index(order)
+          .active(true)
+          .visibilityCount(0)
+          .group("Sing-alongs")
+          .category(category)
+          .playsToday(playsToday)
+          .build();
+    }
+
+    private Sequence groupRow(Integer showLimit, List<Category> categories, LocalDateTime lastPlayCountedAt,
+        String representativeCategory) {
+      Show show = mockShowWithBasicCollections();
+      when(show.getPlayingNow()).thenReturn("none");
+      when(show.getPreferences()).thenReturn(Preference.builder()
+          .viewerControlMode(ViewerControlMode.JUKEBOX)
+          .nightlyPlayLimit(showLimit)
+          .lastPlayCountedAt(lastPlayCountedAt)
+          .build());
+      when(show.getCategories()).thenReturn(categories);
+      // The representative (lowest order) has not played; the other member is
+      // at its limit, which caps the whole group.
+      show.getSequences().add(member("rep", 1, representativeCategory, 0));
+      show.getSequences().add(member("capped", 2, "Capped", 5));
+      show.getSequenceGroups().add(SequenceGroup.builder().name("Sing-alongs").visibilityCount(0).build());
+      when(showRepository.findByShowSubdomainForViewer("sub")).thenReturn(Optional.of(show));
+
+      service.getShow("sub");
+
+      ArgumentCaptor<List<Sequence>> captor = ArgumentCaptor.forClass(List.class);
+      verify(show).setSequences(captor.capture());
+      List<Sequence> processed = captor.getValue();
+      assertEquals(1, processed.size());
+      return processed.get(0);
+    }
+
+    // Show-level limit of 3; the category inherits it.
+    private List<Category> showLimitCategories() {
+      return List.of(Category.builder().name("Capped").build());
+    }
+
+    // No show limit; only the "Capped" category has one, so an uncategorized
+    // representative resolves to no limit and the visibilityCount fallback runs.
+    private List<Category> categoryOnlyLimit() {
+      return List.of(Category.builder().name("Capped").nightlyPlayLimit(1).build());
+    }
+
+    @Test
+    @DisplayName("Stamps playsToday when the last counted play is from this show night")
+    void stampsWhenFresh() {
+      Sequence row = groupRow(3, showLimitCategories(), LocalDateTime.now().minusHours(1), "Capped");
+      assertEquals("Sing-alongs", row.getName());
+      assertEquals(3, row.getPlaysToday());
+      assertEquals(0, row.getVisibilityCount());
+    }
+
+    @Test
+    @DisplayName("Leaves the row alone when the tally is from a previous show night")
+    void skipsWhenStale() {
+      Sequence row = groupRow(3, showLimitCategories(), LocalDateTime.now().minusHours(20), "Capped");
+      assertEquals(0, row.getPlaysToday());
+      assertEquals(0, row.getVisibilityCount());
+    }
+
+    @Test
+    @DisplayName("Leaves the row alone when no play was ever counted")
+    void skipsWhenNeverCounted() {
+      Sequence row = groupRow(3, showLimitCategories(), null, "Capped");
+      assertEquals(0, row.getPlaysToday());
+      assertEquals(0, row.getVisibilityCount());
+    }
+
+    @Test
+    @DisplayName("Falls back to visibilityCount for an unlimited representative while fresh")
+    void visibilityFallbackWhenFresh() {
+      Sequence fresh = groupRow(null, categoryOnlyLimit(), LocalDateTime.now().minusHours(1), null);
+      assertEquals(1, fresh.getVisibilityCount());
+      assertEquals(0, fresh.getPlaysToday());
+    }
+
+    @Test
+    @DisplayName("Does not fall back to visibilityCount when the tally is stale")
+    void noVisibilityFallbackWhenStale() {
+      Sequence stale = groupRow(null, categoryOnlyLimit(), LocalDateTime.now().minusHours(20), null);
+      assertEquals(0, stale.getVisibilityCount());
+      assertEquals(0, stale.getPlaysToday());
     }
   }
 }

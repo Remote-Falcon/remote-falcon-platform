@@ -1,6 +1,13 @@
 import { describe, it, expect } from 'vitest';
 
-import { effectiveNightlyLimit, isNightlyCapped, isSequenceUnavailable } from '../sequenceAvailability';
+import {
+  NIGHTLY_RESET_GAP_HOURS,
+  effectiveNightlyLimit,
+  isNightlyCapped,
+  isNightlyTallyCurrent,
+  isSequenceUnavailable,
+  parseServerDateTime
+} from '../sequenceAvailability';
 
 // This is the deliberate mirror of NightlyPlayLimitHelperTest (libs/schema).
 // The same null / 0 / >0 matrix is asserted on both sides because three
@@ -140,5 +147,79 @@ describe('isSequenceUnavailable', () => {
 
   it('is false for a song in an exempt category no matter how often it played', () => {
     expect(isSequenceUnavailable(seq('Kids', 99), 3, [category('Kids', 0)])).toBe(false);
+  });
+});
+
+// #186 - playsToday resets lazily on the first play of a new show night, so a
+// tally older than NIGHTLY_RESET_GAP_HOURS is last night's and must not gray
+// anything out. Mirrors the server's nightlyActive gate in
+// GraphQLMutationService and stampGroupNightlyCap in GraphQLQueryService.
+describe('nightly cap staleness (#186)', () => {
+  const NOW = Date.parse('2026-12-20T03:00:00Z');
+  const hoursAgo = (h) => new Date(NOW - h * 60 * 60 * 1000).toISOString().replace('Z', '');
+  const categories = [category('Classic', null)];
+  const capped = seq('Classic', 3);
+
+  it('keeps the gap equal to the server constant', () => {
+    expect(NIGHTLY_RESET_GAP_HOURS).toBe(6);
+  });
+
+  it('caps when the last counted play is recent', () => {
+    const options = { lastPlayCountedAt: hoursAgo(1), now: NOW };
+    expect(isNightlyCapped(capped, 3, categories, options)).toBe(true);
+    expect(isSequenceUnavailable(capped, 3, categories, options)).toBe(true);
+  });
+
+  it('caps right at the gap boundary, like the server', () => {
+    expect(isNightlyCapped(capped, 3, categories, { lastPlayCountedAt: hoursAgo(6), now: NOW })).toBe(true);
+  });
+
+  it('ignores a stale tally from a previous show night', () => {
+    const options = { lastPlayCountedAt: hoursAgo(20), now: NOW };
+    expect(isNightlyCapped(capped, 3, categories, options)).toBe(false);
+    expect(isSequenceUnavailable(capped, 3, categories, options)).toBe(false);
+  });
+
+  it('ignores the tally when no play was ever counted', () => {
+    expect(isNightlyCapped(capped, 3, categories, { lastPlayCountedAt: null, now: NOW })).toBe(false);
+    expect(isNightlyCapped(capped, 3, categories, { lastPlayCountedAt: undefined, now: NOW })).toBe(false);
+  });
+
+  it('keeps the pre-#186 behaviour when no options are passed', () => {
+    expect(isNightlyCapped(capped, 3, categories)).toBe(true);
+    expect(isNightlyCapped(capped, 3, categories, {})).toBe(true);
+  });
+
+  it('still applies the cooldown when the tally is stale', () => {
+    const cooling = seq('Classic', 3, { visibilityCount: 2 });
+    expect(isSequenceUnavailable(cooling, 3, categories, { lastPlayCountedAt: hoursAgo(20), now: NOW })).toBe(true);
+    expect(isSequenceUnavailable(cooling, 3, categories, { lastPlayCountedAt: null, now: NOW })).toBe(true);
+  });
+
+  it('reads a value without an offset as UTC', () => {
+    expect(parseServerDateTime('2026-12-20T03:00:00')).toBe(NOW);
+    expect(parseServerDateTime('2026-12-20T03:00:00.000')).toBe(NOW);
+    expect(parseServerDateTime('2026-12-20T03:00:00Z')).toBe(NOW);
+    expect(parseServerDateTime('2026-12-19T22:00:00-05:00')).toBe(NOW);
+    expect(parseServerDateTime(new Date(NOW))).toBe(NOW);
+  });
+
+  it('treats a missing or unparseable value as unknown', () => {
+    expect(parseServerDateTime(null)).toBeNull();
+    expect(parseServerDateTime(undefined)).toBeNull();
+    expect(parseServerDateTime('')).toBeNull();
+    expect(parseServerDateTime('not a date')).toBeNull();
+    expect(isNightlyTallyCurrent('not a date', NOW)).toBe(false);
+  });
+
+  it('measures the gap in UTC, not viewer-local time', () => {
+    // 5h59m ago as a bare server value is current; if it were parsed as local
+    // time in a zone west of UTC it would look many hours older (or newer).
+    expect(isNightlyTallyCurrent('2026-12-19T21:01:00', NOW)).toBe(true);
+    expect(isNightlyTallyCurrent('2026-12-19T20:59:00', NOW)).toBe(false);
+  });
+
+  it('accepts a Date for now', () => {
+    expect(isNightlyTallyCurrent(hoursAgo(1), new Date(NOW))).toBe(true);
   });
 });

@@ -455,7 +455,9 @@ public class GraphQLMutationService {
   // longer than this since the last counted play means playsToday is a stale
   // tally from a prior night and must not gate availability. Kept equal to
   // VOTE_SESSION_GAP_HOURS so vote-cap and play-cap "nights" stay aligned.
-  private static final long NIGHTLY_RESET_GAP_HOURS = 6L;
+  // Package-private so GraphQLQueryService.stampGroupNightlyCap (#186) gates on
+  // the same value instead of keeping its own copy.
+  static final long NIGHTLY_RESET_GAP_HOURS = 6L;
 
   // #162 — resolve the current votes-left session window. Rolls forward (in
   // memory; persisted by persistVotingWindow on a successful vote) when there's

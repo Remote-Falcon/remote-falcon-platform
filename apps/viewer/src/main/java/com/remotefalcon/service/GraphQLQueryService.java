@@ -297,6 +297,19 @@ public class GraphQLQueryService {
     if (!NightlyPlayLimitHelper.anyLimitActive(showLimit, categories)) {
       return;
     }
+    // #186 - playsToday resets lazily on the first counted play of a new show
+    // night, so until then it still holds last night's tally. Stamping from it
+    // would gray out a group the server would accept: the request/vote guards
+    // (GraphQLMutationService checkIfSequenceUnavailable/checkIfGroupUnavailable)
+    // ignore a tally whose lastPlayCountedAt is null or older than
+    // NIGHTLY_RESET_GAP_HOURS, against the same bare now() clock. Mirror that
+    // gate exactly. This matters doubly for the visibilityCount fallback below,
+    // which the client treats as a cooldown with no staleness check of its own.
+    LocalDateTime lastPlayCounted = show.getPreferences().getLastPlayCountedAt();
+    if (lastPlayCounted == null
+        || lastPlayCounted.isBefore(LocalDateTime.now().minusHours(GraphQLMutationService.NIGHTLY_RESET_GAP_HOURS))) {
+      return;
+    }
     if (!NightlyPlayLimitHelper.isGroupCapped(groupName, allSequences, showLimit, categories)) {
       return;
     }
