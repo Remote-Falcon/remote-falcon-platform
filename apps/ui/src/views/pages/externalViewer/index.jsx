@@ -25,6 +25,7 @@ import { GET_ACTIVE_VIEWER_PAGE, GET_SHOW_FOR_VIEWER, VOTES_REMAINING } from '..
 import { showAlert } from '../globalPageHelpers';
 import { orderSequencesByCategory } from './helpers/categoryOrder';
 import { isSequenceUnavailable as checkSequenceUnavailable } from './helpers/sequenceAvailability';
+import { readUtmParams, stripUtmFromAddressBar } from './helpers/utmParams';
 import LocationRecoveryControl from './LocationRecoveryControl';
 import { LocationPermission, acquireViewerLocation, clientClassFromUserAgent } from './helpers/locationPermission';
 import {
@@ -1049,6 +1050,12 @@ const ExternalViewerPage = () => {
           // nor send an id (and the privacy pill / viewerId.js stays unloaded).
           // Fired here (not on mount) because the opt-in flag isn't known until
           // getShow resolves.
+          //
+          // #189: utm_source / utm_medium (e.g. the QR Code page's print tag)
+          // ride along only when present, read from this page's own query
+          // string. They are stripped from the address bar right after so a
+          // link shared onward isn't counted as another QR scan.
+          const utmParams = readUtmParams(window.location.search);
           insertViewerPageStatsMutation({
             context: {
               headers: {
@@ -1058,9 +1065,11 @@ const ExternalViewerPage = () => {
             variables: {
               showSubdomain: getSubdomain(),
               date: moment().format('YYYY-MM-DDTHH:mm:ss'),
-              viewerId: showData?.preferences?.analyticsBetaOptIn ? getViewerId() : null
+              viewerId: showData?.preferences?.analyticsBetaOptIn ? getViewerId() : null,
+              ...utmParams
             }
           }).then();
+          stripUtmFromAddressBar(window);
 
           setTimeout(() => {
             loadViewerEnhancements(showData);

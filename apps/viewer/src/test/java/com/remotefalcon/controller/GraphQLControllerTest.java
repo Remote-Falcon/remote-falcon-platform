@@ -33,12 +33,24 @@ class GraphQLControllerTest {
   @DisplayName("insertViewerPageStats delegates to mutation service and returns result")
   void testInsertViewerPageStats() {
     LocalDateTime now = LocalDateTime.now();
-    when(mutationService.insertViewerPageStats("sub", now, null)).thenReturn(true);
+    when(mutationService.insertViewerPageStats("sub", now, null, null, null)).thenReturn(true);
 
-    Boolean result = controller.insertViewerPageStats("sub", now, "");
+    Boolean result = controller.insertViewerPageStats("sub", now, "", "", "");
 
     assertTrue(result);
-    verify(mutationService).insertViewerPageStats("sub", now, null);
+    verify(mutationService).insertViewerPageStats("sub", now, null, null, null);
+  }
+
+  @Test
+  @DisplayName("insertViewerPageStats forwards UTM source/medium to the service (#189)")
+  void testInsertViewerPageStatsWithUtm() {
+    LocalDateTime now = LocalDateTime.now();
+    when(mutationService.insertViewerPageStats("sub", now, "v1", "qr", "print")).thenReturn(true);
+
+    Boolean result = controller.insertViewerPageStats("sub", now, "v1", "qr", "print");
+
+    assertTrue(result);
+    verify(mutationService).insertViewerPageStats("sub", now, "v1", "qr", "print");
   }
 
   @Test
