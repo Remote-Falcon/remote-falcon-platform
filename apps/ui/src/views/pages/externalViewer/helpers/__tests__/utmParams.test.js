@@ -11,6 +11,13 @@ describe('sanitizeUtmValue', () => {
     expect(sanitizeUtmValue('A'.repeat(50))).toBe('a'.repeat(UTM_MAX_LENGTH));
   });
 
+  it('keeps only a-z, 0-9, underscore and hyphen', () => {
+    expect(sanitizeUtmValue('=HYPERLINK("//evil.co","qr")')).toBe('hyperlinkevilcoqr');
+    expect(sanitizeUtmValue('Yard  Sign')).toBe('yard_sign');
+    expect(sanitizeUtmValue('front-door_2')).toBe('front-door_2');
+    expect(sanitizeUtmValue('=+@!')).toBeNull();
+  });
+
   it('returns null for blank, empty or missing values', () => {
     expect(sanitizeUtmValue('   ')).toBeNull();
     expect(sanitizeUtmValue('')).toBeNull();

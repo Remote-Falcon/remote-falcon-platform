@@ -238,7 +238,15 @@ public class ExcelUtil {
     if (value == null) {
       return "\"\"";
     }
-    String stringValue = String.valueOf(value).replace("\"", "\"\"");
-    return "\"" + stringValue + "\"";
+    String stringValue = String.valueOf(value);
+    // Formula injection guard: some export columns (e.g. #189's utm
+    // source/medium) come from public viewer input. A text cell starting with
+    // = + - @ tab or CR would run as a formula in Excel/Sheets, so prefix it
+    // with ' to force text. Numbers are left alone so negatives stay numeric.
+    if (!(value instanceof Number) && !stringValue.isEmpty()
+        && "=+-@\t\r".indexOf(stringValue.charAt(0)) >= 0) {
+      stringValue = "'" + stringValue;
+    }
+    return "\"" + stringValue.replace("\"", "\"\"") + "\"";
   }
 }

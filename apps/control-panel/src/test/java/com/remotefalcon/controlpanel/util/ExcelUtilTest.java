@@ -175,6 +175,33 @@ class ExcelUtilTest {
     }
 
     @Test
+    void generateDashboardExcel_formulaLikeText_isPrefixedWithQuote() {
+        // utm source/medium come from public viewer input, so a stored value
+        // like =HYPERLINK(...) must not run as a formula when the owner opens
+        // the export. Numeric cells are left alone.
+        long oct31 = epochMillis(2025, 10, 31, "America/Chicago");
+        DashboardStatsResponse dash = DashboardStatsResponse.builder()
+                .page(List.of())
+                .pageBySource(List.of(
+                        DashboardStatsResponse.SourceStat.builder().date(oct31)
+                                .source("=hyperlink(\"//evil.co\",\"qr\")").medium("+cmd").total(-1).unique(1).build(),
+                        DashboardStatsResponse.SourceStat.builder().date(oct31)
+                                .source("@sum(a1)").medium("-2+3").total(1).unique(1).build()))
+                .jukeboxByDate(List.of())
+                .jukeboxBySequence(Stat.builder().sequences(List.of()).build())
+                .votingByDate(List.of())
+                .votingBySequence(Stat.builder().sequences(List.of()).build())
+                .votingWinByDate(List.of())
+                .votingWinBySequence(Stat.builder().sequences(List.of()).build())
+                .build();
+
+        String csv = body(excelUtil.generateDashboardExcel(dash, "America/Chicago"));
+
+        assertThat(csv).contains("\"2025-10-31\",\"'=hyperlink(\"\"//evil.co\"\",\"\"qr\"\")\",\"'+cmd\",\"-1\",\"1\"\n");
+        assertThat(csv).contains("\"2025-10-31\",\"'@sum(a1)\",\"'-2+3\",\"1\",\"1\"\n");
+    }
+
+    @Test
     void generateDashboardExcel_pageVisitsBySource_absent_emitsHeaderOnly() {
         DashboardStatsResponse dash = DashboardStatsResponse.builder()
                 .page(List.of())

@@ -23,7 +23,14 @@ const UTM_PARAMS = [
 
 export const sanitizeUtmValue = (value) => {
   if (typeof value !== 'string') return null;
-  const normalized = value.trim().toLowerCase().slice(0, UTM_MAX_LENGTH).trim();
+  // Same allowlist as the viewer service's UtmUtil: whitespace runs become
+  // '_', anything outside [a-z0-9_-] is dropped (no spreadsheet formulas).
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_')
+    .replace(/[^a-z0-9_-]/g, '')
+    .slice(0, UTM_MAX_LENGTH);
   return normalized === '' ? null : normalized;
 };
 

@@ -30,4 +30,14 @@ class UtmUtilTest {
     assertEquals("a".repeat(32), sanitized);
     assertEquals(UtmUtil.MAX_LENGTH, sanitized.length());
   }
+
+  @Test
+  @DisplayName("keeps only a-z, 0-9, underscore and hyphen")
+  void allowlist() {
+    assertEquals("hyperlinkevilcoqr", UtmUtil.sanitize("=HYPERLINK(\"//evil.co\",\"qr\")"));
+    assertEquals("yard_sign", UtmUtil.sanitize("Yard  Sign"));
+    assertEquals("front-door_2", UtmUtil.sanitize("front-door_2"));
+    assertEquals("cmd", UtmUtil.sanitize("+cmd"));
+    assertNull(UtmUtil.sanitize("=+@!"));
+  }
 }
