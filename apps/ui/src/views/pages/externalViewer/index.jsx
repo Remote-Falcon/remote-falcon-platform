@@ -24,6 +24,7 @@ import { ADD_SEQUENCE_TO_QUEUE, INSERT_VIEWER_PAGE_STATS, VOTE_FOR_SEQUENCE } fr
 import { GET_ACTIVE_VIEWER_PAGE, GET_SHOW_FOR_VIEWER, VOTES_REMAINING } from '../../../utils/graphql/viewer/queries';
 import { showAlert } from '../globalPageHelpers';
 import { orderSequencesByCategory } from './helpers/categoryOrder';
+import { jukeboxQueueElements, playingSequenceElement } from './helpers/nowPlaying';
 import { isSequenceUnavailable as checkSequenceUnavailable } from './helpers/sequenceAvailability';
 import LocationRecoveryControl from './LocationRecoveryControl';
 import { LocationPermission, acquireViewerLocation, clientClassFromUserAgent } from './helpers/locationPermission';
@@ -594,6 +595,8 @@ const ExternalViewerPage = () => {
 
     let playingNow = <>{show?.playingNow}</>;
     let playingNext = <>{show?.playingNext}</>;
+    let buildPlayingSlots = false;
+    let buildJukeboxQueue = false;
 
     // #73 — a sequence the viewer can't currently request/vote on (on the
     // hide-after-play cooldown, or at its #163 nightly play cap) is rendered
@@ -648,27 +651,7 @@ const ExternalViewerPage = () => {
               const votingListClassname = `cell-vote-playlist cell-vote-playlist-${sequence.index}`;
               const votingListArtistClassname = `cell-vote-playlist-artist cell-vote-playlist-artist-${sequence.index}`;
 
-              if (show?.playingNowSequence != null) {
-                const playingNowSequence = show?.playingNowSequence;
-                playingNow = (
-                  <>
-                    {sequenceImage(playingNowSequence)}
-                    {playingNowSequence?.displayName}
-                    <div className={votingListArtistClassname}>{playingNowSequence?.artist}</div>
-                  </>
-                );
-              }
-
-              if (show?.playingNextSequence != null) {
-                const playingNextSequence = show?.playingNextSequence;
-                playingNext = (
-                  <>
-                    {sequenceImage(playingNextSequence)}
-                    {playingNextSequence?.displayName}
-                    <div className={votingListArtistClassname}>{playingNextSequence?.artist}</div>
-                  </>
-                );
-              }
+              buildPlayingSlots = true;
 
               sequencesElement.push(
                 <>
@@ -706,8 +689,8 @@ const ExternalViewerPage = () => {
                 if (categorizedSequence.visible) {
                   if (categorizedSequence.category === sequence.category) {
                     sequenceImageElement = sequenceImage(categorizedSequence);
-                    const categorizedVotingListClassname = `cell-vote-playlist cell-vote-playlist-${sequence.index}`;
-                    const categorizedVotingListArtistClassname = `cell-vote-playlist-artist cell-vote-playlist-artist-${sequence.index}`;
+                    const categorizedVotingListClassname = `cell-vote-playlist cell-vote-playlist-${categorizedSequence.index}`;
+                    const categorizedVotingListArtistClassname = `cell-vote-playlist-artist cell-vote-playlist-artist-${categorizedSequence.index}`;
                     // Keep each card glued to its own vote count. Both live in the
                     // flex-wrap .category-section, so without this wrapper the browser
                     // greedy-packs them as independent items and the variable-width
@@ -760,27 +743,8 @@ const ExternalViewerPage = () => {
           const jukeboxListClassname = `jukebox-list jukebox-list-${sequence.index}`;
           const jukeboxListArtistClassname = `jukebox-list-artist jukebox-list-artist-${sequence.index}`;
 
-          if (show?.playingNowSequence != null) {
-            const playingNowSequence = show?.playingNowSequence;
-            playingNow = (
-              <>
-                {sequenceImage(playingNowSequence)}
-                {playingNowSequence?.displayName}
-                <div className={jukeboxListArtistClassname}>{playingNowSequence?.artist}</div>
-              </>
-            );
-          }
-
-          if (show?.playingNextSequence != null) {
-            const playingNextSequence = show?.playingNextSequence;
-            playingNext = (
-              <>
-                {sequenceImage(playingNextSequence)}
-                {playingNextSequence?.displayName}
-                <div className={jukeboxListArtistClassname}>{playingNextSequence?.artist}</div>
-              </>
-            );
-          }
+          buildPlayingSlots = true;
+          buildJukeboxQueue = true;
 
           if (sequence.category == null || sequence.category === '') {
             sequencesElement.push(
@@ -848,28 +812,30 @@ const ExternalViewerPage = () => {
               </>
             );
           }
-
-          jukeboxRequestsElement = [];
-          // show.requests is already filtered server-side to only the items
-          // the viewer should see (no leaders, no operator PSAs).
-          let updatedRequests = _.orderBy(show?.requests || [], ['position'], ['asc']);
-          _.map(updatedRequests, (request, index) => {
-            // Don't add Playing Now or Next Playing to list
-            if (index !== 0) {
-              jukeboxRequestsElement.push(
-                <>
-                  <div className="jukebox-queue">
-                    {sequenceImage(request?.sequence)}
-                    {request?.sequence?.displayName}
-                    <div className={jukeboxListArtistClassname}>{request?.sequence.artist}</div>
-                  </div>
-                </>
-              );
-            }
-          });
         }
       }
     });
+
+    // #188: built once, after the list loop, and keyed by each song's own
+    // index. The flags keep the old gating: the slots were only ever filled
+    // from inside the loop (voting: an uncategorized visible sequence;
+    // jukebox: any visible sequence), so an empty list still falls back to
+    // the plain playingNow / playingNext text.
+    const viewerControlMode = show?.preferences?.viewerControlMode;
+    if (buildPlayingSlots) {
+      if (show?.playingNowSequence != null) {
+        playingNow = playingSequenceElement(viewerControlMode, show?.playingNowSequence);
+      }
+      if (show?.playingNextSequence != null) {
+        playingNext = playingSequenceElement(viewerControlMode, show?.playingNextSequence);
+      }
+    }
+    if (buildJukeboxQueue) {
+      // show.requests is already filtered server-side to only the items
+      // the viewer should see (no leaders, no operator PSAs). The first one
+      // is playing now / next and is left out of the list.
+      jukeboxRequestsElement = jukeboxQueueElements(show?.requests);
+    }
 
     const locationCodeElement = (
       <>
