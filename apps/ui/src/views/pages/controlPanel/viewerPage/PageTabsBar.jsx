@@ -25,14 +25,7 @@ import {
 } from '@tabler/icons-react';
 import PropTypes from 'prop-types';
 
-// Explains why Duplicate is unavailable at the page cap. Exported so the
-// host's duplicate guard shows the exact same wording. Shows grandfathered
-// above the cap get the limit spelled out, since deleting a single page
-// would not bring them back under it.
-export const pageLimitMessage = (pageCount, maxPages) =>
-  pageCount > maxPages
-    ? `You have ${pageCount} pages; the limit is ${maxPages}. Delete pages to duplicate.`
-    : `You have ${maxPages} pages. Delete one to duplicate.`;
+import { isAtPageLimit, pageLimitMessage } from './pageLimit';
 
 // Per-page tab strip, replacing the legacy "Manage Viewer Pages" modal.
 //
@@ -64,7 +57,7 @@ const PageTabsBar = ({
   const renameInputRef = useRef(null);
 
   // Same cap the "New page" buttons honor; duplicating also adds a page.
-  const atPageLimit = !canExceedMax && pages.length >= maxPages;
+  const atPageLimit = isAtPageLimit(pages.length, maxPages, canExceedMax);
 
   const openMenu = (e, name) => setMenuFor({ name, anchorEl: e.currentTarget });
   const closeMenu = () => setMenuFor(null);

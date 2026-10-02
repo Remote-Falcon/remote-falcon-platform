@@ -61,7 +61,7 @@ public class ViewerPageService {
 
     /**
      * Max viewer pages per show (#191). The UI enforces the same cap
-     * (MAX_PAGES in the viewerPage editor); this is the authoritative copy,
+     * (MAX_PAGES in apps/ui viewerPage/pageLimit.js); this is the authoritative copy,
      * checked in GraphQLMutationService.updatePages. Only growth past the cap
      * is rejected, so shows created before enforcement keep working.
      */

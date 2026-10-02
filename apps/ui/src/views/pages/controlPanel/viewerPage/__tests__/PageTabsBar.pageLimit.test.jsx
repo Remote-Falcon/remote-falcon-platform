@@ -2,7 +2,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import React from 'react';
 
-import PageTabsBar, { pageLimitMessage } from '../PageTabsBar';
+import { pageLimitMessage } from '../pageLimit';
+import PageTabsBar from '../PageTabsBar';
 
 // #191: Duplicate adds a page, so it must honor the same five-page cap as
 // the "New page" buttons. At the cap the menu item is disabled and explains
