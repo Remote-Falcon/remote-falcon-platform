@@ -25,7 +25,6 @@ import { getRemoteViewerPageTemplatesFromGithubService } from '../../../../servi
 import { useDispatch, useSelector } from '../../../../store';
 import { setShow } from '../../../../store/slices/show';
 import { setRemoteViewerPageTemplates } from '../../../../store/slices/controlPanel';
-import { Environments } from '../../../../utils/enum';
 import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
 import ConfirmDialog from '../../../../ui-component/ConfirmDialog';
 import MainCard from '../../../../ui-component/cards/MainCard';
@@ -36,14 +35,10 @@ import { showAlert } from '../../globalPageHelpers';
 
 import EditorPane from './EditorPane';
 import { htmlValidator, isException } from './htmlValidator';
+import { MAX_PAGES, canExceedMax, pageLimitMessage } from './pageLimit';
 import PageTabsBar from './PageTabsBar';
 import PreviewPane from './PreviewPane';
 import ProblemsPanel from './ProblemsPanel';
-
-// Max viewer pages per show. Local-env override matches the speeddial
-// behavior we're replacing.
-const MAX_PAGES = 5;
-const canExceedMax = import.meta.env.VITE_HOST_ENV === Environments.LOCAL;
 
 // Starter template option used when no GitHub template is selected. Restores
 // the option to scaffold a tiny page without picking from the catalog.
@@ -512,6 +507,12 @@ const ViewerPage = () => {
   const handleDuplicate = async (name) => {
     const src = pages.find((p) => p.name === name);
     if (!src) return;
+    // The menu item is disabled at the cap, but guard here too so no other
+    // path can push the show past it (#191). The server enforces this as well.
+    if (!canExceedMax && pages.length >= MAX_PAGES) {
+      showAlert(dispatch, { alert: 'warning', message: pageLimitMessage(pages.length, MAX_PAGES) });
+      return;
+    }
     // Pick a fresh name: "<name> Copy", or "<name> Copy 2" etc.
     let candidate = `${src.name} Copy`;
     let n = 2;
@@ -566,6 +567,12 @@ const ViewerPage = () => {
   const handleCreate = async () => {
     const name = createName.trim();
     if (!name) return;
+    // The New page buttons are hidden/disabled at the cap; guard the handler
+    // too since the dialog can stay open across a refetch (#191).
+    if (!canExceedMax && pages.length >= MAX_PAGES) {
+      showAlert(dispatch, { alert: 'warning', message: pageLimitMessage(pages.length, MAX_PAGES, 'add a page') });
+      return;
+    }
     if (pages.some((p) => p.name === name)) {
       showAlert(dispatch, { alert: 'error', message: `A page named "${name}" already exists.` });
       return;

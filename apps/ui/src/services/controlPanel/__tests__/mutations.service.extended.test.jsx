@@ -126,6 +126,15 @@ describe('save* services follow the (variables → toast) contract', () => {
     });
   });
 
+  it('savePages maps PAGE_LIMIT_REACHED to a friendly warning (#191)', () => {
+    const cb = vi.fn();
+    savePagesService([], mockMutation('error', StatusResponse.PAGE_LIMIT_REACHED), cb);
+    expect(cb).toHaveBeenCalledWith({
+      success: false,
+      toast: { alert: 'warning', message: 'Viewer page limit reached. Delete a page before adding another.' }
+    });
+  });
+
   it.each([
     ['savePages', savePagesService],
     ['savePreferences', savePreferencesService],

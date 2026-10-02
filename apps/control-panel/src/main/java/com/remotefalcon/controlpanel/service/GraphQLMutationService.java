@@ -504,6 +504,16 @@ public class GraphQLMutationService {
     public List<ViewerPage> updatePages(List<ViewerPage> pages) {
         Optional<Show> show = this.showRepository.findByShowToken(authUtil.getTokenDTO().getShowToken());
         if(show.isPresent()) {
+            // #191: enforce the per-show page cap. Reject only growth: a list
+            // longer than the cap is allowed when it is no longer than what's
+            // already stored, so shows that predate enforcement can still
+            // edit, rename and reorder. Checked before anything is touched so
+            // a rejected save writes nothing.
+            int storedCount = show.get().getPages() == null ? 0 : show.get().getPages().size();
+            int incomingCount = pages == null ? 0 : pages.size();
+            if (incomingCount > ViewerPageService.MAX_PAGES_PER_SHOW && incomingCount > storedCount) {
+                throw new RuntimeException(StatusResponse.PAGE_LIMIT_REACHED.name());
+            }
             // Preserve pageIds across the wholesale-replace by matching
             // incoming pages to existing ones — first by pageId (the
             // post-PR-A stable identifier), falling back to name for legacy
