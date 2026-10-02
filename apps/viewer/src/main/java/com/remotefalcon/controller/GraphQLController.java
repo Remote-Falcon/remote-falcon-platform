@@ -29,8 +29,10 @@ public class GraphQLController {
    ********/
   @Mutation
   @Description("Insert Viewer Page Stats")
-  public Boolean insertViewerPageStats(String showSubdomain, LocalDateTime date, @DefaultValue("") String viewerId) {
-    return graphQLMutationService.insertViewerPageStats(showSubdomain, date, emptyToNull(viewerId));
+  public Boolean insertViewerPageStats(String showSubdomain, LocalDateTime date, @DefaultValue("") String viewerId,
+      @DefaultValue("") String utmSource, @DefaultValue("") String utmMedium) {
+    return graphQLMutationService.insertViewerPageStats(showSubdomain, date, emptyToNull(viewerId),
+        emptyToNull(utmSource), emptyToNull(utmMedium));
   }
 
   @Mutation

@@ -105,7 +105,7 @@ class GraphQLMutationServiceTest {
     void shouldInsertViewerPageStats() {
       when(showRepository.appendPageStatIfNotOwner(eq("test"), eq("1.2.3.4"), any())).thenReturn(1L);
 
-      Boolean result = service.insertViewerPageStats("test", LocalDateTime.now(), "");
+      Boolean result = service.insertViewerPageStats("test", LocalDateTime.now(), "", null, null);
 
       assertTrue(result);
       verify(showRepository).appendPageStatIfNotOwner(eq("test"), eq("1.2.3.4"), argThat(stat ->
@@ -114,11 +114,58 @@ class GraphQLMutationServiceTest {
     }
 
     @Test
+    @DisplayName("Should store no source/medium when no UTM params are sent (#189)")
+    void shouldStoreNullSourceWithoutUtm() {
+      when(showRepository.appendPageStatIfNotOwner(eq("test"), eq("1.2.3.4"), any())).thenReturn(1L);
+
+      service.insertViewerPageStats("test", LocalDateTime.now(), "v1", null, null);
+
+      verify(showRepository).appendPageStatIfNotOwner(eq("test"), eq("1.2.3.4"), argThat(stat ->
+          "v1".equals(stat.getViewerId()) && stat.getSource() == null && stat.getMedium() == null
+      ));
+    }
+
+    @Test
+    @DisplayName("Should store sanitized UTM source/medium on the page stat (#189)")
+    void shouldStoreSanitizedUtm() {
+      when(showRepository.appendPageStatIfNotOwner(eq("test"), eq("1.2.3.4"), any())).thenReturn(1L);
+
+      service.insertViewerPageStats("test", LocalDateTime.now(), "v1", "  QR ", "Print");
+
+      verify(showRepository).appendPageStatIfNotOwner(eq("test"), eq("1.2.3.4"), argThat(stat ->
+          "qr".equals(stat.getSource()) && "print".equals(stat.getMedium())
+      ));
+    }
+
+    @Test
+    @DisplayName("Should cap UTM values at 32 chars and drop blank ones (#189)")
+    void shouldCapAndBlankUtm() {
+      when(showRepository.appendPageStatIfNotOwner(eq("test"), eq("1.2.3.4"), any())).thenReturn(1L);
+
+      service.insertViewerPageStats("test", LocalDateTime.now(), "v1", "X".repeat(40), "   ");
+
+      verify(showRepository).appendPageStatIfNotOwner(eq("test"), eq("1.2.3.4"), argThat(stat ->
+          "x".repeat(32).equals(stat.getSource()) && stat.getMedium() == null
+      ));
+    }
+
+    @Test
+    @DisplayName("Owner-IP visits are still skipped when tagged with UTM params (#189)")
+    void shouldSkipOwnerEvenWithUtm() {
+      when(showRepository.appendPageStatIfNotOwner(eq("test"), eq("1.2.3.4"), any())).thenReturn(0L);
+
+      Boolean result = service.insertViewerPageStats("test", LocalDateTime.now(), "v1", "qr", "print");
+
+      assertFalse(result);
+      verify(showRepository, never()).upsertViewerSession(anyString(), anyString(), any(), any());
+    }
+
+    @Test
     @DisplayName("Should return false when IP equals last login IP (no modification)")
     void shouldReturnFalseWhenSameIp() {
       when(showRepository.appendPageStatIfNotOwner(eq("test"), eq("1.2.3.4"), any())).thenReturn(0L);
 
-      Boolean result = service.insertViewerPageStats("test", LocalDateTime.now(), "");
+      Boolean result = service.insertViewerPageStats("test", LocalDateTime.now(), "", null, null);
 
       assertFalse(result);
       verify(showRepository).appendPageStatIfNotOwner(eq("test"), eq("1.2.3.4"), any());
@@ -132,7 +179,7 @@ class GraphQLMutationServiceTest {
       when(httpServerRequest.getHeader("X-Forwarded-For")).thenReturn(null);
       when(httpServerRequest.remoteAddress()).thenReturn(null);
 
-      Boolean result = service.insertViewerPageStats("test", LocalDateTime.now(), "");
+      Boolean result = service.insertViewerPageStats("test", LocalDateTime.now(), "", null, null);
 
       assertTrue(result);
       verify(showRepository, never()).appendPageStatIfNotOwner(anyString(), anyString(), any());

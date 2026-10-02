@@ -234,6 +234,69 @@ class DashboardServiceTest {
                 .containsExactly(ms(2025, 10, 14), ms(2025, 10, 15), ms(2025, 10, 16));
     }
 
+    // ---- dashboardStats.qrVisits (#189) ----
+
+    @Test
+    void dashboardStats_qrVisits_countsHitsAndUniqueByViewerIdFallingBackToIp() {
+        stubAuth(SHOW_TOKEN);
+        when(statsRepository.hasStatsByShowToken(SHOW_TOKEN)).thenReturn(true);
+        when(statsRepository.pageStatsInRange(eq(SHOW_TOKEN), any(), any())).thenReturn(List.of(
+                // viewer v1 scans twice from two different IPs -> one unique
+                Stat.Page.builder().ip("1.1.1.1").viewerId("v1").source("qr").medium("print").dateTime(at(2025, 10, 15, 19, 0)).build(),
+                Stat.Page.builder().ip("9.9.9.9").viewerId("v1").source("qr").medium("print").dateTime(at(2025, 10, 16, 19, 0)).build(),
+                // no viewerId (show not opted in) -> keyed by IP; same IP twice -> one unique
+                Stat.Page.builder().ip("2.2.2.2").source("qr").dateTime(at(2025, 10, 15, 20, 0)).build(),
+                Stat.Page.builder().ip("2.2.2.2").viewerId("").source("qr").dateTime(at(2025, 10, 15, 21, 0)).build(),
+                // untagged, legacy (no source field) and other-source visits are not QR visits
+                Stat.Page.builder().ip("3.3.3.3").viewerId("v3").dateTime(at(2025, 10, 15, 19, 0)).build(),
+                Stat.Page.builder().ip("4.4.4.4").source("newsletter").dateTime(at(2025, 10, 15, 19, 0)).build(),
+                // outside the requested range
+                Stat.Page.builder().ip("5.5.5.5").source("qr").dateTime(at(2025, 10, 18, 19, 0)).build()));
+
+        DashboardStatsResponse resp = service.dashboardStats(ms(2025, 10, 14), endOfDayMs(2025, 10, 16), TZ);
+
+        assertThat(resp.getQrVisits().getTotal()).isEqualTo(4);
+        assertThat(resp.getQrVisits().getUnique()).isEqualTo(2);
+        // The overall page stats still count every visit, tagged or not.
+        assertThat(resp.getPage().stream().mapToInt(DashboardStatsResponse.Stat::getTotal).sum()).isEqualTo(6);
+        // pageBySource is export-only; the GraphQL path skips building it.
+        assertThat(resp.getPageBySource()).isNull();
+    }
+
+    @Test
+    void dashboardStats_qrVisits_priorPeriodIsTheSameComputationOverThePriorRange() {
+        // The compare badge is fed by a second dashboardStats call for the
+        // prior range (see OverviewTab), so each range must count only its own
+        // QR visits even when the Mongo superset window overlaps both.
+        stubAuth(SHOW_TOKEN);
+        when(statsRepository.hasStatsByShowToken(SHOW_TOKEN)).thenReturn(true);
+        List<Stat.Page> pages = List.of(
+                Stat.Page.builder().ip("1.1.1.1").source("qr").dateTime(at(2025, 10, 10, 19, 0)).build(),
+                Stat.Page.builder().ip("2.2.2.2").source("qr").dateTime(at(2025, 10, 11, 19, 0)).build(),
+                Stat.Page.builder().ip("3.3.3.3").source("qr").dateTime(at(2025, 10, 15, 19, 0)).build());
+        when(statsRepository.pageStatsInRange(eq(SHOW_TOKEN), any(), any())).thenReturn(pages);
+
+        DashboardStatsResponse current = service.dashboardStats(ms(2025, 10, 14), endOfDayMs(2025, 10, 16), TZ);
+        DashboardStatsResponse prior = service.dashboardStats(ms(2025, 10, 11), endOfDayMs(2025, 10, 13), TZ);
+
+        assertThat(current.getQrVisits().getTotal()).isEqualTo(1);
+        assertThat(current.getQrVisits().getUnique()).isEqualTo(1);
+        assertThat(prior.getQrVisits().getTotal()).isEqualTo(1);
+        assertThat(prior.getQrVisits().getUnique()).isEqualTo(1);
+    }
+
+    @Test
+    void dashboardStats_qrVisits_zeroWhenNoStatsDocument() {
+        stubAuth(SHOW_TOKEN);
+        when(statsRepository.hasStatsByShowToken(SHOW_TOKEN)).thenReturn(false);
+        when(statsRepository.existsByShowToken(SHOW_TOKEN)).thenReturn(true);
+
+        DashboardStatsResponse resp = service.dashboardStats(ms(2025, 1, 1), ms(2025, 1, 7), TZ);
+
+        assertThat(resp.getQrVisits().getTotal()).isZero();
+        assertThat(resp.getQrVisits().getUnique()).isZero();
+    }
+
     // ---- requestConversion ----
 
     @Test
@@ -848,6 +911,32 @@ class DashboardServiceTest {
                 .dateFilterStart(ms(2025, 10, 1)).dateFilterEnd(ms(2025, 10, 31)).timezone(TZ).build();
 
         assertThat(service.downloadStatsToExcel(req)).isSameAs(stub);
+    }
+
+    @Test
+    void downloadStatsToExcel_passesPerDaySourceBreakdown_toExcelUtil() {
+        // #189: the export (and only the export) carries page visits grouped
+        // by date + utm source/medium, untagged rows first.
+        stubAuth(SHOW_TOKEN);
+        when(statsRepository.hasStatsByShowToken(SHOW_TOKEN)).thenReturn(true);
+        when(statsRepository.pageStatsInRange(eq(SHOW_TOKEN), any(), any())).thenReturn(List.of(
+                Stat.Page.builder().ip("1.1.1.1").dateTime(at(2025, 10, 15, 19, 0)).source("qr").medium("print").build(),
+                Stat.Page.builder().ip("1.1.1.1").dateTime(at(2025, 10, 15, 19, 5)).source("qr").medium("print").build(),
+                Stat.Page.builder().ip("2.2.2.2").dateTime(at(2025, 10, 15, 20, 0)).build()));
+        org.mockito.ArgumentCaptor<DashboardStatsResponse> captor =
+                org.mockito.ArgumentCaptor.forClass(DashboardStatsResponse.class);
+        when(excelUtil.generateDashboardExcel(captor.capture(), eq(TZ)))
+                .thenReturn(org.springframework.http.ResponseEntity.ok().build());
+
+        service.downloadStatsToExcel(DownloadStatsToExcelRequest.builder()
+                .dateFilterStart(ms(2025, 10, 14)).dateFilterEnd(ms(2025, 10, 17)).timezone(TZ).build());
+
+        List<DashboardStatsResponse.SourceStat> rows = captor.getValue().getPageBySource();
+        assertThat(rows).extracting(DashboardStatsResponse.SourceStat::getSource).containsExactly(null, "qr");
+        assertThat(rows).extracting(DashboardStatsResponse.SourceStat::getMedium).containsExactly(null, "print");
+        assertThat(rows).extracting(DashboardStatsResponse.SourceStat::getTotal).containsExactly(1, 2);
+        assertThat(rows).extracting(DashboardStatsResponse.SourceStat::getUnique).containsExactly(1, 1);
+        assertThat(rows).extracting(DashboardStatsResponse.SourceStat::getDate).containsOnly(ms(2025, 10, 15));
     }
 
     // ---- wrappedSummary — opt-in + token validation + season window ----

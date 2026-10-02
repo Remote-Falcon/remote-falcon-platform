@@ -24,7 +24,10 @@ import { ADD_SEQUENCE_TO_QUEUE, INSERT_VIEWER_PAGE_STATS, VOTE_FOR_SEQUENCE } fr
 import { GET_ACTIVE_VIEWER_PAGE, GET_SHOW_FOR_VIEWER, VOTES_REMAINING } from '../../../utils/graphql/viewer/queries';
 import { showAlert } from '../globalPageHelpers';
 import { orderSequencesByCategory } from './helpers/categoryOrder';
+import { jukeboxQueueElements, playingSequenceElement } from './helpers/nowPlaying';
 import { isSequenceUnavailable as checkSequenceUnavailable } from './helpers/sequenceAvailability';
+import { UNAVAILABLE_HINT_DEFAULT_CSS, sequenceRowContent, unavailableRowProps } from './helpers/unavailableRow';
+import { readUtmParams, stripUtmFromAddressBar } from './helpers/utmParams';
 import LocationRecoveryControl from './LocationRecoveryControl';
 import { LocationPermission, acquireViewerLocation, clientClassFromUserAgent } from './helpers/locationPermission';
 import {
@@ -594,6 +597,8 @@ const ExternalViewerPage = () => {
 
     let playingNow = <>{show?.playingNow}</>;
     let playingNext = <>{show?.playingNext}</>;
+    let buildPlayingSlots = false;
+    let buildJukeboxQueue = false;
 
     // #73 — a sequence the viewer can't currently request/vote on (on the
     // hide-after-play cooldown, or at its #163 nightly play cap) is rendered
@@ -616,10 +621,15 @@ const ExternalViewerPage = () => {
     //
     // The predicate lives in a pure module pinned to the same matrix as the
     // server's shared NightlyPlayLimitHelper.
+    //
+    // #186 - playsToday only resets on the first play of a new show night, so
+    // pass lastPlayCountedAt and let the helper ignore a stale tally the same
+    // way the server does. Read once per render so every row uses one clock.
+    const nightlyOptions = { lastPlayCountedAt: show?.preferences?.lastPlayCountedAt ?? null, now: Date.now() };
     const isSequenceUnavailable = (seq) =>
-      checkSequenceUnavailable(seq, nightlyPlayLimit, show?.categories);
-    const unavailableStyle = { opacity: 0.4, pointerEvents: 'none' };
-    const unavailableHint = (seq) => ((seq?.visibilityCount ?? 0) > 0 ? 'Available again soon' : 'Back next show');
+      checkSequenceUnavailable(seq, nightlyPlayLimit, show?.categories, nightlyOptions);
+    // #190 - an unavailable row says why in visible text under the artist
+    // (helpers/unavailableRow), not in a hover-only title.
 
     // Category sections render in the operator's dashboard order. The walk below
     // opens a section on first-encounter of a member, so reorder the sequences by
@@ -648,45 +658,25 @@ const ExternalViewerPage = () => {
               const votingListClassname = `cell-vote-playlist cell-vote-playlist-${sequence.index}`;
               const votingListArtistClassname = `cell-vote-playlist-artist cell-vote-playlist-artist-${sequence.index}`;
 
-              if (show?.playingNowSequence != null) {
-                const playingNowSequence = show?.playingNowSequence;
-                playingNow = (
-                  <>
-                    {sequenceImage(playingNowSequence)}
-                    {playingNowSequence?.displayName}
-                    <div className={votingListArtistClassname}>{playingNowSequence?.artist}</div>
-                  </>
-                );
-              }
-
-              if (show?.playingNextSequence != null) {
-                const playingNextSequence = show?.playingNextSequence;
-                playingNext = (
-                  <>
-                    {sequenceImage(playingNextSequence)}
-                    {playingNextSequence?.displayName}
-                    <div className={votingListArtistClassname}>{playingNextSequence?.artist}</div>
-                  </>
-                );
-              }
+              buildPlayingSlots = true;
 
               sequencesElement.push(
                 <>
                   <div
-                    className={votingListClassname}
-                    style={isSequenceUnavailable(sequence) ? unavailableStyle : undefined}
-                    title={isSequenceUnavailable(sequence) ? unavailableHint(sequence) : undefined}
+                    {...unavailableRowProps(votingListClassname, sequence, isSequenceUnavailable(sequence))}
                     onClick={(e) =>
                       show?.preferences?.viewerPageViewOnly || isSequenceUnavailable(sequence) ? _.noop() : voteForSequence(e)
                     }
                     data-key={sequence.name}
                     data-key-2={sequence.displayName}
                   >
-                    {sequenceImageElement}
-                    {sequence.displayName}
-                    <div data-key={sequence.name} data-key-2={sequence.displayName} className={votingListArtistClassname}>
-                      {sequence.artist}
-                    </div>
+                    {sequenceRowContent({
+                      sequence,
+                      image: sequenceImageElement,
+                      artistClassName: votingListArtistClassname,
+                      artistProps: { 'data-key-2': sequence.displayName },
+                      unavailable: isSequenceUnavailable(sequence)
+                    })}
                   </div>
                   <div className="cell-vote">{sequenceVotes}</div>
                 </>
@@ -706,8 +696,8 @@ const ExternalViewerPage = () => {
                 if (categorizedSequence.visible) {
                   if (categorizedSequence.category === sequence.category) {
                     sequenceImageElement = sequenceImage(categorizedSequence);
-                    const categorizedVotingListClassname = `cell-vote-playlist cell-vote-playlist-${sequence.index}`;
-                    const categorizedVotingListArtistClassname = `cell-vote-playlist-artist cell-vote-playlist-artist-${sequence.index}`;
+                    const categorizedVotingListClassname = `cell-vote-playlist cell-vote-playlist-${categorizedSequence.index}`;
+                    const categorizedVotingListArtistClassname = `cell-vote-playlist-artist cell-vote-playlist-artist-${categorizedSequence.index}`;
                     // Keep each card glued to its own vote count. Both live in the
                     // flex-wrap .category-section, so without this wrapper the browser
                     // greedy-packs them as independent items and the variable-width
@@ -720,9 +710,11 @@ const ExternalViewerPage = () => {
                     const theElement = (
                       <div className="cell-vote-row" style={{ display: 'flex', width: '100%', alignItems: 'flex-end' }}>
                         <div
-                          className={categorizedVotingListClassname}
-                          style={isSequenceUnavailable(categorizedSequence) ? unavailableStyle : undefined}
-                          title={isSequenceUnavailable(categorizedSequence) ? unavailableHint(categorizedSequence) : undefined}
+                          {...unavailableRowProps(
+                            categorizedVotingListClassname,
+                            categorizedSequence,
+                            isSequenceUnavailable(categorizedSequence)
+                          )}
                           onClick={(e) =>
                             show?.preferences?.viewerPageViewOnly || isSequenceUnavailable(categorizedSequence)
                               ? _.noop()
@@ -730,11 +722,12 @@ const ExternalViewerPage = () => {
                           }
                           data-key={categorizedSequence.name}
                         >
-                          {sequenceImageElement}
-                          {categorizedSequence.displayName}
-                          <div data-key={categorizedSequence.name} className={categorizedVotingListArtistClassname}>
-                            {categorizedSequence.artist}
-                          </div>
+                          {sequenceRowContent({
+                            sequence: categorizedSequence,
+                            image: sequenceImageElement,
+                            artistClassName: categorizedVotingListArtistClassname,
+                            unavailable: isSequenceUnavailable(categorizedSequence)
+                          })}
                         </div>
                         <div className="cell-vote">{categorizedSequenceVotes}</div>
                       </div>
@@ -760,46 +753,27 @@ const ExternalViewerPage = () => {
           const jukeboxListClassname = `jukebox-list jukebox-list-${sequence.index}`;
           const jukeboxListArtistClassname = `jukebox-list-artist jukebox-list-artist-${sequence.index}`;
 
-          if (show?.playingNowSequence != null) {
-            const playingNowSequence = show?.playingNowSequence;
-            playingNow = (
-              <>
-                {sequenceImage(playingNowSequence)}
-                {playingNowSequence?.displayName}
-                <div className={jukeboxListArtistClassname}>{playingNowSequence?.artist}</div>
-              </>
-            );
-          }
-
-          if (show?.playingNextSequence != null) {
-            const playingNextSequence = show?.playingNextSequence;
-            playingNext = (
-              <>
-                {sequenceImage(playingNextSequence)}
-                {playingNextSequence?.displayName}
-                <div className={jukeboxListArtistClassname}>{playingNextSequence?.artist}</div>
-              </>
-            );
-          }
+          buildPlayingSlots = true;
+          buildJukeboxQueue = true;
 
           if (sequence.category == null || sequence.category === '') {
             sequencesElement.push(
               <>
                 <div
-                  className={jukeboxListClassname}
-                  style={isSequenceUnavailable(sequence) ? unavailableStyle : undefined}
-                  title={isSequenceUnavailable(sequence) ? unavailableHint(sequence) : undefined}
+                  {...unavailableRowProps(jukeboxListClassname, sequence, isSequenceUnavailable(sequence))}
                   onClick={(e) =>
                     show?.preferences?.viewerPageViewOnly || isSequenceUnavailable(sequence) ? _.noop() : addSequenceToQueue(e)
                   }
                   data-key={sequence.name}
                   data-key-2={sequence.displayName}
                 >
-                  {sequenceImageElement}
-                  {sequence.displayName}
-                  <div data-key={sequence.name} data-key-2={sequence.displayName} className={jukeboxListArtistClassname}>
-                    {sequence.artist}
-                  </div>
+                  {sequenceRowContent({
+                    sequence,
+                    image: sequenceImageElement,
+                    artistClassName: jukeboxListArtistClassname,
+                    artistProps: { 'data-key-2': sequence.displayName },
+                    unavailable: isSequenceUnavailable(sequence)
+                  })}
                 </div>
               </>
             );
@@ -816,9 +790,11 @@ const ExternalViewerPage = () => {
                   const theElement = (
                     <>
                       <div
-                        className={categorizedJukeboxListClassname}
-                        style={isSequenceUnavailable(categorizedSequence) ? unavailableStyle : undefined}
-                        title={isSequenceUnavailable(categorizedSequence) ? unavailableHint(categorizedSequence) : undefined}
+                        {...unavailableRowProps(
+                          categorizedJukeboxListClassname,
+                          categorizedSequence,
+                          isSequenceUnavailable(categorizedSequence)
+                        )}
                         onClick={(e) =>
                           show?.preferences?.viewerPageViewOnly || isSequenceUnavailable(categorizedSequence)
                             ? _.noop()
@@ -826,11 +802,12 @@ const ExternalViewerPage = () => {
                         }
                         data-key={categorizedSequence.name}
                       >
-                        {sequenceImageElement}
-                        {categorizedSequence.displayName}
-                        <div data-key={categorizedSequence.name} className={categorizedJukeboxListArtistClassname}>
-                          {categorizedSequence.artist}
-                        </div>
+                        {sequenceRowContent({
+                          sequence: categorizedSequence,
+                          image: sequenceImageElement,
+                          artistClassName: categorizedJukeboxListArtistClassname,
+                          unavailable: isSequenceUnavailable(categorizedSequence)
+                        })}
                       </div>
                     </>
                   );
@@ -848,28 +825,30 @@ const ExternalViewerPage = () => {
               </>
             );
           }
-
-          jukeboxRequestsElement = [];
-          // show.requests is already filtered server-side to only the items
-          // the viewer should see (no leaders, no operator PSAs).
-          let updatedRequests = _.orderBy(show?.requests || [], ['position'], ['asc']);
-          _.map(updatedRequests, (request, index) => {
-            // Don't add Playing Now or Next Playing to list
-            if (index !== 0) {
-              jukeboxRequestsElement.push(
-                <>
-                  <div className="jukebox-queue">
-                    {sequenceImage(request?.sequence)}
-                    {request?.sequence?.displayName}
-                    <div className={jukeboxListArtistClassname}>{request?.sequence.artist}</div>
-                  </div>
-                </>
-              );
-            }
-          });
         }
       }
     });
+
+    // #188: built once, after the list loop, and keyed by each song's own
+    // index. The flags keep the old gating: the slots were only ever filled
+    // from inside the loop (voting: an uncategorized visible sequence;
+    // jukebox: any visible sequence), so an empty list still falls back to
+    // the plain playingNow / playingNext text.
+    const viewerControlMode = show?.preferences?.viewerControlMode;
+    if (buildPlayingSlots) {
+      if (show?.playingNowSequence != null) {
+        playingNow = playingSequenceElement(viewerControlMode, show?.playingNowSequence);
+      }
+      if (show?.playingNextSequence != null) {
+        playingNext = playingSequenceElement(viewerControlMode, show?.playingNextSequence);
+      }
+    }
+    if (buildJukeboxQueue) {
+      // show.requests is already filtered server-side to only the items
+      // the viewer should see (no leaders, no operator PSAs). The first one
+      // is playing now / next and is left out of the list.
+      jukeboxRequestsElement = jukeboxQueueElements(show?.requests);
+    }
 
     const locationCodeElement = (
       <>
@@ -960,6 +939,7 @@ const ExternalViewerPage = () => {
     show?.playingNowSequence,
     show?.playingNextSequence,
     show?.preferences?.nightlyPlayLimit,
+    show?.preferences?.lastPlayCountedAt,
     show?.preferences?.viewerPageViewOnly,
     locationPermission,
     retryViewerLocation,
@@ -1049,6 +1029,12 @@ const ExternalViewerPage = () => {
           // nor send an id (and the privacy pill / viewerId.js stays unloaded).
           // Fired here (not on mount) because the opt-in flag isn't known until
           // getShow resolves.
+          //
+          // #189: utm_source / utm_medium (e.g. the QR Code page's print tag)
+          // ride along only when present, read from this page's own query
+          // string. They are stripped from the address bar right after so a
+          // link shared onward isn't counted as another QR scan.
+          const utmParams = readUtmParams(window.location.search);
           insertViewerPageStatsMutation({
             context: {
               headers: {
@@ -1058,9 +1044,11 @@ const ExternalViewerPage = () => {
             variables: {
               showSubdomain: getSubdomain(),
               date: moment().format('YYYY-MM-DDTHH:mm:ss'),
-              viewerId: showData?.preferences?.analyticsBetaOptIn ? getViewerId() : null
+              viewerId: showData?.preferences?.analyticsBetaOptIn ? getViewerId() : null,
+              ...utmParams
             }
           }).then();
+          stripUtmFromAddressBar(window);
 
           setTimeout(() => {
             loadViewerEnhancements(showData);
@@ -1165,6 +1153,7 @@ const ExternalViewerPage = () => {
               #embedim--snow {
                 text-align: inherit;
               }
+              ${UNAVAILABLE_HINT_DEFAULT_CSS}
             `}
           </style>
           <title>{show?.preferences?.pageTitle}</title>

@@ -21,6 +21,10 @@ public enum StatusResponse {
   OWNER_REQUESTED,
   NAUGHTY,
   PAGE_NOT_FOUND,
+  // #191: updatePages raises this when a save would grow a show's viewer
+  // page list past the per-show cap. Lists already over the cap may still
+  // be saved as long as they don't grow.
+  PAGE_LIMIT_REACHED,
   // PSA-v2 PR-5 — setNextPsaOverride / updatePsaEnabled raise this
   // when the named PSA isn't present in Show.psaSequences[]. Surfacing
   // a typed status (rather than UNEXPECTED_ERROR) lets the UI render

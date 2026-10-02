@@ -33,6 +33,7 @@ import ViewerPageTemplatesSkeleton from '../../../../ui-component/cards/Skeleton
 import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
 import { UPDATE_PAGES } from '../../../../utils/graphql/controlPanel/mutations';
 import { showAlert } from '../../globalPageHelpers';
+import { isAtPageLimit, pageLimitMessage } from '../viewerPage/pageLimit';
 
 import { handleTemplateChange } from './helpers';
 
@@ -90,8 +91,18 @@ const FreeTemplates = () => {
     fetchTemplates();
   }, [fetchTemplates]);
 
+  // #191: applying a template adds a page, so it honors the same cap as the
+  // viewer page editor (including its local-env override).
+  const pageCount = (show?.pages || []).length;
+  const atPageLimit = isAtPageLimit(pageCount);
+  const limitMessage = pageLimitMessage(pageCount, undefined, 'add a page from a template');
+
   const openCreate = () => {
     if (!selectedTemplate) return;
+    if (atPageLimit) {
+      showAlert(dispatch, { alert: 'warning', message: limitMessage });
+      return;
+    }
     // Prefill the page name with the template title, deduped against existing
     // pages — same dedupe pattern as the "Duplicate page" action.
     const existing = show?.pages || [];
@@ -108,6 +119,12 @@ const FreeTemplates = () => {
     const name = createName.trim();
     if (!name) return;
     const existing = show?.pages || [];
+    // Re-check here: pages may have changed (e.g. a refetch) while the
+    // dialog was open. The server rejects growth past the cap as well.
+    if (isAtPageLimit(existing.length)) {
+      showAlert(dispatch, { alert: 'warning', message: pageLimitMessage(existing.length, undefined, 'add a page from a template') });
+      return;
+    }
     if (existing.some((p) => p.name === name)) {
       showAlert(dispatch, { alert: 'error', message: `A page named "${name}" already exists.` });
       return;
@@ -177,16 +194,22 @@ const FreeTemplates = () => {
                   )
                 }
               />
-              <Button
-                variant="contained"
-                color="primary"
-                startIcon={<IconPlus size={16} stroke={1.75} />}
-                onClick={openCreate}
-                disabled={!selectedTemplate}
-                sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}
-              >
-                Add new page from template
-              </Button>
+              {/* Disabled buttons don't fire hover events, so the Tooltip
+                  hangs off a wrapping span. */}
+              <Tooltip title={atPageLimit ? limitMessage : ''}>
+                <Box component="span" sx={{ display: 'inline-flex', flexShrink: 0 }}>
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    startIcon={<IconPlus size={16} stroke={1.75} />}
+                    onClick={openCreate}
+                    disabled={!selectedTemplate || atPageLimit}
+                    sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}
+                  >
+                    Add new page from template
+                  </Button>
+                </Box>
+              </Tooltip>
             </Stack>
             <Stack direction="row" justifyContent="flex-end" sx={{ minWidth: 0 }}>
               <ToggleButtonGroup
@@ -262,7 +285,7 @@ const FreeTemplates = () => {
           <Button onClick={() => { setCreateOpen(false); setCreateName(''); }} disabled={applying}>
             Cancel
           </Button>
-          <Button variant="contained" onClick={createPage} disabled={!createName.trim() || applying}>
+          <Button variant="contained" onClick={createPage} disabled={!createName.trim() || applying || atPageLimit}>
             {applying ? 'Creating…' : 'Create page'}
           </Button>
         </DialogActions>

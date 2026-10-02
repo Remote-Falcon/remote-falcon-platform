@@ -624,6 +624,78 @@ class GraphQLMutationServiceTest {
         assertThat(show.getPages()).isSameAs(pages);
     }
 
+    // ---- #191: per-show viewer page cap (reject only growth) ----
+
+    private static List<ViewerPage> pageList(int count, String prefix) {
+        List<ViewerPage> list = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            list.add(ViewerPage.builder().name(prefix + i).active(i == 0).html("h").build());
+        }
+        return list;
+    }
+
+    private Show stubShowWithPages(int storedCount) {
+        stubAuth();
+        Show show = Show.builder().showToken(SHOW_TOKEN).pages(pageList(storedCount, "stored-")).build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        return show;
+    }
+
+    @Test
+    void updatePages_atCap_isAccepted() {
+        Show show = stubShowWithPages(4);
+        List<ViewerPage> pages = pageList(ViewerPageService.MAX_PAGES_PER_SHOW, "p");
+
+        assertThat(service.updatePages(pages)).isSameAs(pages);
+        assertThat(show.getPages()).hasSize(5);
+        verify(showRepository).save(show);
+    }
+
+    @Test
+    void updatePages_growingPastCap_isRejected_andNothingSaved() {
+        Show show = stubShowWithPages(5);
+        List<ViewerPage> before = show.getPages();
+
+        assertThatThrownBy(() -> service.updatePages(pageList(6, "p")))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage(StatusResponse.PAGE_LIMIT_REACHED.name());
+
+        assertThat(show.getPages()).isSameAs(before).hasSize(5);
+        verify(showRepository, never()).save(any(Show.class));
+        verify(viewerPageService, never()).prepareForWrite(any(ViewerPage.class));
+    }
+
+    @Test
+    void updatePages_grandfatheredOverCap_canSaveSameOrFewer_butNotGrow() {
+        Show show = stubShowWithPages(7);
+
+        // Same size as stored: allowed even though it's over the cap.
+        assertThat(service.updatePages(pageList(7, "edit-"))).hasSize(7);
+        assertThat(show.getPages()).hasSize(7);
+
+        // Shrinking but still over the cap: allowed.
+        assertThat(service.updatePages(pageList(6, "shrink-"))).hasSize(6);
+        assertThat(show.getPages()).hasSize(6);
+        verify(showRepository, times(2)).save(show);
+
+        // Growing (relative to the now-stored 6) is rejected and not written.
+        List<ViewerPage> stored = show.getPages();
+        assertThatThrownBy(() -> service.updatePages(pageList(8, "grow-")))
+                .hasMessage(StatusResponse.PAGE_LIMIT_REACHED.name());
+        assertThat(show.getPages()).isSameAs(stored);
+        verify(showRepository, times(2)).save(any(Show.class));
+    }
+
+    @Test
+    void updatePages_grandfatheredOverCap_growingByOne_isRejected() {
+        Show show = stubShowWithPages(7);
+
+        assertThatThrownBy(() -> service.updatePages(pageList(8, "p")))
+                .hasMessage(StatusResponse.PAGE_LIMIT_REACHED.name());
+        assertThat(show.getPages()).hasSize(7);
+        verify(showRepository, never()).save(any(Show.class));
+    }
+
     @Test
     void updatePsaSequences_setsListAndSaves() {
         stubAuth();

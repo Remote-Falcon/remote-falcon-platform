@@ -227,6 +227,15 @@ type DashboardStats {
     votingBySequence: Stat
     votingWinByDate: [Stat]
     votingWinBySequence: Stat
+    # Issue #189: page views tagged utm_source=qr in the selected range.
+    qrVisits: SourceVisits
+}
+
+# Issue #189: range-level visit counts for one utm_source. unique is distinct
+# viewers across the range (anonymous viewerId, falling back to IP).
+type SourceVisits {
+    unique: Int
+    total: Int
 }
 
 type DashboardHourlyStats {
