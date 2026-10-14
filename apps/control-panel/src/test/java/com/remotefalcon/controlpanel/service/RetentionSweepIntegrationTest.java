@@ -68,7 +68,8 @@ class RetentionSweepIntegrationTest {
     @BeforeEach
     void setUp() {
         mongoTemplate.dropCollection(Show.class);
-        scheduledTaskService = new ScheduledTaskService(showRepository, mongoTemplate);
+        scheduledTaskService = new ScheduledTaskService(showRepository, mongoTemplate,
+                new FppHealthOutageStore(mongoTemplate));
     }
 
     private static LocalDateTime stale() {
