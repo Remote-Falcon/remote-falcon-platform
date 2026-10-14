@@ -1,6 +1,7 @@
 package com.remotefalcon.controlpanel.service;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
 import com.remotefalcon.controlpanel.repository.ShowRepository;
@@ -48,6 +49,7 @@ class ScheduledTaskServiceTest {
 
     @Mock private ShowRepository showRepository;
     @Mock private MongoTemplate mongoTemplate;
+    @Mock private FppHealthOutageStore outageStore;
     @InjectMocks private ScheduledTaskService service;
 
     private Show staleShow(NotificationPreference notificationPreference, Boolean viewerControlEnabled) {
@@ -377,6 +379,263 @@ class ScheduledTaskServiceTest {
         assertTimeoutPreemptively(java.time.Duration.ofSeconds(2), () ->
                 assertThat(ScheduledTaskService.backoffStep(600, 0))
                         .isEqualTo(ScheduledTaskService.backoffStep(600, 5)));
+    }
+
+    // ---- platform-outage suppression (P1-7) ------------------------------
+    // A plugins-api or DB outage freezes every live plugin's lastFppHeartbeat
+    // within one ~30s heartbeat interval. Without suppression, 5 minutes later
+    // every opted-in show gets "your plugin is down", which is false and turns
+    // one platform incident into hundreds of support tickets.
+
+    /**
+     * {@code count} opted-in shows whose plugins all froze within the same
+     * ~30s heartbeat interval, {@code frozenMinutesAgo} minutes ago. Never
+     * alerted for this outage.
+     */
+    private List<Show> cohort(int count, long frozenMinutesAgo) {
+        LocalDateTime frozeAt = LocalDateTime.now().minusMinutes(frozenMinutesAgo);
+        List<Show> shows = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            shows.add(Show.builder()
+                    .showToken("cohort-" + i)
+                    .showName("Cohort Show " + i)
+                    .lastFppHeartbeat(frozeAt.minusSeconds(i % 30))
+                    .preferences(Preference.builder()
+                            .viewerControlEnabled(true)
+                            .notificationPreferences(NotificationPreference.builder()
+                                    .enableFppHeartbeat(true)
+                                    .fppHeartbeatRenotifyAfterMinutes(30)
+                                    .build())
+                            .build())
+                    .build());
+        }
+        return shows;
+    }
+
+    private void healthyShowsNow(long healthy) {
+        when(mongoTemplate.count(any(Query.class), eq(Show.class))).thenReturn(healthy);
+    }
+
+    private void candidates(List<Show> shows) {
+        when(showRepository.findFppHeartbeatAlertCandidates(
+                any(LocalDateTime.class), any(LocalDateTime.class))).thenReturn(shows);
+    }
+
+    private List<String> pushedTokens() {
+        ArgumentCaptor<Query> queries = ArgumentCaptor.forClass(Query.class);
+        verify(mongoTemplate, org.mockito.Mockito.atLeast(0))
+                .updateFirst(queries.capture(), any(Update.class), eq(Show.class));
+        return queries.getAllValues().stream()
+                .map(q -> q.getQueryObject().getString("showToken"))
+                .distinct()
+                .toList();
+    }
+
+    @Test
+    void massStale_isTreatedAsPlatformOutage_noPushes() {
+        // 40 opted-in shows froze inside one heartbeat interval and nothing
+        // else is heartbeating: that is the platform, not 40 Pis.
+        candidates(cohort(40, 6L));
+        healthyShowsNow(0L);
+
+        service.fppHeartbeatTask();
+
+        verify(mongoTemplate, never()).updateFirst(any(Query.class), any(Update.class), eq(Show.class));
+        // The cohort is remembered so recovery can hold it through reconnects.
+        ArgumentCaptor<FppHealthOutageStore.Outage> saved =
+                ArgumentCaptor.forClass(FppHealthOutageStore.Outage.class);
+        verify(outageStore).save(saved.capture());
+        assertThat(saved.getValue().cohortStart()).isBeforeOrEqualTo(saved.getValue().cohortEnd());
+        assertThat(saved.getValue().lastQualifiedAt()).isAfter(LocalDateTime.now().minusMinutes(1));
+        // Recovery + TTL sweeps still run during an outage.
+        verify(mongoTemplate, times(2)).updateMulti(any(Query.class), any(Update.class), eq(Show.class));
+    }
+
+    @Test
+    void clusteredStale_inAHealthyFleet_stillNotifies() {
+        // 12 shows dropping together is above the absolute floor, but against
+        // 500 healthy plugins it is 2.3% -- a real correlated loss (a regional
+        // ISP), not the platform. Everyone is told.
+        candidates(cohort(12, 6L));
+        healthyShowsNow(500L);
+
+        service.fppHeartbeatTask();
+
+        assertThat(pushedTokens()).hasSize(12);
+        verify(outageStore, never()).save(any());
+    }
+
+    @Test
+    void isolatedStale_stillNotifies_withoutTouchingTheOutageMachinery() {
+        candidates(cohort(1, 6L));
+
+        service.fppHeartbeatTask();
+
+        assertThat(pushedTokens()).containsExactly("cohort-0");
+        // Below the absolute floor there is nothing to measure: no extra
+        // count query on the every-minute path.
+        verify(mongoTemplate, never()).count(any(Query.class), eq(Show.class));
+        verify(outageStore, never()).save(any());
+    }
+
+    @Test
+    void showThatDiedBeforeTheOutage_stillNotifiesDuringIt() {
+        List<Show> shows = new ArrayList<>(cohort(40, 6L));
+        Show genuinelyDown = staleShow(NotificationPreference.builder()
+                .enableFppHeartbeat(true)
+                .fppHeartbeatRenotifyAfterMinutes(30)
+                .build(), true, 180L);
+        genuinelyDown.setShowToken("dead-before-outage");
+        shows.add(genuinelyDown);
+        candidates(shows);
+        healthyShowsNow(0L);
+
+        service.fppHeartbeatTask();
+
+        assertThat(pushedTokens()).containsExactly("dead-before-outage");
+    }
+
+    @Test
+    void recovery_withinGrace_stragglersAreStillSuppressed() {
+        // Platform came back 2 minutes ago; 37 of 40 plugins reconnected, 3
+        // are still mid-reconnect. On its own 3 stale shows is nothing, but
+        // they froze inside the remembered outage cohort: no burst.
+        List<Show> stragglers = cohort(3, 40L);
+        LocalDateTime frozeAt = stragglers.get(0).getLastFppHeartbeat();
+        when(outageStore.load()).thenReturn(java.util.Optional.of(new FppHealthOutageStore.Outage(
+                frozeAt.minusSeconds(30), frozeAt, LocalDateTime.now().minusMinutes(2))));
+        candidates(stragglers);
+
+        service.fppHeartbeatTask();
+
+        verify(mongoTemplate, never()).updateFirst(any(Query.class), any(Update.class), eq(Show.class));
+    }
+
+    @Test
+    void recovery_afterGrace_stragglerIsAlertedExactlyOnce_thenLadderResumes() {
+        List<Show> stragglers = cohort(3, 40L);
+        LocalDateTime frozeAt = stragglers.get(0).getLastFppHeartbeat();
+        when(outageStore.load()).thenReturn(java.util.Optional.of(new FppHealthOutageStore.Outage(
+                frozeAt.minusSeconds(30), frozeAt,
+                LocalDateTime.now().minusMinutes(ScheduledTaskService.OUTAGE_RECOVERY_GRACE_MINUTES + 1))));
+        candidates(stragglers);
+
+        service.fppHeartbeatTask();
+        assertThat(pushedTokens()).hasSize(3);
+        verify(mongoTemplate, times(6)).updateFirst(any(Query.class), any(Update.class), eq(Show.class));
+
+        // Next tick: the push stamped fppHeartbeatLastNotification, exactly as
+        // any first alert does. Same backoff step, so nothing more is due.
+        stragglers.forEach(s -> s.getPreferences().getNotificationPreferences()
+                .setFppHeartbeatLastNotification(LocalDateTime.now()));
+        service.fppHeartbeatTask();
+        verify(mongoTemplate, times(6)).updateFirst(any(Query.class), any(Update.class), eq(Show.class));
+    }
+
+    @Test
+    void suppressionIsBoundedInTime_soAPersistentClusterIsEventuallyAlerted() {
+        // A cluster that never comes back (a regional power cut in a small
+        // off-season fleet) must not be silenced until the 48h floor.
+        candidates(cohort(40, ScheduledTaskService.OUTAGE_MAX_SUPPRESSION_MINUTES + 1));
+        healthyShowsNow(0L);
+
+        service.fppHeartbeatTask();
+
+        assertThat(pushedTokens()).hasSize(40);
+    }
+
+    @Test
+    void dbUnreachable_onTheScan_skipsTheTickInsteadOfThrowing() {
+        when(showRepository.findFppHeartbeatAlertCandidates(
+                any(LocalDateTime.class), any(LocalDateTime.class)))
+                .thenThrow(new org.springframework.dao.DataAccessResourceFailureException("timeout"));
+
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> service.fppHeartbeatTask());
+
+        verify(mongoTemplate, never()).updateFirst(any(Query.class), any(Update.class), eq(Show.class));
+        verify(mongoTemplate, never()).updateMulti(any(Query.class), any(Update.class), eq(Show.class));
+    }
+
+    @Test
+    void dbUnreachable_onTheHealthyCount_isNotReadAsEveryoneStale() {
+        // A failed count must not become "0 healthy" (=> 100% stale => a
+        // platform outage) nor "unknown, so alert everyone". Skip the tick.
+        candidates(cohort(40, 6L));
+        when(mongoTemplate.count(any(Query.class), eq(Show.class)))
+                .thenThrow(new org.springframework.dao.DataAccessResourceFailureException("timeout"));
+
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> service.fppHeartbeatTask());
+
+        verify(mongoTemplate, never()).updateFirst(any(Query.class), any(Update.class), eq(Show.class));
+        verify(outageStore, never()).save(any());
+    }
+
+    @Test
+    void outageStoreUnreachable_onLoad_skipsTheTick() {
+        candidates(cohort(3, 40L));
+        when(outageStore.load()).thenThrow(new com.mongodb.MongoTimeoutException("timeout"));
+
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> service.fppHeartbeatTask());
+
+        verify(mongoTemplate, never()).updateFirst(any(Query.class), any(Update.class), eq(Show.class));
+    }
+
+    // detectOutageCohort thresholds, at the boundaries.
+
+    private static List<LocalDateTime> frozenTogether(int count, LocalDateTime at) {
+        List<LocalDateTime> out = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            out.add(at.minusSeconds(i));
+        }
+        return out;
+    }
+
+    @Test
+    void detect_qualifiesAtExactlyTheFloorAndThePercentage() {
+        LocalDateTime t = LocalDateTime.now().minusMinutes(10);
+        // 10 of (10 + 30 healthy) = 25%
+        assertThat(ScheduledTaskService.detectOutageCohort(frozenTogether(10, t), 30L)).isPresent();
+    }
+
+    @Test
+    void detect_justBelowThePercentage_doesNotQualify() {
+        LocalDateTime t = LocalDateTime.now().minusMinutes(10);
+        // 10 of 41 = 24.4%
+        assertThat(ScheduledTaskService.detectOutageCohort(frozenTogether(10, t), 31L)).isEmpty();
+    }
+
+    @Test
+    void detect_belowTheAbsoluteFloor_doesNotQualifyEvenAt100Percent() {
+        LocalDateTime t = LocalDateTime.now().minusMinutes(10);
+        assertThat(ScheduledTaskService.detectOutageCohort(frozenTogether(9, t), 0L)).isEmpty();
+    }
+
+    @Test
+    void detect_cohortExcludesShowsThatFrozeOutsideTheWindow() {
+        LocalDateTime t = LocalDateTime.now().minusMinutes(60);
+        List<LocalDateTime> stale = new ArrayList<>(frozenTogether(20, t));
+        LocalDateTime earlier = t.minusMinutes(ScheduledTaskService.OUTAGE_COHORT_WINDOW_MINUTES + 5);
+        LocalDateTime later = t.plusMinutes(ScheduledTaskService.OUTAGE_COHORT_WINDOW_MINUTES + 5);
+        stale.add(earlier);
+        stale.add(later);
+
+        var cohort = ScheduledTaskService.detectOutageCohort(stale, 0L).orElseThrow();
+
+        assertThat(cohort.start()).isAfter(earlier);
+        assertThat(cohort.end()).isBefore(later);
+        assertThat(cohort.staleShows()).isEqualTo(20);
+    }
+
+    @Test
+    void detect_denominatorCountsShowsThatWereHealthyAtTheCohortStart() {
+        // 10 froze together; 31 more froze LATER (so were healthy when the 10
+        // froze). 10 of 41 is below 25% even though healthyNow is 0.
+        LocalDateTime t = LocalDateTime.now().minusHours(3);
+        List<LocalDateTime> stale = new ArrayList<>(frozenTogether(10, t));
+        for (int i = 0; i < 31; i++) {
+            stale.add(t.plusMinutes(30L + i * 3L));
+        }
+        assertThat(ScheduledTaskService.detectOutageCohort(stale, 0L)).isEmpty();
     }
 
     /** One alert per step transition, walking a 48h outage minute by minute. */
