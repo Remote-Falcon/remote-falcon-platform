@@ -1,0 +1,42 @@
+# Helm values for the prod ingress-nginx release.
+#
+#   release:   ingress-nginx  (namespace ingress-nginx)
+#   chart:     ingress-nginx/ingress-nginx 4.15.1 (controller v1.15.1)
+#   repo:      https://kubernetes.github.io/ingress-nginx
+#
+# This file is the COMPLETE set of user-supplied values. Before it existed the
+# release was installed with no values at all (`helm get values` = null on
+# 2026-10-13, revision 1, installed 2026-04-24), so every setting not below is
+# the chart default. Apply with ./apply.sh, which uses --reset-values so this
+# file stays the single source of truth.
+#
+# Not set here on purpose: the LoadBalancer Service annotations
+# `service.beta.kubernetes.io/do-loadbalancer-type: REGIONAL_NETWORK` and
+# `kubernetes.digitalocean.com/load-balancer-id`. The DigitalOcean cloud
+# controller manager owns both (managedFields), and helm's server-side apply
+# leaves fields it doesn't own alone, so the LB is not touched.
+
+controller:
+  # Appendix D P0-5: the controller was 1 replica with no PDB, so every
+  # request for every service went through one pod. A node drain, OOM, or
+  # upgrade of that node was a full outage until it rescheduled.
+  replicaCount: 2
+
+  # The chart renders a PDB only when replicaCount > 1. minAvailable 1 means a
+  # drain can take at most one controller at a time.
+  minAvailable: 1
+
+  # Hard anti-affinity: never put both controllers on the same node. The pool
+  # autoscales 3-5 nodes, so there is always a second node, and the rolling
+  # update (chart default 25%/25% = surge 1, unavailable 0 at 2 replicas) has
+  # a third node for the surge pod. If a node is NotReady the surge pod waits
+  # in Pending and the rollout stalls without dropping capacity.
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+              app.kubernetes.io/instance: ingress-nginx
+              app.kubernetes.io/component: controller
+          topologyKey: kubernetes.io/hostname

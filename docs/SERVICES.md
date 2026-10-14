@@ -28,11 +28,12 @@ This is the operator's map of the Remote Falcon stack: every service, what it do
 | **Production cluster ID** | `4f1406fe-1179-4a9c-9d2e-835c3da34984` (DigitalOcean) |
 | **Experimental cluster ID** | `9badee22-1583-464e-8117-a7090179f151` (DigitalOcean — viewer-quarkus only) |
 | **Namespace** | `remote-falcon` |
-| **Ingress** | nginx (`kubernetes.io/ingress.class: nginx`) |
+| **Ingress** | nginx (`kubernetes.io/ingress.class: nginx`). Controller is the helm release `ingress-nginx` (namespace `ingress-nginx`, chart 4.15.1), applied by hand from [`ops/k8s/ingress-nginx/`](../ops/k8s/ingress-nginx/): 2 replicas, PDB `minAvailable: 1`, required anti-affinity on hostname. Controller ConfigMap is empty (nginx defaults); per-service timeout/retry overrides are Ingress annotations in each `apps/<svc>/k8s/manifest.yml`. |
 | **Public hosts** | `remotefalcon.com`, `*.remotefalcon.com` (UI subdomain catch-all) |
 | **Image registry** | GHCR — `ghcr.io/remote-falcon/<service>:<git-sha>` |
 | **Image pull secret** | `remote-falcon-ghcr` (in `remote-falcon` namespace) |
-| **Disruption / spread** | Multi-replica services (ui, gateway, control-panel, external-api) each carry a per-app `PodDisruptionBudget` (`minAvailable: 1`) and a `topologySpreadConstraints` block (hostname, `ScheduleAnyway`) in their `apps/<svc>/k8s/manifest.yml`. Single-replica services deliberately have neither (a min-available PDB on 1 replica blocks node drains). |
+| **Disruption / spread** | Every service with a floor of 2+ replicas (ui, gateway, control-panel, external-api, viewer, plugins-api) carries a per-app `PodDisruptionBudget` (`minAvailable: 1`) and a `topologySpreadConstraints` block (hostname, `ScheduleAnyway`) in its `apps/<svc>/k8s/manifest.yml`. Single-replica services (mongo-backup, account-archive) deliberately have neither (a min-available PDB on 1 replica blocks node drains). |
+| **Replica ownership** | HPA-managed Deployments (control-panel, external-api, viewer, plugins-api) have **no `replicas:` field**, so a deploy never resets a scaled-out service to the HPA minimum; deploy.yml's `replicas_min`/`replicas_max` feed only the HPA. A first-time create starts at 1 pod and the HPA raises it to `minReplicas` within ~15s. The deploy job strips `spec.replicas` from the Deployment's `last-applied-configuration` annotation before applying, otherwise client-side apply would delete the field and drop to 1 pod. |
 | **Metrics** | Prometheus via `kube-prometheus-stack-1768012917` (ServiceMonitors on viewer + plugins-api). Slated for retirement once OTel-collector-driven metrics are in place — tracked in [OBSERVABILITY-PLAN.md](OBSERVABILITY-PLAN.md) Obs-1c.6. |
 | **APM / logs** | **OTel Collector DaemonSet** (`otel-collector` in the `remote-falcon` namespace) ships container stdout + service-emitted OTLP signals to PostHog Logs. Manifests live in [`ops/k8s/otel-collector/`](../ops/k8s/otel-collector/); deployed by [`.github/workflows/deploy-collector.yml`](../.github/workflows/deploy-collector.yml). Per-service rollover via `OTEL_URI` env var pointing at `http://otel-collector.remote-falcon.svc.cluster.local:4317` — currently in place for `mongo-backup` and `account-archive` (prepositioned); other services pending their app-side OTel wiring. |
 
@@ -77,9 +78,9 @@ This is the operator's map of the Remote Falcon stack: every service, what it do
 | **Purpose** | Authenticated REST + GraphQL API for show owners (auth, account mgmt, sequence config, integrations) |
 | **Stack** | Spring Boot 3, Java 21 GraalVM **native image** |
 | **Container port** | 8080 |
-| **Replicas** | 2 (HPA: min 2, max 4, scale at 70% CPU, damped scale-down) |
+| **Replicas** | HPA-owned: min 2, max 4, scale at 70% CPU, damped scale-down |
 | **Resources** | req 256Mi / 200m → lim 512Mi / 500m |
-| **Ingress** | Host `remotefalcon.com`, path prefix `/remote-falcon-control-panel` (proxy body size: 3 MB) |
+| **Ingress** | Host `remotefalcon.com`, path prefix `/remote-falcon-control-panel` (proxy body size: 3 MB; `proxy-read-timeout` 20s) |
 | **Health probe** | `GET /remote-falcon-control-panel/actuator/health` |
 | **Talks to** | MongoDB, GitHub (PAT), SendGrid, S3 (DigitalOcean Spaces), OpenAI / "Wattson" |
 | **Scheduled tasks** | Every minute: FPP plugin-health bell alerts (enabled 2026-07-19; flood-guarded — replace-not-append, clear-on-recovery, 24h TTL, 48h recent-outage window; opt-in per show via Account Settings → Notifications). Nightly 03:00 UTC: stats retention sweep + oversized-document alarm |
@@ -92,9 +93,9 @@ This is the operator's map of the Remote Falcon stack: every service, what it do
 | **Purpose** | Public viewer-facing API — current/next sequence, request/vote, page stats, geo-fencing, blocked-IP rules |
 | **Stack** | Quarkus + SmallRye GraphQL + RESTEasy, Java 21 native image |
 | **Container port** | 8080 |
-| **Replicas** | 1 (HPA: min 1, max 3, scale at 85% CPU) |
-| **Resources** | req 160Mi / 100m → lim 320Mi / 500m |
-| **Ingress** | Host `remotefalcon.com`, path prefix `/remote-falcon-viewer` (forwarded headers enabled for client-IP) |
+| **Replicas** | HPA-owned: min 2, max 4, scale at 85% CPU, damped (up 1 pod/60s, down after a 300s window). PDB `minAvailable: 1` + hostname spread. Max 4 is bounded by the Mongo connection budget. |
+| **Resources** | req 160Mi / 150m → lim 320Mi / 500m |
+| **Ingress** | Host `remotefalcon.com`, path prefix `/remote-falcon-viewer` (forwarded headers enabled for client-IP; `proxy-read-timeout` 15s) |
 | **Health probe** | `GET /remote-falcon-viewer/q/health{,/live,/ready}` |
 | **Talks to** | MongoDB |
 | **GH Actions secrets** | `MONGO_URI` (build-arg, baked into native image), `DIGITALOCEAN_ACCESS_TOKEN` |
@@ -108,9 +109,9 @@ This is the operator's map of the Remote Falcon stack: every service, what it do
 | **Purpose** | API consumed by the FPP / show plugins — playlist sync, viewer control modes, votes, "what's playing" updates |
 | **Stack** | Quarkus, Java 21 native image |
 | **Container port** | 8080 |
-| **Replicas** | 1 (HPA: min 1, max 3, scale at 85% CPU) |
-| **Resources** | req 192Mi / 200m → lim 384Mi / 750m |
-| **Ingress** | Host `remotefalcon.com`, path prefixes `/remote-falcon-plugins-api(...)` **and** `/remotefalcon/api(...)` (rewrite-target) |
+| **Replicas** | HPA-owned: min 2, max 4, scale at 85% CPU, damped (up 1 pod/60s, down after a 300s window). PDB `minAvailable: 1` + hostname spread. Max 4 is bounded by the Mongo connection budget. |
+| **Resources** | req 192Mi / 250m → lim 384Mi / 750m |
+| **Ingress** | Host `remotefalcon.com`, path prefixes `/remote-falcon-plugins-api(...)` **and** `/remotefalcon/api(...)` (rewrite-target). `proxy-next-upstream: error` (never re-send on timeout: `/nextPlaylistInQueue?updateQueue=true` is a mutating GET), `proxy-read-timeout` 12s, `proxy-connect-timeout` 3s |
 | **Health probe** | `GET /q/health{,/live,/ready}` |
 | **Talks to** | MongoDB |
 | **GH Actions secrets** | `MONGO_URI` (build-arg), `DIGITALOCEAN_ACCESS_TOKEN` |
@@ -123,7 +124,7 @@ This is the operator's map of the Remote Falcon stack: every service, what it do
 | **Purpose** | Third-party / external integrations API (GraphQL surface) for partners **plus** the RFPB-facing `/v1/**` REST surface (viewer-page CRUD + session exchange) |
 | **Stack** | Spring Boot 3, Java 21 native image |
 | **Container port** | 8080 |
-| **Replicas** | 2 (HPA: min 2, max 4, scale at 70% CPU) |
+| **Replicas** | HPA-owned: min 2, max 4, scale at 70% CPU |
 | **Resources** | req 256Mi / 100m → lim 512Mi / 500m |
 | **Ingress** | Host `remotefalcon.com`, paths `/remote-falcon-external-api(...)` **and** `/remotefalcon/api/external(...)` (rewrite-target) |
 | **Health probe** | `GET /actuator/health` |
@@ -314,7 +315,7 @@ Empty remote — clones with `warning: You appear to have cloned an empty reposi
 
 1. **DigitalOcean Kubernetes cluster** at the ID above (or update workflows if you create a new one — see "Migrating cluster IDs" below).
 2. **DNS:** `remotefalcon.com` and `*.remotefalcon.com` → ingress LB.
-3. **nginx ingress controller** installed.
+3. **nginx ingress controller** installed: `helm install ingress-nginx ingress-nginx --repo https://kubernetes.github.io/ingress-nginx --version 4.15.1 -n ingress-nginx --create-namespace -f ops/k8s/ingress-nginx/values.yaml` (see [`ops/k8s/ingress-nginx/README.md`](../ops/k8s/ingress-nginx/README.md)).
 4. **kube-prometheus-stack** installed with release name `kube-prometheus-stack-1768012917` (or update the label in `viewer` + `plugins-api` ServiceMonitors).
 5. **Datadog Operator** — **NOT installed on the current cluster** (verified 2026-04-27). The original bring-up step would have installed it, created `datadog-secret` with key `api-key`, then applied `remote-falcon-data/k8s/datadog-agent.yaml`. Per [OBSERVABILITY-PLAN.md](OBSERVABILITY-PLAN.md) the cluster will move to Grafana Cloud + PostHog instead; **do not** install Datadog as part of a fresh bring-up. The `ad.datadoghq.com/...` annotations on `viewer` and `plugins-api` manifests are inert without the operator and can be removed during the observability rollout.
 6. **Namespace `remote-falcon`** created (each service's manifest also creates it idempotently).

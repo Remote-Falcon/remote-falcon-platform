@@ -12,7 +12,11 @@ metadata:
   labels:
     app: #{Application}#
 spec:
-  replicas: #{Replicas}#
+  # No `replicas:` on purpose: the HPA below owns the replica count. With the
+  # field set, every `kubectl apply` from deploy.yml snapped a scaled-out
+  # Deployment back to the HPA minimum, mid-show if that is when the deploy
+  # ran (Appendix D P0-3). A first-time create defaults to 1 and the HPA
+  # raises it to minReplicas on its next sync (~15s).
   selector:
     matchLabels:
       app: #{Application}#
@@ -173,6 +177,9 @@ metadata:
   annotations:
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/proxy-body-size: "3m"
+    # Appendix D P0-5: 20s (not the default 60s) leaves room for the slower
+    # dashboard stats aggregations without holding dead requests open.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "20"
 spec:
   tls:
   - hosts:
@@ -228,8 +235,11 @@ spec:
           periodSeconds: 120
 ---
 # B-2 (2026-08-22 audit): per-app disruption budget so a node drain always
-# leaves at least one replica serving. Only multi-replica services get one --
-# a PDB with minAvailable on a 1-replica deployment blocks drains outright.
+# leaves at least one replica serving. Every service whose floor is >= 2
+# replicas gets one (ui, gateway, control-panel, external-api, and since
+# Appendix D P0-4 viewer + plugins-api). Single-replica services
+# (mongo-backup, account-archive) still don't: a PDB with minAvailable on a
+# 1-replica deployment blocks drains outright.
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:

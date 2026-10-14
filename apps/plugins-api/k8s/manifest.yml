@@ -12,7 +12,11 @@ metadata:
   labels:
     app: #{Application}#
 spec:
-  replicas: #{Replicas.Min}#
+  # No `replicas:` on purpose: the HPA below owns the replica count. With the
+  # field set, every `kubectl apply` from deploy.yml snapped a scaled-out
+  # Deployment back to the HPA minimum, mid-show if that is when the deploy
+  # ran (Appendix D P0-3). A first-time create defaults to 1 and the HPA
+  # raises it to minReplicas on its next sync (~15s).
   selector:
     matchLabels:
       app: #{Application}#
@@ -26,6 +30,16 @@ spec:
       labels:
         app: #{Application}#
     spec:
+      # Same spread rule as control-panel: don't stack replicas on one node.
+      # ScheduleAnyway = prefer spreading but never block scheduling on a
+      # small/busy cluster.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: #{Application}#
       containers:
         - name: #{Application}#
           image: #{Image}#
@@ -98,7 +112,7 @@ metadata:
   name: #{Application}#
   namespace: default
   labels:
-    release: kube-prometheus-stack-1768012917
+    release: prometheus
 spec:
   namespaceSelector:
     matchNames:
@@ -120,6 +134,15 @@ metadata:
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/rewrite-target: /$2
     nginx.ingress.kubernetes.io/use-regex: "true"
+    # Appendix D P0-5. /nextPlaylistInQueue?updateQueue=true is a MUTATING
+    # GET (it $pulls the request), and nginx treats GET as idempotent, so
+    # the default "error timeout" re-sent it to another pod on an upstream
+    # timeout: load amplification plus a possible double dequeue. Retry only
+    # on connect errors. The plugin gives up at 10s, so don't keep the
+    # upstream request alive for the default 60s after it has gone.
+    nginx.ingress.kubernetes.io/proxy-next-upstream: "error"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "12"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "3"
 spec:
   tls:
     - hosts:
@@ -163,3 +186,35 @@ spec:
         target:
           type: Utilization
           averageUtilization: 85
+  # Damp the HPA (Appendix D P1-3, same shape as control-panel). Without a
+  # behavior block the k8s default adds up to +100%/+4 pods per 15s, and
+  # during a Mongo stall CPU RISES (timeouts, exception logging, TLS
+  # reconnects), so the HPA piled on pods that each opened new connection
+  # pools against the struggling DB. 1 pod/min up, slow scale-down.
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+---
+# Per-app disruption budget so a node drain always leaves one replica
+# serving. Safe now that the HPA floor is 2 (Appendix D P0-4); a PDB with
+# minAvailable 1 on a 1-replica deployment would block drains outright.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: #{Application}#
+  namespace: #{Namespace}#
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: #{Application}#
