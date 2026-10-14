@@ -1,6 +1,6 @@
 # Remote Falcon — Services & Deployment Reference
 
-**Last updated:** 2026-04-27
+**Last updated:** 2026-10-13 (deploy freeze, GHCR PAT expiry, Prometheus release name)
 **Maintainer:** Matt Shorts (taking over from prior maintainer)
 
 This is the operator's map of the Remote Falcon stack: every service, what it does, where it runs, and the secrets / cluster prerequisites it needs.
@@ -12,7 +12,7 @@ This is the operator's map of the Remote Falcon stack: every service, what it do
 ## TL;DR
 
 - **8 production services** deploy to one DigitalOcean Kubernetes cluster.
-- All deploy via per-repo **GitHub Actions** (`Build and Release`) on push to `main` (or manual `workflow_dispatch`).
+- All deploy via per-repo **GitHub Actions** (`Build and Release`) on push to `main` (or manual `workflow_dispatch`). Push-triggered deploys are blocked during the season [deploy freeze](#deploy-freeze).
 - All live in the `remote-falcon` namespace, behind a single nginx ingress on `remotefalcon.com`.
 - **`remote-falcon-library`** is a build-time dep of 5 of the 8 services (canonical Mongo schema, pulled via JitPack at a pinned git SHA).
 - **`remote-falcon-data`** holds two manually-applied k8s manifests (Datadog Operator CRD + viewer Secret template).
@@ -34,7 +34,7 @@ This is the operator's map of the Remote Falcon stack: every service, what it do
 | **Image pull secret** | `remote-falcon-ghcr` (in `remote-falcon` namespace) |
 | **Disruption / spread** | Every service with a floor of 2+ replicas (ui, gateway, control-panel, external-api, viewer, plugins-api) carries a per-app `PodDisruptionBudget` (`minAvailable: 1`) and a `topologySpreadConstraints` block (hostname, `ScheduleAnyway`) in its `apps/<svc>/k8s/manifest.yml`. Single-replica services (mongo-backup, account-archive) deliberately have neither (a min-available PDB on 1 replica blocks node drains). |
 | **Replica ownership** | HPA-managed Deployments (control-panel, external-api, viewer, plugins-api) have **no `replicas:` field**, so a deploy never resets a scaled-out service to the HPA minimum; deploy.yml's `replicas_min`/`replicas_max` feed only the HPA. A first-time create starts at 1 pod and the HPA raises it to `minReplicas` within ~15s. The deploy job strips `spec.replicas` from the Deployment's `last-applied-configuration` annotation before applying, otherwise client-side apply would delete the field and drop to 1 pod. |
-| **Metrics** | Prometheus via `kube-prometheus-stack-1768012917` (ServiceMonitors on viewer + plugins-api). Slated for retirement once OTel-collector-driven metrics are in place — tracked in [OBSERVABILITY-PLAN.md](OBSERVABILITY-PLAN.md) Obs-1c.6. |
+| **Metrics** | kube-prometheus-stack (helm release **`prometheus`** in namespace `monitoring`, chart 84.0.1) runs Prometheus (10d retention), Grafana, and Alertmanager. The Prometheus CR only selects ServiceMonitors/ScrapeConfigs labelled `release: prometheus`. The viewer + plugins-api ServiceMonitors carry that label (they used the stale `kube-prometheus-stack-1768012917` label, and were not scraped, until 2026-10-13). DO Managed Mongo metrics: [`ops/k8s/mongo-metrics/`](../ops/k8s/mongo-metrics/). See [OBSERVABILITY-PLAN.md](OBSERVABILITY-PLAN.md). |
 | **APM / logs** | **OTel Collector DaemonSet** (`otel-collector` in the `remote-falcon` namespace) ships container stdout + service-emitted OTLP signals to PostHog Logs. Manifests live in [`ops/k8s/otel-collector/`](../ops/k8s/otel-collector/); deployed by [`.github/workflows/deploy-collector.yml`](../.github/workflows/deploy-collector.yml). Per-service rollover via `OTEL_URI` env var pointing at `http://otel-collector.remote-falcon.svc.cluster.local:4317` — currently in place for `mongo-backup` and `account-archive` (prepositioned); other services pending their app-side OTel wiring. |
 
 ---
@@ -316,7 +316,7 @@ Empty remote — clones with `warning: You appear to have cloned an empty reposi
 1. **DigitalOcean Kubernetes cluster** at the ID above (or update workflows if you create a new one — see "Migrating cluster IDs" below).
 2. **DNS:** `remotefalcon.com` and `*.remotefalcon.com` → ingress LB.
 3. **nginx ingress controller** installed: `helm install ingress-nginx ingress-nginx --repo https://kubernetes.github.io/ingress-nginx --version 4.15.1 -n ingress-nginx --create-namespace -f ops/k8s/ingress-nginx/values.yaml` (see [`ops/k8s/ingress-nginx/README.md`](../ops/k8s/ingress-nginx/README.md)).
-4. **kube-prometheus-stack** installed with release name `kube-prometheus-stack-1768012917` (or update the label in `viewer` + `plugins-api` ServiceMonitors).
+4. **kube-prometheus-stack** installed in `monitoring` with helm release name `prometheus` (current cluster). ServiceMonitors need the label `release: prometheus` to be scraped.
 5. **Datadog Operator** — **NOT installed on the current cluster** (verified 2026-04-27). The original bring-up step would have installed it, created `datadog-secret` with key `api-key`, then applied `remote-falcon-data/k8s/datadog-agent.yaml`. Per [OBSERVABILITY-PLAN.md](OBSERVABILITY-PLAN.md) the cluster will move to Grafana Cloud + PostHog instead; **do not** install Datadog as part of a fresh bring-up. The `ad.datadoghq.com/...` annotations on `viewer` and `plugins-api` manifests are inert without the operator and can be removed during the observability rollout.
 6. **Namespace `remote-falcon`** created (each service's manifest also creates it idempotently).
 7. **GHCR image pull secret** `remote-falcon-ghcr` created in the `remote-falcon` namespace.
@@ -332,12 +332,12 @@ Empty remote — clones with `warning: You appear to have cloned an empty reposi
 
 | Secret name | Keys | Consumed by |
 |---|---|---|
-| `mongodb-connection` | `MONGO_URI` | viewer, plugins-api, account-archive, mongo-backup |
+| `mongodb-connection` | `MONGO_URI` | viewer, plugins-api, account-archive, mongo-backup, `mongo-metrics-exporter` ([`ops/k8s/mongo-metrics/`](../ops/k8s/mongo-metrics/)) |
 | `remote-falcon-control-panel` | `mongo-uri`, `github-pat`, `sendgrid-key`, `jwt-user`, `client-header`, `s3-endpoint`, `s3-accessKey`, `s3-secretKey`, `wattson-key`, `openai-model`, `max-output-tokens` | control-panel |
 | `remote-falcon-external-api` | `mongo-uri` | external-api |
 | `do-s3` | `AWS_ACCESS_KEY_ID`, `AWS_REGION`, `AWS_SECRET_ACCESS_KEY` | mongo-backup |
 | `mongo-backup-auth-token` | `BACKUP_AUTH_TOKEN` | mongo-backup |
-| `remote-falcon-ghcr` | `.dockerconfigjson` | (image pull, all services) |
+| `remote-falcon-ghcr` | `.dockerconfigjson` | (image pull, all services). **Expires 2026-10-23 01:15 UTC** (Thu Oct 22, 9:15pm EDT). See [GHCR pull secret](#ghcr-pull-secret) below. |
 | `datadog-secret` | `api-key` | Datadog agent |
 
 ### GitHub Actions Secrets (per repo)
@@ -356,6 +356,62 @@ Empty remote — clones with `warning: You appear to have cloned an empty reposi
 | `GITHUB_TOKEN` | (auto, for GHCR push) |
 
 > **Heads-up:** `MONGO_URI` and the UI's third-party keys are **baked into the image at build time** (Docker build-args / Vite env). Rotating any of them requires a fresh build — restarting pods is not enough.
+
+### GHCR pull secret
+
+`remote-falcon-ghcr` is created by hand (no workflow manages it). As of 2026-10-13 it holds a **classic PAT** (`ghp_` prefix) for GitHub user `mshorts`, scope `read:packages` only, **expiring 2026-10-23 01:15:11 UTC** (Thu Oct 22, 9:15pm EDT). The Secret was last applied 2026-07-25 01:15Z, so this is a 90-day token.
+
+When it expires, running pods keep running (images are cached on their nodes), but **every new image pull fails with `ImagePullBackOff`**: every deploy (each one pulls a new SHA), every pod rescheduled to a node without the image, and every node the autoscaler adds. That is a deploy outage and a scale-out outage during peak season.
+
+Rotate before it expires, with an expiry past the season (Feb 2027 or later):
+
+```sh
+# 1. github.com/settings/tokens → classic token, scope read:packages only.
+# 2. Apply without the token touching shell history or disk:
+read -rs NEW_PAT
+kubectl -n remote-falcon create secret docker-registry remote-falcon-ghcr \
+  --docker-server=ghcr.io --docker-username=mshorts --docker-password="$NEW_PAT" \
+  --dry-run=client -o yaml | kubectl apply -f -
+unset NEW_PAT
+```
+
+Check the expiry of whatever is in the Secret now (prints the date, never the token):
+
+```sh
+kubectl -n remote-falcon get secret remote-falcon-ghcr -o jsonpath='{.data.\.dockerconfigjson}' \
+  | base64 -d | jq -r '.auths["ghcr.io"].password // (.auths["ghcr.io"].auth | @base64d | split(":")[1])' \
+  | sed 's/^/header = "Authorization: token /; s/$/"/' \
+  | curl -sI --config - https://api.github.com/user \
+  | grep -iE '^(HTTP|github-authentication-token-expiration|x-oauth-scopes)'
+```
+
+Longer term (Appendix D P2-6): mirror images to DOCR, which the cluster can pull from without a user PAT.
+
+---
+
+## Deploy freeze
+
+US light shows run about 5pm to 2am ET, and the busiest nights are Friday through Sunday from November on. A bad deploy or a mid-show resize during that window is what turned the 2026-10-12 DB stall into an outage (Season Capacity Plan 2026, Appendix D §5).
+
+**Policy (every season):**
+
+- **Oct 30 through Jan 1:** no deploys from **Fri 3pm ET to Mon 9am ET**.
+- **Nov 26 through Jan 1:** also no deploys **after 3pm ET on any day**.
+- **Hotfixes** go through `workflow_dispatch` with a named reason, viewer/plugins-api only, and never 6pm to 10pm ET.
+- **Never during show hours (5pm to 2am ET), any time of year:** DB or cluster resizes, node-pool changes, DOKS upgrades.
+- Keep the DO Mongo and DOKS maintenance windows out of show hours (target ~10:00 UTC).
+
+**Enforcement:** the `deploy-freeze` job at the top of [`deploy.yml`](../.github/workflows/deploy.yml) runs [`.github/scripts/deploy-freeze.sh`](../.github/scripts/deploy-freeze.sh) on every push to `main`. Inside a frozen window it fails, which blocks the `deploy` job (merges still build and push images; nothing rolls out). The window math uses `TZ=America/New_York`, so EDT/EST is handled, and it's judged on the ET calendar date. `workflow_dispatch` is not checked; that is the hotfix path:
+
+```sh
+gh workflow run deploy.yml --ref main -f service=<svc>
+```
+
+A merge blocked by the freeze is not retried automatically. Re-dispatch it once the window opens, the same way as any path-gated deploy.
+
+The job also self-tests the window logic on every run (`.github/scripts/deploy-freeze.test.sh`, fixed UTC instants across the DST change). Change the dates in the script's `SEASON_START` / `PEAK_START` / `SEASON_END` and the test together.
+
+The season starts Fri Oct 30 so the guard covers Halloween weekend (Sat Oct 31 2026).
 
 ---
 

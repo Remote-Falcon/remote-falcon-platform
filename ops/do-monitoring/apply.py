@@ -83,10 +83,31 @@ def update_alert(token: str, uuid: str, payload: dict) -> dict:
     return resp.get("policy", resp)
 
 
-def _yaml_to_payload(alert: dict, slack_url: str, doks_tag: str) -> dict:
+def _target(alert: dict, config: dict) -> tuple[list[str], list[str]]:
+    """Resolve an alert's `target:` to (tags, entities).
+
+    doks_nodes: every Droplet carrying the DOKS node tag (v1/insights/droplet/*).
+    dbaas:      the managed DB cluster in `database_id` (v1/dbaas/alerts/*).
+                DO keys dbaas alerts on `entities` (cluster UUIDs), not tags.
+    """
     target = alert.get("target", "doks_nodes")
-    if target != "doks_nodes":
-        sys.exit(f"Unknown target type: {target!r} (only 'doks_nodes' supported)")
+    desc = alert["description"]
+    if target == "doks_nodes":
+        if not alert["type"].startswith("v1/insights/droplet/"):
+            sys.exit(f"{desc!r}: target doks_nodes needs a v1/insights/droplet/* type")
+        return [config["doks_node_tag"]], []
+    if target == "dbaas":
+        if not alert["type"].startswith("v1/dbaas/"):
+            sys.exit(f"{desc!r}: target dbaas needs a v1/dbaas/* type")
+        db_id = alert.get("database_id") or config.get("database_id")
+        if not db_id:
+            sys.exit(f"{desc!r}: target dbaas needs database_id")
+        return [], [db_id]
+    sys.exit(f"Unknown target type: {target!r} (supported: doks_nodes, dbaas)")
+
+
+def _yaml_to_payload(alert: dict, slack_url: str, config: dict) -> dict:
+    tags, entities = _target(alert, config)
     return {
         "alerts": {
             "email": [],
@@ -95,8 +116,8 @@ def _yaml_to_payload(alert: dict, slack_url: str, doks_tag: str) -> dict:
         "compare": alert["compare"],
         "description": alert["description"],
         "enabled": alert.get("enabled", True),
-        "entities": [],
-        "tags": [doks_tag],
+        "entities": entities,
+        "tags": tags,
         "type": alert["type"],
         "value": alert["value"],
         "window": alert["window"],
@@ -109,9 +130,10 @@ def _alert_drift(remote: dict, desired: dict) -> list[str]:
     for k in ("compare", "enabled", "type", "value", "window"):
         if remote.get(k) != desired.get(k):
             drift.append(f"{k}: {remote.get(k)!r} -> {desired.get(k)!r}")
-    # Tags as set comparison
-    if sorted(remote.get("tags") or []) != sorted(desired.get("tags") or []):
-        drift.append(f"tags: {remote.get('tags')} -> {desired.get('tags')}")
+    # Tags and entities as set comparisons
+    for k in ("tags", "entities"):
+        if sorted(remote.get(k) or []) != sorted(desired.get(k) or []):
+            drift.append(f"{k}: {remote.get(k)} -> {desired.get(k)}")
     # Slack destination URL
     remote_slacks = remote.get("alerts", {}).get("slack") or []
     desired_slacks = desired.get("alerts", {}).get("slack") or []
@@ -127,7 +149,6 @@ def main() -> int:
     args = parser.parse_args()
 
     config = yaml.safe_load(args.alerts_file.read_text())
-    doks_tag = config["doks_node_tag"]
     webhook_env = config.get("discord_webhook_env", "DISCORD_ALERTS_WEBHOOK")
 
     token = os.environ.get("DIGITALOCEAN_ACCESS_TOKEN")
@@ -144,7 +165,8 @@ def main() -> int:
 
     mode = "APPLY" if args.apply else "DRY-RUN"
     print(f"=== DO Monitoring reconcile ({mode}) ===")
-    print(f"doks_node_tag={doks_tag}")
+    print(f"doks_node_tag={config.get('doks_node_tag')}")
+    print(f"database_id={config.get('database_id')}")
     print()
 
     remote_alerts = list_alerts(token)
@@ -154,14 +176,15 @@ def main() -> int:
     for alert_cfg in config.get("alerts", []):
         desc = alert_cfg["description"]
         desired_descs.add(desc)
-        desired = _yaml_to_payload(alert_cfg, slack_url, doks_tag)
+        desired = _yaml_to_payload(alert_cfg, slack_url, config)
         remote = remote_by_desc.get(desc)
 
         if remote is None:
             print(f"[CREATE] {desc}")
             print(
                 f"         {desired['type']}  {desired['compare']} {desired['value']} "
-                f"window={desired['window']}  tag={doks_tag}"
+                f"window={desired['window']}  "
+                f"tags={desired['tags']} entities={desired['entities']}"
             )
             if args.apply:
                 created = create_alert(token, desired)
