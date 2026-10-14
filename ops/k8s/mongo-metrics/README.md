@@ -77,13 +77,10 @@ in the DO console and the `rf-mongo-*` DO Monitoring alerts
 Found while wiring this up (2026-10-13): the Prometheus CR selects
 ServiceMonitors with `release: prometheus` (the helm release in
 `monitoring` is named `prometheus`, chart kube-prometheus-stack-84.0.1).
-The viewer and plugins-api manifests label theirs
-`release: kube-prometheus-stack-1768012917` and put them in `default`.
-Prometheus's active targets have no viewer or plugins-api job, so
-`/q/metrics` (and any Mongo pool gauges added there) never reaches
-Prometheus. The fix is a one-line label change in each manifest. It's
-left out of this change because those manifests are being edited in
-parallel for the probe and replica work.
+The viewer and plugins-api ServiceMonitors were labelled
+`release: kube-prometheus-stack-1768012917`, so `/q/metrics` never
+reached Prometheus. The season-resilience release relabels them
+`release: prometheus`.
 
 ## If DO ships a MongoDB metrics endpoint
 

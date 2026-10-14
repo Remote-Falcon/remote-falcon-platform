@@ -9,7 +9,7 @@ This is the operator's plan for full-stack observability across the Remote Falco
 
 > **Reality check (2026-10-13).** This plan lists self-hosted kube-prometheus-stack as dropped and Grafana Cloud as the sink. Neither happened. Logs, alerts and dashboards went all-PostHog ([`observability/`](observability/)), and **kube-prometheus-stack is still running** in the `monitoring` namespace: helm release `prometheus` (chart 84.0.1), Prometheus 10d retention, Grafana, Alertmanager, node-exporter, kube-state-metrics, up 171 days. Two consequences:
 > - It's the cheapest place for metrics PostHog can't hold, so the season work uses it. DO Managed Mongo metrics land there via an in-cluster exporter ([`ops/k8s/mongo-metrics/`](../ops/k8s/mongo-metrics/)); DO doesn't offer its :9273 endpoint for MongoDB.
-> - **The viewer and plugins-api ServiceMonitors are not scraped.** They're labelled `release: kube-prometheus-stack-1768012917`, but the Prometheus CR selects `release: prometheus`, and its active targets have no app jobs. Fix the label before relying on any `/q/metrics` gauge (e.g. Mongo driver pool metrics).
+> - **The viewer and plugins-api ServiceMonitors were not scraped until 2026-10-13.** They were labelled `release: kube-prometheus-stack-1768012917`, but the Prometheus CR selects `release: prometheus`. The season-resilience release relabels them, so `/q/metrics` gauges (e.g. Mongo driver pool metrics) reach Prometheus after that deploy.
 >
 > Don't uninstall the stack (Obs-1.7) during the season.
 
