@@ -24,6 +24,10 @@ class PluginControllerTest {
   void setupShowTokenMock() {
     // By default, authorize all requests with a known token
     when(showRepository.findByShowToken(TEST_TOKEN)).thenReturn(java.util.Optional.of(new Show()));
+    // The poll endpoints probe the queue before the full load. Report work
+    // queued so they fall through to the (mocked) service like the rest.
+    when(showRepository.findPollStateByShowToken(TEST_TOKEN))
+        .thenReturn(java.util.Optional.of(new ShowRepository.PollState(true, true)));
   }
 
   private static final String TEST_TOKEN = "test-token";

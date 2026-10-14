@@ -6,7 +6,9 @@ import com.mongodb.client.model.Projections;
 import com.remotefalcon.library.quarkus.entity.Show;
 import io.quarkus.mongodb.panache.PanacheMongoRepository;
 import jakarta.enterprise.context.ApplicationScoped;
+import org.bson.Document;
 
+import java.util.List;
 import java.util.Optional;
 
 @ApplicationScoped
@@ -81,6 +83,49 @@ public class ShowRepository implements PanacheMongoRepository<Show> {
         ));
 
     return Optional.ofNullable(result.first());
+  }
+
+  /**
+   * Whether a show has anything queued, without loading it. Backs the
+   * empty-queue short-circuit on the two plugin poll endpoints, which
+   * interrupt-mode plugins call about once a second and which almost always
+   * find nothing.
+   *
+   * <p>Returns two computed booleans and no document fields, so the reply is
+   * a few bytes instead of the filter projection (sequences alone are ~30 KB,
+   * up to ~1 MB on artwork shows). It's still one indexed lookup, and
+   * WiredTiger still has to page the doc in to evaluate {@code $size}. The
+   * saving is the serialize/transfer/decode work, not cache residency.
+   *
+   * <p>Empty also doubles as "no such token", so the filter can negatively
+   * cache unknown tokens from the same call.
+   */
+  public Optional<PollState> findPollStateByShowToken(String showToken) {
+    Document result = mongoCollection()
+        .withDocumentClass(Document.class)
+        .find(Filters.eq("showToken", showToken))
+        .projection(new Document("_id", 0)
+            .append("hasRequests", nonEmptyArray("$requests"))
+            .append("hasVotes", nonEmptyArray("$votes")))
+        .first();
+    if (result == null) {
+      return Optional.empty();
+    }
+    return Optional.of(new PollState(
+        Boolean.TRUE.equals(result.getBoolean("hasRequests")),
+        Boolean.TRUE.equals(result.getBoolean("hasVotes"))));
+  }
+
+  /** {@code {$cond: [{$isArray: field}, {$gt: [{$size: field}, 0]}, false]}}: null/missing count as empty. */
+  private static Document nonEmptyArray(String fieldRef) {
+    return new Document("$cond", List.of(
+        new Document("$isArray", fieldRef),
+        new Document("$gt", List.of(new Document("$size", fieldRef), 0)),
+        false));
+  }
+
+  /** Result of {@link #findPollStateByShowToken}. */
+  public record PollState(boolean hasRequests, boolean hasVotes) {
   }
 
   /**

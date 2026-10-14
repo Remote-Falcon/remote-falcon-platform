@@ -12,4 +12,12 @@ import lombok.NoArgsConstructor;
 public class HighestVotedPlaylistResponse {
   private String winningPlaylist;
   private Integer playlistIndex;
+
+  /** "Nothing to play": what the plugin gets when there's nothing queued. */
+  public static HighestVotedPlaylistResponse empty() {
+    return HighestVotedPlaylistResponse.builder()
+        .winningPlaylist(null)
+        .playlistIndex(-1)
+        .build();
+  }
 }
