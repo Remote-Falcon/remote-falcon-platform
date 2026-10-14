@@ -1,0 +1,109 @@
+# Prometheus metrics for the DO Managed Mongo cluster (remote-falcon-mongo).
+#
+# DO does not expose its :9273 metrics endpoint for MongoDB (see README.md),
+# so this runs percona/mongodb_exporter in-cluster against the same URI the
+# services use and lets kube-prometheus-stack scrape it.
+#
+# Apply manually (no workflow yet):
+#   kubectl apply -f ops/k8s/mongo-metrics/exporter.yml
+#
+# No secret values here: the URI comes from the existing `mongodb-connection`
+# Secret via secretKeyRef, never copied out of the cluster.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongo-metrics-exporter
+  namespace: remote-falcon
+  labels:
+    app: mongo-metrics-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mongo-metrics-exporter
+  template:
+    metadata:
+      labels:
+        app: mongo-metrics-exporter
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+      containers:
+        - name: exporter
+          image: percona/mongodb_exporter:0.53.0
+          args:
+            # serverStatus: connections, opcounters, globalLock queues,
+            # WiredTiger cache. One cheap command per scrape.
+            - --collector.diagnosticdata
+            - --collector.replicasetstatus
+            # Also emit the v1 names (mongodb_connections, mongodb_op_counters_total)
+            # so stock Grafana dashboards work.
+            - --compatible-mode
+            # mongodb+srv URI: discover the topology instead of a direct connect.
+            - --no-mongodb.direct-connect
+            # Deliberately NOT --collect-all: collstats/indexstats/dbstats walk
+            # every collection, which is real load on a 1 vCPU / 1 GB node.
+            - --log.level=warn
+          env:
+            - name: MONGODB_URI
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb-connection
+                  key: MONGO_URI
+          ports:
+            - name: metrics
+              containerPort: 9216
+          readinessProbe:
+            # TCP only: /metrics would run serverStatus on every probe.
+            tcpSocket:
+              port: metrics
+            periodSeconds: 30
+            timeoutSeconds: 3
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 96Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongo-metrics-exporter
+  namespace: remote-falcon
+  labels:
+    app: mongo-metrics-exporter
+spec:
+  type: ClusterIP
+  selector:
+    app: mongo-metrics-exporter
+  ports:
+    - name: metrics
+      port: 9216
+      targetPort: metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: mongo-metrics-exporter
+  namespace: remote-falcon
+  labels:
+    # Must match the Prometheus CR's serviceMonitorSelector. The helm release
+    # in `monitoring` is named `prometheus` (helm -n monitoring list), not
+    # kube-prometheus-stack-1768012917. See README.md.
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: mongo-metrics-exporter
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s

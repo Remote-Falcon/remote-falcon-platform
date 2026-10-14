@@ -47,6 +47,11 @@ Backend health visibility is delivered instead by:
 3. **Alerts** — the alerts in
    [`alerts-inventory.md`](./alerts-inventory.md) catch sustained
    problems in real time.
+4. **In-cluster Prometheus + Grafana** (kube-prometheus-stack, still
+   running in `monitoring`) for DO Managed Mongo metrics: connections,
+   ops/s, queued readers/writers, WiredTiger cache. Exporter and PromQL
+   in [`ops/k8s/mongo-metrics/`](../../ops/k8s/mongo-metrics/). Not
+   IaC-managed dashboards yet.
 
 This means the only thing "missing" relative to a typical observability
 stack is **at-a-glance backend metrics on a wall-mountable dashboard**.

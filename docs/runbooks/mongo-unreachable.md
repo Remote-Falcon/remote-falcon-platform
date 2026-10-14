@@ -13,6 +13,11 @@ The MongoDB driver can't reach the primary on the DO Managed cluster
 server selection. Every service shares that one cluster, so this is
 platform-wide by definition, not a single-service problem.
 
+**Reachable but slow?** If a DO `rf-mongo-cpu-*` or `rf-mongo-memory-high`
+alert fired around the same time, the node is saturated, not gone. Use
+[mongo-saturated.md](mongo-saturated.md) instead. "Recovery: usually none
+needed" below does not hold for saturation.
+
 ## Why this alert exists separately from `rf-backend-error-spike`
 
 **The driver logs this at INFO, not ERROR.** Server selection retry is a
@@ -80,7 +85,8 @@ drops. That is expected and is not evidence that plugins-api is the cause.
 ## Recovery
 
 Usually none needed; the driver reconnects on its own once DO restores a
-primary. If a pod stays wedged after the cluster is healthy:
+primary. (That holds for a lost primary. For a saturated one, see
+[mongo-saturated.md](mongo-saturated.md).) If a pod stays wedged after the cluster is healthy:
 
 ```sh
 kubectl rollout restart deployment/<svc> -n remote-falcon
@@ -102,6 +108,7 @@ argument needs a list of dates.
 | When | Duration | Impact |
 |---|---|---|
 | 2026-08-07 01:53Z (Thu 21:53 EDT) | ~1 min, 262 lines | None confirmed — no operation hit the 30s timeout. Predates this alert existing. |
+| 2026-10-12 evening EDT (Mon, ~01:30Z Oct 13) | ~40+ min | Saturation, not loss of primary: fleet-wide readiness failures, HPA scale-up pods failed startup, mid-show resize left the node unhealthy ~10 min and did not stick. See [mongo-saturated.md](mongo-saturated.md). |
 
 Per-service breakdown of that minute (matching this alert's filter
 exactly, so it doubles as the back-test):

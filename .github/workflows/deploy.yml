@@ -11,6 +11,7 @@ name: Deploy
 #            ├─► test-contract        ├─► deploy (matrix, apply-only) ─► post-deploy-watch
 #            ├─► test-e2e             │
 #            └─► build (matrix) ──────┘
+#   deploy-freeze ─────────────────────► deploy   (season freeze guard)
 #
 # Why this shape (see also docs/SERVICES.md):
 #   - build runs alongside the tests instead of inside deploy, so the ~5-9min
@@ -107,6 +108,31 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
+  # ---------------------------------------------------------------
+  # deploy-freeze: season freeze guard (policy: docs/SERVICES.md
+  # "Deploy freeze"). Self-tests the window logic on every run, then
+  # fails push-triggered runs inside a freeze window, which blocks the
+  # deploy job via its needs + !failure(). workflow_dispatch is the
+  # hotfix path and is never blocked; PR runs only self-test.
+  # ---------------------------------------------------------------
+  deploy-freeze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: .github/scripts
+      - name: Self-test freeze windows
+        run: bash .github/scripts/deploy-freeze.test.sh
+      - name: Refuse merge-triggered deploys during a freeze
+        if: github.event_name == 'push'
+        run: |
+          if ! out=$(bash .github/scripts/deploy-freeze.sh); then
+            echo "::error title=Deploy freeze::$out Hotfix path: gh workflow run deploy.yml --ref main -f service=<svc>"
+            exit 1
+          fi
+          echo "$out"
+
   # ---------------------------------------------------------------
   # detect — decide which services to (re)deploy this run
   # ---------------------------------------------------------------
@@ -402,7 +428,7 @@ jobs:
   # deploy — roll out each changed service's already-pushed image
   # ---------------------------------------------------------------
   deploy:
-    needs: [detect, test-unit, test-contract, test-e2e, build]
+    needs: [deploy-freeze, detect, test-unit, test-contract, test-e2e, build]
     # Deploy only on push to main (which fires after PR merge) or explicit
     # workflow_dispatch — NEVER on pull_request. PRs must run the test gates
     # but must not modify the cluster.
