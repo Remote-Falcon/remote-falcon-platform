@@ -1,6 +1,7 @@
 package com.remotefalcon.controller;
 
 import com.remotefalcon.library.quarkus.entity.Show;
+import com.remotefalcon.mongo.MongoFailFast;
 import com.remotefalcon.service.GraphQLMutationService;
 import com.remotefalcon.service.GraphQLQueryService;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -12,6 +13,7 @@ import java.time.LocalDateTime;
 
 @JBossLog
 @GraphQLApi
+@MongoFailFast
 @ApplicationScoped
 public class GraphQLController {
   @Inject
