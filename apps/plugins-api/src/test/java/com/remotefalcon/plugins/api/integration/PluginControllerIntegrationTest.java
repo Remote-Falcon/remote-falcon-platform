@@ -10,6 +10,8 @@ import com.remotefalcon.plugins.api.model.UpdateNextScheduledRequest;
 import com.remotefalcon.plugins.api.model.UpdateWhatsPlayingRequest;
 import com.remotefalcon.plugins.api.model.ViewerControlRequest;
 import com.remotefalcon.plugins.api.model.PluginVersion;
+import com.remotefalcon.plugins.api.cache.EmptyPollCache;
+import com.remotefalcon.plugins.api.cache.UnknownTokenCache;
 import com.remotefalcon.plugins.api.repository.ShowRepository;
 import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.QuarkusTest;
@@ -39,6 +41,12 @@ class PluginControllerIntegrationTest {
   @Inject
   ShowRepository showRepository;
 
+  @Inject
+  EmptyPollCache emptyPollCache;
+
+  @Inject
+  UnknownTokenCache unknownTokenCache;
+
   private static final String TEST_SHOW_TOKEN = "integration-test-token";
   private static final String BASE_PATH = "/remote-falcon-plugins-api";
 
@@ -56,6 +64,12 @@ class PluginControllerIntegrationTest {
     // Create a fresh test show
     Show testShow = createTestShow();
     showRepository.persist(testShow);
+
+    // These tests seed the queue straight into Mongo, like the viewer does
+    // from another service, so a cached "empty" from the previous test would
+    // hide it for up to the TTL.
+    emptyPollCache.clear();
+    unknownTokenCache.clear();
   }
 
   @AfterEach

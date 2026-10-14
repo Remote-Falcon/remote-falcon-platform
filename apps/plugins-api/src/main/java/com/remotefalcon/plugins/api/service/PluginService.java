@@ -57,10 +57,7 @@ public class PluginService {
 
   public NextPlaylistResponse nextPlaylistInQueue() {
     Show show = showContext.getShow();
-    NextPlaylistResponse defaultResponse = NextPlaylistResponse.builder()
-        .nextPlaylist(null)
-        .playlistIndex(-1)
-        .build();
+    NextPlaylistResponse defaultResponse = NextPlaylistResponse.empty();
     if (CollectionUtils.isEmpty(show.getRequests())) {
       return defaultResponse;
     }
@@ -1087,10 +1084,7 @@ public class PluginService {
 
   public HighestVotedPlaylistResponse highestVotedPlaylist() {
     Show show = showContext.getShow();
-    HighestVotedPlaylistResponse response = HighestVotedPlaylistResponse.builder()
-        .winningPlaylist(null)
-        .playlistIndex(-1)
-        .build();
+    HighestVotedPlaylistResponse response = HighestVotedPlaylistResponse.empty();
     //Get the sequence with the most votes. If there is a tie, get the sequence with the earliest vote time.
     //#109 anti-consecutive (PRD-009, ADR-3): selectWinningVote skips a viewer
     //vote whose category matches the just-played one when flagged, deferring it
