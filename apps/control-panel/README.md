@@ -8,7 +8,7 @@ The authenticated REST + GraphQL API behind the show-owner control panel UI. Aut
 | **Container port** | 8080 |
 | **Replicas** | 1 |
 | **Ingress** | `remotefalcon.com`, path prefix `/remote-falcon-control-panel` (proxy body size: 3 MB) |
-| **Health probe** | `GET /remote-falcon-control-panel/actuator/health` |
+| **Health probe** | k8s: `GET /remote-falcon-control-panel/actuator/health/liveness` (startup + liveness), `.../actuator/health/readiness`. Neither includes Mongo; `.../actuator/health` does. |
 | **Talks to** | MongoDB, GitHub (PAT), SendGrid, DigitalOcean Spaces (S3) |
 
 ## What it does
