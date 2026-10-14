@@ -132,24 +132,33 @@ spec:
               key: rfpb-launch-secret
         - name: RFPB_BASE_URL
           value: https://rfpagebuilder.com
+        # Resilience P0-1 (2026-10-12 incident): probes use the Spring Boot
+        # liveness/readiness groups, which do NOT include Mongo, so a slow DB
+        # cannot mark every replica unready at once or restart-loop the pods.
+        # Request-level fail-fast (driver timeouts in MongoConfig) surfaces DB
+        # trouble instead. Plain /remote-falcon-control-panel/actuator/health (with Mongo) stays
+        # available for humans. Startup gets up to 5 min for a native boot.
         startupProbe:
           httpGet:
-            path: /remote-falcon-control-panel/actuator/health
+            path: /remote-falcon-control-panel/actuator/health/liveness
             port: 8080
+          periodSeconds: 5
+          timeoutSeconds: 3
           failureThreshold: 60
         livenessProbe:
           httpGet:
-            path: /remote-falcon-control-panel/actuator/health
+            path: /remote-falcon-control-panel/actuator/health/liveness
             port: 8080
-          initialDelaySeconds: 0
-          timeoutSeconds: 10
-          failureThreshold: 60
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 6
         readinessProbe:
           httpGet:
-            path: /remote-falcon-control-panel/actuator/health
+            path: /remote-falcon-control-panel/actuator/health/readiness
             port: 8080
-          failureThreshold: 60
-          initialDelaySeconds: 0
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
       imagePullSecrets:
         - name: remote-falcon-ghcr
 ---

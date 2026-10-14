@@ -13,6 +13,13 @@ spring:
 
 server:
   port: 8080
+  # Resilience P1-2 (2026-10-12 incident): cap Tomcat workers at ~5x the
+  # 10-connection Mongo pool so a Mongo stall queues/fails requests instead of
+  # parking 200 threads, and drop idle/slow connections after 5s.
+  tomcat:
+    threads:
+      max: 50
+    connection-timeout: 5s
 
 info:
   build:
@@ -21,13 +28,28 @@ info:
 management:
   endpoints:
     web:
+      # prometheus exposes the driver pool gauges (mongodb.driver.pool.*),
+      # matching control-panel.
+      exposure:
+        include: "health,prometheus"
       cors:
         allowed-origins: "*"
         allowed-methods: "OPTIONS, GET, POST, PUT, DELETE"
         allowed-headers: "*"
+  # Resilience P0-1 (2026-10-12 incident): k8s probes hit the liveness and
+  # readiness groups, which contain only livenessState / readinessState, never
+  # Mongo. A slow DB must not mark every pod unready (fleet-wide 503s) or
+  # restart-loop the service. Plain /actuator/health still includes Mongo
+  # for humans and dashboards.
+  endpoint:
+    health:
+      probes:
+        enabled: true
   health:
-    mongo:
-      timeout: 3s
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
 
 logging:
   level:
