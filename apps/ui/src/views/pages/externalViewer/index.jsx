@@ -2,7 +2,7 @@
 /* eslint-disable jsx-a11y/click-events-have-key-events */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
-import { useLazyQuery, useMutation, useQuery } from '@apollo/client';
+import { useLazyQuery, useMutation } from '@apollo/client';
 import { TextField } from '@mui/material';
 import newAxios from 'axios';
 import htmlToReact from 'html-to-react';
@@ -12,8 +12,8 @@ import moment from 'moment';
 import Loading from 'react-fullscreen-loading';
 import { Helmet } from 'react-helmet';
 
+import useBackoffPoll from '../../../hooks/useBackoffPoll';
 import useInterval from '../../../hooks/useInterval';
-import { useDispatch } from '../../../store';
 import { getSubdomain } from '../../../utils/route-guard/helpers/helpers';
 import { trackPosthogEvent } from '../../../utils/analytics/posthog';
 
@@ -22,13 +22,14 @@ import { getViewerId } from '../../../utils/viewerId';
 import { LocationCheckMethod, ViewerControlMode } from '../../../utils/enum';
 import { ADD_SEQUENCE_TO_QUEUE, INSERT_VIEWER_PAGE_STATS, VOTE_FOR_SEQUENCE } from '../../../utils/graphql/viewer/mutations';
 import { GET_ACTIVE_VIEWER_PAGE, GET_SHOW_FOR_VIEWER, VOTES_REMAINING } from '../../../utils/graphql/viewer/queries';
-import { showAlert } from '../globalPageHelpers';
 import { orderSequencesByCategory } from './helpers/categoryOrder';
 import { jukeboxQueueElements, playingSequenceElement } from './helpers/nowPlaying';
 import { isSequenceUnavailable as checkSequenceUnavailable } from './helpers/sequenceAvailability';
 import { UNAVAILABLE_HINT_DEFAULT_CSS, sequenceRowContent, unavailableRowProps } from './helpers/unavailableRow';
 import { readUtmParams, stripUtmFromAddressBar } from './helpers/utmParams';
 import LocationRecoveryControl from './LocationRecoveryControl';
+import ReconnectingNotice from './ReconnectingNotice';
+import { markViewerPageStatsRecorded, viewerPageStatsAlreadyRecorded } from './helpers/viewerPageStatsOnce';
 import { LocationPermission, acquireViewerLocation, clientClassFromUserAgent } from './helpers/locationPermission';
 import {
   defaultProcessingInstructions,
@@ -46,13 +47,20 @@ import {
 const htmlToReactParser = new htmlToReact.Parser();
 const processNodeDefinitions = new htmlToReact.ProcessNodeDefinitions(React);
 
-const ExternalViewerPage = () => {
-  const dispatch = useDispatch();
+const blockRedirectReferrers = ['https://player.pulsemesh.io/'];
 
-  const blockRedirectReferrers = ['https://player.pulsemesh.io/'];
+const ExternalViewerPage = () => {
   const viewerScriptsBasePath = '/viewer-scripts/';
 
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  // Set when getShow says to send the viewer to a self-hosted page. Stops the
+  // load/poll loop while the browser navigates away.
+  const [redirecting, setRedirecting] = useState(false);
+  // Init happens in two stages (show, then the operator's page HTML) so a
+  // failure in the second doesn't re-run the first's one-time side effects.
+  // Refs, not state: the poll loop reads them synchronously across awaits.
+  const showInitializedRef = useRef(false);
+  const viewerPageLoadedRef = useRef(false);
   const [show, setShow] = useState();
   const [activeViewerPage, setActiveViewerPage] = useState();
 
@@ -89,30 +97,16 @@ const ExternalViewerPage = () => {
   // configured or exempt → the {VOTES_REMAINING} slot renders empty).
   const [votesRemaining, setVotesRemaining] = useState(null);
 
-  const [getShowQuery] = useLazyQuery(GET_SHOW_FOR_VIEWER);
-  const [getActiveViewerPageQuery] = useLazyQuery(GET_ACTIVE_VIEWER_PAGE);
+  // Options live on the hook, results are read from the awaited execute call:
+  // Apollo 3.14 warns about (and is removing) execute-level options.
+  // network-only because the same lazy query serves the initial load AND the
+  // poll; a cache hit would make every poll a no-op.
+  const [getShowQuery] = useLazyQuery(GET_SHOW_FOR_VIEWER, { fetchPolicy: 'network-only' });
+  const [getActiveViewerPageQuery] = useLazyQuery(GET_ACTIVE_VIEWER_PAGE, { fetchPolicy: 'network-only' });
   const [getVotesRemainingQuery] = useLazyQuery(VOTES_REMAINING);
   const [insertViewerPageStatsMutation] = useMutation(INSERT_VIEWER_PAGE_STATS);
   const [addSequenceToQueueMutation] = useMutation(ADD_SEQUENCE_TO_QUEUE);
   const [voteForSequenceMutation] = useMutation(VOTE_FOR_SEQUENCE);
-
-  // Polling query for continuous updates
-  const { data: pollingData } = useQuery(GET_SHOW_FOR_VIEWER, {
-    context: {
-      headers: {
-        Route: 'Viewer'
-      }
-    },
-    variables: {
-      showSubdomain: getSubdomain()
-    },
-    pollInterval: 5000,
-    skip: loading, // Skip polling during initial load
-    notifyOnNetworkStatusChange: true,
-    onError: () => {
-      showAlert(dispatch, { alert: 'error' });
-    }
-  });
 
   /**
    * PRD-019 — acquire the viewer's position and report what happened.
@@ -946,8 +940,10 @@ const ExternalViewerPage = () => {
     acceptElementPosition
   ]);
 
-  const getActiveViewerPage = useCallback(() => {
-    getActiveViewerPageQuery({
+  // Throws on failure so the poll loop backs off and retries; the old
+  // onError -> alert left the page blank and pushed viewers to reload.
+  const getActiveViewerPage = useCallback(async () => {
+    const result = await getActiveViewerPageQuery({
       context: {
         headers: {
           Route: 'Viewer'
@@ -955,16 +951,13 @@ const ExternalViewerPage = () => {
       },
       variables: {
         showSubdomain: getSubdomain()
-      },
-      fetchPolicy: 'network-only',
-      onCompleted: (data) => {
-        setActiveViewerPage(data?.getActiveViewerPage);
-      },
-      onError: () => {
-        showAlert(dispatch, { alert: 'error' });
       }
     });
-  }, [dispatch, getActiveViewerPageQuery]);
+    if (result?.error) {
+      throw result.error;
+    }
+    setActiveViewerPage(result?.data?.getActiveViewerPage);
+  }, [getActiveViewerPageQuery]);
 
   const orderSequencesForVoting = useCallback((showData) => {
     let updatedSequences = [];
@@ -983,8 +976,8 @@ const ExternalViewerPage = () => {
     showData.sequences = updatedSequences;
   }, []);
 
-  const getShowForInit = useCallback(() => {
-    getShowQuery({
+  const fetchShow = useCallback(async () => {
+    const result = await getShowQuery({
       context: {
         headers: {
           Route: 'Viewer'
@@ -992,81 +985,150 @@ const ExternalViewerPage = () => {
       },
       variables: {
         showSubdomain: getSubdomain()
-      },
-      onCompleted: async (data) => {
-        const showData = { ...data?.getShow };
-
-        const subdomain = getSubdomain();
-
-        if (showData?.preferences?.selfHostedRedirectUrl) {
-          const referrer = document.referrer;
-          if (!_.includes(blockRedirectReferrers, referrer)) {
-            window.location.href = showData?.preferences?.selfHostedRedirectUrl;
-            return; // Exit early since we're redirecting
-          }
-        }
-
-        if (subdomain === showData?.showSubdomain) {
-          if (showData?.playingNext === '') {
-            showData.playingNext = showData?.playingNextFromSchedule;
-          }
-          setNowPlaying(showData?.playingNow);
-          if (showData?.preferences?.viewerControlMode === ViewerControlMode.VOTING) {
-            orderSequencesForVoting(showData);
-          }
-          setShow(showData);
-          // #162 — seed the votes-left count on load so the {VOTES_REMAINING}
-          // slot is correct before the first vote.
-          refreshVotesRemaining(showData?.preferences?.analyticsBetaOptIn);
-          getActiveViewerPage();
-          if (showData?.preferences?.locationCheckMethod === LocationCheckMethod.GEO) {
-            setViewerLocation();
-          }
-          trackPosthogEvent('viewer_page_view', { show_name: showData?.showName });
-
-          // Page-view ping. Attach the anonymous viewerId only when the show
-          // owner opted into the analytics beta — otherwise we neither create
-          // nor send an id (and the privacy pill / viewerId.js stays unloaded).
-          // Fired here (not on mount) because the opt-in flag isn't known until
-          // getShow resolves.
-          //
-          // #189: utm_source / utm_medium (e.g. the QR Code page's print tag)
-          // ride along only when present, read from this page's own query
-          // string. They are stripped from the address bar right after so a
-          // link shared onward isn't counted as another QR scan.
-          const utmParams = readUtmParams(window.location.search);
-          insertViewerPageStatsMutation({
-            context: {
-              headers: {
-                Route: 'Viewer'
-              }
-            },
-            variables: {
-              showSubdomain: getSubdomain(),
-              date: moment().format('YYYY-MM-DDTHH:mm:ss'),
-              viewerId: showData?.preferences?.analyticsBetaOptIn ? getViewerId() : null,
-              ...utmParams
-            }
-          }).then();
-          stripUtmFromAddressBar(window);
-
-          setTimeout(() => {
-            loadViewerEnhancements(showData);
-          }, 500);
-
-          setLoading(false);
-        }
-      },
-      onError: () => {
-        showAlert(dispatch, { alert: 'error' });
       }
-    }).then();
-  }, [dispatch, getShowQuery, getActiveViewerPage, orderSequencesForVoting, setViewerLocation, insertViewerPageStatsMutation, refreshVotesRemaining]);
+    });
+    if (result?.error) {
+      throw result.error;
+    }
+    return result?.data?.getShow;
+  }, [getShowQuery]);
 
-  useEffect(() => {
-    setLoading(true);
-    getShowForInit();
-  }, [getShowForInit]);
+  // One-time setup from the first good getShow. Returns 'redirect', 'ok', or
+  // 'mismatch' (no show for this subdomain, retried like any other failure).
+  const initFromShow = useCallback(
+    (rawShow) => {
+      const showData = { ...rawShow };
+
+      const subdomain = getSubdomain();
+
+      if (showData?.preferences?.selfHostedRedirectUrl) {
+        const referrer = document.referrer;
+        if (!_.includes(blockRedirectReferrers, referrer)) {
+          window.location.href = showData?.preferences?.selfHostedRedirectUrl;
+          return 'redirect';
+        }
+      }
+
+      if (subdomain !== showData?.showSubdomain) {
+        return 'mismatch';
+      }
+
+      if (showData?.playingNext === '') {
+        showData.playingNext = showData?.playingNextFromSchedule;
+      }
+      setNowPlaying(showData?.playingNow);
+      if (showData?.preferences?.viewerControlMode === ViewerControlMode.VOTING) {
+        orderSequencesForVoting(showData);
+      }
+      setShow(showData);
+      // #162 — seed the votes-left count on load so the {VOTES_REMAINING}
+      // slot is correct before the first vote.
+      refreshVotesRemaining(showData?.preferences?.analyticsBetaOptIn);
+      if (showData?.preferences?.locationCheckMethod === LocationCheckMethod.GEO) {
+        setViewerLocation();
+      }
+      trackPosthogEvent('viewer_page_view', { show_name: showData?.showName });
+
+      // Page-view ping. Attach the anonymous viewerId only when the show
+      // owner opted into the analytics beta — otherwise we neither create
+      // nor send an id (and the privacy pill / viewerId.js stays unloaded).
+      // Fired here (not on mount) because the opt-in flag isn't known until
+      // getShow resolves.
+      //
+      // #189: utm_source / utm_medium (e.g. the QR Code page's print tag)
+      // ride along only when present, read from this page's own query
+      // string. They are stripped from the address bar right after so a
+      // link shared onward isn't counted as another QR scan.
+      //
+      // At most once per show per browser session: this is a DB write, and
+      // reloads during a backend slowdown used to multiply it. Marked only
+      // after the write lands, so a failed one is retried on the next load.
+      if (!viewerPageStatsAlreadyRecorded(subdomain)) {
+        const utmParams = readUtmParams(window.location.search);
+        insertViewerPageStatsMutation({
+          context: {
+            headers: {
+              Route: 'Viewer'
+            }
+          },
+          variables: {
+            showSubdomain: subdomain,
+            date: moment().format('YYYY-MM-DDTHH:mm:ss'),
+            viewerId: showData?.preferences?.analyticsBetaOptIn ? getViewerId() : null,
+            ...utmParams
+          }
+        })
+          .then((response) => {
+            if (!response?.errors?.length) {
+              markViewerPageStatsRecorded(subdomain);
+            }
+          })
+          .catch(() => {});
+      }
+      stripUtmFromAddressBar(window);
+
+      setTimeout(() => {
+        loadViewerEnhancements(showData);
+      }, 500);
+
+      return 'ok';
+    },
+    [orderSequencesForVoting, setViewerLocation, insertViewerPageStatsMutation, refreshVotesRemaining, loadViewerEnhancements]
+  );
+
+  // Steady-state poll update. The operator's page HTML is not refetched: it's
+  // only loaded once and doesn't change during a viewer session.
+  const applyPolledShow = useCallback(
+    (rawShow) => {
+      if (!rawShow) {
+        return;
+      }
+      const showData = { ...rawShow };
+      if (getSubdomain() !== showData?.showSubdomain) {
+        return;
+      }
+      if (showData?.playingNext === '') {
+        showData.playingNext = showData?.playingNextFromSchedule;
+      }
+      if (showData?.preferences?.viewerControlMode === ViewerControlMode.VOTING) {
+        orderSequencesForVoting(showData);
+      }
+      setShow(showData);
+    },
+    [orderSequencesForVoting]
+  );
+
+  // One loop for both the initial load and the steady-state poll, so a failed
+  // first load retries on the same backoff instead of stranding the page
+  // behind the loader (which is what sent viewers to the reload button).
+  const loadOrPoll = useCallback(async () => {
+    if (!showInitializedRef.current) {
+      const rawShow = await fetchShow();
+      // A timed-out earlier attempt can land late and finish init first.
+      if (showInitializedRef.current) {
+        applyPolledShow(rawShow);
+      } else {
+        const outcome = initFromShow(rawShow);
+        if (outcome === 'redirect') {
+          setRedirecting(true);
+          return;
+        }
+        if (outcome !== 'ok') {
+          throw new Error('getShow returned no show for this subdomain');
+        }
+        showInitializedRef.current = true;
+        setLoading(false);
+      }
+    } else if (viewerPageLoadedRef.current) {
+      applyPolledShow(await fetchShow());
+    }
+    if (!viewerPageLoadedRef.current) {
+      await getActiveViewerPage();
+      viewerPageLoadedRef.current = true;
+    }
+  }, [fetchShow, initFromShow, applyPolledShow, getActiveViewerPage]);
+
+  const { failures: consecutiveLoadFailures } = useBackoffPoll(loadOrPoll, { enabled: !redirecting });
 
   // Update favicon to the show's custom icon (or fall back to the default brand icon).
   // We imperatively update the existing `#rf-favicon` <link> tag rather than letting
@@ -1089,25 +1151,6 @@ const ExternalViewerPage = () => {
       }
     };
   }, [show?.preferences?.pageIconUrl]);
-
-  // Process polling data updates
-  useEffect(() => {
-    if (pollingData?.getShow) {
-      const showData = { ...pollingData.getShow };
-      const subdomain = getSubdomain();
-      if (subdomain === showData?.showSubdomain) {
-        if (showData?.playingNext === '') {
-          showData.playingNext = showData?.playingNextFromSchedule;
-        }
-        if (showData?.preferences?.viewerControlMode === ViewerControlMode.VOTING) {
-          orderSequencesForVoting(showData);
-        }
-        setShow(showData);
-        // Note: We don't fetch the active viewer page HTML during polling
-        // It's only fetched on initial load and doesn't change during a viewer session
-      }
-    }
-  }, [pollingData, orderSequencesForVoting]);
 
   // Re-parse the operator's page only when something it renders from actually
   // changed. This tick used to reparse the whole HTML document and rebuild the
@@ -1160,6 +1203,7 @@ const ExternalViewerPage = () => {
         </Helmet>
       )}
       <Loading loading={loading} background="black" loaderColor="white" />
+      <ReconnectingNotice visible={consecutiveLoadFailures > 0} />
       {remoteViewerReactPage}
     </>
   );
