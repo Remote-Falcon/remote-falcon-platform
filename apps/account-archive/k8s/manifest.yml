@@ -50,27 +50,33 @@ spec:
             # rollover atomic when it does.
             - name: OTEL_URI
               value: "http://otel-collector.remote-falcon.svc.cluster.local:4317"
+          # Probes never touch Mongo (quarkus.mongodb.health.enabled=false). A slow
+          # DB must not mark every pod unready or stop new pods from starting
+          # (2026-10-12 incident). Request-level timeouts surface DB trouble instead.
           startupProbe:
             httpGet:
-              path: /remote-falcon-account-archive/q/health
+              path: /remote-falcon-account-archive/q/health/started
               port: 8080
             initialDelaySeconds: 0
+            timeoutSeconds: 3
             failureThreshold: 30
-            periodSeconds: 1
+            periodSeconds: 2
           livenessProbe:
             httpGet:
               path: /remote-falcon-account-archive/q/health/live
               port: 8080
             initialDelaySeconds: 0
-            failureThreshold: 30
-            periodSeconds: 1
+            timeoutSeconds: 3
+            failureThreshold: 6
+            periodSeconds: 10
           readinessProbe:
             httpGet:
               path: /remote-falcon-account-archive/q/health/ready
               port: 8080
             initialDelaySeconds: 0
-            failureThreshold: 30
-            periodSeconds: 1
+            timeoutSeconds: 3
+            failureThreshold: 6
+            periodSeconds: 5
       imagePullSecrets:
         - name: remote-falcon-ghcr
 ---
