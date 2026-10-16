@@ -621,13 +621,16 @@ public class PluginService {
       // be transparent to the cadence so leader playback doesn't
       // accidentally shorten the PSA-frequency window.
       //
-      // Grouped songs don't advance the counter either. Operators often keep
-      // PSAs in a sequence group too, so the group check must never subtract:
-      // a decrement on a PSA that never incremented rewound the cadence and
-      // a PSA followed every song.
-      boolean isGrouped = whatsPlayingSequence.isPresent()
-          && StringUtils.isNotEmpty(whatsPlayingSequence.get().getGroup());
-      boolean counterAdvanced = PluginQueueHelper.isSongLike(show, request.getPlaylist()) && !isGrouped;
+      // A sequence group counts as one song, on its highest-order (last)
+      // member. Every member of a requested or winning group plays once, so
+      // each group play counts exactly once, and counting on the last member
+      // keeps a PSA from landing inside a group the FPP schedule plays in
+      // order. Operators often keep PSAs in a sequence group too; those are
+      // not song-like and never touch the counter.
+      boolean countsAsSong = whatsPlayingSequence.isEmpty()
+          || StringUtils.isEmpty(whatsPlayingSequence.get().getGroup())
+          || this.isGroupCloser(sequences, whatsPlayingSequence.get());
+      boolean counterAdvanced = PluginQueueHelper.isSongLike(show, request.getPlaylist()) && countsAsSong;
       if (counterAdvanced) {
         sequencesPlayed++;
       }
@@ -706,6 +709,21 @@ public class PluginService {
     }
 
     return PluginResponse.builder().currentPlaylist(request.getPlaylist()).build();
+  }
+
+  /**
+   * True when {@code sequence} is the highest-order member of its group (ties
+   * broken by name, so exactly one member qualifies).
+   */
+  private boolean isGroupCloser(List<Sequence> sequences, Sequence sequence) {
+    return sequences.stream()
+        .filter(Objects::nonNull)
+        .filter(seq -> StringUtils.equalsIgnoreCase(seq.getGroup(), sequence.getGroup()))
+        .max(Comparator
+            .comparing((Sequence seq) -> seq.getOrder() != null ? seq.getOrder() : Integer.MIN_VALUE)
+            .thenComparing(seq -> seq.getName() != null ? seq.getName() : ""))
+        .map(closer -> StringUtils.equalsIgnoreCase(closer.getName(), sequence.getName()))
+        .orElse(false);
   }
 
   /**
