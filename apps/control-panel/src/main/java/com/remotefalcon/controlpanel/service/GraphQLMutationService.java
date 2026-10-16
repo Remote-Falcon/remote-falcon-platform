@@ -475,7 +475,8 @@ public class GraphQLMutationService {
             // echoes back the value it loaded with the page, so keep the live
             // value; toggling viewer control still starts the count over.
             boolean viewerControlToggled = current == null
-                    || !Objects.equals(current.getViewerControlEnabled(), preferences.getViewerControlEnabled());
+                    || Boolean.TRUE.equals(current.getViewerControlEnabled())
+                            != Boolean.TRUE.equals(preferences.getViewerControlEnabled());
             preferences.setSequencesPlayed(viewerControlToggled ? Integer.valueOf(0) : current.getSequencesPlayed());
             // Shows-map cache eviction: if this save changes what either map
             // renders (visibility tier or coordinates), drop the 5-minute

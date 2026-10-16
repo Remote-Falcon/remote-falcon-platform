@@ -591,6 +591,19 @@ class GraphQLMutationServiceTest {
     }
 
     @Test
+    void updatePreferences_nullViewerControlOnLegacyDoc_isNotTreatedAsAToggle() {
+        stubAuth();
+        Show show = Show.builder().showToken(SHOW_TOKEN)
+                .preferences(Preference.builder().sequencesPlayed(5).build())
+                .build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        service.updatePreferences(Preference.builder().viewerControlEnabled(false).sequencesPlayed(5).build());
+
+        assertThat(show.getPreferences().getSequencesPlayed()).isEqualTo(5);
+    }
+
+    @Test
     void updatePreferences_resetsSequencesPlayed_whenViewerControlToggled() {
         stubAuth();
         Show show = Show.builder().showToken(SHOW_TOKEN)
