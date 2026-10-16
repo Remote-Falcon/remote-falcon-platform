@@ -186,9 +186,10 @@ metadata:
   annotations:
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/proxy-body-size: "3m"
-    # Appendix D P0-5: 20s (not the default 60s) leaves room for the slower
-    # dashboard stats aggregations without holding dead requests open.
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "20"
+    # Kept at nginx's 60s default: heavy stats exports and dashboard
+    # aggregations on large shows can legitimately take 20-60s, and a 504
+    # there only makes the operator retry the same expensive query.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
 spec:
   tls:
   - hosts:

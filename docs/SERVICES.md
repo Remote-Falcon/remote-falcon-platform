@@ -80,7 +80,7 @@ This is the operator's map of the Remote Falcon stack: every service, what it do
 | **Container port** | 8080 |
 | **Replicas** | HPA-owned: min 2, max 4, scale at 70% CPU, damped scale-down |
 | **Resources** | req 256Mi / 200m → lim 512Mi / 500m |
-| **Ingress** | Host `remotefalcon.com`, path prefix `/remote-falcon-control-panel` (proxy body size: 3 MB; `proxy-read-timeout` 20s) |
+| **Ingress** | Host `remotefalcon.com`, path prefix `/remote-falcon-control-panel` (proxy body size: 3 MB; `proxy-read-timeout` 60s, nginx default) |
 | **Health probe** | `GET /remote-falcon-control-panel/actuator/health` |
 | **Talks to** | MongoDB, GitHub (PAT), SendGrid, S3 (DigitalOcean Spaces), OpenAI / "Wattson" |
 | **Scheduled tasks** | Every minute: FPP plugin-health bell alerts (enabled 2026-07-19; flood-guarded — replace-not-append, clear-on-recovery, 24h TTL, 48h recent-outage window; opt-in per show via Account Settings → Notifications). Nightly 03:00 UTC: stats retention sweep + oversized-document alarm |

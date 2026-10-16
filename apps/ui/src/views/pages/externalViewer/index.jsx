@@ -1040,9 +1040,9 @@ const ExternalViewerPage = () => {
       // string. They are stripped from the address bar right after so a
       // link shared onward isn't counted as another QR scan.
       //
-      // At most once per show per browser session: this is a DB write, and
-      // reloads during a backend slowdown used to multiply it. Marked only
-      // after the write lands, so a failed one is retried on the next load.
+      // Skipped when the same show was recorded in this tab within the last
+      // minute: this is a DB write, and reload storms during a backend slowdown
+      // used to multiply it. Marked only after the write lands.
       if (!viewerPageStatsAlreadyRecorded(subdomain)) {
         const utmParams = readUtmParams(window.location.search);
         insertViewerPageStatsMutation({

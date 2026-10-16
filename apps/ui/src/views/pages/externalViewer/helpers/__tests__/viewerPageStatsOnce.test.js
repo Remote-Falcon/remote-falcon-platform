@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { markViewerPageStatsRecorded, viewerPageStatsAlreadyRecorded } from '../viewerPageStatsOnce';
+import { DEDUPE_WINDOW_MS, markViewerPageStatsRecorded, viewerPageStatsAlreadyRecorded } from '../viewerPageStatsOnce';
 
 const memoryStorage = () => {
   const map = new Map();
@@ -15,11 +15,23 @@ describe('viewerPageStatsOnce', () => {
     expect(viewerPageStatsAlreadyRecorded('holtz', memoryStorage())).toBe(false);
   });
 
-  it('records once per show per session', () => {
+  it('skips a repeat load of the same show inside the dedupe window', () => {
     const storage = memoryStorage();
-    markViewerPageStatsRecorded('holtz', storage);
-    expect(viewerPageStatsAlreadyRecorded('holtz', storage)).toBe(true);
-    expect(viewerPageStatsAlreadyRecorded('othershow', storage)).toBe(false);
+    markViewerPageStatsRecorded('holtz', storage, 1000);
+    expect(viewerPageStatsAlreadyRecorded('holtz', storage, 1000 + DEDUPE_WINDOW_MS - 1)).toBe(true);
+    expect(viewerPageStatsAlreadyRecorded('othershow', storage, 1000)).toBe(false);
+  });
+
+  it('records again once the dedupe window has passed', () => {
+    const storage = memoryStorage();
+    markViewerPageStatsRecorded('holtz', storage, 1000);
+    expect(viewerPageStatsAlreadyRecorded('holtz', storage, 1000 + DEDUPE_WINDOW_MS)).toBe(false);
+  });
+
+  it('treats a legacy or garbage value as not-recorded', () => {
+    const storage = memoryStorage();
+    storage.setItem('rf.viewerPageStats.holtz', 'x');
+    expect(viewerPageStatsAlreadyRecorded('holtz', storage)).toBe(false);
   });
 
   it('treats blocked storage as not-recorded and never throws', () => {

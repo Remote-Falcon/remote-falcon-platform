@@ -33,10 +33,12 @@ export const nextPollDelay = (failures, { retryAfterMs = null, random = Math.ran
 };
 
 /**
- * Pull a Retry-After hint off an Apollo error, if the transport exposed one.
- * Only the HTTP header is read: it is the one place a 503 would carry it.
- * Note Retry-After is not a CORS-safelisted header, so this only sees it on
- * same-origin calls (the viewer API is) or when the server exposes it.
+ * Pull a Retry-After hint off an Apollo error. The viewer API reports a
+ * saturated database as a GraphQL error on HTTP 200 with
+ * `extensions.retryAfterSeconds`, so that is read first; an HTTP Retry-After
+ * header (a REST 503) is the fallback. Retry-After is not a CORS-safelisted
+ * header, so the header is only visible on same-origin calls (the viewer API
+ * is) or when the server exposes it.
  *
  * @param {unknown} error
  * @param {number} [now]  injectable for tests
@@ -44,6 +46,12 @@ export const nextPollDelay = (failures, { retryAfterMs = null, random = Math.ran
  */
 export const retryAfterMsFromError = (error, now = Date.now()) => {
   try {
+    const hinted = (error?.graphQLErrors ?? [])
+      .map((e) => Number(e?.extensions?.retryAfterSeconds))
+      .find((seconds) => Number.isFinite(seconds) && seconds > 0);
+    if (hinted !== undefined) {
+      return hinted * 1000;
+    }
     const raw = error?.networkError?.response?.headers?.get?.('Retry-After');
     if (raw == null || raw === '') {
       return null;

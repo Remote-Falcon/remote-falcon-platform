@@ -45,7 +45,7 @@ class MongoClientWiringIntegrationTest {
 
     assertEquals(2000, settings.getClusterSettings().getServerSelectionTimeout(TimeUnit.MILLISECONDS));
     assertEquals(2000, settings.getSocketSettings().getConnectTimeout(TimeUnit.MILLISECONDS));
-    assertEquals(5000, settings.getSocketSettings().getReadTimeout(TimeUnit.MILLISECONDS));
+    assertEquals(8000, settings.getSocketSettings().getReadTimeout(TimeUnit.MILLISECONDS));
     assertEquals(15, settings.getConnectionPoolSettings().getMaxSize());
     assertEquals(2, settings.getConnectionPoolSettings().getMinSize());
     assertEquals(1000, settings.getConnectionPoolSettings().getMaxWaitTime(TimeUnit.MILLISECONDS));

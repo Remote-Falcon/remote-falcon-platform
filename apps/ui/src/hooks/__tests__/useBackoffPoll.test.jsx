@@ -185,7 +185,7 @@ describe('useBackoffPoll', () => {
     expect(second).toHaveBeenCalledTimes(1);
   });
 
-  it('treats a call that never settles as a failure so the loop cannot stall', async () => {
+  it('treats a call that never settles as a failure, without overlapping it', async () => {
     const fn = vi.fn(() => new Promise(() => {}));
     const { result } = renderHook(() => useBackoffPoll(fn, { random: noJitter, timeoutMs: 30000 }));
     await flush();
@@ -193,10 +193,32 @@ describe('useBackoffPoll', () => {
 
     await advance(30000);
     expect(result.current.failures).toBe(1);
-    // then the normal 10s backoff gap
-    await advance(9999);
+    // the hung call is still outstanding, so later ticks skip instead of stacking
+    await advance(60000);
+    expect(fn).toHaveBeenCalledTimes(1);
+    // abandoned 2 minutes after it timed out, so a never-settling request
+    // cannot strand the page (ticks every 10s: the 150s tick is the first)
+    await advance(59999);
     expect(fn).toHaveBeenCalledTimes(1);
     await advance(1);
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  it('resumes normally once a timed-out call finally settles', async () => {
+    let settle;
+    const fn = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise((resolve) => { settle = resolve; }))
+      .mockResolvedValue(undefined);
+    renderHook(() => useBackoffPoll(fn, { random: noJitter, timeoutMs: 30000 }));
+    await flush();
+    await advance(30000);
+    await act(async () => {
+      settle();
+    });
+    await flush();
+    // next backoff tick (10s after the timeout) calls again
+    await advance(10000);
     expect(fn).toHaveBeenCalledTimes(2);
   });
 

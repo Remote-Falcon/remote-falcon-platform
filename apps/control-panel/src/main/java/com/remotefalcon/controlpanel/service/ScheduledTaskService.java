@@ -161,8 +161,10 @@ public class ScheduledTaskService {
      * healthy now plus every stale show that froze at or after {@code t}; any
      * opted-in show that froze in the 48h window is in {@code staleHeartbeats},
      * so that denominator needs one count query and nothing else. Each window
-     * [t, t + OUTAGE_COHORT_WINDOW_MINUTES) is tested; the result spans every
-     * qualifying window.
+     * [t, t + OUTAGE_COHORT_WINDOW_MINUTES) is tested. Overlapping qualifying
+     * windows form one cluster; the result is the most recent cluster only, so
+     * two separate outages never bridge into one window that would also cover
+     * shows that went dark on their own in between.
      */
     static Optional<OutageCohort> detectOutageCohort(List<LocalDateTime> staleHeartbeats, long healthyNow) {
         List<LocalDateTime> sorted = staleHeartbeats.stream().sorted().toList();
@@ -180,10 +182,11 @@ public class ScheduledTaskService {
             long heartbeatingAtWindowStart = healthyNow + (n - i);
             if (frozenInWindow >= OUTAGE_MIN_STALE_SHOWS
                     && frozenInWindow * 100L >= OUTAGE_MIN_STALE_PERCENT * heartbeatingAtWindowStart) {
-                if (start == null) {
+                if (start == null || sorted.get(i).isAfter(end)) {
+                    // Disjoint from the previous cluster: start a new, later one.
                     start = sorted.get(i);
-                }
-                if (end == null || sorted.get(j - 1).isAfter(end)) {
+                    end = sorted.get(j - 1);
+                } else if (sorted.get(j - 1).isAfter(end)) {
                     end = sorted.get(j - 1);
                 }
             }
@@ -227,7 +230,10 @@ public class ScheduledTaskService {
             return remembered.map(o -> new OutageState(o, null));
         }
         OutageCohort cohort = measured.get();
+        // Only extend the remembered window when this cohort overlaps it; a
+        // separate later outage replaces it rather than bridging the gap.
         FppHealthOutageStore.Outage window = remembered
+                .filter(o -> !cohort.start().isAfter(o.cohortEnd()) && !cohort.end().isBefore(o.cohortStart()))
                 .map(o -> new FppHealthOutageStore.Outage(
                         o.cohortStart().isBefore(cohort.start()) ? o.cohortStart() : cohort.start(),
                         o.cohortEnd().isAfter(cohort.end()) ? o.cohortEnd() : cohort.end(),

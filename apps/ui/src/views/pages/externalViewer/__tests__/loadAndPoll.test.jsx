@@ -128,7 +128,7 @@ describe('viewer page load/poll loop', () => {
     unmount();
   });
 
-  it('writes viewer page stats at most once per session per show', async () => {
+  it('skips the viewer page stats write on a reload inside the dedupe window', async () => {
     const first = await renderPage();
     await waitFor(() => expect(calls.stats).toBe(1));
     first.unmount();

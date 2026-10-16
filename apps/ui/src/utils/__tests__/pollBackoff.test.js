@@ -77,6 +77,16 @@ describe('retryAfterMsFromError', () => {
     expect(retryAfterMsFromError(withHeader('soon'))).toBeNull();
   });
 
+  it('reads the viewer GraphQL SERVICE_UNAVAILABLE hint', () => {
+    const err = { graphQLErrors: [{ extensions: { message: 'SERVICE_UNAVAILABLE', retryAfterSeconds: 15 } }] };
+    expect(retryAfterMsFromError(err)).toBe(15000);
+  });
+
+  it('ignores GraphQL errors without a usable hint', () => {
+    expect(retryAfterMsFromError({ graphQLErrors: [{ extensions: { message: 'QUEUE_FULL' } }] })).toBeNull();
+    expect(retryAfterMsFromError({ graphQLErrors: [{ extensions: { retryAfterSeconds: 'x' } }] })).toBeNull();
+  });
+
   it('never throws on an odd headers object', () => {
     const err = { networkError: { response: { headers: { get: () => { throw new Error('nope'); } } } } };
     expect(retryAfterMsFromError(err)).toBeNull();

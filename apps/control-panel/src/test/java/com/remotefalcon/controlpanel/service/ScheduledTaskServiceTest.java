@@ -627,6 +627,23 @@ class ScheduledTaskServiceTest {
     }
 
     @Test
+    void detect_twoSeparateClusters_returnsOnlyTheLatest_neverBridgingTheGap() {
+        // An older qualifying cluster and a newer one, with a show that went
+        // dark on its own in between. The window must not span the gap.
+        LocalDateTime old = LocalDateTime.now().minusHours(20);
+        LocalDateTime recent = LocalDateTime.now().minusMinutes(15);
+        LocalDateTime organic = LocalDateTime.now().minusMinutes(45);
+        List<LocalDateTime> stale = new ArrayList<>(frozenTogether(12, old));
+        stale.addAll(frozenTogether(12, recent));
+        stale.add(organic);
+
+        var cohort = ScheduledTaskService.detectOutageCohort(stale, 0L).orElseThrow();
+
+        assertThat(cohort.start()).isAfter(organic);
+        assertThat(cohort.staleShows()).isEqualTo(12);
+    }
+
+    @Test
     void detect_denominatorCountsShowsThatWereHealthyAtTheCohortStart() {
         // 10 froze together; 31 more froze LATER (so were healthy when the 10
         // froze). 10 of 41 is below 25% even though healthyNow is 0.
