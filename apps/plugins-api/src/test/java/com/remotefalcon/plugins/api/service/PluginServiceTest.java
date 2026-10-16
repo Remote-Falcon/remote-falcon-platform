@@ -557,7 +557,7 @@ class PluginServiceTest {
   }
 
   private Sequence songSeq(String name, int index, String group) {
-    return Sequence.builder().name(name).index(index).group(group).visibilityCount(0).active(true).build();
+    return Sequence.builder().name(name).index(index).order(index).group(group).visibilityCount(0).active(true).build();
   }
 
   // --- Q1 baseline ---
@@ -1800,29 +1800,39 @@ class PluginServiceTest {
   }
 
   @Test
-  void psaCadence_groupedSong_stillDoesNotAdvanceCounter() {
+  void psaCadence_groupedSongs_countOncePerGroup() {
     configureManagedPsa(ViewerControlMode.JUKEBOX, 3, null);
-    baseShow.setSequences(new ArrayList<>(List.of(songSeq("GroupSong", 1, "Group1"))));
+    baseShow.setSequences(new ArrayList<>(List.of(
+        songSeq("Part 2", 2, "Group1"), songSeq("Part 1", 1, "Group1"), songSeq("Part 3", 3, "Group1"),
+        songSeq("Solo", 9)
+    )));
 
-    play("GroupSong");
-
+    play("Part 1");
+    play("Part 2");
     assertEquals(0, baseShow.getPreferences().getSequencesPlayed());
+    play("Part 3");
+    assertEquals(1, baseShow.getPreferences().getSequencesPlayed());
+
+    play("Solo");
+    assertEquals(2, baseShow.getPreferences().getSequencesPlayed());
   }
 
   @Test
   void psaCadence_groupedSongOnCadenceMultiple_doesNotInjectAnotherPsa() {
     configureGroupedPsaShow(ViewerControlMode.JUKEBOX, null);
 
+    // The group's last member is the third audience-facing play.
     play("S1");
     play("S2");
-    play("S3");
-    play("PSA1");
-    assertEquals(1, psaRequestCount());
-
-    // The counter is still on 3; grouped songs don't advance it, so they
-    // must not re-trigger the cadence either.
     play("Medley 1");
     play("Medley 2");
+    assertEquals(1, psaRequestCount());
+    play("PSA1");
+
+    // The counter is still on 3; a non-counting group member doesn't
+    // advance it, so it must not re-trigger the cadence either.
+    play("Medley 1");
+    assertEquals(3, baseShow.getPreferences().getSequencesPlayed());
     assertEquals(1, psaRequestCount());
   }
 
@@ -1865,5 +1875,21 @@ class PluginServiceTest {
     assertEquals(2, psaRequestCount(), "a burst must not follow S4 or S5");
     play("S6");
     assertEquals(4, psaRequestCount());
+  }
+
+  @Test
+  void psaCadence_scheduledGroup_psaWaitsForTheWholeGroup() {
+    // From the FPP schedule an injected PSA plays right after the current
+    // song, so the cadence must not land on any member but the last.
+    configureGroupedPsaShow(ViewerControlMode.JUKEBOX, null);
+    baseShow.getSequences().add(songSeq("Medley 3", 13, "Medley"));
+
+    play("S1");
+    play("S2");
+    play("Medley 1");
+    play("Medley 2");
+    assertEquals(0, psaRequestCount(), "no PSA inside the group");
+    play("Medley 3");
+    assertEquals(1, psaRequestCount());
   }
 }
