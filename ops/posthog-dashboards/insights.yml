@@ -285,18 +285,24 @@ insights:
       GROUP BY week
       ORDER BY week
 
+  # Full notes (PostHog caps descriptions at 400 chars):
+  #   Show-keyed activation funnel for shows that signed up 14–90 days ago (so
+  #   every show has had its full 14 days). Steps 1–3 are ordered (sign up →
+  #   verify → sign in); each setup milestone after that only has to happen
+  #   after first sign-in and within 14 days of signup, in any order, because
+  #   operators do them in any order. "% of signups" is the column to read.
+  #   Milestones are first OBSERVED in a browser (plugin_connected = dashboard
+  #   saw a live heartbeat), not the exact moment it happened. The last row,
+  #   activation_completed, is the first time a browser saw viewer control
+  #   flip on; it is NOT "went live" (some shows fire it with no plugin ever
+  #   connected).
   - name: onboarding-activation-funnel-14d
     description: >-
-      Show-keyed activation funnel for shows that signed up 14–90 days
-      ago (so every show has had its full 14 days). Steps 1–3 are ordered
-      (sign up → verify → sign in); each setup milestone after that only
-      has to happen after first sign-in and within 14 days of signup, in
-      any order, because operators do them in any order. "% of signups"
-      is the column to read. Milestones are first OBSERVED in a browser
-      (plugin_connected = dashboard saw a live heartbeat), not the exact
-      moment it happened. The last row, activation_completed, is the
-      first time a browser saw viewer control flip on; it is NOT
-      "went live" (some shows fire it with no plugin ever connected).
+      Show-keyed activation funnel, shows that signed up 14-90 days ago. Sign
+      up, verify, sign in are ordered; setup milestones only need to follow
+      first sign-in within 14 days, in any order. Read "% of signups".
+      Milestones are first seen in a browser. activation_completed = first
+      viewer-control flip seen, NOT "went live".
     display: ActionsBar
     chart_x: step
     chart_y: [shows]
@@ -379,17 +385,23 @@ insights:
         [s1, s2, s3, s4, s5, s6, s7, s8, s9] AS shows
       ORDER BY step
 
+  # Full notes (PostHog caps descriptions at 400 chars):
+  #   One row per signup week (Monday start) for shows that signed up 14–104
+  #   days ago: % of that week's signups reaching each milestone within 14
+  #   days of signup, plus median hours from signup to the first viewer-
+  #   control enable. Read down a column to see whether newer cohorts activate
+  #   faster. The newest row only holds shows already 14 days old, so it is a
+  #   partial week. Small cohorts (single digits) swing a lot. The median is
+  #   usually under an hour: operators flip viewer control on while exploring,
+  #   often before any plugin is connected, so it measures engagement, not
+  #   show readiness.
   - name: onboarding-cohort-weekly-14d
     description: >-
-      One row per signup week (Monday start) for shows that signed up
-      14–104 days ago: % of that week's signups reaching each milestone
-      within 14 days of signup, plus median hours from signup to the
-      first viewer-control enable. Read down a column to see whether
-      newer cohorts activate faster. The newest row only holds shows
-      already 14 days old, so it is a partial week. Small cohorts
-      (single digits) swing a lot. The median is usually under an hour:
-      operators flip viewer control on while exploring, often before any
-      plugin is connected, so it measures engagement, not show readiness.
+      One row per signup week (Mon start), shows 14-104 days old: % reaching
+      each milestone within 14 days, plus median hours to first viewer-control
+      enable. Read down a column to see if newer cohorts activate faster.
+      Small cohorts swing. The median is usually under an hour, so it measures
+      exploring, not show readiness.
     display: ActionsTable
     query: |
       WITH keyed AS (
@@ -503,14 +515,23 @@ insights:
   # Fan distinct_id resets on every viewer page load (2026-10 audit), so
   # uniq(distinct_id) on fan events = page loads, never people.
 
+  # Full notes (PostHog caps descriptions at 400 chars):
+  #   Who to contact: shows where fans tap and get turned away, last 30d,
+  #   ranked by page loads that never got a single success. pct_loads_rejected
+  #   is the fan-experience number; pct_taps_rejected is inflated by retry-
+  #   spamming and is shown only for contrast. top_reason is the rejection
+  #   that hit the most page loads (Queue Full means the queue is too short,
+  #   Invalid Location usually means a permission or geofence problem, Viewer
+  #   Already Requested means a strict per-viewer limit). Shows with fewer
+  #   than 20 tapping loads are hidden.
   - name: fan-rejection-rate-by-show-30d
     description: >-
-      Who to contact: shows where fans tap and get turned away, last 30d, ranked by page loads
-      that never got a single success. pct_loads_rejected is the fan-experience number;
-      pct_taps_rejected is inflated by retry-spamming and is shown only for contrast. top_reason
-      is the rejection that hit the most page loads (Queue Full means the queue is too short,
-      Invalid Location usually means a permission or geofence problem, Viewer Already Requested
-      means a strict per-viewer limit). Shows with fewer than 20 tapping loads are hidden.
+      Who to contact: shows whose fans keep getting turned away, 30d, ranked
+      by page loads with zero successes. pct_loads_rejected is the fan-
+      experience number (pct_taps is retry-inflated). Queue Full = queue too
+      short; Invalid Location = permission or geofence; Viewer Already
+      Requested = strict per-viewer limit. Shows under 20 tapping loads
+      hidden.
     display: ActionsTable
     query: |
       -- Who to contact: shows where fans tap and get turned away.
@@ -626,12 +647,18 @@ insights:
       GROUP BY day
       ORDER BY day
 
+  # Full notes (PostHog caps descriptions at 400 chars):
+  #   Why fan requests/votes are rejected, last 30d, ranked by page loads
+  #   affected rather than raw taps. taps_per_load shows how hard fans retry.
+  #   Queue Full and Viewer Already Requested look biggest by raw taps (~10
+  #   per load), but Sequence Already Requested reaches more fans. Sequence
+  #   Unavailable still lumps cooldown, nightly cap and group cap together on
+  #   the client; the narrowed reason exists only in the server's Mongo stats.
   - name: fan-rejection-reasons-30d
     description: >-
-      Why fan requests/votes are rejected, last 30d, ranked by page loads affected rather than
-      raw taps. taps_per_load shows how hard fans retry. Queue Full and Viewer Already Requested
-      look biggest by raw taps (~10 per load), but Sequence Already Requested reaches more fans.
-      Sequence Unavailable still lumps cooldown, nightly cap and group cap together on the client;
+      Why fan requests/votes are rejected, 30d, ranked by page loads affected,
+      not raw taps. taps_per_load shows how hard fans retry. Sequence
+      Unavailable still lumps cooldown, nightly cap and group cap together;
       the narrowed reason exists only in the server's Mongo stats.
     display: ActionsTable
     query: |
@@ -650,13 +677,20 @@ insights:
       GROUP BY reason
       ORDER BY page_loads_affected DESC
 
+  # Full notes (PostHog caps descriptions at 400 chars):
+  #   Invalid Location rejections split by what the browser reported (cause)
+  #   and where the page was opened (client_class), last 30d, in page loads.
+  #   Only out_of_range/browser means a fan was genuinely too far away (or the
+  #   show's coordinates are wrong); permission_* means the fan never shared
+  #   location, and *_in_app means a Facebook/Instagram webview, which no show
+  #   setting can fix. Widening the radius only helps the out_of_range rows.
   - name: fan-invalid-location-causes-30d
     description: >-
-      Invalid Location rejections split by what the browser reported (cause) and where the page
-      was opened (client_class), last 30d, in page loads. Only out_of_range/browser means a fan
-      was genuinely too far away (or the show's coordinates are wrong); permission_* means the fan
-      never shared location, and *_in_app means a Facebook/Instagram webview, which no show
-      setting can fix. Widening the radius only helps the out_of_range rows.
+      Invalid Location rejections by browser-reported cause and client_class,
+      30d, in page loads. Only out_of_range/browser means genuinely too far
+      (or wrong show coordinates); permission_* = fan never shared location;
+      *_in_app = Facebook/Instagram webview, which no show setting fixes.
+      Widening the radius only helps out_of_range.
     display: ActionsTable
     query: |
       SELECT
@@ -809,15 +843,21 @@ insights:
         AND timestamp >= now() - INTERVAL 7 DAY
         AND properties.$host IN ('remotefalcon.com', 'www.remotefalcon.com')
 
+  # Full notes (PostHog caps descriptions at 400 chars):
+  #   Top 20 Error Tracking issues by event count in the last 7 days, one row
+  #   per $exception_issue_id, with surface and blast radius. Read
+  #   viewer_shows_affected / cp_owners_affected before events: many shows =
+  #   platform bug, one show = that operator's page or a single device. Top
+  #   rows are usually browser/extension/network noise (Script error., Load
+  #   failed, Android "Java object is gone"); suppress those in Error
+  #   Tracking, not here.
   - name: platform-top-error-issues-7d
     description: >-
-      Top 20 Error Tracking issues by event count in the last 7 days, one row
-      per $exception_issue_id, with surface and blast radius. Read
-      viewer_shows_affected / cp_owners_affected before events: many shows =
-      platform bug, one show = that operator's page or a single device. Top
-      rows are usually browser/extension/network noise (Script error.,
-      Load failed, Android "Java object is gone"); suppress those in Error
-      Tracking, not here.
+      Top 20 Error Tracking issues by events, 7d, with surface and blast
+      radius. Read viewer_shows_affected / cp_owners_affected first: many
+      shows = platform bug, one show = that operator's page or one device. Top
+      rows are often browser/extension/network noise; suppress those in Error
+      Tracking.
     display: ActionsTable
     query: |
       SELECT

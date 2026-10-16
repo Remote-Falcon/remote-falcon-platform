@@ -20,6 +20,7 @@ import os
 import sys
 import urllib.error
 import urllib.request
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +33,31 @@ except ImportError:
 HERE = Path(__file__).resolve().parent
 INSIGHTS_FILE = HERE / "insights.yml"
 DASHBOARDS_FILE = HERE / "dashboards.yml"
+# PostHog rejects insight descriptions over 400 chars. Dashboards are held to
+# the same cap; their real limit is undocumented.
+MAX_DESCRIPTION_LEN = 400
+
+
+def validate_config(insights_cfg: dict, dashboards_cfg: dict) -> list[str]:
+    """Catch config errors PostHog would reject before any API call, so a
+    bad entry can't leave the reconcile half-applied."""
+    insights = insights_cfg.get("insights", [])
+    dashboards = dashboards_cfg.get("dashboards", [])
+    name_counts = Counter(i["name"] for i in insights)
+
+    errors = [f"duplicate insight name: {n}" for n, c in name_counts.items() if c > 1]
+    for kind, cfg in [("insight", i) for i in insights] + [("dashboard", d) for d in dashboards]:
+        length = len(cfg.get("description", ""))
+        if length > MAX_DESCRIPTION_LEN:
+            errors.append(
+                f"{kind} '{cfg['name']}' description is {length} chars "
+                f"(max {MAX_DESCRIPTION_LEN})"
+            )
+    for dash in dashboards:
+        for name in dash.get("insights", []):
+            if name not in name_counts:
+                errors.append(f"dashboard '{dash['name']}' links unknown insight: {name}")
+    return errors
 
 
 def _request(method: str, url: str, token: str, body: dict | None = None) -> dict | list:
@@ -180,6 +206,10 @@ def main() -> int:
 
     insights_cfg = yaml.safe_load(args.insights_file.read_text())
     dashboards_cfg = yaml.safe_load(args.dashboards_file.read_text())
+
+    errors = validate_config(insights_cfg, dashboards_cfg)
+    if errors:
+        sys.exit("ERROR: config invalid, nothing applied:\n  " + "\n  ".join(errors))
 
     project_id = insights_cfg["project_id"]
     host = insights_cfg.get("posthog_host", "https://us.posthog.com").rstrip("/")

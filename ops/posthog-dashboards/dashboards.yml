@@ -7,14 +7,20 @@
 # lives in project settings, not here.
 
 dashboards:
+  # Full notes (PostHog caps descriptions at 400 chars):
+  #   How many show owners use the control panel, whether they come back week
+  #   to week, which features they touch, and whether shows are coming online
+  #   for the season. Owner = identified event on remotefalcon.com, so
+  #   anonymous fans (90%+ of raw $pageview persons) are excluded. distinct_id
+  #   is the show subdomain, so every count is a count of shows. Holiday
+  #   traffic is seasonal: expect a climb Oct-Dec and a summer trough.
   - name: Owner Engagement
     description: >-
-      How many show owners use the control panel, whether they come back week to
-      week, which features they touch, and whether shows are coming online for
-      the season. Owner = identified event on remotefalcon.com, so anonymous fans
-      (90%+ of raw $pageview persons) are excluded. distinct_id is the show
-      subdomain, so every count is a count of shows. Holiday traffic is seasonal:
-      expect a climb Oct-Dec and a summer trough.
+      Project home. How many show owners use the control panel, whether they
+      return week to week, which features they use, and whether shows are
+      coming online for the season. Owner = identified event on
+      remotefalcon.com; distinct_id is the show subdomain, so every count is
+      shows. Seasonal: expect a climb Oct-Dec.
     insights:
       - owner-active-7d
       - owner-wau-90d
@@ -25,16 +31,22 @@ dashboards:
       - owner-notification-bell-weekly-90d
       - owner-top-actions-30d
 
+  # Full notes (PostHog caps descriptions at 400 chars):
+  #   Sign-up to first-show-ready for new Remote Falcon operators, keyed on
+  #   the show subdomain (not the PostHog person) because signup and email
+  #   verification are anonymous and often on different devices. Weekly
+  #   signups, a 14-day activation funnel over mature cohorts, a weekly cohort
+  #   table to see whether activation is improving, and a list of shows stuck
+  #   before email verification. Milestones are first observed in a browser;
+  #   activation_completed is shown under its real meaning (first viewer-
+  #   control flip seen), not "went live".
   - name: Owner Onboarding
     description: >-
-      Sign-up to first-show-ready for new Remote Falcon operators, keyed
-      on the show subdomain (not the PostHog person) because signup and
-      email verification are anonymous and often on different devices.
-      Weekly signups, a 14-day activation funnel over mature cohorts, a
-      weekly cohort table to see whether activation is improving, and a
-      list of shows stuck before email verification. Milestones are
-      first observed in a browser; activation_completed is shown under
-      its real meaning (first viewer-control flip seen), not "went live".
+      Sign-up to first-show-ready for new operators, keyed on the show
+      subdomain (signup and verification are anonymous and often cross-
+      device). Weekly signups, a 14-day activation funnel, a weekly cohort
+      table and shows stuck before email verification. activation_completed =
+      first viewer-control flip seen, not "went live".
     insights:
       - onboarding-activation-funnel-14d
       - onboarding-cohort-weekly-14d
@@ -42,15 +54,23 @@ dashboards:
       - onboarding-signups-7d
       - onboarding-stuck-at-verification-90d
 
+  # Full notes (PostHog caps descriptions at 400 chars):
+  #   What fans experience on viewer pages (<show>.remotefalcon.com). First,
+  #   the shows to contact because their fans keep getting rejected. Then the
+  #   per-visit success rate, daily traffic (page loads, unique fan IPs,
+  #   active shows), rejection reasons, the Invalid Location breakdown, the
+  #   location-recovery prompt, sequence popularity and referrers. Caveats: a
+  #   fan's distinct_id resets on every page load, so counts are page loads,
+  #   never people, and unique IPs are only an approximation. Known kiosk and
+  #   reload-loop IPs are excluded from every tile. Traffic is seasonal and
+  #   ramps October to December.
   - name: Fan-Side Activity
     description: >-
-      What fans experience on viewer pages (<show>.remotefalcon.com). First, the shows to contact
-      because their fans keep getting rejected. Then the per-visit success rate, daily traffic
-      (page loads, unique fan IPs, active shows), rejection reasons, the Invalid Location
-      breakdown, the location-recovery prompt, sequence popularity and referrers. Caveats: a fan's
-      distinct_id resets on every page load, so counts are page loads, never people, and unique
-      IPs are only an approximation. Known kiosk and reload-loop IPs are excluded from every tile.
-      Traffic is seasonal and ramps October to December.
+      What fans experience on viewer pages: shows to contact first, then per-
+      visit success rate, traffic, rejection reasons, Invalid Location,
+      location recovery, sequences, referrers. Fan distinct_id resets per page
+      load, so counts are page loads, never people; unique IPs are
+      approximate. Kiosk/reload-loop IPs excluded. Seasonal.
     insights:
       - fan-rejection-rate-by-show-30d
       - fan-load-success-rate-weekly-90d
@@ -61,24 +81,30 @@ dashboards:
       - fan-sequence-popularity-30d
       - fan-referrers-30d
 
+  # Full notes (PostHog caps descriptions at 400 chars):
+  #   Frontend platform health for the control panel (apex remotefalcon.com)
+  #   and every show viewer page (<show>.remotefalcon.com), always split by
+  #   surface. Replaces rf-frontend-health and System Health. Top: active
+  #   viewer shows + CP pageviews; then Error Tracking issues with blast
+  #   radius, exceptions by surface, traffic trend, the reload-loop detector,
+  #   viewer script failures, web vitals, and CP top paths. Caveats: (1) CP
+  #   pageviews jump ~15x on 2026-08-23 when SPA route changes started firing
+  #   $pageview (capture_pageview 'history_change', #152), so don't compare
+  #   across that date. (2) Viewer autocapture, heatmaps, dead clicks and
+  #   replay were turned off on 2026-07-25 (#144); viewer $pageview,
+  #   $pageleave, $exception and $web_vitals were kept. (3) Fan distinct_id
+  #   resets per page load, so viewer metrics count shows or page loads, never
+  #   users. (4) Viewer queries exclude the known kiosk / reload-loop IPs
+  #   except the reload-loop detector, which exists to find new ones. (5)
+  #   Traffic is seasonal and ramps Oct to Dec. Issue-level alerting is the
+  #   Error Tracking to Discord destinations, not this dashboard.
   - name: Platform Health
     description: >-
-      Frontend platform health for the control panel (apex remotefalcon.com)
-      and every show viewer page (<show>.remotefalcon.com), always split by
-      surface. Replaces rf-frontend-health and System Health. Top: active
-      viewer shows + CP pageviews; then Error Tracking issues with blast
-      radius, exceptions by surface, traffic trend, the reload-loop detector,
-      viewer script failures, web vitals, and CP top paths. Caveats:
-      (1) CP pageviews jump ~15x on 2026-08-23 when SPA route changes started
-      firing $pageview (capture_pageview 'history_change', #152), so don't
-      compare across that date. (2) Viewer autocapture, heatmaps, dead clicks
-      and replay were turned off on 2026-07-25 (#144); viewer $pageview,
-      $pageleave, $exception and $web_vitals were kept. (3) Fan distinct_id
-      resets per page load, so viewer metrics count shows or page loads,
-      never users. (4) Viewer queries exclude the known kiosk / reload-loop
-      IPs except the reload-loop detector, which exists to find new ones.
-      (5) Traffic is seasonal and ramps Oct to Dec. Issue-level alerting is
-      the Error Tracking to Discord destinations, not this dashboard.
+      Frontend health for the control panel and viewer pages, split by
+      surface: errors with blast radius, traffic, reload loops, script
+      failures, web vitals, CP paths. CP pageviews jump ~15x on 2026-08-23
+      (SPA route pageviews), so don't compare across it. Viewer counts are
+      shows or page loads. Alerting is Error Tracking to Discord.
     insights:
       - platform-viewer-active-shows-7d
       - platform-cp-pageviews-7d
@@ -90,18 +116,24 @@ dashboards:
       - platform-web-vitals-weekly-90d
       - platform-cp-top-paths-7d
 
+  # Full notes (PostHog caps descriptions at 400 chars):
+  #   RF Page Builder adoption measured from the Remote Falcon side: how many
+  #   shows launch the editor from the control panel, what share of active
+  #   owners that is, and whether they come back. Caveats: (1) RFPB's own rf_*
+  #   events (publish attempted/succeeded/conflict/failed, pull) go to RFPB's
+  #   separate PostHog project and never arrive here. (2) Publish health lives
+  #   only in external-api logs: filter service remote-falcon-external-api,
+  #   body containing rfpb_audit, and group by op/status (page.update 200 vs
+  #   412/4xx). Saved insights can't query logs, and log retention is about 14
+  #   days. (3) op="v1.error" lines also catch legacy /showDetails 500s
+  #   (V1ErrorHandler scope bug), so don't read them as RFPB failures.
   - name: Remote Falcon Integration
     description: >-
-      RF Page Builder adoption measured from the Remote Falcon side: how many
-      shows launch the editor from the control panel, what share of active
-      owners that is, and whether they come back. Caveats: (1) RFPB's own rf_*
-      events (publish attempted/succeeded/conflict/failed, pull) go to RFPB's
-      separate PostHog project and never arrive here. (2) Publish health lives
-      only in external-api logs: filter service remote-falcon-external-api,
-      body containing rfpb_audit, and group by op/status (page.update 200 vs
-      412/4xx). Saved insights can't query logs, and log retention is about 14 days.
-      (3) op="v1.error" lines also catch legacy /showDetails 500s (V1ErrorHandler
-      scope bug), so don't read them as RFPB failures.
+      RF Page Builder adoption seen from RF: shows launching the editor, share
+      of active owners, repeat use. RFPB's own rf_* events go to its own
+      PostHog project. Publish health is in external-api rfpb_audit logs (~14d
+      retention, not queryable by insights); v1.error lines also catch legacy
+      /showDetails 500s.
     insights:
       - rfpb-shows-launching-7d
       - rfpb-launches-weekly-90d
