@@ -12,8 +12,9 @@ import java.time.LocalDateTime;
 // plugin sends a heartbeat every ~30s; if the gap between consecutive
 // writes exceeds 5 minutes, we log a HeartbeatGap covering the lapse.
 //
-// Persisted on Show.heartbeatGaps[]. The plugins-api writer prunes anything
-// older than 30 days on each successful heartbeat to keep the list tight.
+// Persisted on Show.heartbeatGaps[]. Entries older than 30 days are pruned by
+// plugins-api whenever it records a new gap, and by control-panel's nightly
+// retention sweep (heartbeats no longer prune on every beat).
 @Type
 @Data
 @Builder
