@@ -627,7 +627,8 @@ public class PluginService {
       // a PSA followed every song.
       boolean isGrouped = whatsPlayingSequence.isPresent()
           && StringUtils.isNotEmpty(whatsPlayingSequence.get().getGroup());
-      if (PluginQueueHelper.isSongLike(show, request.getPlaylist()) && !isGrouped) {
+      boolean counterAdvanced = PluginQueueHelper.isSongLike(show, request.getPlaylist()) && !isGrouped;
+      if (counterAdvanced) {
         sequencesPlayed++;
       }
 
@@ -655,7 +656,7 @@ public class PluginService {
           .map(StringUtils::lowerCase)
           .collect(Collectors.toSet());
 
-      this.handleManagedPSA(sequencesPlayed, show, psaNamesLowerCase);
+      this.handleManagedPSA(sequencesPlayed, counterAdvanced, show, psaNamesLowerCase);
 
       // Clear viewer IPs before persisting, but PRESERVE operator-injection
       // markers (OVERRIDE/LEADER/PSA). Nulling them on every FPP poll silently
@@ -742,7 +743,7 @@ public class PluginService {
    * ({@link Boolean#TRUE}{@code .equals(...)}); {@code enabled} null is
    * treated as true (a PSA is enabled unless explicitly disabled).
    */
-  private void handleManagedPSA(int sequencesPlayed, Show show, Set<String> psaNamesLowerCase) {
+  private void handleManagedPSA(int sequencesPlayed, boolean counterAdvanced, Show show, Set<String> psaNamesLowerCase) {
     List<PsaSequence> psaSequences = show.getPsaSequences();
     if (CollectionUtils.isEmpty(psaSequences) || CollectionUtils.isEmpty(psaNamesLowerCase)) {
       return;
@@ -771,10 +772,14 @@ public class PluginService {
     // intent is honored regardless of cadence state. Burst-with-override
     // still requires the cadence window to elapse (per PRD §7 "Q4 burst
     // interaction": override fires first AT the cadence boundary).
+    // The window only opens on the play that moved the counter onto a
+    // multiple: a non-advancing play (grouped song) leaves the counter on
+    // the multiple and would otherwise fire again on every such play.
     if (!show.getPreferences().getPsaEnabled()
         || !show.getPreferences().getManagePsa()
         || show.getPreferences().getPsaFrequency() == null
         || show.getPreferences().getPsaFrequency() <= 0
+        || !counterAdvanced
         || sequencesPlayed == 0
         || sequencesPlayed % show.getPreferences().getPsaFrequency() != 0) {
       return;
