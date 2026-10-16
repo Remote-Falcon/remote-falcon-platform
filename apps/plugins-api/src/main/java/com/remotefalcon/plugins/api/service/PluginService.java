@@ -629,7 +629,7 @@ public class PluginService {
       // not song-like and never touch the counter.
       boolean countsAsSong = whatsPlayingSequence.isEmpty()
           || StringUtils.isEmpty(whatsPlayingSequence.get().getGroup())
-          || this.isGroupCloser(sequences, whatsPlayingSequence.get());
+          || this.isGroupCloser(show, sequences, whatsPlayingSequence.get());
       boolean counterAdvanced = PluginQueueHelper.isSongLike(show, request.getPlaylist()) && countsAsSong;
       if (counterAdvanced) {
         sequencesPlayed++;
@@ -712,13 +712,17 @@ public class PluginService {
   }
 
   /**
-   * True when {@code sequence} is the highest-order member of its group (ties
-   * broken by name, so exactly one member qualifies).
+   * True when {@code sequence} is the highest-order active song in its group
+   * (ties broken by name, so exactly one member qualifies). Inactive members
+   * (removed from FPP) and PSAs/leaders never play as the group's last song,
+   * so they can't be the closer or the group would never count.
    */
-  private boolean isGroupCloser(List<Sequence> sequences, Sequence sequence) {
+  private boolean isGroupCloser(Show show, List<Sequence> sequences, Sequence sequence) {
     return sequences.stream()
         .filter(Objects::nonNull)
         .filter(seq -> StringUtils.equalsIgnoreCase(seq.getGroup(), sequence.getGroup()))
+        .filter(seq -> !Boolean.FALSE.equals(seq.getActive()))
+        .filter(seq -> PluginQueueHelper.isSongLike(show, seq.getName()))
         .max(Comparator
             .comparing((Sequence seq) -> seq.getOrder() != null ? seq.getOrder() : Integer.MIN_VALUE)
             .thenComparing(seq -> seq.getName() != null ? seq.getName() : ""))

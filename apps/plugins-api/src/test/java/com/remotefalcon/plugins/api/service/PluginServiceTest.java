@@ -1714,11 +1714,10 @@ class PluginServiceTest {
     assertEquals("Success", resp.getMessage());
   }
 
-  // ---------- PSA cadence: PSAs kept in a sequence group ----------
-  // Operators commonly park PSAs in an RF sequence group (e.g. "PSA"). The
-  // grouped-sequence decrement must not apply to them: PSAs never incremented
-  // the counter, so decrementing it rewound the cadence by one per PSA and a
-  // PSA was injected after every song once the first one fired.
+  // ---------- PSA cadence with sequence groups ----------
+  // Operators commonly park PSAs in an RF sequence group (e.g. "PSA"); those
+  // must never move the counter. A group of songs counts once, on its last
+  // member, and only a play that advances the counter can fire a PSA.
 
   private void play(String name) {
     pluginService.updateWhatsPlaying(UpdateWhatsPlayingRequest.builder().playlist(name).build());
@@ -1771,18 +1770,7 @@ class PluginServiceTest {
 
   @Test
   void psaCadence_groupedPsas_frequency3_firesEveryThirdSong() {
-    configureManagedPsa(ViewerControlMode.JUKEBOX, 3, null);
-    baseShow.setRequests(new ArrayList<>());
-    baseShow.setVotes(new ArrayList<>());
-    baseShow.setSequences(new ArrayList<>(List.of(
-        songSeq("S1", 1), songSeq("S2", 2), songSeq("S3", 3),
-        songSeq("S4", 4), songSeq("S5", 5), songSeq("S6", 6),
-        songSeq("PSA1", 91, "PSA"), songSeq("PSA2", 92, "PSA")
-    )));
-    baseShow.setPsaSequences(new ArrayList<>(List.of(
-        PsaSequence.builder().name("PSA1").order(1).build(),
-        PsaSequence.builder().name("PSA2").order(2).build()
-    )));
+    configureGroupedPsaShow(ViewerControlMode.JUKEBOX, null);
 
     play("S1");
     play("S2");
@@ -1891,5 +1879,37 @@ class PluginServiceTest {
     assertEquals(0, psaRequestCount(), "no PSA inside the group");
     play("Medley 3");
     assertEquals(1, psaRequestCount());
+  }
+
+  @Test
+  void psaCadence_inactiveLastMember_doesNotStopTheGroupCounting() {
+    // A member removed from FPP is marked inactive with a high order but keeps
+    // its group; it never plays, so it must not be the group's closer.
+    configureManagedPsa(ViewerControlMode.JUKEBOX, 3, null);
+    Sequence removed = songSeq("Part 3", 99, "Group1");
+    removed.setActive(false);
+    baseShow.setSequences(new ArrayList<>(List.of(
+        songSeq("Part 1", 1, "Group1"), songSeq("Part 2", 2, "Group1"), removed
+    )));
+
+    play("Part 1");
+    play("Part 2");
+
+    assertEquals(1, baseShow.getPreferences().getSequencesPlayed());
+  }
+
+  @Test
+  void psaCadence_psaAsLastGroupMember_groupStillCountsOnLastSong() {
+    configureManagedPsa(ViewerControlMode.JUKEBOX, 3, null);
+    baseShow.setSequences(new ArrayList<>(List.of(
+        songSeq("Song A", 1, "Intro Set"), songSeq("Song B", 2, "Intro Set"), songSeq("PSA1", 3, "Intro Set")
+    )));
+    baseShow.setPsaSequences(new ArrayList<>(List.of(PsaSequence.builder().name("PSA1").order(1).build())));
+
+    play("Song A");
+    play("Song B");
+    play("PSA1");
+
+    assertEquals(1, baseShow.getPreferences().getSequencesPlayed());
   }
 }
