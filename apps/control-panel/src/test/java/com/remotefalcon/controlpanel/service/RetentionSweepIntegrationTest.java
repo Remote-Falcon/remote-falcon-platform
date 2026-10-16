@@ -3,6 +3,7 @@ package com.remotefalcon.controlpanel.service;
 import com.remotefalcon.controlpanel.repository.ShowRepository;
 import com.remotefalcon.library.documents.Show;
 import com.remotefalcon.library.enums.ShowRole;
+import com.remotefalcon.library.models.HeartbeatGap;
 import com.remotefalcon.library.models.Stat;
 import com.remotefalcon.library.models.ViewerPage;
 import com.remotefalcon.library.models.ViewerSession;
@@ -241,6 +242,28 @@ class RetentionSweepIntegrationTest {
         assertThat(after.getVotes()).hasSize(1);
         assertThat(after.getVotes().get(0).getLastVoteTime())
                 .isAfter(LocalDateTime.now().minusHours(2));
+    }
+
+    @Test
+    void sweep_prunesHeartbeatGapsPastThirtyDays() {
+        // Season Capacity Plan R3: plugins-api stopped pulling expired gaps on
+        // every heartbeat and only prunes when it pushes a new gap. A show with
+        // a stable plugin never pushes, so this sweep is what keeps month-old
+        // outages out of the dashboard's gap count.
+        Show show = buildShow("gaps", statsAllRecent());
+        show.setHeartbeatGaps(new ArrayList<>(List.of(
+                HeartbeatGap.builder().startedAt(LocalDateTime.now().minusDays(41))
+                        .endedAt(LocalDateTime.now().minusDays(40)).build(),
+                HeartbeatGap.builder().startedAt(LocalDateTime.now().minusDays(3))
+                        .endedAt(LocalDateTime.now().minusDays(2)).build())));
+        showRepository.save(show);
+
+        scheduledTaskService.purgeStaleStatsForAllShows();
+
+        Show after = mongoTemplate.findById(show.getId(), Show.class);
+        assertThat(after.getHeartbeatGaps()).hasSize(1);
+        assertThat(after.getHeartbeatGaps().get(0).getEndedAt())
+                .isAfter(LocalDateTime.now().minusDays(3));
     }
 
     // ---- document-size / votes-bloat alarm -------------------------------

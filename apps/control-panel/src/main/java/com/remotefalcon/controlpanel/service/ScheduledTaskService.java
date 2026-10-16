@@ -110,8 +110,9 @@ public class ScheduledTaskService {
     // ---- Platform-outage suppression (Season Capacity Plan, Appendix D P1-7)
     //
     // A plugins-api or DB outage freezes every live plugin's lastFppHeartbeat
-    // inside one heartbeat interval (~30s). Five minutes later every opted-in
-    // show crosses HEARTBEAT_STALE_MINUTES together and, without this, is told
+    // inside one write interval (plugins-api coalesces heartbeat writes to one
+    // per 120s, so frozen values spread over ~2.5 min). Within minutes every
+    // opted-in show crosses HEARTBEAT_STALE_MINUTES together and, without this, is told
     // "your plugin is down": one platform incident becomes hundreds of support
     // tickets. Prod traffic 2026-10-12 put ~790 plugins on /fppHeartbeat.
     //
@@ -133,8 +134,9 @@ public class ScheduledTaskService {
     // first alert. So a false positive costs a delay, not a missed alert.
     static final int OUTAGE_MIN_STALE_SHOWS = 10;
     static final int OUTAGE_MIN_STALE_PERCENT = 25;
-    // Live plugins freeze within ~30s of each other. 10 minutes tolerates a
-    // brownout that staggers the freeze across several minutes.
+    // Live plugins' stored heartbeats freeze within ~2.5 min of each other
+    // (the 120s write coalescing plus the 30s beat). 10 minutes absorbs that
+    // and still tolerates a brownout that staggers the freeze further.
     static final long OUTAGE_COHORT_WINDOW_MINUTES = 10L;
     // After recovery the healthy count climbs as plugins reconnect, so the
     // cohort stops measuring as an outage while slow reconnectors are still
@@ -427,6 +429,13 @@ public class ScheduledTaskService {
      * this expiry bounds the array for every show regardless of leak path.
      */
     static final int VOTES_MAX_AGE_HOURS = 24;
+    /**
+     * Matches plugins-api's HEARTBEAT_GAP_RETENTION_DAYS. plugins-api only
+     * prunes heartbeatGaps when it pushes a new gap (Season Capacity Plan R3
+     * dropped the per-beat $pull), so a show whose plugin stays healthy keeps
+     * its old gaps until this sweep removes them.
+     */
+    static final int HEARTBEAT_GAP_RETENTION_DAYS = 30;
 
     /**
      * Nightly retention, entirely server-side: one {@code updateMulti} whose
@@ -459,6 +468,8 @@ public class ScheduledTaskService {
                 .atZone(ZoneId.systemDefault()).toInstant());
         Date votesCutoff = Date.from(LocalDateTime.now().minusHours(VOTES_MAX_AGE_HOURS)
                 .atZone(ZoneId.systemDefault()).toInstant());
+        Date heartbeatGapCutoff = Date.from(LocalDateTime.now().minusDays(HEARTBEAT_GAP_RETENTION_DAYS)
+                .atZone(ZoneId.systemDefault()).toInstant());
 
         Update pulls = new Update()
                 .pull("stats.page", new Document("dateTime", new Document("$lt", statsCutoff)))
@@ -470,7 +481,8 @@ public class ScheduledTaskService {
                 // never written - this is that trim, finally real).
                 .pull("viewerSessions", new Document("lastSeen", new Document("$lt", statsCutoff)))
                 .pull("votes", new Document("lastVoteTime",
-                        new Document("$not", new Document("$gte", votesCutoff))));
+                        new Document("$not", new Document("$gte", votesCutoff))))
+                .pull("heartbeatGaps", new Document("endedAt", new Document("$lt", heartbeatGapCutoff)));
 
         UpdateResult result = mongoTemplate.updateMulti(new Query(), pulls, Show.class);
         log.info("Stats retention sweep complete: {} of {} shows modified, {} ms",
