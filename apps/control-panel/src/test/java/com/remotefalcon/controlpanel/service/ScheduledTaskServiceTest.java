@@ -33,7 +33,7 @@ import static org.mockito.Mockito.when;
  * fppHeartbeatTask flood-guard behavior (2026-07-19 enablement):
  * replace-not-append, exponential renotify backoff (incl. null default and
  * the zero clamp), viewer-control gate, recovery clear, and the 24h TTL
- * sweep. The task must NEVER call showRepository.save() — a full-document
+ * sweep (hourly since Capacity Plan R4, its own method). The task must NEVER call showRepository.save() — a full-document
  * write from this minute cron can clobber concurrent plugins-api queue
  * updates mid-show.
  *
@@ -301,7 +301,7 @@ class ScheduledTaskServiceTest {
     }
 
     @Test
-    void recoveryClearAndTtlSweep_alwaysRun() {
+    void recoveryClear_stillRunsEveryMinute() {
         when(showRepository.findFppHeartbeatAlertCandidates(
                 any(LocalDateTime.class), any(LocalDateTime.class))).thenReturn(List.of());
 
@@ -309,11 +309,11 @@ class ScheduledTaskServiceTest {
 
         ArgumentCaptor<Query> queries = ArgumentCaptor.forClass(Query.class);
         ArgumentCaptor<Update> updates = ArgumentCaptor.forClass(Update.class);
-        verify(mongoTemplate, times(2)).updateMulti(queries.capture(), updates.capture(), eq(Show.class));
+        verify(mongoTemplate, times(1)).updateMulti(queries.capture(), updates.capture(), eq(Show.class));
 
         // Recovery: fresh heartbeat + outstanding alert → pull + reset renotify clock.
-        org.bson.Document recoveryQuery = queries.getAllValues().get(0).getQueryObject();
-        org.bson.Document recoveryUpdate = updates.getAllValues().get(0).getUpdateObject();
+        org.bson.Document recoveryQuery = queries.getValue().getQueryObject();
+        org.bson.Document recoveryUpdate = updates.getValue().getUpdateObject();
         assertThat(recoveryQuery)
                 .containsKey("preferences.notificationPreferences.enableFppHeartbeat")
                 .containsKey("lastFppHeartbeat")
@@ -323,20 +323,73 @@ class ScheduledTaskServiceTest {
                 .isEqualTo("FPP_HEALTH");
         assertThat(recoveryUpdate.get("$unset", org.bson.Document.class))
                 .containsKey("preferences.notificationPreferences.fppHeartbeatLastNotification");
+    }
 
-        // TTL: entries older than the promised 24h get pulled. The
-        // lastFppHeartbeat predicate is load-bearing — it lets the planner use
-        // the partial index instead of COLLSCANing every minute.
-        org.bson.Document ttlQuery = queries.getAllValues().get(1).getQueryObject();
-        org.bson.Document ttlUpdate = updates.getAllValues().get(1).getUpdateObject();
-        assertThat(ttlQuery).containsKey("lastFppHeartbeat");
+    @Test
+    void minuteTask_noLongerRunsTheTtlSweep() {
+        // Capacity Plan R4: the TTL sweep FETCHes every opted-in doc (dark
+        // shows included) and was ~36 MB/min of cache churn on the prod DB.
+        // It now runs hourly in reapExpiredFppHealthNotifications().
+        when(showRepository.findFppHeartbeatAlertCandidates(
+                any(LocalDateTime.class), any(LocalDateTime.class))).thenReturn(List.of());
+
+        service.fppHeartbeatTask();
+
+        ArgumentCaptor<Query> queries = ArgumentCaptor.forClass(Query.class);
+        ArgumentCaptor<Update> updates = ArgumentCaptor.forClass(Update.class);
+        verify(mongoTemplate, org.mockito.Mockito.atLeast(0))
+                .updateMulti(queries.capture(), updates.capture(), eq(Show.class));
+        for (Query q : queries.getAllValues()) {
+            assertThat(q.getQueryObject()).doesNotContainKey("showNotifications");
+        }
+        for (Update u : updates.getAllValues()) {
+            org.bson.Document pull = u.getUpdateObject().get("$pull", org.bson.Document.class);
+            if (pull != null) {
+                assertThat(pull.get("showNotifications", org.bson.Document.class))
+                        .doesNotContainKey("notification.createdDate");
+            }
+        }
+    }
+
+    @Test
+    void ttlSweep_reapsFppHealthEntriesOlderThan24h() {
+        when(mongoTemplate.updateMulti(any(Query.class), any(Update.class), eq(Show.class)))
+                .thenReturn(com.mongodb.client.result.UpdateResult.acknowledged(3, 3L, null));
+
+        java.util.Date before = java.util.Date.from(LocalDateTime.now()
+                .minusHours(ScheduledTaskService.FPP_HEALTH_TTL_HOURS).toInstant(java.time.ZoneOffset.UTC));
+        service.reapExpiredFppHealthNotifications();
+        java.util.Date after = java.util.Date.from(LocalDateTime.now()
+                .minusHours(ScheduledTaskService.FPP_HEALTH_TTL_HOURS).toInstant(java.time.ZoneOffset.UTC));
+
+        ArgumentCaptor<Query> query = ArgumentCaptor.forClass(Query.class);
+        ArgumentCaptor<Update> update = ArgumentCaptor.forClass(Update.class);
+        verify(mongoTemplate, times(1)).updateMulti(query.capture(), update.capture(), eq(Show.class));
+
+        // The lastFppHeartbeat predicate is load-bearing: it lets the planner
+        // use the partial index instead of COLLSCANing the show collection.
+        org.bson.Document ttlQuery = query.getValue().getQueryObject();
+        assertThat(ttlQuery)
+                .containsKey("preferences.notificationPreferences.enableFppHeartbeat")
+                .containsKey("lastFppHeartbeat");
         assertThat(ttlQuery.get("showNotifications", org.bson.Document.class))
                 .containsKey("$elemMatch");
-        org.bson.Document ttlPull = ttlUpdate.get("$pull", org.bson.Document.class)
+        org.bson.Document ttlPull = update.getValue().getUpdateObject().get("$pull", org.bson.Document.class)
                 .get("showNotifications", org.bson.Document.class);
         assertThat(ttlPull.getString("notification.type")).isEqualTo("FPP_HEALTH");
-        assertThat(ttlPull.get("notification.createdDate", org.bson.Document.class))
-                .containsKey("$lt");
+        java.util.Date cutoff = (java.util.Date) ttlPull.get("notification.createdDate", org.bson.Document.class)
+                .get("$lt");
+        assertThat(cutoff).isBetween(before, after, true, true);
+        // Never a full-document write.
+        verify(showRepository, never()).save(any(Show.class));
+    }
+
+    @Test
+    void ttlSweep_dbUnreachable_doesNotThrow() {
+        when(mongoTemplate.updateMulti(any(Query.class), any(Update.class), eq(Show.class)))
+                .thenThrow(new org.springframework.dao.DataAccessResourceFailureException("timeout"));
+
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> service.reapExpiredFppHealthNotifications());
     }
 
     // ---- backoff ladder -------------------------------------------------
@@ -447,8 +500,8 @@ class ScheduledTaskServiceTest {
         verify(outageStore).save(saved.capture());
         assertThat(saved.getValue().cohortStart()).isBeforeOrEqualTo(saved.getValue().cohortEnd());
         assertThat(saved.getValue().lastQualifiedAt()).isAfter(LocalDateTime.now().minusMinutes(1));
-        // Recovery + TTL sweeps still run during an outage.
-        verify(mongoTemplate, times(2)).updateMulti(any(Query.class), any(Update.class), eq(Show.class));
+        // The recovery sweep still runs during an outage (TTL reaping is hourly now).
+        verify(mongoTemplate, times(1)).updateMulti(any(Query.class), any(Update.class), eq(Show.class));
     }
 
     @Test

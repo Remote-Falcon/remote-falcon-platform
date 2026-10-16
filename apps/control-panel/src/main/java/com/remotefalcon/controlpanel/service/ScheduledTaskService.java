@@ -266,7 +266,7 @@ public class ScheduledTaskService {
                     : currentOutage(showsToNotify, now, staleCutoff, outageWindowFloor);
         } catch (DataAccessException | MongoException e) {
             // A failed read is "unknown", never "everyone is stale". Skip the
-            // tick (sweeps included: they would hit the same dead DB).
+            // tick (recovery sweep included: it would hit the same dead DB).
             log.warn("FPP heartbeat task skipped this tick, database unavailable: {}", e.getMessage());
             return;
         }
@@ -371,31 +371,57 @@ public class ScheduledTaskService {
                         .unset("preferences.notificationPreferences.fppHeartbeatLastNotification"),
                 Show.class);
 
-        // TTL backstop: reap FPP_HEALTH entries whose createdDate stopped
-        // refreshing >24h ago (renotifies ceased: control-gate suppression or
-        // similar; live outages refresh createdDate every renotify and are
-        // never touched). The always-true lastFppHeartbeat range is
-        // load-bearing: without a predicate on the partial index's key this
-        // query COLLSCANs the whole show collection every minute (measured:
-        // 2,594 docs examined on the prod-shaped dev DB). ZoneOffset.UTC
-        // matches how DashboardService interprets these zone-naive stored
-        // LocalDateTimes — do not use the system default zone here.
+        // TTL reaping is not done here: see reapExpiredFppHealthNotifications(),
+        // which runs hourly.
+    }
+
+    /**
+     * TTL backstop, hourly (Season Capacity Plan R4): reap FPP_HEALTH entries
+     * whose createdDate stopped refreshing more than 24h ago (renotifies
+     * ceased: control-gate suppression or similar; live outages refresh
+     * createdDate every renotify and are never touched).
+     *
+     * <p>Split out of the per-minute {@link #fppHeartbeatTask()} because this
+     * query's always-true lastFppHeartbeat range matches EVERY opted-in show,
+     * dark ones included, and the elemMatch on showNotifications forces a
+     * FETCH of each: ~289 docs, ~36 MB of mostly cold documents pulled through
+     * the WiredTiger cache every minute in prod. Minute precision on a 24h TTL
+     * bought nothing; at hourly an entry lives at most ~25h. The alert ladder,
+     * outage suppression and recovery clear never read these entries' age, so
+     * none of them depend on this cadence.
+     *
+     * <p>The always-true lastFppHeartbeat range is load-bearing: without a
+     * predicate on the partial index's key this query COLLSCANs the whole show
+     * collection (measured: 2,594 docs examined on the prod-shaped dev DB).
+     * ZoneOffset.UTC matches how DashboardService interprets these zone-naive
+     * stored LocalDateTimes; do not use the system default zone here.
+     */
+    public void reapExpiredFppHealthNotifications() {
+        LocalDateTime now = LocalDateTime.now();
         Date ttlCutoff = Date.from(now.minusHours(FPP_HEALTH_TTL_HOURS).toInstant(ZoneOffset.UTC));
-        mongoTemplate.updateMulti(
-                new Query(Criteria.where("preferences.notificationPreferences.enableFppHeartbeat").is(true)
-                        .and("lastFppHeartbeat").lt(now.plusMinutes(1))
-                        .and("showNotifications").elemMatch(
-                                Criteria.where("notification.type").is(NotificationType.FPP_HEALTH.name())
-                                        .and("notification.createdDate").lt(ttlCutoff))),
-                new Update().pull("showNotifications",
-                        new Document(FPP_HEALTH_PULL)
-                                .append("notification.createdDate", new Document("$lt", ttlCutoff))),
-                Show.class);
+        try {
+            UpdateResult result = mongoTemplate.updateMulti(
+                    new Query(Criteria.where("preferences.notificationPreferences.enableFppHeartbeat").is(true)
+                            .and("lastFppHeartbeat").lt(now.plusMinutes(1))
+                            .and("showNotifications").elemMatch(
+                                    Criteria.where("notification.type").is(NotificationType.FPP_HEALTH.name())
+                                            .and("notification.createdDate").lt(ttlCutoff))),
+                    new Update().pull("showNotifications",
+                            new Document(FPP_HEALTH_PULL)
+                                    .append("notification.createdDate", new Document("$lt", ttlCutoff))),
+                    Show.class);
+            if (result != null && result.getModifiedCount() > 0) {
+                log.info("FPP_HEALTH TTL sweep reaped expired alerts from {} shows", result.getModifiedCount());
+            }
+        } catch (DataAccessException | MongoException e) {
+            // The next hour retries; the nightly orphan purge is a second backstop.
+            log.warn("FPP_HEALTH TTL sweep skipped, database unavailable: {}", e.getMessage());
+        }
     }
 
     /**
      * Nightly toggle-agnostic sweep for orphaned FPP_HEALTH entries. The
-     * minute-cadence recovery/TTL sweeps require enableFppHeartbeat=true so
+     * minute-cadence recovery and hourly TTL sweeps require enableFppHeartbeat=true so
      * they can ride the partial index; a show that opts OUT with an alert
      * outstanding escapes both forever (and deleteNotification only targets
      * the separate admin notification collection, so there is no other
