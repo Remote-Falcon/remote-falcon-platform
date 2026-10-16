@@ -553,7 +553,11 @@ class PluginServiceTest {
   }
 
   private Sequence songSeq(String name, int index) {
-    return Sequence.builder().name(name).index(index).visibilityCount(0).active(true).build();
+    return songSeq(name, index, null);
+  }
+
+  private Sequence songSeq(String name, int index, String group) {
+    return Sequence.builder().name(name).index(index).group(group).visibilityCount(0).active(true).build();
   }
 
   // --- Q1 baseline ---
@@ -1708,5 +1712,158 @@ class PluginServiceTest {
         SetActiveViewerPageRequest.builder().pageName("christmas eve").build());
 
     assertEquals("Success", resp.getMessage());
+  }
+
+  // ---------- PSA cadence: PSAs kept in a sequence group ----------
+  // Operators commonly park PSAs in an RF sequence group (e.g. "PSA"). The
+  // grouped-sequence decrement must not apply to them: PSAs never incremented
+  // the counter, so decrementing it rewound the cadence by one per PSA and a
+  // PSA was injected after every song once the first one fired.
+
+  private void play(String name) {
+    pluginService.updateWhatsPlaying(UpdateWhatsPlayingRequest.builder().playlist(name).build());
+  }
+
+  private boolean isConfiguredPsa(String name) {
+    return name != null && baseShow.getPsaSequences().stream()
+        .anyMatch(psa -> name.equalsIgnoreCase(psa.getName()));
+  }
+
+  private long psaRequestCount() {
+    return baseShow.getRequests().stream()
+        .filter(r -> r.getSequence() != null && isConfiguredPsa(r.getSequence().getName()))
+        .count();
+  }
+
+  private long psaVoteCount() {
+    return baseShow.getVotes().stream()
+        .filter(v -> v.getSequence() != null && isConfiguredPsa(v.getSequence().getName()))
+        .count();
+  }
+
+  private void configureGroupedPsaShow(ViewerControlMode mode, Boolean playAllPsas) {
+    configureManagedPsa(mode, 3, playAllPsas);
+    baseShow.setRequests(new ArrayList<>());
+    baseShow.setVotes(new ArrayList<>());
+    baseShow.setSequences(new ArrayList<>(List.of(
+        songSeq("S1", 1), songSeq("S2", 2), songSeq("S3", 3),
+        songSeq("S4", 4), songSeq("S5", 5), songSeq("S6", 6),
+        songSeq("Medley 1", 11, "Medley"), songSeq("Medley 2", 12, "Medley"),
+        songSeq("PSA1", 91, "PSA"), songSeq("PSA2", 92, "PSA")
+    )));
+    baseShow.setPsaSequences(new ArrayList<>(List.of(
+        PsaSequence.builder().name("PSA1").order(1).build(),
+        PsaSequence.builder().name("PSA2").order(2).build()
+    )));
+  }
+
+  @Test
+  void psaCadence_groupedPsaPlay_leavesCounterUnchanged() {
+    configureManagedPsa(ViewerControlMode.JUKEBOX, 3, null);
+    baseShow.getPreferences().setSequencesPlayed(3);
+    baseShow.setSequences(new ArrayList<>(List.of(songSeq("Song", 1), songSeq("PSA1", 91, "PSA"))));
+    baseShow.setPsaSequences(new ArrayList<>(List.of(PsaSequence.builder().name("PSA1").order(1).build())));
+
+    play("PSA1");
+
+    assertEquals(3, baseShow.getPreferences().getSequencesPlayed());
+  }
+
+  @Test
+  void psaCadence_groupedPsas_frequency3_firesEveryThirdSong() {
+    configureManagedPsa(ViewerControlMode.JUKEBOX, 3, null);
+    baseShow.setRequests(new ArrayList<>());
+    baseShow.setVotes(new ArrayList<>());
+    baseShow.setSequences(new ArrayList<>(List.of(
+        songSeq("S1", 1), songSeq("S2", 2), songSeq("S3", 3),
+        songSeq("S4", 4), songSeq("S5", 5), songSeq("S6", 6),
+        songSeq("PSA1", 91, "PSA"), songSeq("PSA2", 92, "PSA")
+    )));
+    baseShow.setPsaSequences(new ArrayList<>(List.of(
+        PsaSequence.builder().name("PSA1").order(1).build(),
+        PsaSequence.builder().name("PSA2").order(2).build()
+    )));
+
+    play("S1");
+    play("S2");
+    assertEquals(0, psaRequestCount());
+    play("S3");
+    assertEquals(1, psaRequestCount());
+
+    play("PSA1");
+    play("S4");
+    play("S5");
+    assertEquals(1, psaRequestCount(), "a PSA must not follow S4 or S5");
+    play("S6");
+    assertEquals(2, psaRequestCount());
+    assertEquals(6, baseShow.getPreferences().getSequencesPlayed());
+  }
+
+  @Test
+  void psaCadence_groupedSong_stillDoesNotAdvanceCounter() {
+    configureManagedPsa(ViewerControlMode.JUKEBOX, 3, null);
+    baseShow.setSequences(new ArrayList<>(List.of(songSeq("GroupSong", 1, "Group1"))));
+
+    play("GroupSong");
+
+    assertEquals(0, baseShow.getPreferences().getSequencesPlayed());
+  }
+
+  @Test
+  void psaCadence_groupedSongOnCadenceMultiple_doesNotInjectAnotherPsa() {
+    configureGroupedPsaShow(ViewerControlMode.JUKEBOX, null);
+
+    play("S1");
+    play("S2");
+    play("S3");
+    play("PSA1");
+    assertEquals(1, psaRequestCount());
+
+    // The counter is still on 3; grouped songs don't advance it, so they
+    // must not re-trigger the cadence either.
+    play("Medley 1");
+    play("Medley 2");
+    assertEquals(1, psaRequestCount());
+  }
+
+  @Test
+  void psaCadence_groupedPsas_voting_firesEveryThirdSong() {
+    configureGroupedPsaShow(ViewerControlMode.VOTING, null);
+
+    play("S1");
+    play("S2");
+    play("S3");
+    assertEquals(1, psaVoteCount());
+
+    // Simulate highestVotedPlaylist consuming the PSA vote, then FPP playing it.
+    baseShow.getVotes().removeIf(v -> isConfiguredPsa(v.getSequence().getName()));
+    play("PSA1");
+    assertEquals(3, baseShow.getPreferences().getSequencesPlayed());
+
+    play("S4");
+    play("S5");
+    assertEquals(0, psaVoteCount(), "a PSA must not follow S4 or S5");
+    play("S6");
+    assertEquals(1, psaVoteCount());
+  }
+
+  @Test
+  void psaCadence_groupedPsas_burst_keepsCounterFlatAcrossBurst() {
+    configureGroupedPsaShow(ViewerControlMode.JUKEBOX, true);
+
+    play("S1");
+    play("S2");
+    play("S3");
+    assertEquals(2, psaRequestCount());
+
+    play("PSA1");
+    play("PSA2");
+    assertEquals(3, baseShow.getPreferences().getSequencesPlayed());
+
+    play("S4");
+    play("S5");
+    assertEquals(2, psaRequestCount(), "a burst must not follow S4 or S5");
+    play("S6");
+    assertEquals(4, psaRequestCount());
   }
 }
