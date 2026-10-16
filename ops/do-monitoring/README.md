@@ -4,8 +4,9 @@ Source of truth: [`alerts.yml`](./alerts.yml).
 Reconciler: [`apply.py`](./apply.py) (run via [`apply.sh`](./apply.sh)).
 
 Manages DO Monitoring alert policies declaratively: cluster node CPU,
-memory, and disk thresholds wired to Discord via the `/slack`-suffix
-webhook trick.
+memory, and disk thresholds, plus the DO Managed Mongo cluster's CPU,
+memory, and disk, all wired to Discord via the `/slack`-suffix webhook
+trick.
 
 ## Why these alerts (and not others)
 
@@ -18,6 +19,13 @@ This file covers the bottom layer: **the node is unhealthy** (running
 hot, out of memory, out of disk). When one of these fires, every pod
 on the node is at risk regardless of the app — the runbook is "drain
 the node and let cluster autoscaler replace it."
+
+The `rf-mongo-*` alerts cover the other shared bottom layer: the single
+DO Managed Mongo node. Every service depends on it, so a hot DB is a
+platform-wide event. Runbook:
+[`mongo-saturated.md`](../../docs/runbooks/mongo-saturated.md). DO's own
+alert email shows only "Metric 99.5" with no metric name, which is why
+each description spells out the metric, threshold, and window.
 
 ## Prereqs
 
@@ -101,7 +109,23 @@ Common Droplet/DOKS-node types:
 - `v1/insights/droplet/load_1`, `load_5`, `load_15`
 - `v1/insights/droplet/public_outbound_bandwidth`
 
-For managed-DB alerts there's a separate `v1/dbaas/*` family (currently
-three exist outside of `apply.sh` management — DB-CPU, DB-memory,
-DB-disk). Those route email-only; if you want them moved into this
-file, copy their descriptions verbatim and re-run.
+Managed-DB alerts use the `v1/dbaas/alerts/*` family
+(`cpu_alerts`, `memory_utilization_alerts`, `disk_utilization_alerts`)
+with `target: dbaas`. DO attaches those to the cluster UUID through the
+policy's `entities` list (top-level `database_id:` in `alerts.yml`), not
+through tags. The `rf-mongo-*` entries are managed here.
+
+Three older dbaas policies predate this file: "CPU is running high",
+"Memory Utilization is running high", "Disk Utilization is running high"
+(90% / 5m, email-only, no metric-naming beyond that). They don't start
+with `rf-`, so the reconciler neither manages nor reports them. Keep them
+as an email backstop until the `rf-mongo-*` alerts have fired into
+Discord at least once, then delete them:
+
+```sh
+doctl monitoring alert list --format UUID,Type,Description | grep dbaas
+doctl monitoring alert delete <uuid>
+```
+
+Window floor: DO accepts only `5m`, `10m`, `30m`, `1h`. There is no
+2-minute window.

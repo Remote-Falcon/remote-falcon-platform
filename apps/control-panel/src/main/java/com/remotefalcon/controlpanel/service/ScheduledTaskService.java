@@ -8,8 +8,10 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
+import com.mongodb.MongoException;
 import com.mongodb.client.result.UpdateResult;
 
 import com.remotefalcon.controlpanel.repository.ShowRepository;
@@ -21,6 +23,7 @@ import com.remotefalcon.library.models.ShowNotification;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.bson.Document;
+import org.springframework.dao.DataAccessException;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
@@ -33,6 +36,7 @@ import org.springframework.stereotype.Service;
 public class ScheduledTaskService {
     private final ShowRepository showRepository;
     private final MongoTemplate mongoTemplate;
+    private final FppHealthOutageStore outageStore;
 
     // Heartbeat considered dropped after this long without a check-in. Matches
     // plugins-api's HEARTBEAT_GAP_THRESHOLD_MINUTES and the dashboard tile.
@@ -103,14 +107,172 @@ public class ScheduledTaskService {
     private static final Document FPP_HEALTH_PULL =
             new Document("notification.type", NotificationType.FPP_HEALTH.name());
 
+    // ---- Platform-outage suppression (Season Capacity Plan, Appendix D P1-7)
+    //
+    // A plugins-api or DB outage freezes every live plugin's lastFppHeartbeat
+    // inside one heartbeat interval (~30s). Five minutes later every opted-in
+    // show crosses HEARTBEAT_STALE_MINUTES together and, without this, is told
+    // "your plugin is down": one platform incident becomes hundreds of support
+    // tickets. Prod traffic 2026-10-12 put ~790 plugins on /fppHeartbeat.
+    //
+    // A cohort counts as a platform outage when, among opted-in shows that were
+    // heartbeating when the cohort began, BOTH of these froze within one
+    // OUTAGE_COHORT_WINDOW_MINUTES span:
+    //   - at least OUTAGE_MIN_STALE_SHOWS shows. Below 10 the worst case is a
+    //     handful of pushes, not a flood, and a percentage of a tiny off-season
+    //     fleet means nothing (2 of 8 is 25%).
+    //   - at least OUTAGE_MIN_STALE_PERCENT of them. A platform outage freezes
+    //     ~100% of live plugins, so 25% still catches a partial one (a brownout
+    //     that lets some heartbeats through). Organically it would take ~200 of
+    //     ~800 plugins, spread across every US time zone, stopping in the same
+    //     10 minutes; anything that correlated is not the operator's fault.
+    //
+    // Suppression DEFERS, it never drops: a cohort member still dark once the
+    // outage stops measuring as one (plus OUTAGE_RECOVERY_GRACE_MINUTES), or
+    // once its outage passes OUTAGE_MAX_SUPPRESSION_MINUTES, gets the normal
+    // first alert. So a false positive costs a delay, not a missed alert.
+    static final int OUTAGE_MIN_STALE_SHOWS = 10;
+    static final int OUTAGE_MIN_STALE_PERCENT = 25;
+    // Live plugins freeze within ~30s of each other. 10 minutes tolerates a
+    // brownout that staggers the freeze across several minutes.
+    static final long OUTAGE_COHORT_WINDOW_MINUTES = 10L;
+    // After recovery the healthy count climbs as plugins reconnect, so the
+    // cohort stops measuring as an outage while slow reconnectors are still
+    // stale. Hold them this long past the last qualifying tick: 2x the stale
+    // threshold, ~20 heartbeat intervals, room for plugin retry backoff.
+    static final long OUTAGE_RECOVERY_GRACE_MINUTES = 10L;
+    // Upper bound on deferral, so a cluster that is genuinely gone (a regional
+    // power cut in a small fleet keeps measuring as 25%+) is still alerted.
+    static final long OUTAGE_MAX_SUPPRESSION_MINUTES = 120L;
+
+    /** A measured cohort: the frozen-heartbeat span and the ratio behind it. */
+    record OutageCohort(LocalDateTime start, LocalDateTime end, int staleShows, long heartbeatingShows) {
+    }
+
+    /** This tick's suppression window, plus the measurement if it was taken this tick. */
+    private record OutageState(FppHealthOutageStore.Outage window, OutageCohort measured) {
+    }
+
+    /**
+     * Pure detection over the frozen lastFppHeartbeat values of currently
+     * stale opted-in shows (all inside the 48h window).
+     *
+     * <p>Shows heartbeating when a window opened at {@code t} are the ones
+     * healthy now plus every stale show that froze at or after {@code t}; any
+     * opted-in show that froze in the 48h window is in {@code staleHeartbeats},
+     * so that denominator needs one count query and nothing else. Each window
+     * [t, t + OUTAGE_COHORT_WINDOW_MINUTES) is tested. Overlapping qualifying
+     * windows form one cluster; the result is the most recent cluster only, so
+     * two separate outages never bridge into one window that would also cover
+     * shows that went dark on their own in between.
+     */
+    static Optional<OutageCohort> detectOutageCohort(List<LocalDateTime> staleHeartbeats, long healthyNow) {
+        List<LocalDateTime> sorted = staleHeartbeats.stream().sorted().toList();
+        int n = sorted.size();
+        LocalDateTime start = null;
+        LocalDateTime end = null;
+        int j = 0;
+        for (int i = 0; i < n; i++) {
+            LocalDateTime windowEnd = sorted.get(i).plusMinutes(OUTAGE_COHORT_WINDOW_MINUTES);
+            j = Math.max(j, i);
+            while (j < n && sorted.get(j).isBefore(windowEnd)) {
+                j++;
+            }
+            int frozenInWindow = j - i;
+            long heartbeatingAtWindowStart = healthyNow + (n - i);
+            if (frozenInWindow >= OUTAGE_MIN_STALE_SHOWS
+                    && frozenInWindow * 100L >= OUTAGE_MIN_STALE_PERCENT * heartbeatingAtWindowStart) {
+                if (start == null || sorted.get(i).isAfter(end)) {
+                    // Disjoint from the previous cluster: start a new, later one.
+                    start = sorted.get(i);
+                    end = sorted.get(j - 1);
+                } else if (sorted.get(j - 1).isAfter(end)) {
+                    end = sorted.get(j - 1);
+                }
+            }
+        }
+        if (start == null) {
+            return Optional.empty();
+        }
+        LocalDateTime from = start;
+        LocalDateTime to = end;
+        int stale = (int) sorted.stream().filter(t -> !t.isBefore(from) && !t.isAfter(to)).count();
+        long heartbeating = healthyNow + sorted.stream().filter(t -> !t.isBefore(from)).count();
+        return Optional.of(new OutageCohort(from, to, stale, heartbeating));
+    }
+
+    /**
+     * The suppression window for this tick: freshly measured (and persisted),
+     * or the remembered one while it is inside its recovery grace. Lets driver
+     * failures propagate: the caller skips the tick rather than reading
+     * "could not count" as "nobody is healthy".
+     */
+    private Optional<OutageState> currentOutage(List<Show> candidates, LocalDateTime now,
+                                                LocalDateTime staleCutoff, LocalDateTime outageWindowFloor) {
+        Optional<FppHealthOutageStore.Outage> remembered = outageStore.load()
+                .filter(o -> now.isBefore(o.lastQualifiedAt().plusMinutes(OUTAGE_RECOVERY_GRACE_MINUTES)));
+        List<LocalDateTime> recentStale = candidates.stream()
+                .map(Show::getLastFppHeartbeat)
+                .filter(t -> t != null && !t.isBefore(outageWindowFloor))
+                .toList();
+        if (recentStale.size() < OUTAGE_MIN_STALE_SHOWS) {
+            // Cannot qualify; skip the count so the every-minute path is
+            // unchanged in the normal case.
+            return remembered.map(o -> new OutageState(o, null));
+        }
+        // Same partial index (enableFppHeartbeat + lastFppHeartbeat) as the scan.
+        long healthyNow = mongoTemplate.count(
+                new Query(Criteria.where("preferences.notificationPreferences.enableFppHeartbeat").is(true)
+                        .and("lastFppHeartbeat").gte(staleCutoff)),
+                Show.class);
+        Optional<OutageCohort> measured = detectOutageCohort(recentStale, healthyNow);
+        if (measured.isEmpty()) {
+            return remembered.map(o -> new OutageState(o, null));
+        }
+        OutageCohort cohort = measured.get();
+        // Only extend the remembered window when this cohort overlaps it; a
+        // separate later outage replaces it rather than bridging the gap.
+        FppHealthOutageStore.Outage window = remembered
+                .filter(o -> !cohort.start().isAfter(o.cohortEnd()) && !cohort.end().isBefore(o.cohortStart()))
+                .map(o -> new FppHealthOutageStore.Outage(
+                        o.cohortStart().isBefore(cohort.start()) ? o.cohortStart() : cohort.start(),
+                        o.cohortEnd().isAfter(cohort.end()) ? o.cohortEnd() : cohort.end(),
+                        now))
+                .orElseGet(() -> new FppHealthOutageStore.Outage(cohort.start(), cohort.end(), now));
+        outageStore.save(window);
+        return Optional.of(new OutageState(window, cohort));
+    }
+
+    private static boolean suppressedByOutage(Optional<OutageState> outage, Show show, long outageMinutes) {
+        if (outage.isEmpty() || outageMinutes >= OUTAGE_MAX_SUPPRESSION_MINUTES) {
+            return false;
+        }
+        FppHealthOutageStore.Outage window = outage.get().window();
+        LocalDateTime frozeAt = show.getLastFppHeartbeat();
+        return !frozeAt.isBefore(window.cohortStart()) && !frozeAt.isAfter(window.cohortEnd());
+    }
+
     public void fppHeartbeatTask() {
         LocalDateTime now = LocalDateTime.now();
         LocalDateTime staleCutoff = now.minusMinutes(HEARTBEAT_STALE_MINUTES);
         LocalDateTime outageWindowFloor = now.minusHours(HEARTBEAT_OUTAGE_WINDOW_HOURS);
 
-        List<Show> showsToNotify = showRepository
-                .findFppHeartbeatAlertCandidates(outageWindowFloor, staleCutoff);
-        showsToNotify.forEach(show -> {
+        List<Show> showsToNotify;
+        Optional<OutageState> outage;
+        try {
+            showsToNotify = showRepository.findFppHeartbeatAlertCandidates(outageWindowFloor, staleCutoff);
+            outage = showsToNotify.isEmpty()
+                    ? Optional.empty()
+                    : currentOutage(showsToNotify, now, staleCutoff, outageWindowFloor);
+        } catch (DataAccessException | MongoException e) {
+            // A failed read is "unknown", never "everyone is stale". Skip the
+            // tick (sweeps included: they would hit the same dead DB).
+            log.warn("FPP heartbeat task skipped this tick, database unavailable: {}", e.getMessage());
+            return;
+        }
+
+        int suppressedPushes = 0;
+        for (Show show : showsToNotify) {
             NotificationPreference prefs = show.getPreferences().getNotificationPreferences();
             int renotifyMinutes = Math.max(
                     prefs.getFppHeartbeatRenotifyAfterMinutes() != null
@@ -137,6 +299,14 @@ public class ScheduledTaskService {
             if (Boolean.TRUE.equals(prefs.getFppHeartbeatIfControlEnabled())
                     && !Boolean.TRUE.equals(show.getPreferences().getViewerControlEnabled())) {
                 shouldSendPush = false;
+            }
+            if (shouldSendPush && suppressedByOutage(outage, show, outageMinutes)) {
+                // No push AND no fppHeartbeatLastNotification stamp: the show's
+                // state is exactly "never alerted for this outage". If it
+                // reconnects, there is nothing to clean up; if it stays dark
+                // past the grace or the cap, it gets one normal first alert.
+                shouldSendPush = false;
+                suppressedPushes++;
             }
             if (shouldSendPush) {
                 long minutesDiff = outageMinutes;
@@ -174,7 +344,20 @@ public class ScheduledTaskService {
                 log.info("Sent FPP heartbeat notification to {} (outage {}m, backoff step {})",
                         show.getShowName(), outageMinutes, currentStep);
             }
-        });
+        }
+
+        if (suppressedPushes > 0) {
+            FppHealthOutageStore.Outage window = outage.get().window();
+            OutageCohort measured = outage.get().measured();
+            log.warn("FPP_HEALTH_PLATFORM_OUTAGE suppressed {} FPP Plugin Health push(es): {} "
+                            + "(cohort froze {} to {}); likely a plugins-api or DB outage, not plugin failures",
+                    suppressedPushes,
+                    measured != null
+                            ? measured.staleShows() + " of " + measured.heartbeatingShows()
+                                    + " heartbeating opted-in shows went stale together"
+                            : "holding the outage cohort through recovery grace",
+                    window.cohortStart(), window.cohortEnd());
+        }
 
         // Recovery: heartbeat is fresh again but an outage alert is still in the
         // bell — clear it, and reset the renotify clock so the NEXT outage alerts

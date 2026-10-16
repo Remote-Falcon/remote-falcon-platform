@@ -12,7 +12,11 @@ metadata:
   labels:
     app: #{Application}#
 spec:
-  replicas: #{Replicas}#
+  # No `replicas:` on purpose: the HPA below owns the replica count. With the
+  # field set, every `kubectl apply` from deploy.yml snapped a scaled-out
+  # Deployment back to the HPA minimum, mid-show if that is when the deploy
+  # ran (Appendix D P0-3). A first-time create defaults to 1 and the HPA
+  # raises it to minReplicas on its next sync (~15s).
   selector:
     matchLabels:
       app: #{Application}#
@@ -132,24 +136,33 @@ spec:
               key: rfpb-launch-secret
         - name: RFPB_BASE_URL
           value: https://rfpagebuilder.com
+        # Resilience P0-1 (2026-10-12 incident): probes use the Spring Boot
+        # liveness/readiness groups, which do NOT include Mongo, so a slow DB
+        # cannot mark every replica unready at once or restart-loop the pods.
+        # Request-level fail-fast (driver timeouts in MongoConfig) surfaces DB
+        # trouble instead. Plain /remote-falcon-control-panel/actuator/health (with Mongo) stays
+        # available for humans. Startup gets up to 5 min for a native boot.
         startupProbe:
           httpGet:
-            path: /remote-falcon-control-panel/actuator/health
+            path: /remote-falcon-control-panel/actuator/health/liveness
             port: 8080
+          periodSeconds: 5
+          timeoutSeconds: 3
           failureThreshold: 60
         livenessProbe:
           httpGet:
-            path: /remote-falcon-control-panel/actuator/health
+            path: /remote-falcon-control-panel/actuator/health/liveness
             port: 8080
-          initialDelaySeconds: 0
-          timeoutSeconds: 10
-          failureThreshold: 60
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 6
         readinessProbe:
           httpGet:
-            path: /remote-falcon-control-panel/actuator/health
+            path: /remote-falcon-control-panel/actuator/health/readiness
             port: 8080
-          failureThreshold: 60
-          initialDelaySeconds: 0
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
       imagePullSecrets:
         - name: remote-falcon-ghcr
 ---
@@ -173,6 +186,10 @@ metadata:
   annotations:
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/proxy-body-size: "3m"
+    # Kept at nginx's 60s default: heavy stats exports and dashboard
+    # aggregations on large shows can legitimately take 20-60s, and a 504
+    # there only makes the operator retry the same expensive query.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
 spec:
   tls:
   - hosts:
@@ -228,8 +245,11 @@ spec:
           periodSeconds: 120
 ---
 # B-2 (2026-08-22 audit): per-app disruption budget so a node drain always
-# leaves at least one replica serving. Only multi-replica services get one --
-# a PDB with minAvailable on a 1-replica deployment blocks drains outright.
+# leaves at least one replica serving. Every service whose floor is >= 2
+# replicas gets one (ui, gateway, control-panel, external-api, and since
+# Appendix D P0-4 viewer + plugins-api). Single-replica services
+# (mongo-backup, account-archive) still don't: a PDB with minAvailable on a
+# 1-replica deployment blocks drains outright.
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:

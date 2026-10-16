@@ -11,6 +11,7 @@ name: Deploy
 #            ├─► test-contract        ├─► deploy (matrix, apply-only) ─► post-deploy-watch
 #            ├─► test-e2e             │
 #            └─► build (matrix) ──────┘
+#   deploy-freeze ─────────────────────► deploy   (season freeze guard)
 #
 # Why this shape (see also docs/SERVICES.md):
 #   - build runs alongside the tests instead of inside deploy, so the ~5-9min
@@ -107,6 +108,34 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
+  # ---------------------------------------------------------------
+  # deploy-freeze: season freeze guard (policy: docs/SERVICES.md
+  # "Deploy freeze"). Self-tests the window logic on every run, then
+  # fails push-triggered runs inside a freeze window, which blocks the
+  # deploy job via its needs + !failure(). workflow_dispatch is the
+  # hotfix path and is never blocked; PR runs only self-test.
+  # ---------------------------------------------------------------
+  deploy-freeze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: .github/scripts
+      # Skipped on workflow_dispatch so a broken self-test (tzdata, date(1)
+      # drift) can never block the hotfix path.
+      - name: Self-test freeze windows
+        if: github.event_name != 'workflow_dispatch'
+        run: bash .github/scripts/deploy-freeze.test.sh
+      - name: Refuse merge-triggered deploys during a freeze
+        if: github.event_name == 'push'
+        run: |
+          if ! out=$(bash .github/scripts/deploy-freeze.sh); then
+            echo "::error title=Deploy freeze::$out Hotfix path: gh workflow run deploy.yml --ref main -f service=<svc>"
+            exit 1
+          fi
+          echo "$out"
+
   # ---------------------------------------------------------------
   # detect — decide which services to (re)deploy this run
   # ---------------------------------------------------------------
@@ -402,7 +431,7 @@ jobs:
   # deploy — roll out each changed service's already-pushed image
   # ---------------------------------------------------------------
   deploy:
-    needs: [detect, test-unit, test-contract, test-e2e, build]
+    needs: [deploy-freeze, detect, test-unit, test-contract, test-e2e, build]
     # Deploy only on push to main (which fires after PR merge) or explicit
     # workflow_dispatch — NEVER on pull_request. PRs must run the test gates
     # but must not modify the cluster.
@@ -459,20 +488,26 @@ jobs:
           # service's manifest are simply ignored by replace-tokens, so we
           # set a superset here.
           #
-          # control-panel + external-api both set replicas_min=2, replicas_max=4
-          # because their k8s manifests' HPAs default to those values (legacy
-          # from when each was a standalone repo with a deliberate capacity
-          # choice). Mismatching the HPA's minReplicas here causes a post-apply
-          # race: kubectl rollout completes with ready=1, HPA immediately bumps
-          # spec.replicas to its minReplicas=2, the post-deploy verify step
-          # reads spec=2/ready=1 mid-scale-up, and auto-rolls-back. Keep
-          # replicas in lockstep with replicas_min for any HPA-managed service.
+          # HPA-managed services (control-panel, external-api, viewer,
+          # plugins-api) have NO `replicas:` in their Deployment manifest, so
+          # `replicas` below is unused for them and the HPA alone owns the
+          # count (Appendix D P0-3: the old `replicas: #{Replicas.Min}#` made
+          # every apply snap a scaled-out Deployment back to the minimum).
+          # Only replicas_min/replicas_max reach their HPA.
+          #
+          # viewer + plugins-api (Appendix D P0-4 / P1-3, 2026-10-13): floor 2
+          # so one pod loss or node drain never leaves zero; max 4 bounded by
+          # the Mongo connection budget (4 pods x 15 pooled conns each, once
+          # P0-2's pool caps are in). CPU requests raised so the 85% target
+          # sits above normal show-night load (7-day p95/max per pod from
+          # Prometheus: plugins-api 132m/188m, viewer 69m/84m; at the old
+          # 200m/100m requests the targets were 170m/85m, i.e. at steady state).
           case "$SERVICE" in
             ui)              replicas=2; replicas_min=2; replicas_max=2; req_mem=64Mi;   req_cpu=20m;  lim_mem=128Mi;  lim_cpu=100m  ;;
             gateway)         replicas=2; replicas_min=2; replicas_max=2; req_mem=384Mi;  req_cpu=100m; lim_mem=1250Mi; lim_cpu=1000m ;;
             control-panel)   replicas=2; replicas_min=2; replicas_max=4; req_mem=256Mi;  req_cpu=200m; lim_mem=512Mi;  lim_cpu=500m  ;;
-            viewer)          replicas=1; replicas_min=1; replicas_max=3; req_mem=160Mi;  req_cpu=100m; lim_mem=320Mi;  lim_cpu=500m  ;;
-            plugins-api)     replicas=1; replicas_min=1; replicas_max=3; req_mem=192Mi;  req_cpu=200m; lim_mem=384Mi;  lim_cpu=750m  ;;
+            viewer)          replicas=2; replicas_min=2; replicas_max=4; req_mem=160Mi;  req_cpu=150m; lim_mem=320Mi;  lim_cpu=500m  ;;
+            plugins-api)     replicas=2; replicas_min=2; replicas_max=4; req_mem=192Mi;  req_cpu=250m; lim_mem=384Mi;  lim_cpu=750m  ;;
             external-api)    replicas=2; replicas_min=2; replicas_max=4; req_mem=256Mi;  req_cpu=100m; lim_mem=512Mi;  lim_cpu=500m  ;;
             mongo-backup)    replicas=1; replicas_min=1; replicas_max=1; req_mem=128Mi;  req_cpu=25m;  lim_mem=750Mi;  lim_cpu=200m  ;;
             account-archive) replicas=1; replicas_min=1; replicas_max=1; req_mem=64Mi;   req_cpu=10m;  lim_mem=384Mi;  lim_cpu=100m  ;;
@@ -526,6 +561,29 @@ jobs:
         if: ${{ inputs.dry_run != true }}
         run: doctl kubernetes cluster kubeconfig save --expiry-seconds 600 ${{ env.CLUSTER_ID }}
 
+      # Client-side apply deletes any field that is in the last-applied
+      # annotation but no longer in the manifest. The HPA-managed manifests
+      # just dropped `replicas:`, so without this the first apply would DELETE
+      # spec.replicas (it defaults to 1) and scale a running service down to
+      # one pod. Strip replicas from the annotation first so apply leaves the
+      # live count alone. Idempotent: a no-op once the annotation is clean.
+      - name: Hand replica count to the HPA
+        if: ${{ inputs.dry_run != true }}
+        env:
+          DEPLOYMENT: ${{ steps.cfg.outputs.deployment }}
+          MANIFEST: ${{ steps.cfg.outputs.manifest }}
+          NS: ${{ env.NAMESPACE }}
+        run: |
+          set -euo pipefail
+          if grep -q '^  replicas:' "$MANIFEST"; then exit 0; fi
+          la=$(kubectl get deployment "$DEPLOYMENT" -n "$NS" --ignore-not-found \
+            -o jsonpath='{.metadata.annotations.kubectl\.kubernetes\.io/last-applied-configuration}')
+          if [ -n "$la" ] && echo "$la" | jq -e '.spec | has("replicas")' >/dev/null; then
+            kubectl annotate deployment "$DEPLOYMENT" -n "$NS" --overwrite \
+              "kubectl.kubernetes.io/last-applied-configuration=$(echo "$la" | jq -c 'del(.spec.replicas)')"
+            echo "::notice::Removed spec.replicas from $DEPLOYMENT last-applied; HPA owns the count"
+          fi
+
       - name: kubectl apply
         if: ${{ inputs.dry_run != true }}
         run: kubectl apply -f ${{ steps.cfg.outputs.manifest }}
@@ -549,8 +607,16 @@ jobs:
             echo "::error::$SERVICE: image mismatch. expected=$EXPECTED_IMAGE live=$live_image"
             exit 1
           fi
-          ready=$(kubectl get deployment "$DEPLOYMENT" -n "$NS" -o jsonpath='{.status.readyReplicas}')
-          spec=$(kubectl get deployment "$DEPLOYMENT" -n "$NS" -o jsonpath='{.spec.replicas}')
+          # The HPA can move spec.replicas right after rollout status returns
+          # (raising a pre-existing count to a new minReplicas, or scaling up
+          # under show load). Give a scale-up up to 2 min to go ready before
+          # calling it partial, instead of rolling back a good deploy.
+          for _ in $(seq 1 24); do
+            ready=$(kubectl get deployment "$DEPLOYMENT" -n "$NS" -o jsonpath='{.status.readyReplicas}')
+            spec=$(kubectl get deployment "$DEPLOYMENT" -n "$NS" -o jsonpath='{.spec.replicas}')
+            if [ -n "$ready" ] && [ "$ready" = "$spec" ]; then break; fi
+            sleep 5
+          done
           if [ -z "$ready" ] || [ -z "$spec" ] || [ "$ready" != "$spec" ]; then
             echo "::error::$SERVICE: partial scale-up. ready=${ready:-0} spec=${spec:-?}"
             exit 1

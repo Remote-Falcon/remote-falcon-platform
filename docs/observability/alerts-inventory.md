@@ -31,11 +31,24 @@ directly.
 | `rf-doks-node-cpu-high` | DO Monitoring | [`ops/do-monitoring/`](../../ops/do-monitoring/) | DOKS worker node CPU > 85% for 10min | P2 | [`doks-node-cpu-high.md`](../runbooks/doks-node-cpu-high.md) |
 | `rf-doks-node-memory-high` | DO Monitoring | [`ops/do-monitoring/`](../../ops/do-monitoring/) | DOKS worker node memory > 90% for 10min | **P1** | [`doks-node-memory-high.md`](../runbooks/doks-node-memory-high.md) |
 | `rf-doks-node-disk-high` | DO Monitoring | [`ops/do-monitoring/`](../../ops/do-monitoring/) | DOKS worker node disk > 80% for 10min | P2 | [`doks-node-disk-high.md`](../runbooks/doks-node-disk-high.md) |
+| `rf-mongo-cpu-high` | DO Monitoring (dbaas) | [`ops/do-monitoring/`](../../ops/do-monitoring/) | DO Managed Mongo CPU > 80% for 5min | P2 (warning) | [`mongo-saturated.md`](../runbooks/mongo-saturated.md) |
+| `rf-mongo-cpu-critical` | DO Monitoring (dbaas) | [`ops/do-monitoring/`](../../ops/do-monitoring/) | DO Managed Mongo CPU > 95% for 5min (DO's shortest window is 5m) | **P1** (page) | [`mongo-saturated.md`](../runbooks/mongo-saturated.md) |
+| `rf-mongo-memory-high` | DO Monitoring (dbaas) | [`ops/do-monitoring/`](../../ops/do-monitoring/) | DO Managed Mongo memory > 90% for 5min | **P1** | [`mongo-saturated.md`](../runbooks/mongo-saturated.md) |
+| `rf-mongo-disk-high` | DO Monitoring (dbaas) | [`ops/do-monitoring/`](../../ops/do-monitoring/) | DO Managed Mongo disk > 80% for 10min | P2 | [`mongo-saturated.md`](../runbooks/mongo-saturated.md) |
 | Post-deploy error-rate breach | GH Actions step | [`ops/release-validation/check.py`](../../ops/release-validation/check.py) + [`.github/workflows/deploy.yml`](../../.github/workflows/deploy.yml) | Service's error count in 10min post-deploy > 3× 24h baseline → `kubectl rollout undo` | P2 (auto-resolved) | [`post-deploy-rollback.md`](../runbooks/post-deploy-rollback.md) |
 
-(Existing DO Monitoring DB alerts — DB-CPU, DB-memory, DB-disk — route
-email-only and are not managed by `ops/do-monitoring/apply.sh`. Move
-them into that file if you want them routed to Discord too.)
+The `rf-mongo-*` rows replace the three older email-only DB alerts
+("CPU is running high", "Memory Utilization is running high", "Disk
+Utilization is running high", all 90% / 5m). Those are not managed by
+`ops/do-monitoring/apply.sh`; keep them as an email backstop until the
+Discord ones have fired once, then delete them (commands in
+[`ops/do-monitoring/README.md`](../../ops/do-monitoring/README.md)).
+
+The `rf-mongo-*` alerts and `rf-mongo-unreachable` often fire together.
+Unreachable alone points at a lost primary
+([`mongo-unreachable.md`](../runbooks/mongo-unreachable.md)); with a
+CPU or memory alert it is saturation
+([`mongo-saturated.md`](../runbooks/mongo-saturated.md)).
 
 ## Layered coverage — mongo-backup specifically
 
@@ -85,7 +98,7 @@ PostHog UI directly.
 ## Adding a new alert
 
 1. Pick the right system (PostHog for log-derived, DO Monitoring for
-   node/droplet metrics, k8s CronJob for things that need to query
+   node/droplet and managed-DB metrics, k8s CronJob for things that need to query
    external state like S3).
 2. Add an entry to the matching `alerts.yml`.
 3. Write a runbook stub under `docs/runbooks/` referenced from the

@@ -10,7 +10,7 @@ The third-party / partner integration surface — a REST API that external syste
 | **Container port** | 8080 |
 | **Replicas** | 1 |
 | **Ingress** | `remotefalcon.com`, paths `/remote-falcon-external-api(...)` **and** `/remotefalcon/api/external(...)` (rewrite-target) |
-| **Health probe** | `GET /actuator/health` |
+| **Health probe** | k8s: `GET /actuator/health/liveness` (startup + liveness), `GET /actuator/health/readiness`. Neither includes Mongo; `GET /actuator/health` does. |
 | **Talks to** | MongoDB |
 
 ## What it does

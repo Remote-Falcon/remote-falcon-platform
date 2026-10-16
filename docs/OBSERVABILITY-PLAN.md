@@ -7,6 +7,12 @@
 
 This is the operator's plan for full-stack observability across the Remote Falcon platform. The monorepo cutover is complete; this rollout is the next observability work after the test pyramid landed.
 
+> **Reality check (2026-10-13).** This plan lists self-hosted kube-prometheus-stack as dropped and Grafana Cloud as the sink. Neither happened. Logs, alerts and dashboards went all-PostHog ([`observability/`](observability/)), and **kube-prometheus-stack is still running** in the `monitoring` namespace: helm release `prometheus` (chart 84.0.1), Prometheus 10d retention, Grafana, Alertmanager, node-exporter, kube-state-metrics, up 171 days. Two consequences:
+> - It's the cheapest place for metrics PostHog can't hold, so the season work uses it. DO Managed Mongo metrics land there via an in-cluster exporter ([`ops/k8s/mongo-metrics/`](../ops/k8s/mongo-metrics/)); DO doesn't offer its :9273 endpoint for MongoDB.
+> - **The viewer and plugins-api ServiceMonitors were not scraped until 2026-10-13.** They were labelled `release: kube-prometheus-stack-1768012917`, but the Prometheus CR selects `release: prometheus`. The season-resilience release relabels them, so `/q/metrics` gauges (e.g. Mongo driver pool metrics) reach Prometheus after that deploy.
+>
+> Don't uninstall the stack (Obs-1.7) during the season.
+
 ---
 
 ## TL;DR
@@ -316,3 +322,4 @@ is the big driver — watch usage on high-traffic show nights.
 |---|---|---|
 | 2026-04-27 | Initial plan drafted | Matt + Claude session |
 | 2026-06-20 | #130 decided: same-origin PostHog ingest via a Cloudflare Worker (Option A). Runbook + sequencing above; UI `api_host` change is gated on the Worker going live. | Matt + Claude session |
+| 2026-10-13 | Reality check added: kube-prometheus-stack + Grafana still running; app ServiceMonitors unscraped (label mismatch); Mongo exporter added; DO dbaas alerts moved into `ops/do-monitoring/`. | Matt + Claude session |
