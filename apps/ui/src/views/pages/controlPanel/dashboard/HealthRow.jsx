@@ -18,7 +18,9 @@ import { fireMilestoneOnce } from '../../../../utils/analytics/posthog';
 // an info-button popover so the card stays tile-sized and doesn't crowd the row.
 
 const STRIP_DAYS = 7;
-const HEARTBEAT_FRESH_MS = 5 * 60 * 1000; // matches plugins-api gap threshold
+// 5 min of real silence + the 120s heartbeat write floor (stored value lags
+// the plugin's real last beat by up to ~150s). Matches the backend thresholds.
+const HEARTBEAT_FRESH_MS = 7 * 60 * 1000;
 
 const formatAgo = (ms) => {
   if (!ms) return null;
@@ -143,7 +145,11 @@ const HealthRow = () => {
               {statusLabel}
             </Typography>
             <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: 12, mt: 0.25 }} noWrap>
-              {hasEverConnected ? `Last heartbeat ${formatAgo(stats.lastHeartbeatMs)}` : 'Install the plugin to start syncing'}
+              {hasEverConnected
+                ? isConnected
+                  ? 'Checking in normally'
+                  : `Last heartbeat ${formatAgo(stats.lastHeartbeatMs)}`
+                : 'Install the plugin to start syncing'}
             </Typography>
           </Box>
           {hasEverConnected && (

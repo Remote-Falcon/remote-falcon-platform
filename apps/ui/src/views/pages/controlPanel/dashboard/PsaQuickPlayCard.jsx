@@ -18,7 +18,9 @@ import { GET_SHOW_DASHBOARD_POLL } from '../../../../utils/graphql/controlPanel/
 import { showAlert } from '../../globalPageHelpers';
 
 // Matches plugins-api's heartbeat-fresh window / HealthRow's "Connected" pill.
-const HEARTBEAT_FRESH_MS = 5 * 60 * 1000;
+// 5 min of real silence + the 120s heartbeat write floor (stored value lags
+// the plugin's real last beat by up to ~150s). Matches the backend thresholds.
+const HEARTBEAT_FRESH_MS = 7 * 60 * 1000;
 
 // Dashboard "PSAs" quick-play card. Lets the operator fire a PSA at the next
 // sequence boundary straight from the dashboard — the same Q7 "Play Next"

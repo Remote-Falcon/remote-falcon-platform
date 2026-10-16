@@ -195,6 +195,41 @@ describe('useDashboardLiveStats', () => {
     unmount();
   });
 
+  it('a tick response that lands after a newer refetch does not overwrite it', async () => {
+    const pending = [];
+    const link = new ApolloLink(
+      () =>
+        new Observable((observer) => {
+          pending.push(observer);
+        })
+    );
+    const client = new ApolloClient({ link, cache: new InMemoryCache() });
+    const respond = (i, currentVotes) =>
+      act(async () => {
+        pending[i].next({ data: { dashboardLiveStats: { ...LIVE_STATS, currentVotes } } });
+        pending[i].complete();
+      });
+    const { unmount } = render(<SixConsumers />, { wrapper: Wrapper(buildStore({ timezone: 'UTC' }), client) });
+    await flush();
+    await respond(0, 3);
+    await flush();
+
+    await tick(); // request 1: a poll that read the pre-mutation votes
+    await act(async () => {
+      seen[0].refetch(); // request 2: after the operator reset votes
+    });
+    await flush();
+    expect(pending).toHaveLength(3);
+
+    await respond(2, 0);
+    await flush();
+    await respond(1, 9); // the older poll lands last
+    await flush();
+
+    expect(seen[0].data.currentVotes).toBe(0);
+    unmount();
+  });
+
   it('does not fetch while the tab is hidden, and resumes when visible', async () => {
     // Hidden tabs keep their timers (throttled, not stopped). Without the
     // visibilityState gate a backgrounded dashboard polls the heaviest

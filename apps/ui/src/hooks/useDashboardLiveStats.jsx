@@ -60,6 +60,12 @@ let intervalId = null;
 // the newer state.
 let generation = 0;
 let inFlight = null;
+// Every request gets an increasing number; a response is only applied if no
+// newer request has already been applied. Otherwise a tick that started
+// before a manual refetch (e.g. right after Reset Votes) could land last and
+// put the pre-mutation numbers back on screen.
+let issuedSeq = 0;
+let appliedSeq = 0;
 
 const fetchLiveStats = async ({ fromTick = false } = {}) => {
   // Hidden tabs keep their timers (throttled, not stopped), so without this
@@ -75,19 +81,26 @@ const fetchLiveStats = async ({ fromTick = false } = {}) => {
   if (fromTick && inFlight) return;
 
   const requestGeneration = generation;
+  issuedSeq += 1;
+  const requestSeq = issuedSeq;
   const token = {};
   inFlight = token;
   try {
     const { data } = await apolloClient.query({
       query: DASHBOARD_LIVE_STATS,
-      context: { headers: { Route: 'Control-Panel' } },
+      // No dedupe: a refetch() right after a mutation must not be folded into
+      // an identical poll already in flight, which would hand back the
+      // pre-mutation numbers. Ticks never overlap anyway (fromTick gate).
+      context: { headers: { Route: 'Control-Panel' }, queryDeduplication: false },
       variables: { ...todayBounds(), timezone },
       fetchPolicy: 'network-only'
     });
-    if (requestGeneration !== generation) return;
+    if (requestGeneration !== generation || requestSeq < appliedSeq) return;
+    appliedSeq = requestSeq;
     useLiveStatsStore.setState({ data: data?.dashboardLiveStats || null, error: null, loading: false });
   } catch (err) {
-    if (requestGeneration !== generation) return;
+    if (requestGeneration !== generation || requestSeq < appliedSeq) return;
+    appliedSeq = requestSeq;
     useLiveStatsStore.setState({ error: err, loading: false });
   } finally {
     if (inFlight === token) inFlight = null;

@@ -28,7 +28,9 @@ import { showAlert } from '../../globalPageHelpers';
 // Plugin is "connected" if a heartbeat landed within this window. Matches
 // HealthRow's HEARTBEAT_FRESH_MS and the backend's HEARTBEAT_GAP_THRESHOLD_MINUTES
 // so the readiness checklist and the live status widget can never disagree.
-const HEARTBEAT_FRESH_MS = 5 * 60 * 1000;
+// 5 min of real silence + the 120s heartbeat write floor (stored value lags
+// the plugin's real last beat by up to ~150s). Matches the backend thresholds.
+const HEARTBEAT_FRESH_MS = 7 * 60 * 1000;
 
 // Operational readiness card for the Dashboard. "Is my show ready to run
 // tonight?" — sister to the live stats. Sits above LiveStatsRow.
@@ -291,7 +293,7 @@ const useChecks = () => {
       } else {
         out.push({
           status: 'ok',
-          label: `FPP plugin connected ${minutesAgo === 0 ? 'just now' : `${minutesAgo} min ago`}`
+          label: 'FPP plugin connected'
         });
       }
     }

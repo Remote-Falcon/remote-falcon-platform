@@ -38,9 +38,11 @@ public class ScheduledTaskService {
     private final MongoTemplate mongoTemplate;
     private final FppHealthOutageStore outageStore;
 
-    // Heartbeat considered dropped after this long without a check-in. Matches
-    // plugins-api's HEARTBEAT_GAP_THRESHOLD_MINUTES and the dashboard tile.
-    static final long HEARTBEAT_STALE_MINUTES = 5L;
+    // Heartbeat considered dropped after this long without a stored check-in:
+    // 5 min of real silence plus plugins-api's 120s heartbeat write floor (the
+    // stored value trails the real last beat by up to ~150s). Matches
+    // plugins-api's HEARTBEAT_GAP_THRESHOLD_MINUTES and the dashboard tiles.
+    static final long HEARTBEAT_STALE_MINUTES = 7L;
     // Only alert on outages that BEGAN recently. Without this floor, enabling
     // the task alerts every opted-in show that's been dark for months (prod
     // audit 2026-07-19: 296 shows opted in, only 63 with a heartbeat in the

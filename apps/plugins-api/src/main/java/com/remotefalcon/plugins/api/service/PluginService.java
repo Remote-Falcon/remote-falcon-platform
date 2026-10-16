@@ -1488,7 +1488,10 @@ public class PluginService {
   // Threshold for what counts as "the plugin dropped." Plugin heartbeats
   // every ~30s in steady state; 5 min is comfortably outside normal jitter
   // but tight enough to catch real outages worth visualizing.
-  private static final long HEARTBEAT_GAP_THRESHOLD_MINUTES = 5L;
+  // 5 min of real silence plus the HEARTBEAT_MIN_INTERVAL_SECONDS write floor:
+  // the stored heartbeat can trail the plugin's real last beat by up to ~150s,
+  // so comparing against 5 min would record 2.5-min blips as gaps.
+  private static final long HEARTBEAT_GAP_THRESHOLD_MINUTES = 7L;
   private static final long HEARTBEAT_GAP_RETENTION_DAYS = 30L;
   // Write coalescing (Season Capacity Plan R3). The plugin beats every ~30s,
   // but the stored lastFppHeartbeat only has to answer "alive in the last
@@ -1498,13 +1501,13 @@ public class PluginService {
   // big-doc writes/s. With a 120s floor a 30s-cadence plugin writes every
   // 120-150s (~8 writes/s fleet-wide).
   //
-  // Staleness budget: the stored value now lags the plugin's real last beat
-  // by < 120s in steady state, which leaves 150s+ of headroom under the
-  // 5-min thresholds, so a healthy plugin never reads as offline. Recovery is
-  // immediate: after any outage the stored value is older than the floor, so
-  // the first beat back always writes. Keep this well under
-  // HEARTBEAT_GAP_THRESHOLD_MINUTES; raising it toward 5 min would make
-  // healthy plugins flap to "Offline".
+  // Staleness budget: the stored value lags the plugin's real last beat by up
+  // to ~150s (floor + one 30s beat). Every reader's threshold is 5 min of real
+  // silence plus that lag = 7 min (gap threshold here, control-panel
+  // HEARTBEAT_STALE_MINUTES, the dashboard's HEARTBEAT_FRESH_MS), so alerts and
+  // "Offline" still mean ~5 min of real silence. Recovery is immediate: after
+  // any outage the stored value is older than the floor, so the first beat
+  // back always writes. Changing this floor means changing those thresholds.
   private static final long HEARTBEAT_MIN_INTERVAL_SECONDS = 120L;
 
   public void fppHeartbeat() {

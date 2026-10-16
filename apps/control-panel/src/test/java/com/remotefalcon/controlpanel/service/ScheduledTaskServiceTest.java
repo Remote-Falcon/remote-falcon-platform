@@ -124,15 +124,15 @@ class ScheduledTaskServiceTest {
 
     @Test
     void suppressed_whenStillOnTheSameBackoffStep() {
-        // 10-minute outage, already alerted at the 5-minute stale mark. Both
+        // 10-minute outage, already alerted at the stale mark. Both
         // sit on step 0 (the next step for a 30-minute interval is 30m), so
         // nothing is due. Previously the fixture stamped the notification at
         // the same instant the heartbeat froze, which cannot happen -- the
-        // stale gate means the earliest possible alert is 5 minutes in.
+        // stale gate means the earliest possible alert is at the stale threshold.
         Show show = alertedAtOutageAge(staleShow(NotificationPreference.builder()
                 .enableFppHeartbeat(true)
                 .fppHeartbeatRenotifyAfterMinutes(30)
-                .build(), true), 5L);
+                .build(), true), ScheduledTaskService.HEARTBEAT_STALE_MINUTES);
         when(showRepository.findFppHeartbeatAlertCandidates(
                 any(LocalDateTime.class), any(LocalDateTime.class))).thenReturn(List.of(show));
 
@@ -148,7 +148,7 @@ class ScheduledTaskServiceTest {
         Show show = alertedAtOutageAge(staleShow(NotificationPreference.builder()
                 .enableFppHeartbeat(true)
                 .fppHeartbeatRenotifyAfterMinutes(30)
-                .build(), true, 35L), 5L);
+                .build(), true, 35L), ScheduledTaskService.HEARTBEAT_STALE_MINUTES);
         when(showRepository.findFppHeartbeatAlertCandidates(
                 any(LocalDateTime.class), any(LocalDateTime.class))).thenReturn(List.of(show));
 
@@ -164,7 +164,7 @@ class ScheduledTaskServiceTest {
         Show show = alertedAtOutageAge(staleShow(NotificationPreference.builder()
                 .enableFppHeartbeat(true)
                 .fppHeartbeatRenotifyAfterMinutes(null)
-                .build(), true), 5L);
+                .build(), true), ScheduledTaskService.HEARTBEAT_STALE_MINUTES);
         when(showRepository.findFppHeartbeatAlertCandidates(
                 any(LocalDateTime.class), any(LocalDateTime.class))).thenReturn(List.of(show));
 
@@ -217,7 +217,7 @@ class ScheduledTaskServiceTest {
         Show show = alertedAtOutageAge(staleShow(NotificationPreference.builder()
                 .enableFppHeartbeat(true)
                 .fppHeartbeatRenotifyAfterMinutes(0)
-                .build(), true, 6L), 5L);
+                .build(), true, ScheduledTaskService.HEARTBEAT_STALE_MINUTES + 1), ScheduledTaskService.HEARTBEAT_STALE_MINUTES);
         when(showRepository.findFppHeartbeatAlertCandidates(
                 any(LocalDateTime.class), any(LocalDateTime.class))).thenReturn(List.of(show));
 
@@ -411,10 +411,10 @@ class ScheduledTaskServiceTest {
 
     @Test
     void backoff_firstAlertStillFiresAtTheStaleThreshold() {
-        // Detection speed must not regress: nothing before 5 minutes, and an
+        // Detection speed must not regress: nothing before the stale threshold, and an
         // alert due the moment the stale gate opens.
-        assertThat(ScheduledTaskService.backoffStep(4, 30)).isEqualTo(-1);
-        assertThat(ScheduledTaskService.backoffStep(5, 30)).isEqualTo(0);
+        assertThat(ScheduledTaskService.backoffStep(ScheduledTaskService.HEARTBEAT_STALE_MINUTES - 1, 30)).isEqualTo(-1);
+        assertThat(ScheduledTaskService.backoffStep(ScheduledTaskService.HEARTBEAT_STALE_MINUTES, 30)).isEqualTo(0);
     }
 
     @Test
@@ -488,7 +488,7 @@ class ScheduledTaskServiceTest {
     void massStale_isTreatedAsPlatformOutage_noPushes() {
         // 40 opted-in shows froze inside one heartbeat interval and nothing
         // else is heartbeating: that is the platform, not 40 Pis.
-        candidates(cohort(40, 6L));
+        candidates(cohort(40, ScheduledTaskService.HEARTBEAT_STALE_MINUTES + 1));
         healthyShowsNow(0L);
 
         service.fppHeartbeatTask();
@@ -509,7 +509,7 @@ class ScheduledTaskServiceTest {
         // 12 shows dropping together is above the absolute floor, but against
         // 500 healthy plugins it is 2.3% -- a real correlated loss (a regional
         // ISP), not the platform. Everyone is told.
-        candidates(cohort(12, 6L));
+        candidates(cohort(12, ScheduledTaskService.HEARTBEAT_STALE_MINUTES + 1));
         healthyShowsNow(500L);
 
         service.fppHeartbeatTask();
@@ -520,7 +520,7 @@ class ScheduledTaskServiceTest {
 
     @Test
     void isolatedStale_stillNotifies_withoutTouchingTheOutageMachinery() {
-        candidates(cohort(1, 6L));
+        candidates(cohort(1, ScheduledTaskService.HEARTBEAT_STALE_MINUTES + 1));
 
         service.fppHeartbeatTask();
 
@@ -533,7 +533,7 @@ class ScheduledTaskServiceTest {
 
     @Test
     void showThatDiedBeforeTheOutage_stillNotifiesDuringIt() {
-        List<Show> shows = new ArrayList<>(cohort(40, 6L));
+        List<Show> shows = new ArrayList<>(cohort(40, ScheduledTaskService.HEARTBEAT_STALE_MINUTES + 1));
         Show genuinelyDown = staleShow(NotificationPreference.builder()
                 .enableFppHeartbeat(true)
                 .fppHeartbeatRenotifyAfterMinutes(30)
@@ -613,7 +613,7 @@ class ScheduledTaskServiceTest {
     void dbUnreachable_onTheHealthyCount_isNotReadAsEveryoneStale() {
         // A failed count must not become "0 healthy" (=> 100% stale => a
         // platform outage) nor "unknown, so alert everyone". Skip the tick.
-        candidates(cohort(40, 6L));
+        candidates(cohort(40, ScheduledTaskService.HEARTBEAT_STALE_MINUTES + 1));
         when(mongoTemplate.count(any(Query.class), eq(Show.class)))
                 .thenThrow(new org.springframework.dao.DataAccessResourceFailureException("timeout"));
 
