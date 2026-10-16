@@ -6,8 +6,10 @@ Sources of truth:
 
 Reconciler: [`apply.py`](./apply.py) (run via [`apply.sh`](./apply.sh)).
 
-This is the IaC layer for visualization. Manages 6 insights + 1 frontend
-dashboard at the time of writing. Backend metrics live in the daily
+This is the IaC layer for visualization. It manages every saved insight
+in the project (35 insights on 5 dashboards as of 2026-10-16). The
+inventory and measurement rules are in
+[`docs/observability/dashboards-inventory.md`](../../docs/observability/dashboards-inventory.md). Backend metrics live in the daily
 digest (`ops/k8s/posthog-daily-digest/`) instead — PostHog saved insights
 can't reach the logs table, only `events`.
 

@@ -139,6 +139,14 @@ severity filter.
 
 These are known gaps; file an issue if any becomes a blocker:
 
+- **RF Page Builder guestbook alerts are blind.** "Guestbook
+  reconciliation mismatch" and "Guestbook webhook failure" were created by
+  hand in RF's PostHog project, but RF Page Builder captures
+  `guestbook_*` events to its own PostHog project, so zero events have ever
+  reached them (found 2026-10-16). They need recreating in RF Page
+  Builder's project, plus an alert on `guestbook_reconciliation_error` and
+  on a missing daily cron heartbeat.
+
 - **Pod crashloop / OOMKill** — DO Monitoring is node-level only.
   Could be added as a PostHog log alert on `OOMKilled` k8s events if we
   ship cluster events to the collector (not currently wired).

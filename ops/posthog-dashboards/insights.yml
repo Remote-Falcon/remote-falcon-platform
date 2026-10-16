@@ -1,10 +1,21 @@
-# Declarative PostHog insights for Remote Falcon's frontend health.
+# Declarative PostHog insights for Remote Falcon.
 #
-# These are saved insights backed by HogQL queries against the events
-# table ($pageview, $exception, etc.). The backend health story stays
-# in PostHog Logs (queryable on demand via logs-count, summarized daily
-# by ops/k8s/posthog-daily-digest/) because saved insights can't reach
-# the logs table.
+# Every saved insight in project 425428 is defined here (portfolio rebuilt
+# 2026-10-16 after a full audit; see docs/observability/dashboards-inventory.md).
+# Insights are HogQL queries against the events table. Backend health stays in
+# PostHog Logs (summarized daily by ops/k8s/posthog-daily-digest/) because
+# saved insights can't reach the logs table.
+#
+# Conventions every query follows:
+#   - Owner = identified event on the CP host
+#     (properties.$host IN ('remotefalcon.com', 'www.remotefalcon.com')).
+#     On identified events distinct_id IS the show subdomain.
+#   - sign_up / email_verified are anonymous and often cross-device: key them on
+#     the show subdomain, never on person.
+#   - Fan (viewer) distinct_id resets per page load: count "page loads" or
+#     uniq($ip), never "users".
+#   - Fan queries exclude known kiosk / reload-loop IPs (also in the project's
+#     test-account filters).
 #
 # Apply with:
 #   ./ops/posthog-dashboards/apply.sh             # dry-run
@@ -17,203 +28,1096 @@ project_id: 425428
 posthog_host: https://us.posthog.com
 
 insights:
-  - name: rf-frontend-pageviews-7d
-    description: Total pageviews over the last 7 days. Top-line activity number for frontend health.
+  # ------------------------------------------------------------
+  # Owner Engagement dashboard
+  # ------------------------------------------------------------
+  - name: owner-active-7d
+    description: >-
+      Unique shows (owners) that loaded the control panel in the last 7 days.
+      Owner = identified event on the control-panel host, so fans and anonymous
+      devices are excluded by construction.
     display: BoldNumber
     query: |
-      SELECT count() AS pageviews
+      -- Owner = identified event on the control-panel host; distinct_id IS the show subdomain.
+      SELECT uniq(distinct_id) AS active_owners_7d
       FROM events
       WHERE event = '$pageview'
         AND timestamp >= now() - INTERVAL 7 DAY
+        AND properties.$is_identified = true
+        AND properties.$host IN ('remotefalcon.com', 'www.remotefalcon.com')
 
-  - name: rf-frontend-exceptions-7d
-    description: Total JS exceptions over the last 7 days. Sanity check on frontend stability.
-    display: BoldNumber
-    query: |
-      SELECT count() AS exceptions
-      FROM events
-      WHERE event = '$exception'
-        AND timestamp >= now() - INTERVAL 7 DAY
-
-  - name: rf-frontend-pageviews-trend-24h
-    description: Pageviews per hour over the last 24 hours. Diurnal pattern + traffic anomalies.
+  - name: owner-dau-30d
+    description: >-
+      Unique shows loading the control panel per day, last 30 days. Replaces the
+      template DAU, which was 90-95% anonymous fans. Seasonal: expect a steady
+      climb Oct-Dec.
     display: ActionsLineGraph
-    chart_x: hour
-    chart_y: [pageviews]
+    chart_x: day
+    chart_y: [owners]
     query: |
-      SELECT toStartOfHour(timestamp) AS hour, count() AS pageviews
+      -- Owner = identified event on the control-panel host; distinct_id IS the show subdomain.
+      -- Day-aligned window so the first bar is a full day.
+      SELECT toStartOfDay(timestamp) AS day, uniq(distinct_id) AS owners
       FROM events
       WHERE event = '$pageview'
-        AND timestamp >= now() - INTERVAL 1 DAY
-      GROUP BY hour
-      ORDER BY hour
+        AND timestamp >= toStartOfDay(now()) - INTERVAL 30 DAY
+        AND properties.$is_identified = true
+        AND properties.$host IN ('remotefalcon.com', 'www.remotefalcon.com')
+      GROUP BY day
+      ORDER BY day
 
-  - name: rf-frontend-exceptions-trend-7d
-    description: Exception count per hour over the last 7 days. Catches sustained or spiky frontend regressions.
+  - name: owner-wau-90d
+    description: >-
+      Unique shows loading the control panel per week (Mon-start), last ~90 days.
+      The jump in the week of 2026-08-24 is partly instrumentation (SPA
+      pageviews via history_change shipped then) and partly the onboarding
+      broadcast; compare weeks after that point. Current week is partial.
     display: ActionsLineGraph
-    chart_x: hour
-    chart_y: [exceptions]
+    chart_x: week
+    chart_y: [owners]
     query: |
-      SELECT toStartOfHour(timestamp) AS hour, count() AS exceptions
+      -- Week-aligned window (12 full weeks + current partial week).
+      SELECT toStartOfWeek(timestamp, 1) AS week, uniq(distinct_id) AS owners
       FROM events
-      WHERE event = '$exception'
-        AND timestamp >= now() - INTERVAL 7 DAY
-      GROUP BY hour
-      ORDER BY hour
+      WHERE event = '$pageview'
+        AND timestamp >= toStartOfWeek(now(), 1) - INTERVAL 12 WEEK
+        AND properties.$is_identified = true
+        AND properties.$host IN ('remotefalcon.com', 'www.remotefalcon.com')
+      GROUP BY week
+      ORDER BY week
 
-  - name: rf-frontend-top-pageview-paths-24h
-    description: Top 10 paths by pageview count in the last 24h. Useful to see what content is hot.
+  - name: owner-weekly-retention-90d
+    description: >-
+      Of the shows active in the control panel in week W, the % that came back in
+      week W+1. Read return_pct; it should rise into the season (it ran ~40-50%
+      in summer, ~60% from late Sep). Only cohorts whose following week is
+      complete are shown, so the latest point lags by a week.
+    display: ActionsLineGraph
+    chart_x: cohort_week
+    chart_y: [return_pct]
+    query: |
+      -- Cohort = owners active in week W; returned = also active in week W+1.
+      -- Only cohorts whose following week is complete are shown.
+      SELECT
+          cohort_week,
+          uniq(owner) AS active_owners,
+          uniqIf(owner, has(weeks, cohort_week + INTERVAL 7 DAY)) AS returned_next_week,
+          round(100 * uniqIf(owner, has(weeks, cohort_week + INTERVAL 7 DAY)) / uniq(owner), 1) AS return_pct
+      FROM (
+          SELECT distinct_id AS owner, groupUniqArray(toStartOfWeek(timestamp, 1)) AS weeks
+          FROM events
+          WHERE event = '$pageview'
+            AND timestamp >= toStartOfWeek(now(), 1) - INTERVAL 13 WEEK
+            AND properties.$is_identified = true
+            AND properties.$host IN ('remotefalcon.com', 'www.remotefalcon.com')
+          GROUP BY owner
+      )
+      ARRAY JOIN weeks AS cohort_week
+      WHERE cohort_week < toStartOfWeek(now(), 1) - INTERVAL 1 WEEK
+      GROUP BY cohort_week
+      ORDER BY cohort_week
+
+  - name: owner-shows-back-online-weekly-90d
+    description: >-
+      Shows that came online each week (plugin seen connected, or viewer control
+      turned on), split into new (signed up within 180 days) and established.
+      plugin_connected fires at most once per show per browser (milestone), so
+      viewer_control_toggled carries most of the repeat signal. sign_up is only
+      tracked since 2026-05-23; earlier shows count as established, which is correct.
+    display: ActionsStackedBar
+    chart_x: week
+    chart_y: [new_shows, established_shows]
+    query: |
+      SELECT
+          a.week AS week,
+          uniqIf(a.show, s.signed_up_at IS NOT NULL AND s.signed_up_at >= a.week - INTERVAL 180 DAY) AS new_shows,
+          uniqIf(a.show, s.signed_up_at IS NULL OR s.signed_up_at < a.week - INTERVAL 180 DAY) AS established_shows,
+          uniq(a.show) AS total_shows
+      FROM (
+          SELECT toStartOfWeek(timestamp, 1) AS week, distinct_id AS show
+          FROM events
+          WHERE timestamp >= toStartOfWeek(now(), 1) - INTERVAL 12 WEEK
+            AND properties.$is_identified = true
+            AND properties.$host IN ('remotefalcon.com', 'www.remotefalcon.com')
+            AND (event = 'plugin_connected'
+                 OR (event = 'viewer_control_toggled' AND properties.enabled = true))
+      ) AS a
+      LEFT JOIN (
+          -- sign_up is anonymous: key it on the show subdomain the way B59DNAGO does.
+          SELECT
+              lower(replaceRegexpAll(coalesce(nullIf(properties.show_subdomain, ''), properties.show_name), '\\s', '')) AS show_key,
+              min(timestamp) AS signed_up_at
+          FROM events
+          WHERE event = 'sign_up'
+            AND timestamp >= now() - INTERVAL 270 DAY
+          GROUP BY show_key
+      ) AS s ON s.show_key = a.show
+      GROUP BY week
+      ORDER BY week
+
+  - name: owner-feature-adoption-weekly-90d
+    description: >-
+      Unique shows using each feature per week: QR codes tab, RF Page Builder
+      launch, sequence analytics tab, notification bell, show-map visibility
+      toggle (on or off), free page templates. Shows which features owners touch
+      as the season ramps. Current week is partial.
+    display: ActionsLineGraph
+    chart_x: week
+    chart_y: [qr_codes, page_builder, sequence_analytics, notification_bell, show_map_toggle, page_templates]
+    query: |
+      SELECT
+          toStartOfWeek(timestamp, 1) AS week,
+          uniqIf(distinct_id, event = 'qr_tab_opened') AS qr_codes,
+          uniqIf(distinct_id, event = 'viewer_page_launched_external_editor') AS page_builder,
+          uniqIf(distinct_id, event = 'analytics_sequences_tab_viewed') AS sequence_analytics,
+          uniqIf(distinct_id, event = 'notification_bell_opened') AS notification_bell,
+          uniqIf(distinct_id, event = 'map_visibility_toggled') AS show_map_toggle,
+          uniqIf(distinct_id, event = 'template_applied') AS page_templates
+      FROM events
+      WHERE timestamp >= toStartOfWeek(now(), 1) - INTERVAL 12 WEEK
+        AND event IN ('qr_tab_opened', 'viewer_page_launched_external_editor', 'analytics_sequences_tab_viewed',
+                      'notification_bell_opened', 'map_visibility_toggled', 'template_applied')
+        AND properties.$is_identified = true
+        AND properties.$host IN ('remotefalcon.com', 'www.remotefalcon.com')
+      GROUP BY week
+      ORDER BY week
+
+  - name: owner-notification-bell-weekly-90d
+    description: >-
+      Weekly bell opens, unique shows opening, unique shows clicking a
+      notification (click_through_pct = clicking / opening), and unique shows
+      using mark-all-read (the "dismiss without reading" counter-signal). CTR has
+      run ~25-35% since late Aug; mark-all-read rising toward clicks means the
+      notifications are noise.
+    display: ActionsLineGraph
+    chart_x: week
+    chart_y: [shows_opening, shows_clicking, shows_mark_all_read]
+    query: |
+      SELECT
+          toStartOfWeek(timestamp, 1) AS week,
+          countIf(event = 'notification_bell_opened') AS bell_opens,
+          uniqIf(distinct_id, event = 'notification_bell_opened') AS shows_opening,
+          uniqIf(distinct_id, event = 'notification_clicked') AS shows_clicking,
+          uniqIf(distinct_id, event = 'notification_mark_all_read_clicked') AS shows_mark_all_read,
+          round(100 * uniqIf(distinct_id, event = 'notification_clicked')
+                / nullIf(uniqIf(distinct_id, event = 'notification_bell_opened'), 0), 1) AS click_through_pct
+      FROM events
+      WHERE timestamp >= toStartOfWeek(now(), 1) - INTERVAL 12 WEEK
+        AND event IN ('notification_bell_opened', 'notification_clicked', 'notification_mark_all_read_clicked')
+        AND properties.$is_identified = true
+        AND properties.$host IN ('remotefalcon.com', 'www.remotefalcon.com')
+      GROUP BY week
+      ORDER BY week
+
+  - name: owner-top-actions-30d
+    description: >-
+      Control-panel actions ranked by unique shows over the last 30 days, with
+      total count. Excludes auth, system-fired, warning/failure and admin-only
+      events. sequences_imported and plugin_connected are once-per-show-per-browser
+      milestones, so their counts mean "shows reaching it", not usage frequency.
     display: ActionsTable
     query: |
-      SELECT properties.$pathname AS path, count() AS views
+      SELECT event AS action, uniq(distinct_id) AS owners, count() AS times
       FROM events
-      WHERE event = '$pageview'
-        AND timestamp >= now() - INTERVAL 1 DAY
-      GROUP BY path
-      ORDER BY views DESC
-      LIMIT 10
+      WHERE timestamp >= now() - INTERVAL 30 DAY
+        AND properties.$is_identified = true
+        AND properties.$host IN ('remotefalcon.com', 'www.remotefalcon.com')
+        AND NOT startsWith(event, '$')
+        -- not owner actions: auth, system-fired, warnings/failures, admin-only
+        AND event NOT IN ('signin', 'sign_up', 'email_verified', 'activation_completed',
+                          'notification_snackbar_shown', 'viewer_page_external_change_detected',
+                          'qr_scan_warning_shown', 'email_consent_enforced',
+                          'impersonation_started', 'impersonation_stopped', 'admin_notification_sent')
+        AND NOT endsWith(event, '_failed')
+      GROUP BY action
+      ORDER BY owners DESC
+      LIMIT 25
 
-  - name: rf-frontend-top-exception-messages-7d
+  # ------------------------------------------------------------
+  # Owner Onboarding dashboard
+  # ------------------------------------------------------------
+  # ───── Owner onboarding (show-keyed, replaces fOiKkneB / B59DNAGO / QqtCmogy / Ly8Z3Vrv / SqhpIW1W) ─────
+  #
+  # Every query keys on the SHOW SUBDOMAIN, not the PostHog person.
+  # sign_up is identified as the show since P0-7 (2026-08-23) but older rows
+  # are anonymous; email_verified is ~99% anonymous because the verify link
+  # is usually opened on another device, and anonymous events only re-attach
+  # to the show person when the SAME device later identifies. A person-keyed
+  # funnel loses every cross-device verifier at step 2 (QqtCmogy read 52%
+  # when the show-keyed truth was 95%). signin onward is identified, so
+  # distinct_id IS the subdomain there.
+  #
+  # Known unhandled edge: renaming a show re-derives its subdomain
+  # (GraphQLMutationService show-name change), so a rename mid-onboarding
+  # splits one show into two keys. Rare; not worth the join.
+
+  - name: onboarding-signups-7d
     description: >-
-      Top 10 JS exception type+message pairs by occurrence in the last
-      7 days. First place to look when exceptions trend up. Uses
-      $exception_list[1] because newer posthog-js (1.140+) stores the
-      message inside the structured exception list, not at
-      $exception_message — that field is null on new events.
+      New shows signed up in the last 7 days, counted once per show
+      subdomain. Top-of-funnel pulse; volume is seasonal and ramps
+      Oct–Dec.
+    display: BoldNumber
+    query: |
+      SELECT uniq(lower(replaceRegexpAll(coalesce(nullIf(properties.show_subdomain, ''), properties.show_name), '\\s', ''))) AS new_shows
+      FROM events
+      WHERE event = 'sign_up'
+        AND timestamp >= now() - INTERVAL 7 DAY
+        AND properties.$host IN ('remotefalcon.com', 'www.remotefalcon.com')
+
+  - name: onboarding-signups-weekly-90d
+    description: >-
+      New shows signed up per week (Monday start), last 90 days, counted
+      once per show subdomain. Client-side event, so ad-blocked signups
+      are missing; the current week is partial.
+    display: ActionsBar
+    chart_x: week
+    chart_y: [new_shows]
+    query: |
+      SELECT
+        toStartOfWeek(timestamp, 1) AS week,
+        -- show key: same rule the server uses to derive the subdomain;
+        -- show_subdomain is only on events since 2026-08.
+        uniq(lower(replaceRegexpAll(coalesce(nullIf(properties.show_subdomain, ''), properties.show_name), '\\s', ''))) AS new_shows
+      FROM events
+      WHERE event = 'sign_up'
+        AND timestamp >= now() - INTERVAL 90 DAY
+        AND properties.$host IN ('remotefalcon.com', 'www.remotefalcon.com')
+      GROUP BY week
+      ORDER BY week
+
+  - name: onboarding-activation-funnel-14d
+    description: >-
+      Show-keyed activation funnel for shows that signed up 14–90 days
+      ago (so every show has had its full 14 days). Steps 1–3 are ordered
+      (sign up → verify → sign in); each setup milestone after that only
+      has to happen after first sign-in and within 14 days of signup, in
+      any order, because operators do them in any order. "% of signups"
+      is the column to read. Milestones are first OBSERVED in a browser
+      (plugin_connected = dashboard saw a live heartbeat), not the exact
+      moment it happened. The last row, activation_completed, is the
+      first time a browser saw viewer control flip on; it is NOT
+      "went live" (some shows fire it with no plugin ever connected).
+    display: ActionsBar
+    chart_x: step
+    chart_y: [shows]
+    query: |
+      WITH keyed AS (
+        SELECT
+          event,
+          timestamp,
+          properties.enabled AS enabled,
+          -- Show key. sign_up: subdomain (derived from show_name on rows
+          -- before show_subdomain existed). email_verified: anonymous, so
+          -- take show_subdomain or parse /verifyEmail/:token/:subdomain.
+          -- Everything else is identified: distinct_id IS the subdomain.
+          multiIf(
+            event = 'sign_up',
+              lower(replaceRegexpAll(coalesce(nullIf(properties.show_subdomain, ''), properties.show_name), '\\s', '')),
+            event = 'email_verified',
+              coalesce(nullIf(properties.show_subdomain, ''), splitByChar('/', properties.$pathname)[4]),
+            distinct_id
+          ) AS show_key
+        FROM events
+        -- 104d = 90d signup window + 14d milestone deadline
+        WHERE timestamp >= now() - INTERVAL 104 DAY
+          AND properties.$host IN ('remotefalcon.com', 'www.remotefalcon.com')
+          AND event IN ('sign_up', 'email_verified', 'signin', 'plugin_connected',
+                        'sequences_imported', 'viewer_page_saved',
+                        'viewer_control_toggled', 'activation_completed')
+      ),
+      shows AS (
+        SELECT
+          show_key,
+          -- nullIf(.., epoch): 'never happened' becomes NULL, so every
+          -- comparison against it is false instead of true-at-1970.
+          nullIf(minIf(timestamp, event = 'sign_up'), toDateTime(0))              AS t_signup,
+          nullIf(minIf(timestamp, event = 'email_verified'), toDateTime(0))       AS t_verify,
+          nullIf(minIf(timestamp, event = 'signin'), toDateTime(0))               AS t_signin,
+          nullIf(minIf(timestamp, event = 'plugin_connected'), toDateTime(0))     AS t_plugin,
+          nullIf(minIf(timestamp, event = 'sequences_imported'), toDateTime(0))   AS t_sequences,
+          nullIf(minIf(timestamp, event = 'viewer_page_saved'), toDateTime(0))    AS t_page,
+          nullIf(minIf(timestamp, event = 'viewer_control_toggled' AND enabled = true), toDateTime(0)) AS t_vc_on,
+          nullIf(minIf(timestamp, event = 'activation_completed'), toDateTime(0)) AS t_activation
+        FROM keyed
+        WHERE show_key != ''
+        GROUP BY show_key
+        -- mature cohort: signed up 14–90 days ago
+        HAVING t_signup >= now() - INTERVAL 90 DAY
+           AND t_signup < now() - INTERVAL 14 DAY
+      ),
+      flags AS (
+        SELECT
+          t_verify >= t_signup AS verified,
+          t_verify >= t_signup AND t_signin >= t_verify AS signed_in,
+          t_signup + INTERVAL 14 DAY AS deadline,
+          t_signin, t_plugin, t_sequences, t_page, t_vc_on, t_activation
+        FROM shows
+      ),
+      counts AS (
+        SELECT
+          count()                                                                          AS s1,
+          countIf(verified)                                                                AS s2,
+          countIf(signed_in)                                                               AS s3,
+          countIf(signed_in AND t_plugin >= t_signin AND t_plugin <= deadline)             AS s4,
+          countIf(signed_in AND t_sequences >= t_signin AND t_sequences <= deadline)       AS s5,
+          countIf(signed_in AND t_page >= t_signin AND t_page <= deadline)                 AS s6,
+          countIf(signed_in AND t_vc_on >= t_signin AND t_vc_on <= deadline)               AS s7,
+          countIf(signed_in
+                  AND t_plugin >= t_signin AND t_plugin <= deadline
+                  AND t_sequences >= t_signin AND t_sequences <= deadline
+                  AND t_vc_on >= t_signin AND t_vc_on <= deadline)                         AS s8,
+          countIf(signed_in AND t_activation >= t_signin AND t_activation <= deadline)     AS s9
+        FROM flags
+      )
+      SELECT step, shows, round(100 * shows / s1, 1) AS pct_of_signups
+      FROM counts
+      ARRAY JOIN
+        ['1. Signed up', '2. Verified email', '3. Signed in',
+         '4. Plugin connected (14d)', '5. Sequences in (14d)', '6. Viewer page saved (14d)',
+         '7. Viewer control first enabled (14d)', '8. Plugin + sequences + viewer control (14d)',
+         '9. activation_completed event (14d, first browser-seen VC flip)'] AS step,
+        [s1, s2, s3, s4, s5, s6, s7, s8, s9] AS shows
+      ORDER BY step
+
+  - name: onboarding-cohort-weekly-14d
+    description: >-
+      One row per signup week (Monday start) for shows that signed up
+      14–104 days ago: % of that week's signups reaching each milestone
+      within 14 days of signup, plus median hours from signup to the
+      first viewer-control enable. Read down a column to see whether
+      newer cohorts activate faster. The newest row only holds shows
+      already 14 days old, so it is a partial week. Small cohorts
+      (single digits) swing a lot. The median is usually under an hour:
+      operators flip viewer control on while exploring, often before any
+      plugin is connected, so it measures engagement, not show readiness.
+    display: ActionsTable
+    query: |
+      WITH keyed AS (
+        SELECT
+          event,
+          timestamp,
+          properties.enabled AS enabled,
+          -- show key; see onboarding-activation-funnel-14d
+          multiIf(
+            event = 'sign_up',
+              lower(replaceRegexpAll(coalesce(nullIf(properties.show_subdomain, ''), properties.show_name), '\\s', '')),
+            event = 'email_verified',
+              coalesce(nullIf(properties.show_subdomain, ''), splitByChar('/', properties.$pathname)[4]),
+            distinct_id
+          ) AS show_key
+        FROM events
+        -- 118d = 104d of signup cohorts + 14d milestone deadline
+        WHERE timestamp >= now() - INTERVAL 118 DAY
+          AND properties.$host IN ('remotefalcon.com', 'www.remotefalcon.com')
+          AND event IN ('sign_up', 'email_verified', 'signin', 'plugin_connected',
+                        'sequences_imported', 'viewer_page_saved', 'viewer_control_toggled')
+      ),
+      shows AS (
+        SELECT
+          show_key,
+          nullIf(minIf(timestamp, event = 'sign_up'), toDateTime(0))            AS t_signup,
+          nullIf(minIf(timestamp, event = 'email_verified'), toDateTime(0))     AS t_verify,
+          nullIf(minIf(timestamp, event = 'signin'), toDateTime(0))             AS t_signin,
+          nullIf(minIf(timestamp, event = 'plugin_connected'), toDateTime(0))   AS t_plugin,
+          nullIf(minIf(timestamp, event = 'sequences_imported'), toDateTime(0)) AS t_sequences,
+          nullIf(minIf(timestamp, event = 'viewer_page_saved'), toDateTime(0))  AS t_page,
+          nullIf(minIf(timestamp, event = 'viewer_control_toggled' AND enabled = true), toDateTime(0)) AS t_vc_on
+        FROM keyed
+        WHERE show_key != ''
+        GROUP BY show_key
+        HAVING t_signup >= now() - INTERVAL 104 DAY
+           AND t_signup < now() - INTERVAL 14 DAY
+      ),
+      flags AS (
+        SELECT
+          toStartOfWeek(t_signup, 1) AS cohort_week,
+          t_signup,
+          t_verify >= t_signup AND t_signin >= t_verify AS signed_in,
+          t_signup + INTERVAL 14 DAY AS deadline,
+          t_verify >= t_signup AS verified,
+          t_signin, t_plugin, t_sequences, t_page, t_vc_on
+        FROM shows
+      )
+      SELECT
+        cohort_week,
+        count() AS signups,
+        round(100 * countIf(verified) / count(), 0) AS pct_verified,
+        round(100 * countIf(signed_in) / count(), 0) AS pct_signed_in,
+        round(100 * countIf(signed_in AND t_plugin >= t_signin AND t_plugin <= deadline) / count(), 0) AS pct_plugin_14d,
+        round(100 * countIf(signed_in AND t_sequences >= t_signin AND t_sequences <= deadline) / count(), 0) AS pct_sequences_14d,
+        round(100 * countIf(signed_in AND t_page >= t_signin AND t_page <= deadline) / count(), 0) AS pct_page_saved_14d,
+        round(100 * countIf(signed_in AND t_vc_on >= t_signin AND t_vc_on <= deadline) / count(), 0) AS pct_viewer_control_14d,
+        -- hours from signup to first viewer-control enable, among shows
+        -- that got there within 14 days
+        round(medianIf(dateDiff('minute', t_signup, t_vc_on) / 60,
+                       signed_in AND t_vc_on >= t_signin AND t_vc_on <= deadline), 1) AS median_hours_to_viewer_control
+      FROM flags
+      GROUP BY cohort_week
+      ORDER BY cohort_week DESC
+
+  - name: onboarding-stuck-at-verification-90d
+    description: >-
+      Shows that signed up more than 48 hours ago (within the last 90
+      days) and have never verified their email. Each row is a
+      support-actionable lead: the verification mail may have bounced or
+      been filtered. Show key is the subdomain; look it up in the admin
+      Account Details page.
+    display: ActionsTable
+    query: |
+      WITH keyed AS (
+        SELECT
+          event,
+          timestamp,
+          -- show key; see onboarding-activation-funnel-14d
+          multiIf(
+            event = 'sign_up',
+              lower(replaceRegexpAll(coalesce(nullIf(properties.show_subdomain, ''), properties.show_name), '\\s', '')),
+            event = 'email_verified',
+              coalesce(nullIf(properties.show_subdomain, ''), splitByChar('/', properties.$pathname)[4]),
+            distinct_id
+          ) AS show_key
+        FROM events
+        WHERE timestamp >= now() - INTERVAL 90 DAY
+          AND properties.$host IN ('remotefalcon.com', 'www.remotefalcon.com')
+          -- signin included: sign-in is refused until the email is
+          -- verified, so a signin proves verification even if the
+          -- email_verified event was lost (ad blocker, closed tab).
+          AND event IN ('sign_up', 'email_verified', 'signin')
+      )
+      SELECT
+        show_key,
+        minIf(timestamp, event = 'sign_up') AS signed_up_at,
+        dateDiff('hour', minIf(timestamp, event = 'sign_up'), now()) AS hours_since_signup
+      FROM keyed
+      WHERE show_key != ''
+      GROUP BY show_key
+      HAVING countIf(event = 'sign_up') > 0
+         AND countIf(event IN ('email_verified', 'signin')) = 0
+         AND signed_up_at < now() - INTERVAL 48 HOUR
+      ORDER BY signed_up_at DESC
+
+  # ------------------------------------------------------------
+  # Fan-Side Activity dashboard
+  # ------------------------------------------------------------
+  # ───── Fan-Side Activity (viewer pages, <show>.remotefalcon.com) ─────
+  # Fan distinct_id resets on every viewer page load (2026-10 audit), so
+  # uniq(distinct_id) on fan events = page loads, never people.
+
+  - name: fan-rejection-rate-by-show-30d
+    description: >-
+      Who to contact: shows where fans tap and get turned away, last 30d, ranked by page loads
+      that never got a single success. pct_loads_rejected is the fan-experience number;
+      pct_taps_rejected is inflated by retry-spamming and is shown only for contrast. top_reason
+      is the rejection that hit the most page loads (Queue Full means the queue is too short,
+      Invalid Location usually means a permission or geofence problem, Viewer Already Requested
+      means a strict per-viewer limit). Shows with fewer than 20 tapping loads are hidden.
+    display: ActionsTable
+    query: |
+      -- Who to contact: shows where fans tap and get turned away.
+      -- A page load = one fan distinct_id (it resets per load).
+      SELECT
+        l.host AS host,
+        l.loads_tapped AS loads_tapped,
+        l.loads_never_succeeded AS loads_never_succeeded,
+        round(100 * l.loads_never_succeeded / l.loads_tapped, 1) AS pct_loads_rejected,
+        round(100 * l.total_rejections / l.total_taps, 1) AS pct_taps_rejected,
+        r.top_reason AS top_reason,
+        r.top_reason_loads AS top_reason_loads
+      FROM (
+        SELECT
+          host,
+          count() AS loads_tapped,
+          countIf(load_successes = 0) AS loads_never_succeeded,
+          sum(load_taps) AS total_taps,
+          sum(load_taps - load_successes) AS total_rejections
+        FROM (
+          SELECT
+            properties.$host AS host,
+            distinct_id,
+            count() AS load_taps,
+            countIf(properties.result = 'Success') AS load_successes
+          FROM events
+          WHERE event = 'viewer_interaction_result'
+            AND timestamp >= now() - INTERVAL 30 DAY
+            -- known kiosk / reload-loop devices (2026-10 audit)
+            AND properties.$ip NOT IN ('76.131.171.21', '98.97.118.181', '98.97.112.62')
+          GROUP BY host, distinct_id
+        )
+        GROUP BY host
+      ) AS l
+      LEFT JOIN (
+        -- the rejection reason that hit the most page loads on each show
+        SELECT
+          host,
+          argMax(reason, reason_loads) AS top_reason,
+          max(reason_loads) AS top_reason_loads
+        FROM (
+          SELECT
+            properties.$host AS host,
+            properties.result AS reason,
+            uniq(distinct_id) AS reason_loads
+          FROM events
+          WHERE event = 'viewer_interaction_result'
+            AND properties.result != 'Success'
+            AND timestamp >= now() - INTERVAL 30 DAY
+            -- known kiosk / reload-loop devices (2026-10 audit)
+            AND properties.$ip NOT IN ('76.131.171.21', '98.97.118.181', '98.97.112.62')
+          GROUP BY host, reason
+        )
+        GROUP BY host
+      ) AS r ON l.host = r.host
+      -- ignore shows with too few tapping loads to judge
+      WHERE l.loads_tapped >= 20
+      ORDER BY loads_never_succeeded DESC
+      LIMIT 25
+
+  - name: fan-load-success-rate-weekly-90d
+    description: >-
+      Of the page loads where a fan tapped request/vote at least once, the % that got at least one
+      success, weekly over 90d. This replaces the old per-tap rate, which read ~50% while ~83% of
+      fan visits actually succeeded, because a few fans re-tap dozens of times. Off-season weeks
+      have under 300 loads and swing a lot; read it from late September on.
+    display: ActionsLineGraph
+    chart_x: week
+    chart_y: [pct_loads_with_success]
+    query: |
+      -- One row per page load (fan distinct_id resets per load) per week.
+      SELECT
+        week,
+        count() AS loads_that_tapped,
+        countIf(successes > 0) AS loads_with_success,
+        round(100 * countIf(successes > 0) / count(), 1) AS pct_loads_with_success
+      FROM (
+        SELECT
+          toStartOfWeek(timestamp, 1) AS week,
+          distinct_id,
+          countIf(properties.result = 'Success') AS successes
+        FROM events
+        WHERE event = 'viewer_interaction_result'
+          AND timestamp >= toStartOfWeek(now(), 1) - INTERVAL 13 WEEK
+          -- known kiosk / reload-loop devices (2026-10 audit)
+          AND properties.$ip NOT IN ('76.131.171.21', '98.97.118.181', '98.97.112.62')
+        GROUP BY week, distinct_id
+      )
+      GROUP BY week
+      ORDER BY week
+
+  - name: fan-daily-page-loads-30d
+    description: >-
+      Daily viewer page loads, unique fan IPs (approx. people; households and carrier NAT share
+      an IP) and active shows (shows with any viewer traffic), last 30 whole days. Kiosk and
+      reload-loop devices are excluded; one of them alone was up to 50% of a day's raw page loads.
+      This is seasonal traffic: expect it to climb steeply from October through December.
+    display: ActionsLineGraph
+    chart_x: day
+    chart_y: [page_loads, unique_fan_ips, active_shows]
+    query: |
+      SELECT
+        toStartOfDay(timestamp) AS day,
+        count() AS page_loads,
+        uniq(properties.$ip) AS unique_fan_ips,
+        uniq(properties.$host) AS active_shows
+      FROM events
+      WHERE event = 'viewer_page_view'
+        -- whole days only, so the first point isn't a partial day
+        AND timestamp >= toStartOfDay(now()) - INTERVAL 29 DAY
+        -- known kiosk / reload-loop devices (2026-10 audit)
+        AND properties.$ip NOT IN ('76.131.171.21', '98.97.118.181', '98.97.112.62')
+      GROUP BY day
+      ORDER BY day
+
+  - name: fan-rejection-reasons-30d
+    description: >-
+      Why fan requests/votes are rejected, last 30d, ranked by page loads affected rather than
+      raw taps. taps_per_load shows how hard fans retry. Queue Full and Viewer Already Requested
+      look biggest by raw taps (~10 per load), but Sequence Already Requested reaches more fans.
+      Sequence Unavailable still lumps cooldown, nightly cap and group cap together on the client;
+      the narrowed reason exists only in the server's Mongo stats.
     display: ActionsTable
     query: |
       SELECT
-        properties.$exception_list[1].type AS type,
-        coalesce(properties.$exception_list[1].value, properties.$exception_message) AS message,
-        count() AS occurrences,
+        properties.result AS reason,
+        uniq(distinct_id) AS page_loads_affected,
+        count() AS rejections,
+        uniq(properties.$host) AS shows_affected,
+        round(count() / uniq(distinct_id), 1) AS taps_per_load
+      FROM events
+      WHERE event = 'viewer_interaction_result'
+        AND properties.result != 'Success'
+        AND timestamp >= now() - INTERVAL 30 DAY
+        -- known kiosk / reload-loop devices (2026-10 audit)
+        AND properties.$ip NOT IN ('76.131.171.21', '98.97.118.181', '98.97.112.62')
+      GROUP BY reason
+      ORDER BY page_loads_affected DESC
+
+  - name: fan-invalid-location-causes-30d
+    description: >-
+      Invalid Location rejections split by what the browser reported (cause) and where the page
+      was opened (client_class), last 30d, in page loads. Only out_of_range/browser means a fan
+      was genuinely too far away (or the show's coordinates are wrong); permission_* means the fan
+      never shared location, and *_in_app means a Facebook/Instagram webview, which no show
+      setting can fix. Widening the radius only helps the out_of_range rows.
+    display: ActionsTable
+    query: |
+      SELECT
+        coalesce(properties.cause, 'unreported') AS cause,
+        coalesce(properties.client_class, 'unreported') AS client_class,
+        uniq(distinct_id) AS page_loads,
+        count() AS rejections,
+        uniq(properties.$host) AS shows
+      FROM events
+      WHERE event = 'viewer_interaction_result'
+        AND properties.result = 'Invalid Location'
+        AND timestamp >= now() - INTERVAL 30 DAY
+        -- known kiosk / reload-loop devices (2026-10 audit)
+        AND properties.$ip NOT IN ('76.131.171.21', '98.97.118.181', '98.97.112.62')
+      GROUP BY cause, client_class
+      ORDER BY page_loads DESC
+
+  - name: fan-location-recovery-weekly-90d
+    description: >-
+      Of the page loads that showed the location-recovery prompt, the % where the fan clicked it,
+      in the same page load, weekly over 90d. Raw event counts overstate this (~26%) because a
+      few fans click repeatedly; per load it is single digits. A low rate means the recovery copy
+      or placement isn't working.
+    display: ActionsLineGraph
+    chart_x: week
+    chart_y: [pct_clicked]
+    query: |
+      -- Per page load: was the location-recovery prompt shown, and was it clicked?
+      SELECT
+        week,
+        countIf(shown > 0) AS loads_shown,
+        countIf(shown > 0 AND clicked > 0) AS loads_clicked,
+        round(100 * countIf(shown > 0 AND clicked > 0) / countIf(shown > 0), 1) AS pct_clicked
+      FROM (
+        SELECT
+          toStartOfWeek(timestamp, 1) AS week,
+          distinct_id,
+          countIf(event = 'viewer_location_recovery_shown') AS shown,
+          countIf(event = 'viewer_location_recovery_click') AS clicked
+        FROM events
+        WHERE event IN ('viewer_location_recovery_shown', 'viewer_location_recovery_click')
+          AND timestamp >= toStartOfWeek(now(), 1) - INTERVAL 13 WEEK
+          -- known kiosk / reload-loop devices (2026-10 audit)
+          AND properties.$ip NOT IN ('76.131.171.21', '98.97.118.181', '98.97.112.62')
+        GROUP BY week, distinct_id
+      )
+      GROUP BY week
+      HAVING loads_shown > 0
+      ORDER BY week
+
+  - name: fan-sequence-popularity-30d
+    description: >-
+      Most-requested/voted sequences across all shows, last 30d, ranked by page loads that tapped
+      them, with the number of shows offering them. Counts attempts, including rejected ones; the
+      result event has no sequence property, so success per sequence can't be measured yet.
+      Operators name sequences freely, so variants ("Thriller" vs "Thriller - Michael Jackson")
+      appear as separate rows.
+    display: ActionsTable
+    query: |
+      -- Ranked by page loads that tapped the sequence, not raw taps (one fan
+      -- retrying 1,000 times otherwise tops the chart). Names are grouped
+      -- case-insensitively; operators name their own sequences, so near-duplicates
+      -- ("Thriller" vs "Thriller - Michael Jackson") stay separate.
+      SELECT
+        any(properties.sequence) AS sequence,
+        uniq(distinct_id) AS page_loads,
+        uniq(properties.$host) AS shows,
+        count() AS taps
+      FROM events
+      WHERE event = 'viewer_interaction'
+        AND timestamp >= now() - INTERVAL 30 DAY
+        AND properties.sequence IS NOT NULL
+        -- known kiosk / reload-loop devices (2026-10 audit)
+        AND properties.$ip NOT IN ('76.131.171.21', '98.97.118.181', '98.97.112.62')
+      GROUP BY lower(trim(BOTH ' ' FROM toString(properties.sequence)))
+      ORDER BY page_loads DESC
+      LIMIT 25
+
+  - name: fan-referrers-30d
+    description: >-
+      Where fans come from, last 30d, in page loads grouped by channel, with the top 3 referring
+      domains per channel. $direct (QR scans, typed URLs, app opens with no referrer) is left out;
+      it is roughly half of all page loads. The localhost row is one operator testing an embed.
+    display: ActionsTable
+    query: |
+      -- Where fans arrive from. $direct (typed URL, QR scan, in-app open with no
+      -- referrer) is excluded here; it is ~half of all page loads.
+      SELECT
+        multiIf(
+          domain LIKE '%facebook.com' OR domain = 'fb.me', 'Facebook',
+          domain LIKE '%instagram.com', 'Instagram',
+          domain LIKE '%google.%' OR domain LIKE '%googlequicksearchbox%' OR domain = 'www.gstatic.com', 'Google',
+          domain LIKE '%pulsemesh.io', 'PulseMesh',
+          domain IN ('localhost', '127.0.0.1'), 'localhost (operator testing)',
+          -- includes a show's own subdomain (in-page reloads/links)
+          domain LIKE '%remotefalcon.com', 'Remote Falcon subdomain',
+          'Other (mostly show websites)'
+        ) AS channel,
+        uniq(distinct_id) AS page_loads,
+        uniq(host) AS shows,
+        topK(3)(domain) AS top_domains
+      FROM (
+        SELECT
+          distinct_id,
+          properties.$host AS host,
+          toString(properties.$referring_domain) AS domain
+        FROM events
+        WHERE event = 'viewer_page_view'
+          AND timestamp >= now() - INTERVAL 30 DAY
+          AND properties.$referring_domain IS NOT NULL
+          AND properties.$referring_domain != '$direct'
+          -- known kiosk / reload-loop devices (2026-10 audit)
+          AND properties.$ip NOT IN ('76.131.171.21', '98.97.118.181', '98.97.112.62')
+      )
+      GROUP BY channel
+      ORDER BY page_loads DESC
+
+  # ------------------------------------------------------------
+  # Platform Health dashboard
+  # ------------------------------------------------------------
+  - name: platform-viewer-active-shows-7d
+    description: >-
+      Distinct show viewer pages (<show>.remotefalcon.com) that got at least
+      one page load in the last 7 days. The fan-side "is the platform being
+      used" number; seasonal, ramps Oct to Dec. Counts hosts, not fans, so
+      embed reload loops can't inflate it.
+    display: BoldNumber
+    query: |
+      SELECT uniq(properties.$host) AS active_viewer_shows
+      FROM events
+      WHERE event = '$pageview'
+        AND timestamp >= now() - INTERVAL 7 DAY
+        -- viewer pages: <show>.remotefalcon.com, excluding the control-panel apex
+        AND properties.$host ILIKE '%.remotefalcon.com'
+        AND properties.$host NOT IN ('remotefalcon.com', 'www.remotefalcon.com')
+        -- known kiosk / reload-loop devices (2026-10 audit)
+        AND properties.$ip NOT IN ('76.131.171.21', '98.97.118.181', '98.97.112.62')
+
+  - name: platform-cp-pageviews-7d
+    description: >-
+      Control-panel (owner app) pageviews in the last 7 days, apex host only.
+      Not comparable with anything before 2026-08-23, when SPA route changes
+      started firing $pageview (capture_pageview: 'history_change', #152) and
+      the series jumped ~15x.
+    display: BoldNumber
+    query: |
+      SELECT count() AS cp_pageviews
+      FROM events
+      WHERE event = '$pageview'
+        AND timestamp >= now() - INTERVAL 7 DAY
+        AND properties.$host IN ('remotefalcon.com', 'www.remotefalcon.com')
+
+  - name: platform-top-error-issues-7d
+    description: >-
+      Top 20 Error Tracking issues by event count in the last 7 days, one row
+      per $exception_issue_id, with surface and blast radius. Read
+      viewer_shows_affected / cp_owners_affected before events: many shows =
+      platform bug, one show = that operator's page or a single device. Top
+      rows are usually browser/extension/network noise (Script error.,
+      Load failed, Android "Java object is gone"); suppress those in Error
+      Tracking, not here.
+    display: ActionsTable
+    query: |
+      SELECT
+        toString(properties.$exception_issue_id) AS issue_id,
+        -- posthog-js 1.140+: message lives in $exception_list[1]; $exception_message is absent in this project
+        argMax(toString(properties.$exception_list[1].type), timestamp) AS type,
+        left(argMax(toString(properties.$exception_list[1].value), timestamp), 120) AS message,
+        multiIf(
+          countIf(properties.$host IN ('remotefalcon.com', 'www.remotefalcon.com')) = count(), 'control panel',
+          countIf(properties.$host IN ('remotefalcon.com', 'www.remotefalcon.com')) = 0, 'viewer',
+          'both') AS surface,
+        count() AS events,
+        -- viewer side: distinct show subdomains hit; CP side: distinct identified owner shows hit
+        uniqIf(properties.$host, properties.$host NOT IN ('remotefalcon.com', 'www.remotefalcon.com')) AS viewer_shows_affected,
+        uniqIf(distinct_id, properties.$host IN ('remotefalcon.com', 'www.remotefalcon.com') AND toString(properties.$is_identified) = 'true') AS cp_owners_affected,
         max(timestamp) AS last_seen
       FROM events
       WHERE event = '$exception'
         AND timestamp >= now() - INTERVAL 7 DAY
-      GROUP BY type, message
-      ORDER BY occurrences DESC
-      LIMIT 10
+        AND (
+          properties.$host IN ('remotefalcon.com', 'www.remotefalcon.com')
+          OR (
+            properties.$host ILIKE '%.remotefalcon.com'
+            -- known kiosk / reload-loop devices (2026-10 audit)
+            AND properties.$ip NOT IN ('76.131.171.21', '98.97.118.181', '98.97.112.62')
+          )
+        )
+      GROUP BY issue_id
+      ORDER BY events DESC
+      LIMIT 20
 
-  # ───── Notification engagement (PRD-002 bell + PRD-004 admin sender) ─────
-
-  - name: rf-notifications-sent-30d
+  - name: platform-exceptions-by-surface-30d
     description: >-
-      Total operator-initiated notifications sent in the last 30 days
-      (both ADMIN broadcasts and per-show DMs). Confirms the admin tab
-      is actually being used rather than falling back to the runbook's
-      curl path.
-    display: BoldNumber
-    query: |
-      SELECT count() AS notifications_sent
-      FROM events
-      WHERE event = 'admin_notification_sent'
-        AND timestamp >= now() - INTERVAL 30 DAY
-
-  - name: rf-notifications-sent-trend-30d
-    description: >-
-      Daily count of notifications sent, broken into broadcasts (ADMIN
-      to all users) and per-show DMs. Lets the operator see send cadence
-      and lopsidedness between the two channels.
+      Daily $exception count, control panel vs viewer pages, last 30 days.
+      A CP spike right after a deploy is the regression signal; viewer volume
+      tracks fan traffic and grows with the season. Issue-level spike alerts
+      already go to Discord via Error Tracking destinations.
     display: ActionsLineGraph
     chart_x: day
-    chart_y: [broadcasts, dms]
+    chart_y: [cp_exceptions, viewer_exceptions]
     query: |
       SELECT
         toStartOfDay(timestamp) AS day,
-        countIf(properties.recipient_type = 'admin') AS broadcasts,
-        countIf(properties.recipient_type = 'user') AS dms
+        countIf(properties.$host IN ('remotefalcon.com', 'www.remotefalcon.com')) AS cp_exceptions,
+        countIf(properties.$host NOT IN ('remotefalcon.com', 'www.remotefalcon.com')) AS viewer_exceptions
       FROM events
-      WHERE event = 'admin_notification_sent'
-        AND timestamp >= now() - INTERVAL 30 DAY
+      WHERE event = '$exception'
+        -- whole days only, so the first point isn't a partial day
+        AND timestamp >= toStartOfDay(now()) - INTERVAL 29 DAY
+        AND (
+          properties.$host IN ('remotefalcon.com', 'www.remotefalcon.com')
+          OR (
+            properties.$host ILIKE '%.remotefalcon.com'
+            -- known kiosk / reload-loop devices (2026-10 audit)
+            AND properties.$ip NOT IN ('76.131.171.21', '98.97.118.181', '98.97.112.62')
+          )
+        )
       GROUP BY day
       ORDER BY day
 
-  - name: rf-notifications-edit-rate-30d
+  - name: platform-traffic-trend-30d
     description: >-
-      Edits per send over the last 30 days, as a percentage. High = the
-      compose form's validation/preview is missing something. Watch
-      whether this trends toward zero as the operator gets comfortable
-      with the form, or stays high (signal to add features like
-      typo-detection or a draft state).
-    display: BoldNumber
-    query: |
-      SELECT
-        round(countIf(event = 'admin_notification_edited') * 100.0
-              / nullif(countIf(event = 'admin_notification_sent'), 0), 1)
-        AS edit_rate_pct
-      FROM events
-      WHERE event IN ('admin_notification_sent', 'admin_notification_edited')
-        AND timestamp >= now() - INTERVAL 30 DAY
-
-  - name: rf-notifications-delete-rate-30d
-    description: >-
-      Deletes per send over the last 30 days, as a percentage. >5% is a
-      regret smell — the confirm dialog or live preview isn't doing its
-      job. Worth watching closely after launch.
-    display: BoldNumber
-    query: |
-      SELECT
-        round(countIf(event = 'admin_notification_deleted') * 100.0
-              / nullif(countIf(event = 'admin_notification_sent'), 0), 1)
-        AS delete_rate_pct
-      FROM events
-      WHERE event IN ('admin_notification_sent', 'admin_notification_deleted')
-        AND timestamp >= now() - INTERVAL 30 DAY
-
-  - name: rf-notifications-bell-opens-trend-30d
-    description: >-
-      Daily bell-icon opens across all users. Engagement proxy — answers
-      "are users actually using the bell, or ignoring it?" Compare with
-      send cadence in the trend tile above to see whether broadcasts
-      drive engagement spikes.
+      Daily control-panel pageviews vs distinct viewer shows with traffic,
+      last 30 days. CP pageviews = owner activity; viewer active shows =
+      shows fans are actually visiting. Viewer side counts hosts, not page
+      loads, because fan distinct_id resets per load and embeds can reload-loop.
     display: ActionsLineGraph
     chart_x: day
-    chart_y: [bell_opens]
+    chart_y: [cp_pageviews, viewer_active_shows]
     query: |
-      SELECT toStartOfDay(timestamp) AS day, count() AS bell_opens
+      SELECT
+        toStartOfDay(timestamp) AS day,
+        countIf(properties.$host IN ('remotefalcon.com', 'www.remotefalcon.com')) AS cp_pageviews,
+        uniqIf(properties.$host, properties.$host NOT IN ('remotefalcon.com', 'www.remotefalcon.com')) AS viewer_active_shows
       FROM events
-      WHERE event = 'notification_bell_opened'
-        AND timestamp >= now() - INTERVAL 30 DAY
+      WHERE event = '$pageview'
+        -- whole days only, so the first point isn't a partial day
+        AND timestamp >= toStartOfDay(now()) - INTERVAL 29 DAY
+        AND (
+          properties.$host IN ('remotefalcon.com', 'www.remotefalcon.com')
+          OR (
+            properties.$host ILIKE '%.remotefalcon.com'
+            -- known kiosk / reload-loop devices (2026-10 audit)
+            AND properties.$ip NOT IN ('76.131.171.21', '98.97.118.181', '98.97.112.62')
+          )
+        )
       GROUP BY day
       ORDER BY day
 
-  - name: rf-notifications-click-breakdown-7d
+  - name: platform-viewer-reload-loops-14d
     description: >-
-      Notification clicks broken down by type (ADMIN/USER/FPP_HEALTH)
-      and whether the row had a link in the last 7 days. High ratio of
-      has_link=true rows that get clicked = the link is doing its job.
-      Low ratio across the board = users open the bell to dismiss, not
-      to act.
+      Viewer host + IP pairs with more than 500 page loads in one day, last
+      14 days. Finds kiosks, embeds stuck in a reload loop (pricklyguy hit
+      36k loads at ~86/min on 2026-10-09) and scrapers. New rows here are
+      candidates for the project-wide kiosk exclusion list. Deliberately NOT
+      kiosk-filtered.
     display: ActionsTable
     query: |
       SELECT
-        properties.type AS notification_type,
-        properties.has_link AS has_link,
-        count() AS clicks
+        toDate(timestamp) AS day,
+        properties.$host AS viewer_host,
+        properties.$ip AS ip,
+        count() AS page_loads,
+        uniq(properties.$session_id) AS sessions,
+        -- a human fan is well under 1/min; a reload loop is tens per minute
+        round(count() / greatest(dateDiff('minute', min(timestamp), max(timestamp)), 1), 1) AS loads_per_min,
+        min(timestamp) AS first_load,
+        max(timestamp) AS last_load,
+        topK(3)(toString(properties.$referring_domain)) AS top_referrers
       FROM events
-      WHERE event = 'notification_clicked'
-        AND timestamp >= now() - INTERVAL 7 DAY
-      GROUP BY notification_type, has_link
-      ORDER BY clicks DESC
-      LIMIT 10
+      WHERE event = '$pageview'
+        AND timestamp >= toStartOfDay(now()) - INTERVAL 13 DAY
+        AND properties.$host ILIKE '%.remotefalcon.com'
+        AND properties.$host NOT IN ('remotefalcon.com', 'www.remotefalcon.com')
+        -- deliberately NO kiosk exclusion: this table is how kiosk / reload-loop devices are found
+      GROUP BY day, viewer_host, ip
+      HAVING page_loads > 500
+      ORDER BY page_loads DESC
+      LIMIT 50
 
-  - name: rf-notifications-recent-broadcasts-30d
+  - name: platform-viewer-script-failures-30d
     description: >-
-      Most recent broadcasts/DMs sent in the last 30 days with key
-      attributes. Operator-facing audit at a glance — quicker than
-      `db.notification.find().sort({createdDate: -1})` in Mongo, and
-      includes the per-show DMs that don't live in the broadcasts
-      table.
+      Viewer page loads where the operator's viewer scripts failed, by day and
+      show, last 30 days. load_failures is what the fan sees (page without its
+      scripts); fetch_failures fires first on the same load when the fetch
+      exhausted its retries, so don't add the two. Repeated rows for one show
+      = that show's page is broken; many shows on one day = platform/CDN issue.
     display: ActionsTable
     query: |
       SELECT
-        timestamp,
-        properties.recipient_type AS recipient,
-        properties.subject_length AS subject_len,
-        properties.message_length AS message_len,
-        properties.has_link AS has_link
+        toStartOfDay(timestamp) AS day,
+        properties.$host AS viewer_host,
+        countIf(event = 'viewer_scripts_load_failed') AS load_failures,
+        countIf(event = 'viewer_scripts_fetch_failed') AS fetch_failures,
+        argMax(toString(properties.message), timestamp) AS last_message
       FROM events
-      WHERE event = 'admin_notification_sent'
+      WHERE event IN ('viewer_scripts_load_failed', 'viewer_scripts_fetch_failed')
+        AND timestamp >= toStartOfDay(now()) - INTERVAL 29 DAY
+        -- known kiosk / reload-loop devices (2026-10 audit)
+        AND properties.$ip NOT IN ('76.131.171.21', '98.97.118.181', '98.97.112.62')
+      GROUP BY day, viewer_host
+      ORDER BY day DESC, load_failures DESC
+      LIMIT 100
+
+  - name: platform-web-vitals-weekly-90d
+    description: >-
+      Weekly p75 LCP / INP (ms) and CLS by surface, last 90 days. Good
+      thresholds: LCP <= 2500ms, INP <= 200ms, CLS <= 0.1. Viewer CLS (~0.3)
+      is the standing problem (image-driven layout shift); viewer LCP is the
+      baseline for the #143/#144 perf work. Each $web_vitals event carries
+      only some metrics, so sample counts differ per metric.
+    display: ActionsTable
+    query: |
+      SELECT
+        toStartOfWeek(timestamp, 1) AS week,
+        if(properties.$host IN ('remotefalcon.com', 'www.remotefalcon.com'), 'control panel', 'viewer') AS surface,
+        -- each $web_vitals event carries only the metrics ready at send time, so filter per metric
+        round(quantileIf(0.75)(toFloat(properties.$web_vitals_LCP_value), properties.$web_vitals_LCP_value IS NOT NULL)) AS lcp_p75_ms,
+        round(quantileIf(0.75)(toFloat(properties.$web_vitals_INP_value), properties.$web_vitals_INP_value IS NOT NULL)) AS inp_p75_ms,
+        round(quantileIf(0.75)(toFloat(properties.$web_vitals_CLS_value), properties.$web_vitals_CLS_value IS NOT NULL), 3) AS cls_p75,
+        countIf(properties.$web_vitals_LCP_value IS NOT NULL) AS lcp_samples
+      FROM events
+      WHERE event = '$web_vitals'
+        AND timestamp >= toStartOfWeek(now() - INTERVAL 90 DAY, 1)
+        AND (
+          properties.$host IN ('remotefalcon.com', 'www.remotefalcon.com')
+          OR (
+            properties.$host ILIKE '%.remotefalcon.com'
+            -- known kiosk / reload-loop devices (2026-10 audit)
+            AND properties.$ip NOT IN ('76.131.171.21', '98.97.118.181', '98.97.112.62')
+          )
+        )
+      GROUP BY week, surface
+      ORDER BY week DESC, surface
+
+  - name: platform-cp-top-paths-7d
+    description: >-
+      Top 15 control-panel paths by pageviews in the last 7 days, with the
+      number of distinct owner shows (identified events) behind each. Shows
+      which owner screens actually get used. Viewer pages are excluded; they
+      all share one or two paths and used to crowd out the top of this list.
+    display: ActionsTable
+    query: |
+      SELECT
+        properties.$pathname AS path,
+        count() AS views,
+        -- identified CP events carry the show subdomain as distinct_id
+        uniqIf(distinct_id, toString(properties.$is_identified) = 'true') AS owner_shows
+      FROM events
+      WHERE event = '$pageview'
+        AND timestamp >= now() - INTERVAL 7 DAY
+        AND properties.$host IN ('remotefalcon.com', 'www.remotefalcon.com')
+      GROUP BY path
+      ORDER BY views DESC
+      LIMIT 15
+
+  # ------------------------------------------------------------
+  # Remote Falcon Integration dashboard
+  # ------------------------------------------------------------
+  - name: rfpb-shows-launching-7d
+    description: >-
+      Unique shows that opened RF Page Builder from the control panel in the last
+      7 days. Fired after launchExternalEditor returns a URL, so it means "a
+      launch link was minted", not that RFPB loaded or a publish happened.
+    display: BoldNumber
+    query: |
+      SELECT uniq(distinct_id) AS shows_launching_7d
+      FROM events
+      WHERE event = 'viewer_page_launched_external_editor'
+        AND timestamp >= now() - INTERVAL 7 DAY
+        AND properties.$is_identified = true
+        AND properties.$host IN ('remotefalcon.com', 'www.remotefalcon.com')
+
+  - name: rfpb-launches-weekly-90d
+    description: >-
+      Weekly unique shows launching RF Page Builder and total launches. Launches
+      per show runs ~2.5-4, since owners relaunch per page and per session.
+      Current week is partial.
+    display: ActionsLineGraph
+    chart_x: week
+    chart_y: [shows_launching, launches]
+    query: |
+      -- Week-aligned window (12 full weeks + current partial week).
+      SELECT toStartOfWeek(timestamp, 1) AS week, uniq(distinct_id) AS shows_launching, count() AS launches
+      FROM events
+      WHERE event = 'viewer_page_launched_external_editor'
+        AND timestamp >= toStartOfWeek(now(), 1) - INTERVAL 12 WEEK
+        AND properties.$is_identified = true
+        AND properties.$host IN ('remotefalcon.com', 'www.remotefalcon.com')
+      GROUP BY week
+      ORDER BY week
+
+  - name: rfpb-adoption-share-weekly-90d
+    description: >-
+      RF Page Builder launchers as a % of shows active in the control panel that
+      week. Separates real adoption from the seasonal rise in owners: it has held
+      at roughly 13-25% all summer and fall.
+    display: ActionsLineGraph
+    chart_x: week
+    chart_y: [pct_of_active_owners]
+    query: |
+      SELECT
+          toStartOfWeek(timestamp, 1) AS week,
+          uniqIf(distinct_id, event = '$pageview') AS active_owners,
+          uniqIf(distinct_id, event = 'viewer_page_launched_external_editor') AS shows_launching,
+          round(100 * uniqIf(distinct_id, event = 'viewer_page_launched_external_editor')
+                / nullIf(uniqIf(distinct_id, event = '$pageview'), 0), 1) AS pct_of_active_owners
+      FROM events
+      WHERE timestamp >= toStartOfWeek(now(), 1) - INTERVAL 12 WEEK
+        AND event IN ('$pageview', 'viewer_page_launched_external_editor')
+        AND properties.$is_identified = true
+        AND properties.$host IN ('remotefalcon.com', 'www.remotefalcon.com')
+      GROUP BY week
+      ORDER BY week
+
+  - name: rfpb-repeat-usage-90d
+    description: >-
+      Shows bucketed by how many distinct weeks they launched RF Page Builder in
+      over 90 days. "1 week only" means tried it once (or one burst) and did not
+      come back; 2+ weeks means repeat use. Recent first-timers have had less
+      time to repeat, so the 1-week share overstates churn early in the season.
+    display: ActionsTable
+    query: |
+      SELECT
+          multiIf(launch_weeks = 1, '1 week only', launch_weeks <= 3, '2-3 weeks', '4+ weeks') AS weeks_with_launches,
+          count() AS shows,
+          round(100 * count() / sum(count()) OVER (), 1) AS pct_of_shows,
+          sum(launches) AS launches
+      FROM (
+          SELECT distinct_id, uniq(toStartOfWeek(timestamp, 1)) AS launch_weeks, count() AS launches
+          FROM events
+          WHERE event = 'viewer_page_launched_external_editor'
+            AND timestamp >= now() - INTERVAL 90 DAY
+            AND properties.$is_identified = true
+            AND properties.$host IN ('remotefalcon.com', 'www.remotefalcon.com')
+          GROUP BY distinct_id
+      )
+      GROUP BY weeks_with_launches
+      ORDER BY weeks_with_launches
+
+  - name: rfpb-top-shows-30d
+    description: >-
+      Shows with the most RF Page Builder launches in the last 30 days, with
+      distinct days, distinct pages and first/last launch. Shortlist for
+      feedback outreach. Many launches on one day with many pages usually means
+      setup or troubleshooting, not steady use.
+    display: ActionsTable
+    query: |
+      SELECT
+          distinct_id AS show,
+          count() AS launches,
+          uniq(toDate(timestamp)) AS active_days,
+          uniq(properties.pageId) AS pages,
+          min(timestamp) AS first_launch,
+          max(timestamp) AS last_launch
+      FROM events
+      WHERE event = 'viewer_page_launched_external_editor'
         AND timestamp >= now() - INTERVAL 30 DAY
-      ORDER BY timestamp DESC
-      LIMIT 20
+        AND properties.$is_identified = true
+        AND properties.$host IN ('remotefalcon.com', 'www.remotefalcon.com')
+      GROUP BY show
+      ORDER BY launches DESC
+      LIMIT 25
