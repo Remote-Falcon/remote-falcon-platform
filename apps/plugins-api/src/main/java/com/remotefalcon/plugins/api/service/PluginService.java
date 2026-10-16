@@ -620,12 +620,15 @@ public class PluginService {
       // both are filtered from viewer-facing NEXT_PLAYLIST, and both must
       // be transparent to the cadence so leader playback doesn't
       // accidentally shorten the PSA-frequency window.
-      if (PluginQueueHelper.isSongLike(show, request.getPlaylist())) {
+      //
+      // Grouped songs don't advance the counter either. Operators often keep
+      // PSAs in a sequence group too, so the group check must never subtract:
+      // a decrement on a PSA that never incremented rewound the cadence and
+      // a PSA followed every song.
+      boolean isGrouped = whatsPlayingSequence.isPresent()
+          && StringUtils.isNotEmpty(whatsPlayingSequence.get().getGroup());
+      if (PluginQueueHelper.isSongLike(show, request.getPlaylist()) && !isGrouped) {
         sequencesPlayed++;
-      }
-
-      if (whatsPlayingSequence.isPresent() && StringUtils.isNotEmpty(whatsPlayingSequence.get().getGroup())) {
-        sequencesPlayed--;
       }
 
       show.getPreferences().setSequencesPlayed(sequencesPlayed);
