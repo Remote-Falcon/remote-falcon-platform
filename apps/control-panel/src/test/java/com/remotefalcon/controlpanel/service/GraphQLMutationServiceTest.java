@@ -574,6 +574,49 @@ class GraphQLMutationServiceTest {
     }
 
     @Test
+    void updatePreferences_preservesLiveSequencesPlayed_overStaleClientValue() {
+        // sequencesPlayed is the plugins-api PSA cadence counter. The UI sends
+        // back whatever value it loaded with the page, so a save must keep the
+        // live value or the next PSA lands early or late.
+        stubAuth();
+        Show show = Show.builder().showToken(SHOW_TOKEN)
+                .preferences(Preference.builder().viewerControlEnabled(true).sequencesPlayed(5).build())
+                .build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        Preference newPrefs = Preference.builder().viewerControlEnabled(true).sequencesPlayed(2).build();
+        service.updatePreferences(newPrefs);
+
+        assertThat(show.getPreferences().getSequencesPlayed()).isEqualTo(5);
+    }
+
+    @Test
+    void updatePreferences_nullViewerControlOnLegacyDoc_isNotTreatedAsAToggle() {
+        stubAuth();
+        Show show = Show.builder().showToken(SHOW_TOKEN)
+                .preferences(Preference.builder().sequencesPlayed(5).build())
+                .build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        service.updatePreferences(Preference.builder().viewerControlEnabled(false).sequencesPlayed(5).build());
+
+        assertThat(show.getPreferences().getSequencesPlayed()).isEqualTo(5);
+    }
+
+    @Test
+    void updatePreferences_resetsSequencesPlayed_whenViewerControlToggled() {
+        stubAuth();
+        Show show = Show.builder().showToken(SHOW_TOKEN)
+                .preferences(Preference.builder().viewerControlEnabled(false).sequencesPlayed(5).build())
+                .build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        service.updatePreferences(Preference.builder().viewerControlEnabled(true).sequencesPlayed(5).build());
+
+        assertThat(show.getPreferences().getSequencesPlayed()).isZero();
+    }
+
+    @Test
     void updatePreferences_preservesVotingWindowClocks_andPersistsDailyVoteLimit() {
         // #162 — votingWindowStartedAt and lastVoteCountedAt are the server-managed
         // vote-window clocks written by the viewer on votes, not in PreferenceInput,

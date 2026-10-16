@@ -443,9 +443,6 @@ public class GraphQLMutationService {
             preferences.setVotingExemptIps(retainUsableIpRules(preferences.getVotingExemptIps()));
             preferences.setStatsExcludedIps(retainUsableIpRules(preferences.getStatsExcludedIps()));
 
-            if(preferences.getViewerControlEnabled() != show.get().getPreferences().getViewerControlEnabled()) {
-                preferences.setSequencesPlayed(0);
-            }
             // Capability-URL token for the public Wrapped page. Generated
             // server-side on the wrappedPublic null/false -> true transition
             // if no token exists yet. Preserved on subsequent updates so
@@ -474,6 +471,13 @@ public class GraphQLMutationService {
             // daily-vote cap + "votes left" countdown to full mid-show.
             preferences.setVotingWindowStartedAt(current == null ? null : current.getVotingWindowStartedAt());
             preferences.setLastVoteCountedAt(current == null ? null : current.getLastVoteCountedAt());
+            // sequencesPlayed is the plugins-api PSA cadence counter. The UI
+            // echoes back the value it loaded with the page, so keep the live
+            // value; toggling viewer control still starts the count over.
+            boolean viewerControlToggled = current == null
+                    || Boolean.TRUE.equals(current.getViewerControlEnabled())
+                            != Boolean.TRUE.equals(preferences.getViewerControlEnabled());
+            preferences.setSequencesPlayed(viewerControlToggled ? Integer.valueOf(0) : current.getSequencesPlayed());
             // Shows-map cache eviction: if this save changes what either map
             // renders (visibility tier or coordinates), drop the 5-minute
             // cache so the operator's toggle takes effect immediately.

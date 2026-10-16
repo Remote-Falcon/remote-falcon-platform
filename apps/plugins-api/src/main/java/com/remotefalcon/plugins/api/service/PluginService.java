@@ -620,12 +620,19 @@ public class PluginService {
       // both are filtered from viewer-facing NEXT_PLAYLIST, and both must
       // be transparent to the cadence so leader playback doesn't
       // accidentally shorten the PSA-frequency window.
-      if (PluginQueueHelper.isSongLike(show, request.getPlaylist())) {
+      //
+      // A sequence group counts as one song, on its highest-order (last)
+      // member. Every member of a requested or winning group plays once, so
+      // each group play counts exactly once, and counting on the last member
+      // keeps a PSA from landing inside a group the FPP schedule plays in
+      // order. Operators often keep PSAs in a sequence group too; those are
+      // not song-like and never touch the counter.
+      boolean countsAsSong = whatsPlayingSequence.isEmpty()
+          || StringUtils.isEmpty(whatsPlayingSequence.get().getGroup())
+          || this.isGroupCloser(show, sequences, whatsPlayingSequence.get());
+      boolean counterAdvanced = PluginQueueHelper.isSongLike(show, request.getPlaylist()) && countsAsSong;
+      if (counterAdvanced) {
         sequencesPlayed++;
-      }
-
-      if (whatsPlayingSequence.isPresent() && StringUtils.isNotEmpty(whatsPlayingSequence.get().getGroup())) {
-        sequencesPlayed--;
       }
 
       show.getPreferences().setSequencesPlayed(sequencesPlayed);
@@ -652,7 +659,7 @@ public class PluginService {
           .map(StringUtils::lowerCase)
           .collect(Collectors.toSet());
 
-      this.handleManagedPSA(sequencesPlayed, show, psaNamesLowerCase);
+      this.handleManagedPSA(sequencesPlayed, counterAdvanced, show, psaNamesLowerCase);
 
       // Clear viewer IPs before persisting, but PRESERVE operator-injection
       // markers (OVERRIDE/LEADER/PSA). Nulling them on every FPP poll silently
@@ -705,6 +712,25 @@ public class PluginService {
   }
 
   /**
+   * True when {@code sequence} is the highest-order active song in its group
+   * (ties broken by name, so exactly one member qualifies). Inactive members
+   * (removed from FPP) and PSAs/leaders never play as the group's last song,
+   * so they can't be the closer or the group would never count.
+   */
+  private boolean isGroupCloser(Show show, List<Sequence> sequences, Sequence sequence) {
+    return sequences.stream()
+        .filter(Objects::nonNull)
+        .filter(seq -> StringUtils.equalsIgnoreCase(seq.getGroup(), sequence.getGroup()))
+        .filter(seq -> !Boolean.FALSE.equals(seq.getActive()))
+        .filter(seq -> PluginQueueHelper.isSongLike(show, seq.getName()))
+        .max(Comparator
+            .comparing((Sequence seq) -> seq.getOrder() != null ? seq.getOrder() : Integer.MIN_VALUE)
+            .thenComparing(seq -> seq.getName() != null ? seq.getName() : ""))
+        .map(closer -> StringUtils.equalsIgnoreCase(closer.getName(), sequence.getName()))
+        .orElse(false);
+  }
+
+  /**
    * PSA-v2 cadence-tick handler. Implements three design decisions in order:
    *
    * <ol>
@@ -739,7 +765,7 @@ public class PluginService {
    * ({@link Boolean#TRUE}{@code .equals(...)}); {@code enabled} null is
    * treated as true (a PSA is enabled unless explicitly disabled).
    */
-  private void handleManagedPSA(int sequencesPlayed, Show show, Set<String> psaNamesLowerCase) {
+  private void handleManagedPSA(int sequencesPlayed, boolean counterAdvanced, Show show, Set<String> psaNamesLowerCase) {
     List<PsaSequence> psaSequences = show.getPsaSequences();
     if (CollectionUtils.isEmpty(psaSequences) || CollectionUtils.isEmpty(psaNamesLowerCase)) {
       return;
@@ -768,10 +794,14 @@ public class PluginService {
     // intent is honored regardless of cadence state. Burst-with-override
     // still requires the cadence window to elapse (per PRD §7 "Q4 burst
     // interaction": override fires first AT the cadence boundary).
+    // The window only opens on the play that moved the counter onto a
+    // multiple: a non-advancing play (grouped song) leaves the counter on
+    // the multiple and would otherwise fire again on every such play.
     if (!show.getPreferences().getPsaEnabled()
         || !show.getPreferences().getManagePsa()
         || show.getPreferences().getPsaFrequency() == null
         || show.getPreferences().getPsaFrequency() <= 0
+        || !counterAdvanced
         || sequencesPlayed == 0
         || sequencesPlayed % show.getPreferences().getPsaFrequency() != 0) {
       return;

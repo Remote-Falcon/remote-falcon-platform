@@ -15,10 +15,10 @@
 | Service | Stack | Test count | Coverage gate | CI enforces |
 |---|---|---:|---|:---:|
 | [`apps/viewer`](../apps/viewer) | Quarkus 21 native | 172 `@Test` | 60% line / 60% branch (JaCoCo) | ✓ |
-| [`apps/plugins-api`](../apps/plugins-api) | Quarkus 21 native | 138 `@Test` | 80% line / 60% branch (JaCoCo, quarkus-jacoco capture) | ✓ |
+| [`apps/plugins-api`](../apps/plugins-api) | Quarkus 21 native | 170 `@Test` | 80% line / 60% branch (JaCoCo, quarkus-jacoco capture) | ✓ |
 | [`apps/mongo-backup`](../apps/mongo-backup) | Quarkus 21 native | testcontainers + LocalStack | 80% line on service + resource packages (quarkus-jacoco capture) | ✓ |
 | [`apps/account-archive`](../apps/account-archive) | Quarkus 21 native | 9 `@Test` | 80% line on service + repository packages | ✓ |
-| [`apps/control-panel`](../apps/control-panel) | Spring Boot 3 native | 432 `@Test` | 76% line / 68% branch (JaCoCo, BUNDLE) | ✓ |
+| [`apps/control-panel`](../apps/control-panel) | Spring Boot 3 native | 526 `@Test` | 76% line / 68% branch (JaCoCo, BUNDLE) | ✓ |
 | [`apps/external-api`](../apps/external-api) | Spring Boot 3 native | 166 `@Test` | 75% line / 85% branch (JaCoCo, BUNDLE) | ✓ |
 | [`apps/gateway`](../apps/gateway) | Spring Cloud Gateway | 0 | (skip — config-only service) | ✓ |
 | [`apps/ui`](../apps/ui) | Vite + React + Vitest | 942 tests across 107 files | 22% line (Vitest v8) | ✓ |
