@@ -193,19 +193,21 @@ class GraphQLMutationServiceTest {
     @DisplayName("Should add active viewer and persist when IP differs from last login and remove existing duplicate")
     void shouldUpdateActiveViewers() {
       Show show = mockShowWithStatsAndActiveViewers("9.9.9.9");
-      when(showRepository.findByShowSubdomain("test")).thenReturn(Optional.of(show));
+      when(showRepository.findLastLoginIpByShowSubdomain("test")).thenReturn(Optional.of(show));
 
       Boolean result = service.updateActiveViewers("test", "");
 
       assertTrue(result);
       verify(showRepository).updateActiveViewer(eq("test"), eq("1.2.3.4"), eq(""), any(LocalDateTime.class));
+      // R7: a public mutation must never pull the whole show document.
+      verify(showRepository, never()).findByShowSubdomain(anyString());
     }
 
     @Test
     @DisplayName("Should not persist when IP equals last login IP")
     void shouldNotPersistWhenSameIpAsLastLogin() {
       Show show = mockShowWithStatsAndActiveViewers("1.2.3.4");
-      when(showRepository.findByShowSubdomain("test")).thenReturn(Optional.of(show));
+      when(showRepository.findLastLoginIpByShowSubdomain("test")).thenReturn(Optional.of(show));
 
       Boolean result = service.updateActiveViewers("test", "");
 
@@ -216,7 +218,7 @@ class GraphQLMutationServiceTest {
     @Test
     @DisplayName("Should throw when show not found for active viewers update")
     void shouldThrowWhenShowNotFound() {
-      when(showRepository.findByShowSubdomain("missing")).thenReturn(Optional.empty());
+      when(showRepository.findLastLoginIpByShowSubdomain("missing")).thenReturn(Optional.empty());
       assertThrows(CustomGraphQLExceptionResolver.class, () -> service.updateActiveViewers("missing", ""));
     }
   }
@@ -228,18 +230,31 @@ class GraphQLMutationServiceTest {
     @DisplayName("Should update playing now and persist")
     void shouldUpdatePlayingNow() {
       Show show = mockShowWithStatsAndActiveViewers("9.9.9.9");
-      when(showRepository.findByShowSubdomain("test")).thenReturn(Optional.of(show));
+      when(showRepository.findSequenceNamesByShowSubdomain("test")).thenReturn(Optional.of(show));
 
       Boolean result = service.updatePlayingNow("test", "Song A");
 
       assertTrue(result);
       verify(showRepository).updatePlayingNow("test", "Song A");
+      verify(showRepository, never()).findByShowSubdomain(anyString());
+    }
+
+    @Test
+    @DisplayName("Should resolve playing now to the sequence displayName (case-insensitive name match)")
+    void shouldResolvePlayingNowDisplayName() {
+      Show show = mock(Show.class);
+      when(show.getSequences()).thenReturn(List.of(
+          Sequence.builder().name("wizards").displayName("Wizards in Winter").build()));
+      when(showRepository.findSequenceNamesByShowSubdomain("test")).thenReturn(Optional.of(show));
+
+      assertTrue(service.updatePlayingNow("test", "WIZARDS"));
+      verify(showRepository).updatePlayingNow("test", "Wizards in Winter");
     }
 
     @Test
     @DisplayName("Should throw when show not found for playing now update")
     void shouldThrowPlayingNowNotFound() {
-      when(showRepository.findByShowSubdomain("missing")).thenReturn(Optional.empty());
+      when(showRepository.findSequenceNamesByShowSubdomain("missing")).thenReturn(Optional.empty());
       assertThrows(CustomGraphQLExceptionResolver.class, () -> service.updatePlayingNow("missing", "Song A"));
     }
   }
@@ -251,18 +266,31 @@ class GraphQLMutationServiceTest {
     @DisplayName("Should update playing next and persist")
     void shouldUpdatePlayingNext() {
       Show show = mockShowWithStatsAndActiveViewers("9.9.9.9");
-      when(showRepository.findByShowSubdomain("test")).thenReturn(Optional.of(show));
+      when(showRepository.findSequenceNamesByShowSubdomain("test")).thenReturn(Optional.of(show));
 
       Boolean result = service.updatePlayingNext("test", "Next Song");
 
       assertTrue(result);
       verify(showRepository).updatePlayingNext("test", "Next Song");
+      verify(showRepository, never()).findByShowSubdomain(anyString());
+    }
+
+    @Test
+    @DisplayName("Should resolve playing next to the sequence displayName (case-insensitive name match)")
+    void shouldResolvePlayingNextDisplayName() {
+      Show show = mock(Show.class);
+      when(show.getSequences()).thenReturn(List.of(
+          Sequence.builder().name("wizards").displayName("Wizards in Winter").build()));
+      when(showRepository.findSequenceNamesByShowSubdomain("test")).thenReturn(Optional.of(show));
+
+      assertTrue(service.updatePlayingNext("test", "WIZARDS"));
+      verify(showRepository).updatePlayingNext("test", "Wizards in Winter");
     }
 
     @Test
     @DisplayName("Should throw when show not found for playing next update")
     void shouldThrowPlayingNextNotFound() {
-      when(showRepository.findByShowSubdomain("missing")).thenReturn(Optional.empty());
+      when(showRepository.findSequenceNamesByShowSubdomain("missing")).thenReturn(Optional.empty());
       assertThrows(CustomGraphQLExceptionResolver.class, () -> service.updatePlayingNext("missing", "Next Song"));
     }
   }

@@ -63,6 +63,39 @@ public class ShowRepository implements PanacheMongoRepository<Show> {
     return find("showSubdomain", showSubdomain).firstResultOptional();
   }
 
+  // R7 (Season Capacity Plan 2026, Appendix C). updateActiveViewers,
+  // updatePlayingNow and updatePlayingNext are public, unauthenticated
+  // mutations. They used findByShowSubdomain, which loads and decodes the
+  // whole show (stats arrays, inline artwork, page HTML: 11.6 ms on a big
+  // show) to read one or two fields, so anyone could trigger whale loads at
+  // will. These inclusion projections return only what each one reads. A
+  // missing show still comes back empty, so "not found" is unchanged.
+  //
+  // Both leave pages out entirely, so the pages[].pageId UUID decode
+  // (memory: viewer-uuid-representation-getshow) is never on this path.
+
+  /** Only {@code lastLoginIp} (plus {@code _id}): the owner check in updateActiveViewers. */
+  public Optional<Show> findLastLoginIpByShowSubdomain(String showSubdomain) {
+    Show result = mongoCollection()
+        .find(Filters.eq("showSubdomain", showSubdomain))
+        .projection(com.mongodb.client.model.Projections.include("lastLoginIp"))
+        .first();
+    return Optional.ofNullable(result);
+  }
+
+  /**
+   * Only {@code sequences[].name} and {@code sequences[].displayName} (plus
+   * {@code _id}): the name to displayName lookup in updatePlayingNow/Next.
+   * Leaves out sequences[].imageUrl, which can hold inline data-URI artwork.
+   */
+  public Optional<Show> findSequenceNamesByShowSubdomain(String showSubdomain) {
+    Show result = mongoCollection()
+        .find(Filters.eq("showSubdomain", showSubdomain))
+        .projection(com.mongodb.client.model.Projections.include("sequences.name", "sequences.displayName"))
+        .first();
+    return Optional.ofNullable(result);
+  }
+
   public Optional<Show> findByShowSubdomainForViewer(String showSubdomain) {
     // Exclude large fields that viewers don't need
     Show result = mongoCollection()

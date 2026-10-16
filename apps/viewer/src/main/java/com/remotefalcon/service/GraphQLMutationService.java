@@ -98,7 +98,7 @@ public class GraphQLMutationService {
   }
 
   public Boolean updateActiveViewers(String showSubdomain, String viewerId) {
-    Optional<Show> show = this.showRepository.findByShowSubdomain(showSubdomain);
+    Optional<Show> show = this.showRepository.findLastLoginIpByShowSubdomain(showSubdomain);
     if (show.isPresent()) {
       Show existingShow = show.get();
       String clientIp = ClientUtil.getClientIP(context);
@@ -118,7 +118,7 @@ public class GraphQLMutationService {
   }
 
   public Boolean updatePlayingNow(String showSubdomain, String playingNow) {
-    Optional<Show> show = this.showRepository.findByShowSubdomain(showSubdomain);
+    Optional<Show> show = this.showRepository.findSequenceNamesByShowSubdomain(showSubdomain);
     if (show.isPresent()) {
       Show existingShow = show.get();
 
@@ -140,7 +140,7 @@ public class GraphQLMutationService {
   }
 
   public Boolean updatePlayingNext(String showSubdomain, String playingNext) {
-    Optional<Show> show = this.showRepository.findByShowSubdomain(showSubdomain);
+    Optional<Show> show = this.showRepository.findSequenceNamesByShowSubdomain(showSubdomain);
     if (show.isPresent()) {
       Show existingShow = show.get();
 
