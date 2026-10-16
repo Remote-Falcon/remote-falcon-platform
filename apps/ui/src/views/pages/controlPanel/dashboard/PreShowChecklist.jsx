@@ -24,13 +24,8 @@ import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
 import { LocationCheckMethod } from '../../../../utils/enum';
 import { UPDATE_PREFERENCES } from '../../../../utils/graphql/controlPanel/mutations';
 import { showAlert } from '../../globalPageHelpers';
+import { HEARTBEAT_FRESH_MS } from './heartbeat';
 
-// Plugin is "connected" if a heartbeat landed within this window. Matches
-// HealthRow's HEARTBEAT_FRESH_MS and the backend's HEARTBEAT_GAP_THRESHOLD_MINUTES
-// so the readiness checklist and the live status widget can never disagree.
-// 5 min of real silence + the 120s heartbeat write floor (stored value lags
-// the plugin's real last beat by up to ~150s). Matches the backend thresholds.
-const HEARTBEAT_FRESH_MS = 7 * 60 * 1000;
 
 // Operational readiness card for the Dashboard. "Is my show ready to run
 // tonight?" — sister to the live stats. Sits above LiveStatsRow.
@@ -97,6 +92,7 @@ const useChecks = () => {
   // frozen value off `show.lastFppHeartbeat` in Redux drifts stale the
   // longer the dashboard stays open, so we let the hook keep it fresh.
   const { data: liveStats } = useDashboardLiveStats();
+  const hasLiveStats = !!liveStats;
   const lastHeartbeatMs = liveStats?.lastHeartbeatMs;
 
   const [updatePreferencesMutation] = useMutation(UPDATE_PREFERENCES);
@@ -275,7 +271,10 @@ const useChecks = () => {
       });
     }
 
-    if (!lastHeartbeatMs) {
+    if (!hasLiveStats) {
+      // Live stats not loaded yet (first fetch pending, failed, or tab
+      // hidden): no heartbeat row rather than a false "never received".
+    } else if (!lastHeartbeatMs) {
       out.push({
         status: 'warn',
         label: 'No FPP plugin heartbeat received yet',
@@ -301,7 +300,7 @@ const useChecks = () => {
     const order = { blocker: 0, warn: 1, ok: 2 };
     out.sort((a, b) => order[a.status] - order[b.status]);
     return out;
-  }, [show, lastHeartbeatMs, togglePreference, goTo]);
+  }, [show, hasLiveStats, lastHeartbeatMs, togglePreference, goTo]);
 };
 
 const PreShowChecklist = () => {

@@ -60,7 +60,7 @@ public class ScheduledTaskService {
 
     /**
      * Renotify cadence for an ongoing outage: the show's own interval, then
-     * doubling. With the default 30 that is 5m (the stale threshold, first
+     * doubling. With the default 30 that is 7m (the stale threshold, first
      * alert), 30m, 1h, 2h, 4h, 8h, 16h, 32h -- 8 alerts across the 48h window
      * instead of the 96 a fixed 30-minute cadence produced.
      *
@@ -75,8 +75,9 @@ public class ScheduledTaskService {
      * <p>Detection speed is deliberately unchanged: the FIRST alert still
      * fires as soon as the show crosses HEARTBEAT_STALE_MINUTES. Backoff only
      * thins the repeats. A show that lowered its interval to the
-     * MIN_RENOTIFY_MINUTES floor still gets faster EARLY alerts (5m, 10m, 20m,
-     * 40m ...) -- which is what that setting is for -- without the 279
+     * MIN_RENOTIFY_MINUTES floor still gets faster EARLY alerts (7m, 10m, 20m,
+     * 40m ...; with a base at or under the stale threshold the first alert is
+     * step 1, not step 0) -- which is what that setting is for -- without the 279
      * alerts/day one such show was producing.
      *
      * <p>No new persisted state. lastFppHeartbeat freezes the instant a plugin

@@ -255,6 +255,56 @@ describe('useDashboardLiveStats', () => {
     }
   });
 
+  it('fetches as soon as a hidden dashboard becomes visible, without waiting for the next tick', async () => {
+    const setVisibility = (state) => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
+      document.dispatchEvent(new Event('visibilitychange'));
+    };
+    setVisibility('hidden');
+    const { client, calls } = buildClient();
+    const { unmount } = render(<SixConsumers />, { wrapper: Wrapper(buildStore({ timezone: 'UTC' }), client) });
+    await flush();
+    expect(calls).toHaveLength(0);
+
+    await act(async () => setVisibility('visible'));
+    await flush();
+    expect(calls).toHaveLength(1);
+    expect(seen[0].data).not.toBeNull();
+
+    unmount();
+    // no listener left behind once the last consumer is gone
+    await act(async () => setVisibility('hidden'));
+    await act(async () => setVisibility('visible'));
+    await flush();
+    expect(calls).toHaveLength(1);
+    delete document.visibilityState; // back to jsdom's own getter
+  });
+
+  it('a visibility change right after a fetch does not add another query', async () => {
+    const { client, calls } = buildClient();
+    const { unmount } = render(<SixConsumers />, { wrapper: Wrapper(buildStore({ timezone: 'UTC' }), client) });
+    await flush();
+    expect(calls).toHaveLength(1);
+    await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+    await flush();
+    expect(calls).toHaveLength(1);
+    unmount();
+  });
+
+  it('a remount with the same timezone fetches again instead of sitting on skeletons', async () => {
+    const { client, calls } = buildClient();
+    const store = buildStore({ timezone: 'UTC' });
+    const first = render(<SixConsumers />, { wrapper: Wrapper(store, client) });
+    await flush();
+    first.unmount();
+    const second = render(<SixConsumers />, { wrapper: Wrapper(store, client) });
+    await flush();
+    expect(calls).toHaveLength(2);
+    expect(seen[0].loading).toBe(false);
+    expect(seen[0].data).not.toBeNull();
+    second.unmount();
+  });
+
   it('sends identical date variables on every poll within a day', async () => {
     const { client, calls } = buildClient();
     const { unmount } = renderHook(() => useDashboardLiveStats(), {

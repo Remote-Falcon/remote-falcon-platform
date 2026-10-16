@@ -1501,13 +1501,15 @@ public class PluginService {
   // big-doc writes/s. With a 120s floor a 30s-cadence plugin writes every
   // 120-150s (~8 writes/s fleet-wide).
   //
-  // Staleness budget: the stored value lags the plugin's real last beat by up
-  // to ~150s (floor + one 30s beat). Every reader's threshold is 5 min of real
-  // silence plus that lag = 7 min (gap threshold here, control-panel
-  // HEARTBEAT_STALE_MINUTES, the dashboard's HEARTBEAT_FRESH_MS), so alerts and
-  // "Offline" still mean ~5 min of real silence. Recovery is immediate: after
-  // any outage the stored value is older than the floor, so the first beat
-  // back always writes. Changing this floor means changing those thresholds.
+  // Staleness budget: the stored value lags the plugin's real last beat by
+  // 0 to ~150s (floor + one 30s beat). Every reader compares the stored value
+  // against 7 min (gap threshold here, control-panel HEARTBEAT_STALE_MINUTES,
+  // the dashboard's HEARTBEAT_FRESH_MS), so "Offline", the first alert and a
+  // recorded gap all need between ~4.5 and 7 min of real silence (was 5 min,
+  // give or take one beat). A healthy plugin can never read as offline.
+  // Recovery is immediate: after any outage the stored value is older than
+  // the floor, so the first beat back always writes. Changing this floor
+  // means changing those thresholds.
   private static final long HEARTBEAT_MIN_INTERVAL_SECONDS = 120L;
 
   public void fppHeartbeat() {
@@ -1527,9 +1529,10 @@ public class PluginService {
     // V17 — gap detection. If the previous heartbeat was more than the
     // threshold ago, we just came back from an outage; record the gap window.
     // `previous` is the last WRITTEN beat, which can trail the plugin's real
-    // last beat by up to HEARTBEAT_MIN_INTERVAL_SECONDS, so a recorded gap may
-    // start up to that much early. It never hides a real gap: real silence
-    // > 5 min always means previous is > 5 min old too.
+    // last beat by up to ~150s, so a recorded gap may start up to that much
+    // early, and an outage of 4.5-7 min of real silence is recorded or not
+    // depending on where it fell in the write cycle. Outages of 7+ min are
+    // always recorded.
     if (previous == null || !previous.isBefore(now.minusMinutes(HEARTBEAT_GAP_THRESHOLD_MINUTES))) {
       // Normal beat: a bare $set. No per-beat $pull of heartbeatGaps; the
       // list only grows on the gap path below, so that is where it's pruned

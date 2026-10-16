@@ -66,6 +66,8 @@ let inFlight = null;
 // put the pre-mutation numbers back on screen.
 let issuedSeq = 0;
 let appliedSeq = 0;
+// When the last response was applied; bounds the visibility-change fetch.
+let lastAppliedAt = 0;
 
 const fetchLiveStats = async ({ fromTick = false } = {}) => {
   // Hidden tabs keep their timers (throttled, not stopped), so without this
@@ -83,8 +85,10 @@ const fetchLiveStats = async ({ fromTick = false } = {}) => {
   const requestGeneration = generation;
   issuedSeq += 1;
   const requestSeq = issuedSeq;
+  // Only ticks own the overlap gate. A manual refetch must not take it over,
+  // or its quick finish would clear the gate while a slow tick is still out.
   const token = {};
-  inFlight = token;
+  if (fromTick) inFlight = token;
   try {
     const { data } = await apolloClient.query({
       query: DASHBOARD_LIVE_STATS,
@@ -97,6 +101,7 @@ const fetchLiveStats = async ({ fromTick = false } = {}) => {
     });
     if (requestGeneration !== generation || requestSeq < appliedSeq) return;
     appliedSeq = requestSeq;
+    lastAppliedAt = Date.now();
     useLiveStatsStore.setState({ data: data?.dashboardLiveStats || null, error: null, loading: false });
   } catch (err) {
     if (requestGeneration !== generation || requestSeq < appliedSeq) return;
@@ -109,22 +114,37 @@ const fetchLiveStats = async ({ fromTick = false } = {}) => {
 
 const refetch = () => fetchLiveStats();
 
+// A dashboard opened or left in a background tab skips its fetches, so fetch
+// as soon as it comes to the front instead of waiting up to POLL_MS. Skipped
+// when the data is already fresher than one poll, so alt-tabbing back and
+// forth cannot push the cadence past one query per POLL_MS.
+const onVisibilityChange = () => {
+  if (document.visibilityState !== 'visible') return;
+  if (Date.now() - lastAppliedAt < POLL_MS) return;
+  fetchLiveStats({ fromTick: true });
+};
+
 const acquire = (client) => {
   apolloClient = client;
   consumers += 1;
   if (consumers === 1) {
-    // No fetch here: timezone was reset with the last consumer, so the
-    // initial fetch comes from the first consumer's setTimezone below.
     intervalId = setInterval(() => fetchLiveStats({ fromTick: true }), POLL_MS);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    // timezone survives the last consumer leaving, so a remount whose
+    // timezone did not change (setTimezone below is then a no-op) still gets
+    // its initial fetch. On the very first mount timezone is null and this
+    // returns early; setTimezone does the initial fetch instead.
+    fetchLiveStats();
   }
   return () => {
     consumers -= 1;
     if (consumers > 0) return;
     clearInterval(intervalId);
     intervalId = null;
+    document.removeEventListener('visibilitychange', onVisibilityChange);
     apolloClient = null;
-    timezone = null;
     inFlight = null;
+    lastAppliedAt = 0;
     generation += 1;
     useLiveStatsStore.setState({ ...INITIAL_STATE });
   };
@@ -135,7 +155,9 @@ const setTimezone = (next) => {
   timezone = next;
   generation += 1;
   inFlight = null;
-  useLiveStatsStore.setState({ loading: true });
+  // Drop the previous timezone's (or show's) numbers rather than keep them on
+  // screen under a loading flag.
+  useLiveStatsStore.setState({ ...INITIAL_STATE });
   if (consumers > 0) fetchLiveStats();
 };
 

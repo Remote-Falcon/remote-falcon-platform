@@ -76,11 +76,7 @@ public class ShowRepository implements PanacheMongoRepository<Show> {
 
   /** Only {@code lastLoginIp} (plus {@code _id}): the owner check in updateActiveViewers. */
   public Optional<Show> findLastLoginIpByShowSubdomain(String showSubdomain) {
-    Show result = mongoCollection()
-        .find(Filters.eq("showSubdomain", showSubdomain))
-        .projection(com.mongodb.client.model.Projections.include("lastLoginIp"))
-        .first();
-    return Optional.ofNullable(result);
+    return findIncludingByShowSubdomain(showSubdomain, "lastLoginIp");
   }
 
   /**
@@ -89,11 +85,14 @@ public class ShowRepository implements PanacheMongoRepository<Show> {
    * Leaves out sequences[].imageUrl, which can hold inline data-URI artwork.
    */
   public Optional<Show> findSequenceNamesByShowSubdomain(String showSubdomain) {
-    Show result = mongoCollection()
+    return findIncludingByShowSubdomain(showSubdomain, "sequences.name", "sequences.displayName");
+  }
+
+  private Optional<Show> findIncludingByShowSubdomain(String showSubdomain, String... fields) {
+    return Optional.ofNullable(mongoCollection()
         .find(Filters.eq("showSubdomain", showSubdomain))
-        .projection(com.mongodb.client.model.Projections.include("sequences.name", "sequences.displayName"))
-        .first();
-    return Optional.ofNullable(result);
+        .projection(com.mongodb.client.model.Projections.include(fields))
+        .first());
   }
 
   public Optional<Show> findByShowSubdomainForViewer(String showSubdomain) {
