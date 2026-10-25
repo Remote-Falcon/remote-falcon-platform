@@ -116,7 +116,7 @@ jobs:
   # hotfix path and is never blocked; PR runs only self-test.
   # ---------------------------------------------------------------
   deploy-freeze:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
       - uses: actions/checkout@v5
@@ -140,7 +140,7 @@ jobs:
   # detect — decide which services to (re)deploy this run
   # ---------------------------------------------------------------
   detect:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       services: ${{ steps.compute.outputs.services }}
     steps:
@@ -204,7 +204,7 @@ jobs:
   test-contract:
     needs: detect
     if: ${{ inputs.skip_tests != true && needs.detect.outputs.services != '[]' && needs.detect.outputs.services != '' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
 
@@ -224,7 +224,7 @@ jobs:
   test-e2e:
     needs: detect
     if: ${{ inputs.skip_tests != true && needs.detect.outputs.services != '[]' && needs.detect.outputs.services != '' && (github.event_name == 'push' || github.event_name == 'pull_request') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v5
@@ -305,7 +305,7 @@ jobs:
       && needs.detect.outputs.services != '[]'
       && needs.detect.outputs.services != ''
       }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -451,7 +451,7 @@ jobs:
       && needs.detect.outputs.services != '[]'
       && needs.detect.outputs.services != ''
       }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: prod
     strategy:
       fail-fast: false
@@ -668,7 +668,7 @@ jobs:
       && needs.detect.outputs.services != '[]'
       && needs.detect.outputs.services != ''
       }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: prod
     steps:
       - uses: actions/checkout@v5
