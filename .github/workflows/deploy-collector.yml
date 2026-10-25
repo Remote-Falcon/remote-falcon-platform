@@ -42,7 +42,7 @@ jobs:
   deploy:
     # PR runs only validate (kubectl apply --dry-run). Push to main applies
     # for real. workflow_dispatch can be either depending on dry_run input.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
 
