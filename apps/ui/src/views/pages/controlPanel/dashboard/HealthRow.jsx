@@ -9,6 +9,7 @@ import useDashboardLiveStats from '../../../../hooks/useDashboardLiveStats';
 import { useSelector } from '../../../../store';
 import MainCard from '../../../../ui-component/cards/MainCard';
 import { fireMilestoneOnce } from '../../../../utils/analytics/posthog';
+import { isHeartbeatFresh } from './heartbeat';
 
 // Dashboard FPP-plugin status card (V17 + V18-lite, PSA-v2 dashboard restructure).
 //
@@ -18,7 +19,6 @@ import { fireMilestoneOnce } from '../../../../utils/analytics/posthog';
 // an info-button popover so the card stays tile-sized and doesn't crowd the row.
 
 const STRIP_DAYS = 7;
-const HEARTBEAT_FRESH_MS = 5 * 60 * 1000; // matches plugins-api gap threshold
 
 const formatAgo = (ms) => {
   if (!ms) return null;
@@ -81,7 +81,7 @@ const HealthRow = () => {
   }, [stats]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const isConnected = useMemo(
-    () => !!stats?.lastHeartbeatMs && Date.now() - stats.lastHeartbeatMs < HEARTBEAT_FRESH_MS,
+    () => isHeartbeatFresh(stats?.lastHeartbeatMs),
     [stats]
   );
 
@@ -125,6 +125,9 @@ const HealthRow = () => {
 
   const statusColor = isConnected ? 'success.main' : hasEverConnected ? 'error.main' : 'text.disabled';
   const statusLabel = isConnected ? 'Connected' : hasEverConnected ? 'Offline' : 'Never connected';
+  let heartbeatSubtitle = 'Install the plugin to start syncing';
+  if (isConnected) heartbeatSubtitle = 'Checking in normally';
+  else if (hasEverConnected) heartbeatSubtitle = `Last heartbeat ${formatAgo(stats.lastHeartbeatMs)}`;
 
   return (
     <>
@@ -143,7 +146,7 @@ const HealthRow = () => {
               {statusLabel}
             </Typography>
             <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: 12, mt: 0.25 }} noWrap>
-              {hasEverConnected ? `Last heartbeat ${formatAgo(stats.lastHeartbeatMs)}` : 'Install the plugin to start syncing'}
+              {heartbeatSubtitle}
             </Typography>
           </Box>
           {hasEverConnected && (

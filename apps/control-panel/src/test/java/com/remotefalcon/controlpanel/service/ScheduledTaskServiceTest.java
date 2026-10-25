@@ -33,7 +33,7 @@ import static org.mockito.Mockito.when;
  * fppHeartbeatTask flood-guard behavior (2026-07-19 enablement):
  * replace-not-append, exponential renotify backoff (incl. null default and
  * the zero clamp), viewer-control gate, recovery clear, and the 24h TTL
- * sweep. The task must NEVER call showRepository.save() — a full-document
+ * sweep (hourly since Capacity Plan R4, its own method). The task must NEVER call showRepository.save() — a full-document
  * write from this minute cron can clobber concurrent plugins-api queue
  * updates mid-show.
  *
@@ -124,15 +124,15 @@ class ScheduledTaskServiceTest {
 
     @Test
     void suppressed_whenStillOnTheSameBackoffStep() {
-        // 10-minute outage, already alerted at the 5-minute stale mark. Both
+        // 10-minute outage, already alerted at the stale mark. Both
         // sit on step 0 (the next step for a 30-minute interval is 30m), so
         // nothing is due. Previously the fixture stamped the notification at
         // the same instant the heartbeat froze, which cannot happen -- the
-        // stale gate means the earliest possible alert is 5 minutes in.
+        // stale gate means the earliest possible alert is at the stale threshold.
         Show show = alertedAtOutageAge(staleShow(NotificationPreference.builder()
                 .enableFppHeartbeat(true)
                 .fppHeartbeatRenotifyAfterMinutes(30)
-                .build(), true), 5L);
+                .build(), true), ScheduledTaskService.HEARTBEAT_STALE_MINUTES);
         when(showRepository.findFppHeartbeatAlertCandidates(
                 any(LocalDateTime.class), any(LocalDateTime.class))).thenReturn(List.of(show));
 
@@ -148,7 +148,7 @@ class ScheduledTaskServiceTest {
         Show show = alertedAtOutageAge(staleShow(NotificationPreference.builder()
                 .enableFppHeartbeat(true)
                 .fppHeartbeatRenotifyAfterMinutes(30)
-                .build(), true, 35L), 5L);
+                .build(), true, 35L), ScheduledTaskService.HEARTBEAT_STALE_MINUTES);
         when(showRepository.findFppHeartbeatAlertCandidates(
                 any(LocalDateTime.class), any(LocalDateTime.class))).thenReturn(List.of(show));
 
@@ -164,7 +164,7 @@ class ScheduledTaskServiceTest {
         Show show = alertedAtOutageAge(staleShow(NotificationPreference.builder()
                 .enableFppHeartbeat(true)
                 .fppHeartbeatRenotifyAfterMinutes(null)
-                .build(), true), 5L);
+                .build(), true), ScheduledTaskService.HEARTBEAT_STALE_MINUTES);
         when(showRepository.findFppHeartbeatAlertCandidates(
                 any(LocalDateTime.class), any(LocalDateTime.class))).thenReturn(List.of(show));
 
@@ -217,7 +217,7 @@ class ScheduledTaskServiceTest {
         Show show = alertedAtOutageAge(staleShow(NotificationPreference.builder()
                 .enableFppHeartbeat(true)
                 .fppHeartbeatRenotifyAfterMinutes(0)
-                .build(), true, 6L), 5L);
+                .build(), true, ScheduledTaskService.HEARTBEAT_STALE_MINUTES + 1), ScheduledTaskService.HEARTBEAT_STALE_MINUTES);
         when(showRepository.findFppHeartbeatAlertCandidates(
                 any(LocalDateTime.class), any(LocalDateTime.class))).thenReturn(List.of(show));
 
@@ -301,7 +301,7 @@ class ScheduledTaskServiceTest {
     }
 
     @Test
-    void recoveryClearAndTtlSweep_alwaysRun() {
+    void recoveryClear_stillRunsEveryMinute() {
         when(showRepository.findFppHeartbeatAlertCandidates(
                 any(LocalDateTime.class), any(LocalDateTime.class))).thenReturn(List.of());
 
@@ -309,11 +309,11 @@ class ScheduledTaskServiceTest {
 
         ArgumentCaptor<Query> queries = ArgumentCaptor.forClass(Query.class);
         ArgumentCaptor<Update> updates = ArgumentCaptor.forClass(Update.class);
-        verify(mongoTemplate, times(2)).updateMulti(queries.capture(), updates.capture(), eq(Show.class));
+        verify(mongoTemplate, times(1)).updateMulti(queries.capture(), updates.capture(), eq(Show.class));
 
         // Recovery: fresh heartbeat + outstanding alert → pull + reset renotify clock.
-        org.bson.Document recoveryQuery = queries.getAllValues().get(0).getQueryObject();
-        org.bson.Document recoveryUpdate = updates.getAllValues().get(0).getUpdateObject();
+        org.bson.Document recoveryQuery = queries.getValue().getQueryObject();
+        org.bson.Document recoveryUpdate = updates.getValue().getUpdateObject();
         assertThat(recoveryQuery)
                 .containsKey("preferences.notificationPreferences.enableFppHeartbeat")
                 .containsKey("lastFppHeartbeat")
@@ -323,20 +323,73 @@ class ScheduledTaskServiceTest {
                 .isEqualTo("FPP_HEALTH");
         assertThat(recoveryUpdate.get("$unset", org.bson.Document.class))
                 .containsKey("preferences.notificationPreferences.fppHeartbeatLastNotification");
+    }
 
-        // TTL: entries older than the promised 24h get pulled. The
-        // lastFppHeartbeat predicate is load-bearing — it lets the planner use
-        // the partial index instead of COLLSCANing every minute.
-        org.bson.Document ttlQuery = queries.getAllValues().get(1).getQueryObject();
-        org.bson.Document ttlUpdate = updates.getAllValues().get(1).getUpdateObject();
-        assertThat(ttlQuery).containsKey("lastFppHeartbeat");
+    @Test
+    void minuteTask_noLongerRunsTheTtlSweep() {
+        // Capacity Plan R4: the TTL sweep FETCHes every opted-in doc (dark
+        // shows included) and was ~36 MB/min of cache churn on the prod DB.
+        // It now runs hourly in reapExpiredFppHealthNotifications().
+        when(showRepository.findFppHeartbeatAlertCandidates(
+                any(LocalDateTime.class), any(LocalDateTime.class))).thenReturn(List.of());
+
+        service.fppHeartbeatTask();
+
+        ArgumentCaptor<Query> queries = ArgumentCaptor.forClass(Query.class);
+        ArgumentCaptor<Update> updates = ArgumentCaptor.forClass(Update.class);
+        verify(mongoTemplate, org.mockito.Mockito.atLeast(0))
+                .updateMulti(queries.capture(), updates.capture(), eq(Show.class));
+        for (Query q : queries.getAllValues()) {
+            assertThat(q.getQueryObject()).doesNotContainKey("showNotifications");
+        }
+        for (Update u : updates.getAllValues()) {
+            org.bson.Document pull = u.getUpdateObject().get("$pull", org.bson.Document.class);
+            if (pull != null) {
+                assertThat(pull.get("showNotifications", org.bson.Document.class))
+                        .doesNotContainKey("notification.createdDate");
+            }
+        }
+    }
+
+    @Test
+    void ttlSweep_reapsFppHealthEntriesOlderThan24h() {
+        when(mongoTemplate.updateMulti(any(Query.class), any(Update.class), eq(Show.class)))
+                .thenReturn(com.mongodb.client.result.UpdateResult.acknowledged(3, 3L, null));
+
+        java.util.Date before = java.util.Date.from(LocalDateTime.now()
+                .minusHours(ScheduledTaskService.FPP_HEALTH_TTL_HOURS).toInstant(java.time.ZoneOffset.UTC));
+        service.reapExpiredFppHealthNotifications();
+        java.util.Date after = java.util.Date.from(LocalDateTime.now()
+                .minusHours(ScheduledTaskService.FPP_HEALTH_TTL_HOURS).toInstant(java.time.ZoneOffset.UTC));
+
+        ArgumentCaptor<Query> query = ArgumentCaptor.forClass(Query.class);
+        ArgumentCaptor<Update> update = ArgumentCaptor.forClass(Update.class);
+        verify(mongoTemplate, times(1)).updateMulti(query.capture(), update.capture(), eq(Show.class));
+
+        // The lastFppHeartbeat predicate is load-bearing: it lets the planner
+        // use the partial index instead of COLLSCANing the show collection.
+        org.bson.Document ttlQuery = query.getValue().getQueryObject();
+        assertThat(ttlQuery)
+                .containsKey("preferences.notificationPreferences.enableFppHeartbeat")
+                .containsKey("lastFppHeartbeat");
         assertThat(ttlQuery.get("showNotifications", org.bson.Document.class))
                 .containsKey("$elemMatch");
-        org.bson.Document ttlPull = ttlUpdate.get("$pull", org.bson.Document.class)
+        org.bson.Document ttlPull = update.getValue().getUpdateObject().get("$pull", org.bson.Document.class)
                 .get("showNotifications", org.bson.Document.class);
         assertThat(ttlPull.getString("notification.type")).isEqualTo("FPP_HEALTH");
-        assertThat(ttlPull.get("notification.createdDate", org.bson.Document.class))
-                .containsKey("$lt");
+        java.util.Date cutoff = (java.util.Date) ttlPull.get("notification.createdDate", org.bson.Document.class)
+                .get("$lt");
+        assertThat(cutoff).isBetween(before, after, true, true);
+        // Never a full-document write.
+        verify(showRepository, never()).save(any(Show.class));
+    }
+
+    @Test
+    void ttlSweep_dbUnreachable_doesNotThrow() {
+        when(mongoTemplate.updateMulti(any(Query.class), any(Update.class), eq(Show.class)))
+                .thenThrow(new org.springframework.dao.DataAccessResourceFailureException("timeout"));
+
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> service.reapExpiredFppHealthNotifications());
     }
 
     // ---- backoff ladder -------------------------------------------------
@@ -358,10 +411,10 @@ class ScheduledTaskServiceTest {
 
     @Test
     void backoff_firstAlertStillFiresAtTheStaleThreshold() {
-        // Detection speed must not regress: nothing before 5 minutes, and an
+        // Detection speed must not regress: nothing before the stale threshold, and an
         // alert due the moment the stale gate opens.
-        assertThat(ScheduledTaskService.backoffStep(4, 30)).isEqualTo(-1);
-        assertThat(ScheduledTaskService.backoffStep(5, 30)).isEqualTo(0);
+        assertThat(ScheduledTaskService.backoffStep(ScheduledTaskService.HEARTBEAT_STALE_MINUTES - 1, 30)).isEqualTo(-1);
+        assertThat(ScheduledTaskService.backoffStep(ScheduledTaskService.HEARTBEAT_STALE_MINUTES, 30)).isEqualTo(0);
     }
 
     @Test
@@ -435,7 +488,7 @@ class ScheduledTaskServiceTest {
     void massStale_isTreatedAsPlatformOutage_noPushes() {
         // 40 opted-in shows froze inside one heartbeat interval and nothing
         // else is heartbeating: that is the platform, not 40 Pis.
-        candidates(cohort(40, 6L));
+        candidates(cohort(40, ScheduledTaskService.HEARTBEAT_STALE_MINUTES + 1));
         healthyShowsNow(0L);
 
         service.fppHeartbeatTask();
@@ -447,8 +500,8 @@ class ScheduledTaskServiceTest {
         verify(outageStore).save(saved.capture());
         assertThat(saved.getValue().cohortStart()).isBeforeOrEqualTo(saved.getValue().cohortEnd());
         assertThat(saved.getValue().lastQualifiedAt()).isAfter(LocalDateTime.now().minusMinutes(1));
-        // Recovery + TTL sweeps still run during an outage.
-        verify(mongoTemplate, times(2)).updateMulti(any(Query.class), any(Update.class), eq(Show.class));
+        // The recovery sweep still runs during an outage (TTL reaping is hourly now).
+        verify(mongoTemplate, times(1)).updateMulti(any(Query.class), any(Update.class), eq(Show.class));
     }
 
     @Test
@@ -456,7 +509,7 @@ class ScheduledTaskServiceTest {
         // 12 shows dropping together is above the absolute floor, but against
         // 500 healthy plugins it is 2.3% -- a real correlated loss (a regional
         // ISP), not the platform. Everyone is told.
-        candidates(cohort(12, 6L));
+        candidates(cohort(12, ScheduledTaskService.HEARTBEAT_STALE_MINUTES + 1));
         healthyShowsNow(500L);
 
         service.fppHeartbeatTask();
@@ -467,7 +520,7 @@ class ScheduledTaskServiceTest {
 
     @Test
     void isolatedStale_stillNotifies_withoutTouchingTheOutageMachinery() {
-        candidates(cohort(1, 6L));
+        candidates(cohort(1, ScheduledTaskService.HEARTBEAT_STALE_MINUTES + 1));
 
         service.fppHeartbeatTask();
 
@@ -480,7 +533,7 @@ class ScheduledTaskServiceTest {
 
     @Test
     void showThatDiedBeforeTheOutage_stillNotifiesDuringIt() {
-        List<Show> shows = new ArrayList<>(cohort(40, 6L));
+        List<Show> shows = new ArrayList<>(cohort(40, ScheduledTaskService.HEARTBEAT_STALE_MINUTES + 1));
         Show genuinelyDown = staleShow(NotificationPreference.builder()
                 .enableFppHeartbeat(true)
                 .fppHeartbeatRenotifyAfterMinutes(30)
@@ -560,7 +613,7 @@ class ScheduledTaskServiceTest {
     void dbUnreachable_onTheHealthyCount_isNotReadAsEveryoneStale() {
         // A failed count must not become "0 healthy" (=> 100% stale => a
         // platform outage) nor "unknown, so alert everyone". Skip the tick.
-        candidates(cohort(40, 6L));
+        candidates(cohort(40, ScheduledTaskService.HEARTBEAT_STALE_MINUTES + 1));
         when(mongoTemplate.count(any(Query.class), eq(Show.class)))
                 .thenThrow(new org.springframework.dao.DataAccessResourceFailureException("timeout"));
 

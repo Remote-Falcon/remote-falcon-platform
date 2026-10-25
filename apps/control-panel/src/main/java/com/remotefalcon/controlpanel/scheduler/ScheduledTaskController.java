@@ -20,6 +20,7 @@ public class ScheduledTaskController {
     // early -- see SchedulerLock: holding for the TTL is what makes a duplicate
     // run within the SAME tick impossible.
     private static final Duration HEARTBEAT_LOCK_TTL = Duration.ofSeconds(50);
+    private static final Duration TTL_SWEEP_LOCK_TTL = Duration.ofMinutes(30);
     private static final Duration NIGHTLY_LOCK_TTL = Duration.ofMinutes(30);
 
     /**
@@ -28,6 +29,8 @@ public class ScheduledTaskController {
      * {@link ScheduledTaskService#fppHeartbeatTask()}: replace-not-append
      * bell entries, clear-on-recovery, 24h TTL, and a 48h recent-outage
      * window (prod had 296 opted-in shows, most dark for the season).
+     * Alert + recovery only; the 24h TTL reaping runs hourly in
+     * {@link #reapExpiredFppHealthNotifications()}.
      */
     @Scheduled(cron = "0 * * * * *")
     public void runTask() {
@@ -35,6 +38,22 @@ public class ScheduledTaskController {
             return;
         }
         scheduledTaskService.fppHeartbeatTask();
+    }
+
+    /**
+     * Hourly FPP_HEALTH TTL reaping (Season Capacity Plan R4), split out of
+     * {@link #runTask()}: it FETCHes every opted-in show doc, which at minute
+     * cadence was ~36 MB/min of cache churn on prod Mongo for a 24h TTL that
+     * gains nothing from minute precision. Alerting, outage suppression and
+     * the recovery clear stay on the minute tick. Minute 30 keeps it off the
+     * top-of-hour and the 09:00 nightly job.
+     */
+    @Scheduled(cron = "0 30 * * * *")
+    public void reapExpiredFppHealthNotifications() {
+        if (!schedulerLock.tryAcquire("fppHealthTtlSweep", TTL_SWEEP_LOCK_TTL)) {
+            return;
+        }
+        scheduledTaskService.reapExpiredFppHealthNotifications();
     }
 
     /**

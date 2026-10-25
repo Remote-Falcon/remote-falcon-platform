@@ -12,13 +12,12 @@ import { setNextPsaOverrideService } from '../../../../services/controlPanel/mut
 import { useDispatch, useSelector } from '../../../../store';
 import { setShow } from '../../../../store/slices/show';
 import MainCard from '../../../../ui-component/cards/MainCard';
+import { isHeartbeatFresh } from './heartbeat';
 import { visibleEnabledPsas } from './psaQuickPlay.helpers';
 import { SET_NEXT_PSA_OVERRIDE } from '../../../../utils/graphql/controlPanel/mutations';
 import { GET_SHOW_DASHBOARD_POLL } from '../../../../utils/graphql/controlPanel/queries';
 import { showAlert } from '../../globalPageHelpers';
 
-// Matches plugins-api's heartbeat-fresh window / HealthRow's "Connected" pill.
-const HEARTBEAT_FRESH_MS = 5 * 60 * 1000;
 
 // Dashboard "PSAs" quick-play card. Lets the operator fire a PSA at the next
 // sequence boundary straight from the dashboard — the same Q7 "Play Next"
@@ -41,7 +40,7 @@ const PsaQuickPlayCard = () => {
 
   // FPP heartbeat freshness — same logic as HealthRow's Connected/Offline pill.
   const isConnected =
-    !!liveStats?.lastHeartbeatMs && Date.now() - liveStats.lastHeartbeatMs < HEARTBEAT_FRESH_MS;
+    isHeartbeatFresh(liveStats?.lastHeartbeatMs);
   const hasEverConnected = !!liveStats?.lastHeartbeatMs;
 
   // Only enabled PSAs are playable, sorted by order — see visibleEnabledPsas.

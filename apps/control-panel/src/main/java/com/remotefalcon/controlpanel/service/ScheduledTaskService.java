@@ -38,9 +38,11 @@ public class ScheduledTaskService {
     private final MongoTemplate mongoTemplate;
     private final FppHealthOutageStore outageStore;
 
-    // Heartbeat considered dropped after this long without a check-in. Matches
-    // plugins-api's HEARTBEAT_GAP_THRESHOLD_MINUTES and the dashboard tile.
-    static final long HEARTBEAT_STALE_MINUTES = 5L;
+    // Heartbeat considered dropped after this long without a stored check-in:
+    // 5 min of real silence plus plugins-api's 120s heartbeat write floor (the
+    // stored value trails the real last beat by up to ~150s). Matches
+    // plugins-api's HEARTBEAT_GAP_THRESHOLD_MINUTES and the dashboard tiles.
+    static final long HEARTBEAT_STALE_MINUTES = 7L;
     // Only alert on outages that BEGAN recently. Without this floor, enabling
     // the task alerts every opted-in show that's been dark for months (prod
     // audit 2026-07-19: 296 shows opted in, only 63 with a heartbeat in the
@@ -58,7 +60,7 @@ public class ScheduledTaskService {
 
     /**
      * Renotify cadence for an ongoing outage: the show's own interval, then
-     * doubling. With the default 30 that is 5m (the stale threshold, first
+     * doubling. With the default 30 that is 7m (the stale threshold, first
      * alert), 30m, 1h, 2h, 4h, 8h, 16h, 32h -- 8 alerts across the 48h window
      * instead of the 96 a fixed 30-minute cadence produced.
      *
@@ -73,8 +75,9 @@ public class ScheduledTaskService {
      * <p>Detection speed is deliberately unchanged: the FIRST alert still
      * fires as soon as the show crosses HEARTBEAT_STALE_MINUTES. Backoff only
      * thins the repeats. A show that lowered its interval to the
-     * MIN_RENOTIFY_MINUTES floor still gets faster EARLY alerts (5m, 10m, 20m,
-     * 40m ...) -- which is what that setting is for -- without the 279
+     * MIN_RENOTIFY_MINUTES floor still gets faster EARLY alerts (7m, 10m, 20m,
+     * 40m ...; with a base at or under the stale threshold the first alert is
+     * step 1, not step 0) -- which is what that setting is for -- without the 279
      * alerts/day one such show was producing.
      *
      * <p>No new persisted state. lastFppHeartbeat freezes the instant a plugin
@@ -110,8 +113,9 @@ public class ScheduledTaskService {
     // ---- Platform-outage suppression (Season Capacity Plan, Appendix D P1-7)
     //
     // A plugins-api or DB outage freezes every live plugin's lastFppHeartbeat
-    // inside one heartbeat interval (~30s). Five minutes later every opted-in
-    // show crosses HEARTBEAT_STALE_MINUTES together and, without this, is told
+    // inside one write interval (plugins-api coalesces heartbeat writes to one
+    // per 120s, so frozen values spread over ~2.5 min). Within minutes every
+    // opted-in show crosses HEARTBEAT_STALE_MINUTES together and, without this, is told
     // "your plugin is down": one platform incident becomes hundreds of support
     // tickets. Prod traffic 2026-10-12 put ~790 plugins on /fppHeartbeat.
     //
@@ -133,8 +137,9 @@ public class ScheduledTaskService {
     // first alert. So a false positive costs a delay, not a missed alert.
     static final int OUTAGE_MIN_STALE_SHOWS = 10;
     static final int OUTAGE_MIN_STALE_PERCENT = 25;
-    // Live plugins freeze within ~30s of each other. 10 minutes tolerates a
-    // brownout that staggers the freeze across several minutes.
+    // Live plugins' stored heartbeats freeze within ~2.5 min of each other
+    // (the 120s write coalescing plus the 30s beat). 10 minutes absorbs that
+    // and still tolerates a brownout that staggers the freeze further.
     static final long OUTAGE_COHORT_WINDOW_MINUTES = 10L;
     // After recovery the healthy count climbs as plugins reconnect, so the
     // cohort stops measuring as an outage while slow reconnectors are still
@@ -266,7 +271,7 @@ public class ScheduledTaskService {
                     : currentOutage(showsToNotify, now, staleCutoff, outageWindowFloor);
         } catch (DataAccessException | MongoException e) {
             // A failed read is "unknown", never "everyone is stale". Skip the
-            // tick (sweeps included: they would hit the same dead DB).
+            // tick (recovery sweep included: it would hit the same dead DB).
             log.warn("FPP heartbeat task skipped this tick, database unavailable: {}", e.getMessage());
             return;
         }
@@ -371,31 +376,57 @@ public class ScheduledTaskService {
                         .unset("preferences.notificationPreferences.fppHeartbeatLastNotification"),
                 Show.class);
 
-        // TTL backstop: reap FPP_HEALTH entries whose createdDate stopped
-        // refreshing >24h ago (renotifies ceased: control-gate suppression or
-        // similar; live outages refresh createdDate every renotify and are
-        // never touched). The always-true lastFppHeartbeat range is
-        // load-bearing: without a predicate on the partial index's key this
-        // query COLLSCANs the whole show collection every minute (measured:
-        // 2,594 docs examined on the prod-shaped dev DB). ZoneOffset.UTC
-        // matches how DashboardService interprets these zone-naive stored
-        // LocalDateTimes — do not use the system default zone here.
+        // TTL reaping is not done here: see reapExpiredFppHealthNotifications(),
+        // which runs hourly.
+    }
+
+    /**
+     * TTL backstop, hourly (Season Capacity Plan R4): reap FPP_HEALTH entries
+     * whose createdDate stopped refreshing more than 24h ago (renotifies
+     * ceased: control-gate suppression or similar; live outages refresh
+     * createdDate every renotify and are never touched).
+     *
+     * <p>Split out of the per-minute {@link #fppHeartbeatTask()} because this
+     * query's always-true lastFppHeartbeat range matches EVERY opted-in show,
+     * dark ones included, and the elemMatch on showNotifications forces a
+     * FETCH of each: ~289 docs, ~36 MB of mostly cold documents pulled through
+     * the WiredTiger cache every minute in prod. Minute precision on a 24h TTL
+     * bought nothing; at hourly an entry lives at most ~25h. The alert ladder,
+     * outage suppression and recovery clear never read these entries' age, so
+     * none of them depend on this cadence.
+     *
+     * <p>The always-true lastFppHeartbeat range is load-bearing: without a
+     * predicate on the partial index's key this query COLLSCANs the whole show
+     * collection (measured: 2,594 docs examined on the prod-shaped dev DB).
+     * ZoneOffset.UTC matches how DashboardService interprets these zone-naive
+     * stored LocalDateTimes; do not use the system default zone here.
+     */
+    public void reapExpiredFppHealthNotifications() {
+        LocalDateTime now = LocalDateTime.now();
         Date ttlCutoff = Date.from(now.minusHours(FPP_HEALTH_TTL_HOURS).toInstant(ZoneOffset.UTC));
-        mongoTemplate.updateMulti(
-                new Query(Criteria.where("preferences.notificationPreferences.enableFppHeartbeat").is(true)
-                        .and("lastFppHeartbeat").lt(now.plusMinutes(1))
-                        .and("showNotifications").elemMatch(
-                                Criteria.where("notification.type").is(NotificationType.FPP_HEALTH.name())
-                                        .and("notification.createdDate").lt(ttlCutoff))),
-                new Update().pull("showNotifications",
-                        new Document(FPP_HEALTH_PULL)
-                                .append("notification.createdDate", new Document("$lt", ttlCutoff))),
-                Show.class);
+        try {
+            UpdateResult result = mongoTemplate.updateMulti(
+                    new Query(Criteria.where("preferences.notificationPreferences.enableFppHeartbeat").is(true)
+                            .and("lastFppHeartbeat").lt(now.plusMinutes(1))
+                            .and("showNotifications").elemMatch(
+                                    Criteria.where("notification.type").is(NotificationType.FPP_HEALTH.name())
+                                            .and("notification.createdDate").lt(ttlCutoff))),
+                    new Update().pull("showNotifications",
+                            new Document(FPP_HEALTH_PULL)
+                                    .append("notification.createdDate", new Document("$lt", ttlCutoff))),
+                    Show.class);
+            if (result != null && result.getModifiedCount() > 0) {
+                log.info("FPP_HEALTH TTL sweep reaped expired alerts from {} shows", result.getModifiedCount());
+            }
+        } catch (DataAccessException | MongoException e) {
+            // The next hour retries; the nightly orphan purge is a second backstop.
+            log.warn("FPP_HEALTH TTL sweep skipped, database unavailable: {}", e.getMessage());
+        }
     }
 
     /**
      * Nightly toggle-agnostic sweep for orphaned FPP_HEALTH entries. The
-     * minute-cadence recovery/TTL sweeps require enableFppHeartbeat=true so
+     * minute-cadence recovery and hourly TTL sweeps require enableFppHeartbeat=true so
      * they can ride the partial index; a show that opts OUT with an alert
      * outstanding escapes both forever (and deleteNotification only targets
      * the separate admin notification collection, so there is no other
@@ -427,6 +458,13 @@ public class ScheduledTaskService {
      * this expiry bounds the array for every show regardless of leak path.
      */
     static final int VOTES_MAX_AGE_HOURS = 24;
+    /**
+     * Matches plugins-api's HEARTBEAT_GAP_RETENTION_DAYS. plugins-api only
+     * prunes heartbeatGaps when it pushes a new gap (Season Capacity Plan R3
+     * dropped the per-beat $pull), so a show whose plugin stays healthy keeps
+     * its old gaps until this sweep removes them.
+     */
+    static final int HEARTBEAT_GAP_RETENTION_DAYS = 30;
 
     /**
      * Nightly retention, entirely server-side: one {@code updateMulti} whose
@@ -459,6 +497,8 @@ public class ScheduledTaskService {
                 .atZone(ZoneId.systemDefault()).toInstant());
         Date votesCutoff = Date.from(LocalDateTime.now().minusHours(VOTES_MAX_AGE_HOURS)
                 .atZone(ZoneId.systemDefault()).toInstant());
+        Date heartbeatGapCutoff = Date.from(LocalDateTime.now().minusDays(HEARTBEAT_GAP_RETENTION_DAYS)
+                .atZone(ZoneId.systemDefault()).toInstant());
 
         Update pulls = new Update()
                 .pull("stats.page", new Document("dateTime", new Document("$lt", statsCutoff)))
@@ -470,7 +510,8 @@ public class ScheduledTaskService {
                 // never written - this is that trim, finally real).
                 .pull("viewerSessions", new Document("lastSeen", new Document("$lt", statsCutoff)))
                 .pull("votes", new Document("lastVoteTime",
-                        new Document("$not", new Document("$gte", votesCutoff))));
+                        new Document("$not", new Document("$gte", votesCutoff))))
+                .pull("heartbeatGaps", new Document("endedAt", new Document("$lt", heartbeatGapCutoff)));
 
         UpdateResult result = mongoTemplate.updateMulti(new Query(), pulls, Show.class);
         log.info("Stats retention sweep complete: {} of {} shows modified, {} ms",

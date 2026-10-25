@@ -1518,53 +1518,73 @@ public class PluginService {
   // Threshold for what counts as "the plugin dropped." Plugin heartbeats
   // every ~30s in steady state; 5 min is comfortably outside normal jitter
   // but tight enough to catch real outages worth visualizing.
-  private static final long HEARTBEAT_GAP_THRESHOLD_MINUTES = 5L;
+  // 5 min of real silence plus the HEARTBEAT_MIN_INTERVAL_SECONDS write floor:
+  // the stored heartbeat can trail the plugin's real last beat by up to ~150s,
+  // so comparing against 5 min would record 2.5-min blips as gaps.
+  private static final long HEARTBEAT_GAP_THRESHOLD_MINUTES = 7L;
   private static final long HEARTBEAT_GAP_RETENTION_DAYS = 30L;
-  // Floor for accepting a heartbeat write. The plugin sends every ~30s, so
-  // anything faster than this is either a buggy plugin (retry loop, clock
-  // jitter on a slow box) or a misbehaving client. Heartbeat data is
-  // information-poor — we only care about "alive in the last 5 min" — so
-  // silently dropping high-frequency duplicates is loss-free and protects
-  // the Show document from write amplification at scale.
-  private static final long HEARTBEAT_MIN_INTERVAL_SECONDS = 10L;
+  // Write coalescing (Season Capacity Plan R3). The plugin beats every ~30s,
+  // but the stored lastFppHeartbeat only has to answer "alive in the last
+  // 5 min" (dashboard tile, pre-show checklist, control-panel alert task, gap
+  // detection above). Every write dirties the whole Show document in the
+  // WiredTiger cache, so at ~1,000 live plugins a per-beat write was ~33
+  // big-doc writes/s. With a 120s floor a 30s-cadence plugin writes every
+  // 120-150s (~8 writes/s fleet-wide).
+  //
+  // Staleness budget: the stored value lags the plugin's real last beat by
+  // 0 to ~150s (floor + one 30s beat). Every reader compares the stored value
+  // against 7 min (gap threshold here, control-panel HEARTBEAT_STALE_MINUTES,
+  // the dashboard's HEARTBEAT_FRESH_MS), so "Offline", the first alert and a
+  // recorded gap all need between ~4.5 and 7 min of real silence (was 5 min,
+  // give or take one beat). A healthy plugin can never read as offline.
+  // Recovery is immediate: after any outage the stored value is older than
+  // the floor, so the first beat back always writes. Changing this floor
+  // means changing those thresholds.
+  private static final long HEARTBEAT_MIN_INTERVAL_SECONDS = 120L;
 
   public void fppHeartbeat() {
     Show show = showContext.getShow();
     LocalDateTime now = LocalDateTime.now();
     LocalDateTime previous = show.getLastFppHeartbeat();
 
-    // Rate limit: if the previous heartbeat landed within the floor, accept
-    // the request (controller returns 204) but skip the Mongo write. Caller
+    // Coalesce: if the stored heartbeat is younger than the floor, accept the
+    // request (controller returns 204) but skip the Mongo write. Caller
     // can't tell the difference and doesn't need to — fire-and-forget.
     if (previous != null && previous.isAfter(now.minusSeconds(HEARTBEAT_MIN_INTERVAL_SECONDS))) {
       return;
     }
 
-    // V17 — gap detection. If the previous heartbeat was more than the
-    // threshold ago, we just came back from an outage; record the gap window.
-    HeartbeatGap newGap = null;
-    if (previous != null && previous.isBefore(now.minusMinutes(HEARTBEAT_GAP_THRESHOLD_MINUTES))) {
-      newGap = HeartbeatGap.builder().startedAt(previous).endedAt(now).build();
-    }
-
-    // Always prune anything older than the retention window — keeps the
-    // embedded list bounded over a long-running show that's been up for years.
-    // Pull + push on heartbeatGaps must be two separate updates because Mongo
-    // rejects both modifiers on the same field path in one operation.
-    LocalDateTime cutoff = now.minusDays(HEARTBEAT_GAP_RETENTION_DAYS);
     var filter = Filters.eq("showToken", show.getShowToken());
 
+    // V17 — gap detection. If the previous heartbeat was more than the
+    // threshold ago, we just came back from an outage; record the gap window.
+    // `previous` is the last WRITTEN beat, which can trail the plugin's real
+    // last beat by up to ~150s, so a recorded gap may start up to that much
+    // early, and an outage of 4.5-7 min of real silence is recorded or not
+    // depending on where it fell in the write cycle. Outages of 7+ min are
+    // always recorded.
+    if (previous == null || !previous.isBefore(now.minusMinutes(HEARTBEAT_GAP_THRESHOLD_MINUTES))) {
+      // Normal beat: a bare $set. No per-beat $pull of heartbeatGaps; the
+      // list only grows on the gap path below, so that is where it's pruned
+      // (plus control-panel's nightly retention sweep).
+      Show.mongoCollection().updateOne(filter, Updates.set("lastFppHeartbeat", now));
+      return;
+    }
+
+    HeartbeatGap newGap = HeartbeatGap.builder().startedAt(previous).endedAt(now).build();
     Show.mongoCollection().updateOne(
         filter,
         Updates.combine(
             Updates.set("lastFppHeartbeat", now),
-            Updates.pull("heartbeatGaps", Filters.lt("endedAt", cutoff))
+            Updates.push("heartbeatGaps", newGap)
         )
     );
-
-    if (newGap != null) {
-      Show.mongoCollection().updateOne(filter, Updates.push("heartbeatGaps", newGap));
-    }
+    // Prune past the retention window. Separate update because Mongo rejects
+    // $push and $pull on the same field path in one operation. Rare path:
+    // only runs when the plugin comes back from a > 5 min outage.
+    LocalDateTime cutoff = now.minusDays(HEARTBEAT_GAP_RETENTION_DAYS);
+    Show.mongoCollection().updateOne(
+        filter, Updates.pull("heartbeatGaps", Filters.lt("endedAt", cutoff)));
   }
 
   /**
