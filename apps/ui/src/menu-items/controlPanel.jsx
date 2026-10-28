@@ -1,6 +1,7 @@
 import * as React from 'react';
 
 import {
+  IconActivity,
   IconAdjustmentsHorizontal,
   IconBlockquote,
   IconBook,
@@ -129,8 +130,8 @@ const communityGroup = {
   ]
 };
 
-// Help group bundles the docs + community channels. All three open in a
-// new tab — the external-link affordance on NavItem flags that visually.
+// Help group bundles the docs, system status + community channels. All open
+// in a new tab — the external-link affordance on NavItem flags that visually.
 // Discord + Facebook moved here from the sidebar footer so they have a
 // proper home alongside the rest of the support resources.
 const helpGroup = {
@@ -144,6 +145,16 @@ const helpGroup = {
       type: 'item',
       url: 'https://docs.remotefalcon.com',
       icon: IconBook,
+      external: true,
+      target: true,
+      breadcrumbs: false
+    },
+    {
+      id: 'system-status',
+      title: 'System Status',
+      type: 'item',
+      url: 'https://status.remotefalcon.com',
+      icon: IconActivity,
       external: true,
       target: true,
       breadcrumbs: false

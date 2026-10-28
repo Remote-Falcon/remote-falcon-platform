@@ -88,6 +88,11 @@ const Faqs = () => {
                   <a href="https://docs.remotefalcon.com" target="_blank" rel="noreferrer">
                     Remote Falcon Wiki
                   </a>
+                  . If something stops working, check the{' '}
+                  <a href="https://status.remotefalcon.com" target="_blank" rel="noreferrer">
+                    system status page
+                  </a>{' '}
+                  first.
                 </Typography>
               </Grid>
             </Grid>

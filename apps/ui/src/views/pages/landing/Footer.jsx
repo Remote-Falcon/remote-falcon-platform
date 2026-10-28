@@ -10,6 +10,7 @@ const FOOTER_COLS = [
     title: 'Product',
     links: [
       { label: 'Documentation', href: 'https://docs.remotefalcon.com', external: true },
+      { label: 'System status', href: 'https://status.remotefalcon.com', external: true },
       { label: 'Sign up', href: '/signup' },
       { label: 'Sign in', href: '/signin' }
     ]
