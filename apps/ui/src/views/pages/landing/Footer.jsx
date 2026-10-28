@@ -4,13 +4,14 @@ import { Link as RouterLink } from 'react-router-dom';
 
 import Logo from '../../../design-system/components/Logo';
 import { VERSION } from '../../../config';
+import { STATUS_PAGE_URL } from '../../../utils/platformStatus';
 
 const FOOTER_COLS = [
   {
     title: 'Product',
     links: [
       { label: 'Documentation', href: 'https://docs.remotefalcon.com', external: true },
-      { label: 'System status', href: 'https://status.remotefalcon.com', external: true },
+      { label: 'System status', href: STATUS_PAGE_URL, external: true },
       { label: 'Sign up', href: '/signup' },
       { label: 'Sign in', href: '/signin' }
     ]

@@ -20,6 +20,8 @@ import {
 } from '@tabler/icons-react';
 import { FormattedMessage } from 'react-intl';
 
+import { STATUS_PAGE_URL } from '../utils/platformStatus';
+
 // Sidebar sections per the v2 dashboard mockup
 // (apps/ui/docs/design-system/mockup.html, [data-screen="control"]).
 // Each top-level entry is its own group → NavGroup renders the title
@@ -153,7 +155,7 @@ const helpGroup = {
       id: 'system-status',
       title: 'System Status',
       type: 'item',
-      url: 'https://status.remotefalcon.com',
+      url: STATUS_PAGE_URL,
       icon: IconActivity,
       external: true,
       target: true,
