@@ -72,4 +72,21 @@ describe('useShowPublicUrl', () => {
     const { result } = renderHook(() => useShowPublicUrl(), { wrapper: wrap(store) });
     expect(result.current).toBe('http://localhost:5173');
   });
+
+  it('uses the self-hosted base domain when a control panel subdomain is set', () => {
+    import.meta.env.VITE_CONTROL_PANEL_SUBDOMAIN = 'control';
+    import.meta.env.VITE_HOSTNAME_PARTS = '3';
+    const originalLocation = window.location;
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...originalLocation, hostname: 'control.rf.example.com', protocol: 'https:' }
+    });
+    try {
+      const store = buildStore({ showSubdomain: 'matt' });
+      const { result } = renderHook(() => useShowPublicUrl(), { wrapper: wrap(store) });
+      expect(result.current).toBe('https://matt.rf.example.com');
+    } finally {
+      Object.defineProperty(window, 'location', { configurable: true, value: originalLocation });
+    }
+  });
 });
