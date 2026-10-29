@@ -132,7 +132,7 @@ const MainSettings = () => {
                   />
                 </Stack>
                 <Typography component="div" variant="caption">
-                  The mode in which you want your viewer to be able to control your show. Changing modes requires a plugin restart.
+                  The mode in which you want your viewer to be able to control your show. The FPP plugin picks up a change within about 5 minutes. Restart the listener to switch right away.
                 </Typography>
               </Grid>
               <Grid item xs={12} md={6} lg={4}>
