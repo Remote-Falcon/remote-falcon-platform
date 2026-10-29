@@ -7,6 +7,8 @@ import { gridSpacing } from '../../../../store/constant';
 import MainCard from '../../../../ui-component/cards/MainCard';
 import Accordion from '../../../../ui-component/extended/Accordion';
 
+import { STATUS_PAGE_URL } from '../../../../utils/platformStatus';
+
 const HeaderWrapper = styled('div')(({ theme }) => ({
   backgroundSize: '100% 600px',
   backgroundAttachment: 'fixed',
@@ -88,6 +90,11 @@ const Faqs = () => {
                   <a href="https://docs.remotefalcon.com" target="_blank" rel="noreferrer">
                     Remote Falcon Wiki
                   </a>
+                  . If something stops working, check the{' '}
+                  <a href={STATUS_PAGE_URL} target="_blank" rel="noreferrer">
+                    system status page
+                  </a>{' '}
+                  first.
                 </Typography>
               </Grid>
             </Grid>

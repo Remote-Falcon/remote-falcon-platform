@@ -13,6 +13,7 @@ import CommandPalette from '../../ui-component/CommandPalette';
 
 import Header from './Header';
 import ImpersonationBanner from './ImpersonationBanner';
+import PlatformStatusBanner from './PlatformStatusBanner';
 import Sidebar from './Sidebar';
 
 // v2 layout: full-height sidebar (logo at top, footer at bottom) with the
@@ -62,6 +63,9 @@ const MainLayout = () => {
 
       {/* Admin impersonation warning. Renders nothing when not impersonating. */}
       <ImpersonationBanner />
+
+      {/* RF-wide incident notice from status.remotefalcon.com. Renders nothing while all is up. */}
+      <PlatformStatusBanner />
 
       <Box sx={{ display: 'flex', flex: 1, minHeight: 0 }}>
         <Sidebar />
