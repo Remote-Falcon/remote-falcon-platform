@@ -118,6 +118,9 @@ services:
       context: ../../apps/ui
       args:
         HOST_ENV: prod
+        # Builds show links (dashboard, QR code, map) from this install's own
+        # domain and port instead of remotefalcon.com. Leave as is.
+        SELF_HOSTED: "true"
         VERSION: ${VERSION:-self-host}
         CONTROL_PANEL_API: ${WEB_URL}/remote-falcon-control-panel
         VIEWER_API: ${WEB_URL}/remote-falcon-viewer
@@ -138,7 +141,9 @@ services:
         # is a show name, served directly at <show>.<domain> (e.g.
         # lightshow.example.com) — no path segment, no wildcard DNS, one A record
         # per host. Leave HOSTNAME_PARTS at the count of labels in your base
-        # domain (2 for example.com). This is independent of the path-routed mode
+        # domain (2 for example.com). Show links in the control panel follow the
+        # same rule: <show>.<last HOSTNAME_PARTS labels of the control panel's
+        # host>, keeping its port. This is independent of the path-routed mode
         # below; set one or the other, not both.
         CONTROL_PANEL_SUBDOMAIN: ${CONTROL_PANEL_SUBDOMAIN:-}
         # Path-routed self-host (issue #151). Set both to run the control panel

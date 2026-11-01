@@ -73,20 +73,58 @@ describe('useShowPublicUrl', () => {
     expect(result.current).toBe('http://localhost:5173');
   });
 
-  it('uses the self-hosted base domain when a control panel subdomain is set', () => {
-    import.meta.env.VITE_CONTROL_PANEL_SUBDOMAIN = 'control';
-    import.meta.env.VITE_HOSTNAME_PARTS = '3';
+  describe('subdomain-mode self-host', () => {
     const originalLocation = window.location;
-    Object.defineProperty(window, 'location', {
-      configurable: true,
-      value: { ...originalLocation, hostname: 'control.rf.example.com', protocol: 'https:' }
-    });
-    try {
-      const store = buildStore({ showSubdomain: 'matt' });
-      const { result } = renderHook(() => useShowPublicUrl(), { wrapper: wrap(store) });
-      expect(result.current).toBe('https://matt.rf.example.com');
-    } finally {
+
+    const setLocation = (host, protocol = 'https:') => {
+      Object.defineProperty(window, 'location', {
+        configurable: true,
+        value: { ...originalLocation, host, protocol }
+      });
+    };
+
+    afterEach(() => {
       Object.defineProperty(window, 'location', { configurable: true, value: originalLocation });
-    }
+    });
+
+    const render = () => {
+      const store = buildStore({ showSubdomain: 'matt' });
+      return renderHook(() => useShowPublicUrl(), { wrapper: wrap(store) }).result.current;
+    };
+
+    it('uses the self-hosted base domain when a control panel subdomain is set', () => {
+      import.meta.env.VITE_CONTROL_PANEL_SUBDOMAIN = 'control';
+      import.meta.env.VITE_HOSTNAME_PARTS = '3';
+      setLocation('control.rf.example.com');
+      expect(render()).toBe('https://matt.rf.example.com');
+    });
+
+    it('uses the self-hosted base domain on the default controlpanel label', () => {
+      import.meta.env.VITE_SELF_HOSTED = 'true';
+      import.meta.env.VITE_HOSTNAME_PARTS = '2';
+      setLocation('controlpanel.example.com');
+      expect(render()).toBe('https://matt.example.com');
+    });
+
+    it('keeps a non-default port', () => {
+      import.meta.env.VITE_SELF_HOSTED = 'true';
+      import.meta.env.VITE_HOSTNAME_PARTS = '2';
+      setLocation('controlpanel.example.com:3000', 'http:');
+      expect(render()).toBe('http://matt.example.com:3000');
+    });
+
+    it('links to the bare base domain when SWAP_CP serves the single show at the root', () => {
+      import.meta.env.VITE_SELF_HOSTED = 'true';
+      import.meta.env.VITE_SWAP_CP = 'true';
+      import.meta.env.VITE_HOSTNAME_PARTS = '2';
+      setLocation('controlpanel.example.com');
+      expect(render()).toBe('https://example.com');
+    });
+
+    it('still links to remotefalcon.com when the build is not a self-host', () => {
+      import.meta.env.VITE_HOSTNAME_PARTS = '2';
+      setLocation('lights.example.com');
+      expect(render()).toBe('https://matt.remotefalcon.com');
+    });
   });
 });

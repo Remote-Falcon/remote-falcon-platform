@@ -32,6 +32,10 @@ ARG VIEWER_PAGE_SUBDOMAIN
 # (e.g. control.example.com) set this to that label; every other first label is
 # then a show name, served at <show>.example.com with no path and no wildcard.
 ARG CONTROL_PANEL_SUBDOMAIN
+# 'true' for self-host builds (ops/self-host sets it). Show links (dashboard,
+# QR code, map) are then built from the browser's own host instead of
+# remotefalcon.com. Blank for SaaS.
+ARG SELF_HOSTED
 # Path-routed self-host (issue #151). Both set => control panel at
 # VITE_CONTROL_HOST, viewers at VITE_VIEWER_HOST/<show>. Blank => subdomain mode.
 ARG CONTROL_HOST
@@ -58,6 +62,7 @@ ENV VITE_HOSTNAME_PARTS=$HOSTNAME_PARTS
 ENV VITE_SWAP_CP=$SWAP_CP
 ENV VITE_VIEWER_PAGE_SUBDOMAIN=$VIEWER_PAGE_SUBDOMAIN
 ENV VITE_CONTROL_PANEL_SUBDOMAIN=$CONTROL_PANEL_SUBDOMAIN
+ENV VITE_SELF_HOSTED=$SELF_HOSTED
 ENV VITE_CONTROL_HOST=$CONTROL_HOST
 ENV VITE_VIEWER_HOST=$VIEWER_HOST
 ENV VITE_GITHUB_JS_PATH=$GITHUB_JS_PATH
