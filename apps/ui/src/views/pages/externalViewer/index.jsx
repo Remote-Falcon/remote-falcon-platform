@@ -34,6 +34,7 @@ import { LocationPermission, acquireViewerLocation, clientClassFromUserAgent } f
 import {
   defaultProcessingInstructions,
   injectInlineRetryLocationToken,
+  initialNowPlayingState,
   injectRetryLocationToken,
   nextNowPlayingState,
   processingInstructions,
@@ -1010,7 +1011,10 @@ const ExternalViewerPage = () => {
       if (showData?.playingNext === '') {
         showData.playingNext = showData?.playingNextFromSchedule;
       }
-      setNowPlaying(showData?.playingNow);
+      // #206 - seed the timer with the song, or it sits at 0:00 until the next one.
+      const initialNowPlaying = initialNowPlayingState(showData);
+      setNowPlaying(initialNowPlaying.nowPlaying);
+      setNowPlayingTimer(initialNowPlaying.nowPlayingTimer);
       if (showData?.preferences?.viewerControlMode === ViewerControlMode.VOTING) {
         orderSequencesForVoting(showData);
       }

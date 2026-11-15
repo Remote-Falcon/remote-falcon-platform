@@ -726,3 +726,15 @@ export const nextNowPlayingState = (prev, show) => {
     nowPlayingTimer: prev.nowPlayingTimer > 0 ? prev.nowPlayingTimer - 1 : 0
   };
 };
+
+/**
+ * The countdown state for the first getShow after a page load (#206). The
+ * viewer has no way to know how far into the song it is (the server sends no
+ * start time, see #207), so it starts from the song's duration exactly as a
+ * song change does. Overstated for the rest of that song, but it counts down
+ * instead of sitting at 0:00.
+ *
+ * Seeding nowPlaying alone, with the timer left at 0, is what broke: every
+ * later tick saw the same song and decremented a 0.
+ */
+export const initialNowPlayingState = (show) => nextNowPlayingState({ nowPlaying: null, nowPlayingTimer: 0 }, show);
