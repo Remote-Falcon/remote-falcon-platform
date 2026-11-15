@@ -170,16 +170,63 @@ public class GraphQLMutationService {
      * Keep only the IP-list entries {@link IpMatcher} can evaluate, preserving
      * order. A null list stays null so "not supplied" and "emptied" remain
      * distinguishable to the caller.
+     *
+     * <p>#181: anything dropped is logged as one structured WARN per list,
+     * naming the show and the rejected values, so a rule that vanished on save
+     * leaves a record. The control panel checks the same grammar before saving
+     * and tells the operator; this is the record for every other path in
+     * (direct API calls, or drift between the two validators).
      */
-    private Set<String> retainUsableIpRules(Set<String> entries) {
+    private Set<String> retainUsableIpRules(Show show, String field, Set<String> entries) {
         if (entries == null) {
             return null;
         }
-        return entries.stream()
-                .filter(Objects::nonNull)
-                .map(String::trim)
-                .filter(IpMatcher::isValidRule)
-                .collect(Collectors.toCollection(LinkedHashSet::new));
+        Set<String> kept = new LinkedHashSet<>();
+        List<String> rejected = new ArrayList<>();
+        for (String entry : entries) {
+            if (entry == null) {
+                continue;
+            }
+            String trimmed = entry.trim();
+            if (IpMatcher.isValidRule(trimmed)) {
+                kept.add(trimmed);
+            } else if (!trimmed.isEmpty()) {
+                rejected.add(trimmed);
+            }
+        }
+        if (!rejected.isEmpty()) {
+            log.warn("ip_rules_dropped show={} field={} count={} rejected={}",
+                    show.getShowSubdomain(), field, rejected.size(), describeRejectedIpRules(rejected));
+        }
+        return kept;
+    }
+
+    private static final int MAX_LOGGED_IP_RULES = 20;
+    private static final int MAX_LOGGED_IP_RULE_LENGTH = 64;
+
+    /**
+     * Render rejected entries for the log. They are caller-supplied text (the
+     * API is reachable directly with a bearer token), so control characters
+     * are replaced to keep one entry from forging extra log lines, and both
+     * the entry length and the number listed are capped.
+     */
+    private static String describeRejectedIpRules(List<String> rejected) {
+        StringBuilder out = new StringBuilder("[");
+        int listed = Math.min(rejected.size(), MAX_LOGGED_IP_RULES);
+        for (int i = 0; i < listed; i++) {
+            String entry = rejected.get(i);
+            if (entry.length() > MAX_LOGGED_IP_RULE_LENGTH) {
+                entry = entry.substring(0, MAX_LOGGED_IP_RULE_LENGTH) + "...";
+            }
+            if (i > 0) {
+                out.append(", ");
+            }
+            out.append('"').append(entry.replaceAll("\\p{Cntrl}", "?").replace("\"", "\\\"")).append('"');
+        }
+        if (rejected.size() > listed) {
+            out.append(", +").append(rejected.size() - listed).append(" more");
+        }
+        return out.append(']').toString();
     }
 
     private String validateShowToken(String showToken) {
@@ -439,9 +486,9 @@ public class GraphQLMutationService {
             // before that existed (or posted directly) would otherwise sit in
             // the list looking active while matching nothing. Same grammar on
             // both sides: IpMatcher is the single definition of what's valid.
-            preferences.setBlockedViewerIps(retainUsableIpRules(preferences.getBlockedViewerIps()));
-            preferences.setVotingExemptIps(retainUsableIpRules(preferences.getVotingExemptIps()));
-            preferences.setStatsExcludedIps(retainUsableIpRules(preferences.getStatsExcludedIps()));
+            preferences.setBlockedViewerIps(retainUsableIpRules(show.get(), "blockedViewerIps", preferences.getBlockedViewerIps()));
+            preferences.setVotingExemptIps(retainUsableIpRules(show.get(), "votingExemptIps", preferences.getVotingExemptIps()));
+            preferences.setStatsExcludedIps(retainUsableIpRules(show.get(), "statsExcludedIps", preferences.getStatsExcludedIps()));
 
             // Capability-URL token for the public Wrapped page. Generated
             // server-side on the wrappedPublic null/false -> true transition

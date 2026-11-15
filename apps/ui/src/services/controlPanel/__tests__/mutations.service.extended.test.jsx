@@ -157,7 +157,30 @@ describe('savePreferencesService', () => {
     expect(mutation.mock.calls[0][0].variables).toEqual({
       preferences: { jukeboxEnabled: true, votingEnabled: false }
     });
-    expect(cb).toHaveBeenCalledWith({ success: true, toast: { message: 'Viewer Settings Saved' } });
+    expect(cb).toHaveBeenCalledWith({
+      success: true,
+      toast: { message: 'Viewer Settings Saved' },
+      preferences: { jukeboxEnabled: true, votingEnabled: false },
+      rejectedIpEntries: []
+    });
+  });
+
+  // #181: the server drops IP rules its matcher can't use. Send only what will
+  // persist, and hand the dropped entries back so the caller can say so.
+  it('sends only usable IP rules and reports the rejected ones', () => {
+    const cb = vi.fn();
+    const mutation = mockMutation('success');
+    savePreferencesService({ blockedViewerIps: ['10.0.0.1', '192.168.1.*'], statsExcludedIps: ['nope'] }, mutation, cb);
+    expect(mutation.mock.calls[0][0].variables).toEqual({
+      preferences: { blockedViewerIps: ['10.0.0.1'], statsExcludedIps: [] }
+    });
+    expect(cb).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: true,
+        preferences: { blockedViewerIps: ['10.0.0.1'], statsExcludedIps: [] },
+        rejectedIpEntries: ['192.168.1.*', 'nope']
+      })
+    );
   });
 });
 

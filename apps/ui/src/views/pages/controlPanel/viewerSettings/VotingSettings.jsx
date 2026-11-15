@@ -14,6 +14,7 @@ import { savePreferencesService } from '../../../../services/controlPanel/mutati
 import { useDispatch, useSelector } from '../../../../store';
 import { setShow } from '../../../../store/slices/show';
 import { UPDATE_PREFERENCES } from '../../../../utils/graphql/controlPanel/mutations';
+import { describeRejectedIpEntries } from '../../../../utils/ipEntry';
 import { showAlert } from '../../globalPageHelpers';
 
 const VotingSettings = () => {
@@ -49,7 +50,10 @@ const VotingSettings = () => {
         const updatedPreferences = _.cloneDeep({ ...show?.preferences, ...snapshot });
         savePreferencesService(updatedPreferences, updatePreferencesMutation, (response) => {
           if (response?.success) {
-            dispatch(setShow({ ...show, preferences: updatedPreferences }));
+            // #181: store what was actually saved, and say what wasn't.
+            dispatch(setShow({ ...show, preferences: response.preferences ?? updatedPreferences }));
+            const dropped = describeRejectedIpEntries(response.rejectedIpEntries);
+            if (dropped) showAlert(dispatch, { alert: 'warning', message: dropped });
             resolve();
           } else {
             showAlert(dispatch, response?.toast);
