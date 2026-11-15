@@ -5,6 +5,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
+import org.springframework.core.env.Environment;
 
 import java.util.concurrent.TimeUnit;
 
@@ -17,6 +18,13 @@ import java.util.concurrent.TimeUnit;
  * {@code @Profile}): external-api ships as a GraalVM native image, where
  * conditions are evaluated at build time and a gated bean is silently compiled
  * out (issue #160).
+ *
+ * <p>Season knobs: each value below is a DEFAULT. At runtime it can be
+ * overridden by the property {@code rf.mongo.<name>} or, in k8s, the env var
+ * {@code RF_MONGO_<NAME>} (e.g. {@code RF_MONGO_MAX_POOL_SIZE=15}); Spring maps
+ * the env spelling onto the property. The values are read from the
+ * {@link Environment} when the bean is created, so they change with a pod
+ * restart, not an image rebuild. Table: docs/SERVICES.md "Season knobs".
  *
  * <p>Ordered last so it runs after Spring Boot's standard customizer, which
  * applies {@code spring.data.mongodb.uri}. These values therefore win over any
@@ -34,19 +42,41 @@ public class MongoConfig {
   static final int MIN_POOL_SIZE = 2;
   static final int MAX_WAIT_TIME_MS = 2_000;
 
+  static final String PREFIX = "rf.mongo.";
+
   @Bean
   @Order(Ordered.LOWEST_PRECEDENCE)
-  public MongoClientSettingsBuilderCustomizer mongoClientSettingsCustomizer() {
+  public MongoClientSettingsBuilderCustomizer mongoClientSettingsCustomizer(Environment env) {
+    int serverSelectionTimeoutMs =
+        knob(env, "server-selection-timeout-ms", SERVER_SELECTION_TIMEOUT_MS, 1);
+    int connectTimeoutMs = knob(env, "connect-timeout-ms", CONNECT_TIMEOUT_MS, 1);
+    int socketReadTimeoutMs = knob(env, "socket-read-timeout-ms", SOCKET_READ_TIMEOUT_MS, 1);
+    int maxPoolSize = knob(env, "max-pool-size", MAX_POOL_SIZE, 1);
+    int minPoolSize = knob(env, "min-pool-size", MIN_POOL_SIZE, 0);
+    int maxWaitTimeMs = knob(env, "max-wait-time-ms", MAX_WAIT_TIME_MS, 0);
+    if (minPoolSize > maxPoolSize) {
+      throw new IllegalStateException(PREFIX + "min-pool-size (" + minPoolSize
+          + ") must not exceed " + PREFIX + "max-pool-size (" + maxPoolSize + ")");
+    }
     return builder -> builder
         .applyToClusterSettings(cluster ->
-            cluster.serverSelectionTimeout(SERVER_SELECTION_TIMEOUT_MS, TimeUnit.MILLISECONDS))
+            cluster.serverSelectionTimeout(serverSelectionTimeoutMs, TimeUnit.MILLISECONDS))
         .applyToSocketSettings(socket -> socket
-            .connectTimeout(CONNECT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-            .readTimeout(SOCKET_READ_TIMEOUT_MS, TimeUnit.MILLISECONDS))
+            .connectTimeout(connectTimeoutMs, TimeUnit.MILLISECONDS)
+            .readTimeout(socketReadTimeoutMs, TimeUnit.MILLISECONDS))
         .applyToConnectionPoolSettings(pool -> pool
-            .maxSize(MAX_POOL_SIZE)
-            .minSize(MIN_POOL_SIZE)
-            .maxWaitTime(MAX_WAIT_TIME_MS, TimeUnit.MILLISECONDS))
+            .maxSize(maxPoolSize)
+            .minSize(minPoolSize)
+            .maxWaitTime(maxWaitTimeMs, TimeUnit.MILLISECONDS))
         .addCommandListener(new SlowMongoCommandListener());
+  }
+
+  /** Reads {@code rf.mongo.<name>}, falling back to the default; fails startup below {@code min}. */
+  private static int knob(Environment env, String name, int defaultValue, int min) {
+    Integer value = env.getProperty(PREFIX + name, Integer.class, defaultValue);
+    if (value < min) {
+      throw new IllegalStateException(PREFIX + name + " must be >= " + min + ", got " + value);
+    }
+    return value;
   }
 }

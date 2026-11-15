@@ -1,6 +1,6 @@
 # Remote Falcon — Services & Deployment Reference
 
-**Last updated:** 2026-10-13 (deploy freeze, GHCR PAT expiry, Prometheus release name)
+**Last updated:** 2026-11-15 (season knobs, Dec 18-26 holiday freeze, gateway decommission)
 **Maintainer:** Matt Shorts (taking over from prior maintainer)
 
 This is the operator's map of the Remote Falcon stack: every service, what it does, where it runs, and the secrets / cluster prerequisites it needs.
@@ -11,7 +11,7 @@ This is the operator's map of the Remote Falcon stack: every service, what it do
 
 ## TL;DR
 
-- **8 production services** deploy to one DigitalOcean Kubernetes cluster.
+- **7 production services** deploy to one DigitalOcean Kubernetes cluster (the gateway was decommissioned in Nov 2026; see [service 2](#2-remote-falcon-gateway-decommissioned)). Sizes per season come from [`ops/season/profile.conf`](../ops/season/profile.conf), see [Season knobs](#season-knobs).
 - All deploy via per-repo **GitHub Actions** (`Build and Release`) on push to `main` (or manual `workflow_dispatch`). Push-triggered deploys are blocked during the season [deploy freeze](#deploy-freeze).
 - All live in the `remote-falcon` namespace, behind a single nginx ingress on `remotefalcon.com`.
 - **`remote-falcon-library`** is a build-time dep of 5 of the 8 services (canonical Mongo schema, pulled via JitPack at a pinned git SHA).
@@ -28,11 +28,11 @@ This is the operator's map of the Remote Falcon stack: every service, what it do
 | **Production cluster ID** | `4f1406fe-1179-4a9c-9d2e-835c3da34984` (DigitalOcean) |
 | **Experimental cluster ID** | `9badee22-1583-464e-8117-a7090179f151` (DigitalOcean — viewer-quarkus only) |
 | **Namespace** | `remote-falcon` |
-| **Ingress** | nginx (`kubernetes.io/ingress.class: nginx`). Controller is the helm release `ingress-nginx` (namespace `ingress-nginx`, chart 4.15.1), applied by hand from [`ops/k8s/ingress-nginx/`](../ops/k8s/ingress-nginx/): 2 replicas, PDB `minAvailable: 1`, required anti-affinity on hostname. Controller ConfigMap is empty (nginx defaults); per-service timeout/retry overrides are Ingress annotations in each `apps/<svc>/k8s/manifest.yml`. |
+| **Ingress** | nginx (`kubernetes.io/ingress.class: nginx`). Controller is the helm release `ingress-nginx` (namespace `ingress-nginx`, chart 4.15.1), applied by hand from [`ops/k8s/ingress-nginx/`](../ops/k8s/ingress-nginx/): replicas from the active season profile (2 fixed off-season, HPA 2-6 season, HPA 3-6 peak), PDB `minAvailable: 1`, required anti-affinity on hostname. Controller ConfigMap is empty (nginx defaults); per-service timeout/retry overrides are Ingress annotations in each `apps/<svc>/k8s/manifest.yml`. |
 | **Public hosts** | `remotefalcon.com`, `*.remotefalcon.com` (UI subdomain catch-all) |
 | **Image registry** | GHCR — `ghcr.io/remote-falcon/<service>:<git-sha>` |
 | **Image pull secret** | `remote-falcon-ghcr` (in `remote-falcon` namespace) |
-| **Disruption / spread** | Every service with a floor of 2+ replicas (ui, gateway, control-panel, external-api, viewer, plugins-api) carries a per-app `PodDisruptionBudget` (`minAvailable: 1`) and a `topologySpreadConstraints` block (hostname, `ScheduleAnyway`) in its `apps/<svc>/k8s/manifest.yml`. Single-replica services (mongo-backup, account-archive) deliberately have neither (a min-available PDB on 1 replica blocks node drains). |
+| **Disruption / spread** | Every service with a floor of 2+ replicas (ui, control-panel, external-api, viewer, plugins-api) carries a per-app `PodDisruptionBudget` (`minAvailable: 1`) and a `topologySpreadConstraints` block (hostname, `ScheduleAnyway`) in its `apps/<svc>/k8s/manifest.yml`. Single-replica services (mongo-backup, account-archive) deliberately have neither (a min-available PDB on 1 replica blocks node drains). |
 | **Replica ownership** | HPA-managed Deployments (control-panel, external-api, viewer, plugins-api) have **no `replicas:` field**, so a deploy never resets a scaled-out service to the HPA minimum; deploy.yml's `replicas_min`/`replicas_max` feed only the HPA. A first-time create starts at 1 pod and the HPA raises it to `minReplicas` within ~15s. The deploy job strips `spec.replicas` from the Deployment's `last-applied-configuration` annotation before applying, otherwise client-side apply would delete the field and drop to 1 pod. |
 | **Metrics** | kube-prometheus-stack (helm release **`prometheus`** in namespace `monitoring`, chart 84.0.1) runs Prometheus (10d retention), Grafana, and Alertmanager. The Prometheus CR only selects ServiceMonitors/ScrapeConfigs labelled `release: prometheus`. The viewer + plugins-api ServiceMonitors carry that label (they used the stale `kube-prometheus-stack-1768012917` label, and were not scraped, until 2026-10-13). DO Managed Mongo metrics: [`ops/k8s/mongo-metrics/`](../ops/k8s/mongo-metrics/). See [OBSERVABILITY-PLAN.md](OBSERVABILITY-PLAN.md). |
 | **APM / logs** | **OTel Collector DaemonSet** (`otel-collector` in the `remote-falcon` namespace) ships container stdout + service-emitted OTLP signals to PostHog Logs. Manifests live in [`ops/k8s/otel-collector/`](../ops/k8s/otel-collector/); deployed by [`.github/workflows/deploy-collector.yml`](../.github/workflows/deploy-collector.yml). Per-service rollover via `OTEL_URI` env var pointing at `http://otel-collector.remote-falcon.svc.cluster.local:4317` — currently in place for `mongo-backup` and `account-archive` (prepositioned); other services pending their app-side OTel wiring. |
@@ -57,20 +57,13 @@ This is the operator's map of the Remote Falcon stack: every service, what it do
 | **Note** | All third-party keys are **baked into the bundle at image build time** — rotate by re-running the workflow, not by restarting pods. |
 | **⚠ Dead config (verified 2026-04-27)** | `MIXPANEL_KEY`, `GA_TRACKING_ID`, and `CLARITY_PROJECT_ID` are still plumbed through Dockerfile build-args, GH Actions secrets, and `VITE_*` env vars, **but nothing reads them in source**. Only `posthog-js` (`VITE_PUBLIC_POSTHOG_KEY`) is actually wired in `apps/ui/src/`. Removing the dead chain is a no-op simplification, captured in [OBSERVABILITY-PLAN.md](OBSERVABILITY-PLAN.md) Obs-2. `VIEWER_JWT_KEY` is similarly absent from source — verify intent before relying on it. |
 
-### 2. remote-falcon-gateway
+### 2. remote-falcon-gateway (decommissioned)
 | | |
 |---|---|
-| **Purpose** | Spring Cloud Gateway in front of the backend services — routes / filters / rate limits |
-| **Stack** | Spring Cloud Gateway, Java 17 (JVM JAR — the only non-native service) |
-| **Container port** | 8080 |
-| **Replicas** | 2 |
-| **Resources** | req 384Mi / 100m → lim 1250Mi / 1000m (limits untouched — the JVM sizes its heap from the container limit) |
-| **Ingress** | Host `remotefalcon.com`, path prefix `/remote-falcon-gateway` |
-| **Health probe** | `GET /actuator/health` |
-| **Talks to** | Downstream services (config in app properties) |
-| **GH Actions secrets** | `DIGITALOCEAN_ACCESS_TOKEN` |
-| **In-cluster secrets** | none referenced in manifest |
-| **Note** | Bundles the OpenTelemetry Java agent at image build (downloaded from upstream releases). |
+| **Status** | Removed from deploy.yml and its k8s manifest deleted (Nov 2026, Season Prep S8c). Source stays in [`apps/gateway`](../apps/gateway) for reference and the local dev stack. |
+| **Why** | It served 0 requests. Its only routes (`/remote-falcon-gateway/**` with a `Route: Control-Panel` or `Route: Viewer` header) forwarded to `https://remotefalcon.com/remote-falcon-control-panel` and `/remote-falcon-viewer`, i.e. back out through Cloudflare to the same ingress. No client in this repo or the adjacent repos calls `/remote-falcon-gateway`. Removing it frees 2 x 384Mi / 100m of requests. |
+| **Was** | Spring Cloud Gateway, Java 17 JVM JAR, 2 replicas, req 384Mi / 100m, lim 1250Mi / 1000m, ingress host `remotefalcon.com` path prefix `/remote-falcon-gateway`. |
+| **Prod cleanup** | Removing the manifest does not delete the live objects. Once zero traffic is confirmed, delete by hand (never the `remote-falcon` Namespace that the old manifest also declared): `kubectl -n remote-falcon delete ingress,service,pdb,deployment remote-falcon-gateway --ignore-not-found` (the manifest had exactly those four plus the shared Namespace; no HPA). |
 
 ### 3. remote-falcon-control-panel
 | | |
@@ -344,7 +337,7 @@ Empty remote — clones with `warning: You appear to have cloned an empty reposi
 
 | Secret | Repos that need it |
 |---|---|
-| `DIGITALOCEAN_ACCESS_TOKEN` | **all 8** (used to fetch kubeconfig at deploy time) |
+| `DIGITALOCEAN_ACCESS_TOKEN` | **all 7 deployed services** (used to fetch kubeconfig at deploy time) |
 | `MONGO_URI` | viewer, plugins-api, account-archive, mongo-backup |
 | `OTEL_URI` | account-archive, mongo-backup *(viewer / plugins-api hardcode empty)* |
 | `VIEWER_JWT_KEY` | ui |
@@ -389,6 +382,51 @@ Longer term (Appendix D P2-6): mirror images to DOCR, which the cluster can pull
 
 ---
 
+## Season knobs
+
+Every capacity setting that changes with the season, and where to turn it. Profiles live in [`ops/season/profile.conf`](../ops/season/profile.conf) (`off-season`, `season`, `peak`); `ops/season/resolve.sh` turns a profile into per-service values and `ops/season/resolve.test.sh` runs in the `deploy-freeze` job on every PR and push. `off-season` is exactly the sizes deploy.yml hard-coded before the profiles existed.
+
+**Calendar.** `season` is active from R1 (Mon Nov 16). `peak` goes on Mon Dec 14 morning, together with the DB standbys. Back to `season` once peak is over, and `off-season` on Jan 5. The checked-in `active` line is `season`.
+
+**Switching profile.** The file's `active` line is what every deploy uses, push or dispatch. To change profile: edit `active`, merge, then redeploy the services whose rows differ (a profile-only change touches no service path, so the merge itself deploys nothing):
+
+```sh
+gh workflow run deploy.yml --ref main -f service=viewer         # one at a time: deploy.yml cancels queued dispatches
+gh workflow run deploy.yml --ref main -f service=plugins-api
+gh workflow run deploy.yml --ref main -f service=external-api
+cd ops/k8s/ingress-nginx && ./apply.sh && ./apply.sh apply      # ingress is not in CI
+```
+
+`-f profile=<name>` on a dispatch overrides `active` for that run only and logs a warning, because the next deploy without it goes back to `active`. Use it to try a profile, not to run a season on.
+
+| Knob | Where set | off-season | season | peak |
+|---|---|---|---|---|
+| viewer HPA min-max | `profile.conf` -> deploy.yml -> HPA | 2-4 | 2-20 | 4-20 |
+| plugins-api HPA min-max | `profile.conf` -> deploy.yml -> HPA | 2-4 | 3-8 | 3-8 |
+| external-api HPA min-max | `profile.conf` -> deploy.yml -> HPA | 2-4 | 2-6 | 2-6 |
+| control-panel HPA min-max | `profile.conf` -> deploy.yml -> HPA | 2-4 | 2-4 | 2-4 |
+| ui / mongo-backup / account-archive replicas | `profile.conf` -> deploy.yml | 2 / 1 / 1 | same | same |
+| Requests and limits (all services) | `profile.conf` -> deploy.yml | see `profile.conf` | same | same |
+| ingress-nginx controller replicas | `profile.conf` -> `ops/k8s/ingress-nginx/apply.sh` (by hand) | 2 fixed, no HPA | HPA 2-6, CPU 70% | HPA 3-6, CPU 70% |
+| Node pool autoscaler min-max | `doctl kubernetes cluster node-pool update` (by hand) | 3-5 | 3-8 | 3-8 (optional min 5 with the standbys) |
+| DB standbys | DO console / `doctl` (by hand) | none | none | 2 (optional) |
+| control-panel Mongo pool / timeouts | env `RF_MONGO_*` on the Deployment (property `rf.mongo.*`), read at startup | pool 10 (min 2), wait 2s, read 60s, select 3s, connect 3s | same | same |
+| external-api Mongo pool / timeouts | env `RF_MONGO_*` (property `rf.mongo.*`), read at startup | pool 10 (min 2), wait 2s, read 10s, select 3s, connect 3s | same | same |
+| viewer / plugins-api Mongo pool / timeouts | env `QUARKUS_MONGODB_MAX_POOL_SIZE`, `_MIN_POOL_SIZE`, `_READ_TIMEOUT`, `_CONNECT_TIMEOUT`, `_SERVER_SELECTION_TIMEOUT`; pool wait `REMOTEFALCON_MONGODB_WAIT_QUEUE_TIMEOUT` | pool 15 (min 2), wait 1s, read 8s, select 2s, connect 2s | same | same |
+| viewer / plugins-api worker threads | env `QUARKUS_THREAD_POOL_MAX_THREADS` | 48 | same | same |
+
+`RF_MONGO_*` names: `SERVER_SELECTION_TIMEOUT_MS`, `CONNECT_TIMEOUT_MS`, `SOCKET_READ_TIMEOUT_MS`, `MAX_POOL_SIZE`, `MIN_POOL_SIZE`, `MAX_WAIT_TIME_MS` (integers, ms). A bad value (non-number, max pool below 1, min above max) fails startup, so the rollout stops on the old pods.
+
+**Runtime vs build time (native images).** All the env knobs above take effect on a pod restart, no rebuild:
+
+- Spring (control-panel, external-api): `MongoConfig` reads `rf.mongo.*` from the `Environment` inside its unconditional `@Bean`, at runtime. Never gate it with `@Conditional` (native images evaluate conditions at build time, issue #160).
+- Quarkus 3.17.7: `quarkus.mongodb.*` pool and timeout properties belong to `MongodbConfig`, and `quarkus.thread-pool.*` to `ThreadPoolConfig`; both are `@ConfigRoot(phase = RUN_TIME)` (checked in the 3.17.7 jars), so env overrides apply in native. `remotefalcon.mongodb.wait-queue-timeout` is a `@ConfigProperty` read when `MongoClientTuning` is created, also runtime. Build-time fixed, so env does nothing: `quarkus.mongodb.health.enabled` and `quarkus.mongodb.metrics.enabled`.
+- Setting env: add it to the container `env:` in `apps/<svc>/k8s/manifest.yml` (checked in, applied by the next deploy). `kubectl set env` works in an emergency but is a hand change the next deploy does not know about.
+
+**Connection budget.** Every extra pod opens its own pool. At the season and peak maxima (the same ceilings) that is viewer 20 x 15 + plugins-api 8 x 15 + control-panel 4 x 10 + external-api 6 x 10 = 520 connections plus mongo-backup/account-archive. Check that against the DB tier's connection limit before the first `season` deploy (R1), not just before peak, and lower `QUARKUS_MONGODB_MAX_POOL_SIZE` on the viewer if the HPA could exceed it.
+
+---
+
 ## Deploy freeze
 
 US light shows run about 5pm to 2am ET, and the busiest nights are Friday through Sunday from November on. A bad deploy or a mid-show resize during that window is what turned the 2026-10-12 DB stall into an outage (Season Capacity Plan 2026, Appendix D §5).
@@ -397,6 +435,7 @@ US light shows run about 5pm to 2am ET, and the busiest nights are Friday throug
 
 - **Oct 30 through Jan 1:** no deploys from **Fri 3pm ET to Mon 9am ET**.
 - **Nov 26 through Jan 1:** also no deploys **after 3pm ET on any day**.
+- **Dec 18 through Dec 26:** no deploys **at any hour** (holiday full-day freeze).
 - **Hotfixes** go through `workflow_dispatch` with a named reason, viewer/plugins-api only, and never 6pm to 10pm ET.
 - **Never during show hours (5pm to 2am ET), any time of year:** DB or cluster resizes, node-pool changes, DOKS upgrades.
 - Keep the DO Mongo and DOKS maintenance windows out of show hours (target ~10:00 UTC).
@@ -409,7 +448,7 @@ gh workflow run deploy.yml --ref main -f service=<svc>
 
 A merge blocked by the freeze is not retried automatically. Re-dispatch it once the window opens, the same way as any path-gated deploy.
 
-The job also self-tests the window logic on every run (`.github/scripts/deploy-freeze.test.sh`, fixed UTC instants across the DST change). Change the dates in the script's `SEASON_START` / `PEAK_START` / `SEASON_END` and the test together.
+The job also self-tests the window logic on every run (`.github/scripts/deploy-freeze.test.sh`, fixed UTC instants across the DST change and around the holiday window's edges). Every window lives in the `FREEZE_WINDOWS` data block at the top of the script, one line each: kind (`weekend`, `evening` or `allday`), first and last MMDD (inclusive, ET date, may wrap the new year) and a label. Change a date there and the matching tests together.
 
 The season starts Fri Oct 30 so the guard covers Halloween weekend (Sat Oct 31 2026).
 
@@ -433,9 +472,8 @@ Find/replace across all 8 repos when migrating. (Quick command from `~/rf-build`
 
 For a clean cluster, deploy in this order so backends are ready when the UI lands:
 
-1. `remote-falcon-gateway` (routes traffic for everything else)
-2. Backends in any order: `remote-falcon-control-panel`, `remote-falcon-viewer`, `remote-falcon-plugins-api`, `remote-falcon-external-api`, `remote-falcon-mongo-backup`, `remote-falcon-account-archive`
-3. `remote-falcon-ui` (calls into the backends — deploy last so it gets a healthy stack)
+1. Backends in any order: `remote-falcon-control-panel`, `remote-falcon-viewer`, `remote-falcon-plugins-api`, `remote-falcon-external-api`, `remote-falcon-mongo-backup`, `remote-falcon-account-archive`
+2. `remote-falcon-ui` (calls into the backends — deploy last so it gets a healthy stack)
 
 `deploy-all.sh` triggers in this order by default.
 

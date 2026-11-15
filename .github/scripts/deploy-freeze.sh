@@ -5,19 +5,29 @@
 # deploy.yml runs this for push-triggered (merge-to-main) deploys only.
 # workflow_dispatch is the hotfix path and is never blocked here.
 #
-# Frozen windows, all evaluated on the America/New_York wall clock:
-#   1. Oct 30 through Jan 1: Fri 15:00 -> Mon 09:00 (weekend show nights).
-#   2. Nov 26 through Jan 1: every day from 15:00 to midnight.
-# A window is judged by the ET calendar date at the moment of the check, so
-# the weekend that starts Fri Jan 1 ends at Sat Jan 2 00:00 (season over).
-#
 # DEPLOY_FREEZE_NOW=<unix epoch> overrides "now" (tests only).
 # Test: .github/scripts/deploy-freeze.test.sh
 set -euo pipefail
 
-SEASON_START=1030   # MMDD, weekend freeze starts
-PEAK_START=1126     # MMDD, daily 15:00 freeze starts
-SEASON_END=0101     # MMDD, both freezes end after this date (inclusive)
+# ---------------------------------------------------------------------------
+# Freeze calendar. This block is the whole policy; edit dates here only.
+#
+# One window per line: KIND FROM TO DESCRIPTION
+#   FROM/TO  MMDD, inclusive, judged on the America/New_York calendar date at
+#            the moment of the check. A window whose FROM is after its TO
+#            wraps the new year (1030 0101 = Oct 30 through Jan 1).
+#   KIND     weekend  Fri 15:00 to Mon 09:00 ET
+#            evening  every day from 15:00 ET to midnight
+#            allday   all hours
+# Windows are checked in order; the first match names the freeze. Because the
+# date is judged at check time, the weekend that starts Fri Jan 1 ends at
+# Sat Jan 2 00:00 (season over).
+# ---------------------------------------------------------------------------
+FREEZE_WINDOWS='
+allday   1218 1226 holiday full-day freeze
+weekend  1030 0101 weekend show freeze
+evening  1126 0101 peak-season evening freeze
+'
 
 now="${DEPLOY_FREEZE_NOW:-$(date +%s)}"
 
@@ -33,27 +43,46 @@ stamp="$dayname $ymd $clock $zone"
 # Strip leading zeros so 0101/0859 compare as decimals, not octal.
 md=$((10#$mmdd))
 hm=$((10#$hhmm))
-start=$((10#$SEASON_START)); peak=$((10#$PEAK_START)); end=$((10#$SEASON_END))
 
-# Seasons wrap the new year: in season if on/after start OR on/before end.
-in_season=false; in_peak=false
-if (( md >= start || md <= end )); then in_season=true; fi
-if (( md >= peak || md <= end )); then in_peak=true; fi
+# MMDD -> "Mon D" for messages.
+pretty() {
+  local months=(Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec) m d
+  m=$((10#${1:0:2})); d=$((10#${1:2:2}))
+  echo "${months[m-1]} $d"
+}
 
-# %u: 1=Mon ... 5=Fri, 6=Sat, 7=Sun
-weekend=false
-if (( (dow == 5 && hm >= 1500) || dow == 6 || dow == 7 || (dow == 1 && hm < 900) )); then
-  weekend=true
-fi
-evening=false
-if (( hm >= 1500 )); then evening=true; fi
+while read -r kind from to desc; do
+  [[ -z "$kind" ]] && continue
+  start=$((10#$from)); end=$((10#$to))
+  if (( start <= end )); then
+    (( md >= start && md <= end )) || continue
+  else
+    (( md >= start || md <= end )) || continue
+  fi
+  range="$(pretty "$from") to $(pretty "$to")"
+  case "$kind" in
+    allday)
+      echo "FROZEN: $desc (all hours, $range). Now: $stamp"
+      exit 1
+      ;;
+    weekend)
+      # %u: 1=Mon ... 5=Fri, 6=Sat, 7=Sun
+      if (( (dow == 5 && hm >= 1500) || dow == 6 || dow == 7 || (dow == 1 && hm < 900) )); then
+        echo "FROZEN: $desc (Fri 15:00 to Mon 09:00 ET, $range). Now: $stamp"
+        exit 1
+      fi
+      ;;
+    evening)
+      if (( hm >= 1500 )); then
+        echo "FROZEN: $desc (after 15:00 ET daily, $range). Now: $stamp"
+        exit 1
+      fi
+      ;;
+    *)
+      echo "ERROR: unknown freeze window kind '$kind'" >&2
+      exit 2
+      ;;
+  esac
+done <<<"$FREEZE_WINDOWS"
 
-if $in_season && $weekend; then
-  echo "FROZEN: weekend show freeze (Fri 15:00 to Mon 09:00 ET, Oct 30 to Jan 1). Now: $stamp"
-  exit 1
-fi
-if $in_peak && $evening; then
-  echo "FROZEN: peak-season evening freeze (after 15:00 ET daily, Nov 26 to Jan 1). Now: $stamp"
-  exit 1
-fi
 echo "OPEN: no deploy freeze in effect. Now: $stamp"

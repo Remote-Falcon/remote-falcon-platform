@@ -1,6 +1,6 @@
 name: Deploy
 
-# One workflow for all 8 services. detect decides which services changed (or
+# One workflow for all 7 services. detect decides which services changed (or
 # which the user picked via workflow_dispatch). The build job then runs the
 # docker builds in a matrix IN PARALLEL with the test gates, and the deploy
 # job just rolls out the already-pushed images. A trailing post-deploy-watch
@@ -67,13 +67,22 @@ on:
         options:
           - all
           - ui
-          - gateway
           - control-panel
           - viewer
           - plugins-api
           - external-api
           - mongo-backup
           - account-archive
+      profile:
+        description: "Season profile from ops/season/profile.conf (active = the file's active line). Prefer changing the active line so later deploys keep the same sizes."
+        type: choice
+        required: false
+        default: active
+        options:
+          - active
+          - off-season
+          - season
+          - peak
       dry_run:
         description: "Dry run: build + push images, skip cluster apply"
         type: boolean
@@ -121,12 +130,19 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          sparse-checkout: .github/scripts
+          sparse-checkout: |
+            .github/scripts
+            ops/season
       # Skipped on workflow_dispatch so a broken self-test (tzdata, date(1)
       # drift) can never block the hotfix path.
       - name: Self-test freeze windows
         if: github.event_name != 'workflow_dispatch'
         run: bash .github/scripts/deploy-freeze.test.sh
+      # Season profile resolver + the checked-in profile.conf. Runs on PRs so
+      # a bad profile edit fails before merge, not in the deploy job.
+      - name: Self-test season profiles
+        if: github.event_name != 'workflow_dispatch'
+        run: bash ops/season/resolve.test.sh
       - name: Refuse merge-triggered deploys during a freeze
         if: github.event_name == 'push'
         run: |
@@ -156,7 +172,6 @@ jobs:
           # just stay simple positive patterns.
           filters: |
             ui: ['apps/ui/**']
-            gateway: ['apps/gateway/**']
             control-panel: ['apps/control-panel/**', 'libs/schema/**', 'libs/auth/**']
             viewer: ['apps/viewer/**', 'libs/schema/**']
             plugins-api: ['apps/plugins-api/**', 'libs/schema/**']
@@ -173,7 +188,7 @@ jobs:
           set -euo pipefail
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
             if [[ "$INPUT_SERVICE" == "all" ]]; then
-              services='["ui","gateway","control-panel","viewer","plugins-api","external-api","mongo-backup","account-archive"]'
+              services='["ui","control-panel","viewer","plugins-api","external-api","mongo-backup","account-archive"]'
             else
               services="[\"$INPUT_SERVICE\"]"
             fi
@@ -336,7 +351,7 @@ jobs:
               context="."
               dockerfile="apps/$SERVICE/Dockerfile"
               ;;
-            ui|gateway|mongo-backup)
+            ui|mongo-backup)
               context="apps/$SERVICE"
               dockerfile="Dockerfile"
               ;;
@@ -395,19 +410,6 @@ jobs:
             SWAP_CP=false
             VIEWER_PAGE_SUBDOMAIN=
             SOCIAL_META=<meta property='og:type' content='website'/><meta property='og:url' content='https://remotefalcon.com/'/><meta property='og:title' content='Remote Falcon'/><meta property='og:description' content='Create a custom website where viewers can request or vote for sequences to watch on your light show.'/><meta property='og:image' content='https://remotefalcon.com/jukebox.png'/>
-
-      - name: Build and push (gateway)
-        if: matrix.service == 'gateway'
-        uses: docker/build-push-action@v6
-        with:
-          context: ${{ steps.cfg.outputs.context }}
-          file: ${{ steps.cfg.outputs.context }}/${{ steps.cfg.outputs.dockerfile }}
-          push: true
-          tags: ${{ steps.cfg.outputs.image }}
-          cache-from: ${{ steps.cfg.outputs.cache_from }}
-          cache-to: ${{ steps.cfg.outputs.cache_to }}
-          build-args: |
-            OTEL_OPTS=
 
       - name: Build and push (native services)
         if: contains(fromJSON('["control-panel","external-api","viewer","plugins-api","mongo-backup","account-archive"]'), matrix.service)
@@ -473,57 +475,40 @@ jobs:
           SERVICE: ${{ matrix.service }}
           OWNER: ${{ github.repository_owner }}
           SHA: ${{ github.sha }}
+          PROFILE_INPUT: ${{ inputs.profile }}
         run: |
           set -euo pipefail
           owner_lc=$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')
           image="${REGISTRY}/${owner_lc}/remote-falcon-${SERVICE}:${SHA}"
 
-          # Per-service replicas + resources (re-sized 2026-08-22 from live
-          # usage: requests were legacy values from each repo's original
-          # build-and-release.yml and booked 3-8x what the pods actually use,
-          # which is what filled the nodes' request ledger). Limits are the
-          # safety ceiling and are mostly untouched — the JVM services derive
-          # their heap from the container LIMIT, so shrinking a limit is a
-          # heap cut, not a booking change. Tokens not referenced by a given
-          # service's manifest are simply ignored by replace-tokens, so we
-          # set a superset here.
+          # Per-service replicas, HPA bounds, requests and limits come from
+          # the season profile in ops/season/profile.conf (sizing history
+          # there; policy in docs/SERVICES.md "Season knobs"). A dispatch run
+          # can pick a profile; push runs use the file's `active` line.
+          # Tokens not referenced by a given service's manifest are ignored by
+          # replace-tokens, so every key is always emitted.
           #
           # HPA-managed services (control-panel, external-api, viewer,
           # plugins-api) have NO `replicas:` in their Deployment manifest, so
-          # `replicas` below is unused for them and the HPA alone owns the
-          # count (Appendix D P0-3: the old `replicas: #{Replicas.Min}#` made
-          # every apply snap a scaled-out Deployment back to the minimum).
-          # Only replicas_min/replicas_max reach their HPA.
-          #
-          # viewer + plugins-api (Appendix D P0-4 / P1-3, 2026-10-13): floor 2
-          # so one pod loss or node drain never leaves zero; max 4 bounded by
-          # the Mongo connection budget (4 pods x 15 pooled conns each, once
-          # P0-2's pool caps are in). CPU requests raised so the 85% target
-          # sits above normal show-night load (7-day p95/max per pod from
-          # Prometheus: plugins-api 132m/188m, viewer 69m/84m; at the old
-          # 200m/100m requests the targets were 170m/85m, i.e. at steady state).
-          case "$SERVICE" in
-            ui)              replicas=2; replicas_min=2; replicas_max=2; req_mem=64Mi;   req_cpu=20m;  lim_mem=128Mi;  lim_cpu=100m  ;;
-            gateway)         replicas=2; replicas_min=2; replicas_max=2; req_mem=384Mi;  req_cpu=100m; lim_mem=1250Mi; lim_cpu=1000m ;;
-            control-panel)   replicas=2; replicas_min=2; replicas_max=4; req_mem=256Mi;  req_cpu=200m; lim_mem=512Mi;  lim_cpu=500m  ;;
-            viewer)          replicas=2; replicas_min=2; replicas_max=4; req_mem=160Mi;  req_cpu=150m; lim_mem=320Mi;  lim_cpu=500m  ;;
-            plugins-api)     replicas=2; replicas_min=2; replicas_max=4; req_mem=192Mi;  req_cpu=250m; lim_mem=384Mi;  lim_cpu=750m  ;;
-            external-api)    replicas=2; replicas_min=2; replicas_max=4; req_mem=256Mi;  req_cpu=100m; lim_mem=512Mi;  lim_cpu=500m  ;;
-            mongo-backup)    replicas=1; replicas_min=1; replicas_max=1; req_mem=128Mi;  req_cpu=25m;  lim_mem=750Mi;  lim_cpu=200m  ;;
-            account-archive) replicas=1; replicas_min=1; replicas_max=1; req_mem=64Mi;   req_cpu=10m;  lim_mem=384Mi;  lim_cpu=100m  ;;
-          esac
+          # `replicas` is unused for them and the HPA alone owns the count
+          # (Appendix D P0-3: the old `replicas: #{Replicas.Min}#` made every
+          # apply snap a scaled-out Deployment back to the minimum). Only
+          # replicas_min/replicas_max reach their HPA.
+          active=$(bash ops/season/resolve.sh --active)
+          profile="${PROFILE_INPUT:-active}"
+          [ "$profile" = "active" ] && profile="$active"
+          if [ "$profile" != "$active" ]; then
+            echo "::warning::$SERVICE: deploying with season profile '$profile' but profile.conf's active line is '$active'. The next deploy without -f profile=$profile reverts these sizes."
+          fi
+          sizes=$(bash ops/season/resolve.sh -p "$profile" "$SERVICE")
+          echo "::notice::$SERVICE: season profile $profile: $(echo "$sizes" | tr '\n' ' ')"
 
           {
             echo "image=$image"
             echo "manifest=apps/$SERVICE/k8s/manifest.yml"
             echo "deployment=remote-falcon-$SERVICE"
-            echo "replicas=$replicas"
-            echo "replicas_min=$replicas_min"
-            echo "replicas_max=$replicas_max"
-            echo "req_mem=$req_mem"
-            echo "req_cpu=$req_cpu"
-            echo "lim_mem=$lim_mem"
-            echo "lim_cpu=$lim_cpu"
+            echo "profile=$profile"
+            echo "$sizes"
           } >> "$GITHUB_OUTPUT"
 
       # -----------------------------------------------------------
