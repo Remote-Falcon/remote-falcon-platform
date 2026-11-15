@@ -25,6 +25,7 @@ import { GET_ACTIVE_VIEWER_PAGE, GET_SHOW_FOR_VIEWER, VOTES_REMAINING } from '..
 import { orderSequencesByCategory } from './helpers/categoryOrder';
 import { hasPlayingSlots, jukeboxQueueElements, playingSequenceElement } from './helpers/nowPlaying';
 import { isSequenceUnavailable as checkSequenceUnavailable } from './helpers/sequenceAvailability';
+import { SEQUENCE_ROW_FOCUS_DEFAULT_CSS, sequenceRowControlProps } from './helpers/sequenceRowControl';
 import { UNAVAILABLE_HINT_DEFAULT_CSS, sequenceRowContent, unavailableRowProps } from './helpers/unavailableRow';
 import { readUtmParams, stripUtmFromAddressBar } from './helpers/utmParams';
 import LocationRecoveryControl from './LocationRecoveryControl';
@@ -656,9 +657,11 @@ const ExternalViewerPage = () => {
                 <>
                   <div
                     {...unavailableRowProps(votingListClassname, sequence, isSequenceUnavailable(sequence))}
-                    onClick={(e) =>
-                      show?.preferences?.viewerPageViewOnly || isSequenceUnavailable(sequence) ? _.noop() : voteForSequence(e)
-                    }
+                    {...sequenceRowControlProps({
+                      onActivate: voteForSequence,
+                      viewOnly: show?.preferences?.viewerPageViewOnly,
+                      unavailable: isSequenceUnavailable(sequence)
+                    })}
                     data-key={sequence.name}
                     data-key-2={sequence.displayName}
                   >
@@ -707,11 +710,11 @@ const ExternalViewerPage = () => {
                             categorizedSequence,
                             isSequenceUnavailable(categorizedSequence)
                           )}
-                          onClick={(e) =>
-                            show?.preferences?.viewerPageViewOnly || isSequenceUnavailable(categorizedSequence)
-                              ? _.noop()
-                              : voteForSequence(e)
-                          }
+                          {...sequenceRowControlProps({
+                            onActivate: voteForSequence,
+                            viewOnly: show?.preferences?.viewerPageViewOnly,
+                            unavailable: isSequenceUnavailable(categorizedSequence)
+                          })}
                           data-key={categorizedSequence.name}
                         >
                           {sequenceRowContent({
@@ -752,9 +755,11 @@ const ExternalViewerPage = () => {
               <>
                 <div
                   {...unavailableRowProps(jukeboxListClassname, sequence, isSequenceUnavailable(sequence))}
-                  onClick={(e) =>
-                    show?.preferences?.viewerPageViewOnly || isSequenceUnavailable(sequence) ? _.noop() : addSequenceToQueue(e)
-                  }
+                  {...sequenceRowControlProps({
+                    onActivate: addSequenceToQueue,
+                    viewOnly: show?.preferences?.viewerPageViewOnly,
+                    unavailable: isSequenceUnavailable(sequence)
+                  })}
                   data-key={sequence.name}
                   data-key-2={sequence.displayName}
                 >
@@ -786,11 +791,11 @@ const ExternalViewerPage = () => {
                           categorizedSequence,
                           isSequenceUnavailable(categorizedSequence)
                         )}
-                        onClick={(e) =>
-                          show?.preferences?.viewerPageViewOnly || isSequenceUnavailable(categorizedSequence)
-                            ? _.noop()
-                            : addSequenceToQueue(e)
-                        }
+                        {...sequenceRowControlProps({
+                          onActivate: addSequenceToQueue,
+                          viewOnly: show?.preferences?.viewerPageViewOnly,
+                          unavailable: isSequenceUnavailable(categorizedSequence)
+                        })}
                         data-key={categorizedSequence.name}
                       >
                         {sequenceRowContent({
@@ -1195,6 +1200,7 @@ const ExternalViewerPage = () => {
                 text-align: inherit;
               }
               ${UNAVAILABLE_HINT_DEFAULT_CSS}
+              ${SEQUENCE_ROW_FOCUS_DEFAULT_CSS}
             `}
           </style>
           <title>{show?.preferences?.pageTitle}</title>
