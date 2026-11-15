@@ -102,10 +102,13 @@ const ViewerPage = () => {
       const templates = await getRemoteViewerPageTemplatesFromGithubService();
       dispatch(setRemoteViewerPageTemplates({ ...templates }));
     } catch (err) {
-      trackPosthogEvent('viewer_page_templates_fetch_failed', {
-        error: err?.message,
-        operation: 'fetch_remote_templates'
-      });
+      // The service already reports its own fetch failures.
+      if (!err?.reported) {
+        trackPosthogEvent('viewer_page_templates_fetch_failed', {
+          error: err?.message,
+          operation: 'fetch_remote_templates'
+        });
+      }
       // Non-fatal: user can still create from the blank starter
     }
     setTemplatesLoading(false);
