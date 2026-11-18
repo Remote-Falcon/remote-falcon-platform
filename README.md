@@ -16,7 +16,7 @@ Monorepo for the Remote Falcon platform — the show-owner control panel, the pu
 | Service | Stack | Purpose |
 |---|---|---|
 | [`apps/ui`](apps/ui) | Vite + React | Frontend SPA — control panel + per-show viewer pages |
-| [`apps/gateway`](apps/gateway) | Spring Cloud Gateway (JVM JAR) | Path routing + filters in front of every backend |
+| [`apps/gateway`](apps/gateway) | Spring Cloud Gateway (JVM JAR) | **Decommissioned Nov 2026** (not deployed; source kept for reference and the local dev stack). See docs/SERVICES.md |
 | [`apps/control-panel`](apps/control-panel) | Spring Boot 3 native | Authenticated REST + GraphQL for show owners |
 | [`apps/viewer`](apps/viewer) | Quarkus native | Public viewer-facing API — request, vote, page stats |
 | [`apps/plugins-api`](apps/plugins-api) | Quarkus native | API consumed by the FPP plugin on customer controllers |

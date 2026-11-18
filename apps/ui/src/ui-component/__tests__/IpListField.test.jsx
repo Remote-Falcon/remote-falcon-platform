@@ -65,6 +65,29 @@ describe('IpListField', () => {
     expect(onChange).toHaveBeenCalledWith(['10.0.0.1']);
   });
 
+  // #181: an entry stored before entry-time validation existed (or posted
+  // straight to the API) arrives as a value, not through typing. The server
+  // drops it on the next save, so say so up front instead of letting the list
+  // quietly shrink.
+  it('flags stored entries that will not be saved', () => {
+    render(<IpListField value={['10.0.0.1', '192.168.1.*']} onChange={vi.fn()} />);
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent(/1 IP entry will not be saved: 192\.168\.1\.\*/);
+    expect(alert).toHaveTextContent(/CIDR block/);
+  });
+
+  it('keeps a stored unusable entry flagged when a new one is added', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<IpListField value={['192.168.1.*']} onChange={onChange} />);
+
+    await type(user, '10.0.0.1');
+    // Not reported as "Not added": the operator didn't just type it. It stays
+    // in the list so the save can report it, rather than vanishing here.
+    expect(onChange).toHaveBeenCalledWith(['192.168.1.*', '10.0.0.1']);
+    expect(screen.queryByText(/Not added/i)).not.toBeInTheDocument();
+  });
+
   it('shows no error for a clean field', () => {
     render(<IpListField value={['10.0.0.1']} onChange={vi.fn()} />);
     expect(screen.queryByText(/Not added/i)).not.toBeInTheDocument();

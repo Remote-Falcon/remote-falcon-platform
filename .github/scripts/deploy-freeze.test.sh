@@ -18,14 +18,19 @@ epoch() {
 }
 
 pass=0; fail=0
+# check UTC WANT LABEL [REASON]: REASON, when given, must appear in the
+# guard's output (proves which window fired, not just that one did).
 check() {
-  local utc="$1" want="$2" label="$3" out rc
+  local utc="$1" want="$2" label="$3" reason="${4:-}" out rc
   set +e
   out=$(DEPLOY_FREEZE_NOW="$(epoch "$utc")" bash "$guard")
   rc=$?
   set -e
   local got=open; (( rc == 1 )) && got=frozen
   if (( rc > 1 )); then got="error($rc)"; fi
+  if [[ -n "$reason" && "$got" == "$want" && "$out" != *"$reason"* ]]; then
+    got="$got(reason missing: $reason)"
+  fi
   if [[ "$got" == "$want" ]]; then
     pass=$((pass + 1)); printf 'ok    %-7s %s  %s\n' "$want" "$utc" "$label"
   else
@@ -53,6 +58,18 @@ check 2026-11-26T19:59:00Z open   "Thu Nov 26 14:59 EST"
 check 2026-11-26T20:00:00Z frozen "Thu Nov 26 15:00 EST, peak evening freeze"
 check 2026-12-15T03:00:00Z frozen "Mon Dec 14 22:00 EST (Tue in UTC)"
 check 2026-12-15T15:00:00Z open   "Tue Dec 15 10:00 EST"
+# Holiday full-day freeze, Dec 18-26 (all hours). Dec 2026: Thu 17, Fri 18,
+# Sun 20, Tue 22, Sat 26, Sun 27, Mon 28.
+check 2026-12-17T17:00:00Z open   "Thu Dec 17 12:00 EST, day before the holiday freeze"
+check 2026-12-18T04:59:00Z frozen "Thu Dec 17 23:59 EST, evening freeze not holiday" "evening"
+check 2026-12-18T05:00:00Z frozen "Fri Dec 18 00:00 EST, holiday freeze starts" "holiday"
+check 2026-12-18T15:00:00Z frozen "Fri Dec 18 10:00 EST, weekday morning" "holiday"
+check 2026-12-20T17:00:00Z frozen "Sun Dec 20 12:00 EST, holiday freeze" "holiday"
+check 2026-12-22T17:00:00Z frozen "Tue Dec 22 12:00 EST, weekday midday" "holiday"
+check 2026-12-27T04:59:00Z frozen "Sat Dec 26 23:59 EST, last holiday minute" "holiday"
+check 2026-12-27T17:00:00Z frozen "Sun Dec 27 12:00 EST, weekend freeze again" "weekend"
+check 2026-12-28T13:59:00Z frozen "Mon Dec 28 08:59 EST, weekend freeze tail" "weekend"
+check 2026-12-28T17:00:00Z open   "Mon Dec 28 12:00 EST, after the holiday freeze"
 check 2026-12-31T16:00:00Z open   "Thu Dec 31 11:00 EST"
 check 2027-01-01T20:00:00Z frozen "Fri Jan 1 15:00 EST, last season day"
 check 2027-01-02T15:00:00Z open   "Sat Jan 2 10:00 EST, season over"

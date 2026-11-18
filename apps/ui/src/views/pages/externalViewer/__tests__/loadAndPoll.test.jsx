@@ -139,6 +139,49 @@ describe('viewer page load/poll loop', () => {
     second.unmount();
   });
 
+  // #206: loading mid-song used to show 0:00 until the next song started.
+  it('counts down {NOW_PLAYING_TIMER} from the song duration when the page loads mid-song', async () => {
+    const playing = { name: 'linus', displayName: 'Linus', duration: 169 };
+    getShowImpl = () =>
+      ok({
+        getShow: {
+          ...SHOW,
+          playingNow: 'Linus',
+          playingNowSequence: playing,
+          preferences: { ...SHOW.preferences, viewerControlEnabled: true }
+        }
+      });
+    activePageImpl = () => ok({ getActiveViewerPage: '<div><span data-testid="timer">{NOW_PLAYING_TIMER}</span></div>' });
+    const { unmount } = await renderPage();
+
+    await waitFor(() => expect(screen.getByTestId('timer')).toHaveTextContent(/^0?2:4\d$/));
+    expect(screen.getByTestId('timer')).not.toHaveTextContent('0:00');
+    unmount();
+  });
+
+  // #179: rows rendered into {PLAYLISTS} are keyboard-operable buttons and keep
+  // the class names templates style.
+  it('renders song rows as focusable buttons with their template classes', async () => {
+    const sequences = [
+      { name: 'linus', displayName: 'Linus', artist: 'VG', index: 1, order: 1, visible: true, category: '', duration: 60 },
+      { name: 'tune', displayName: 'Tune', artist: 'X', index: 2, order: 2, visible: true, category: 'Classic', duration: 60 }
+    ];
+    getShowImpl = () =>
+      ok({
+        getShow: { ...SHOW, sequences, preferences: { ...SHOW.preferences, viewerControlEnabled: true } }
+      });
+    activePageImpl = () => ok({ getActiveViewerPage: '<div><div>{PLAYLISTS}</div></div>' });
+    const { unmount } = await renderPage();
+
+    await waitFor(() => expect(screen.getAllByRole('button')).toHaveLength(2));
+    const [linus, tune] = screen.getAllByRole('button');
+    expect(linus).toHaveClass('jukebox-list', 'jukebox-list-1');
+    expect(linus).toHaveAttribute('tabindex', '0');
+    expect(linus).toHaveAttribute('data-key', 'linus');
+    expect(tune).toHaveClass('jukebox-list', 'jukebox-list-2');
+    unmount();
+  });
+
   it('stops polling while the tab is hidden', async () => {
     const { unmount } = await renderPage();
     await waitFor(() => expect(calls.activePage).toBe(1));

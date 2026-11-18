@@ -23,8 +23,9 @@ import { LocationCheckMethod, ViewerControlMode } from '../../../utils/enum';
 import { ADD_SEQUENCE_TO_QUEUE, INSERT_VIEWER_PAGE_STATS, VOTE_FOR_SEQUENCE } from '../../../utils/graphql/viewer/mutations';
 import { GET_ACTIVE_VIEWER_PAGE, GET_SHOW_FOR_VIEWER, VOTES_REMAINING } from '../../../utils/graphql/viewer/queries';
 import { orderSequencesByCategory } from './helpers/categoryOrder';
-import { jukeboxQueueElements, playingSequenceElement } from './helpers/nowPlaying';
+import { hasPlayingSlots, jukeboxQueueElements, playingSequenceElement } from './helpers/nowPlaying';
 import { isSequenceUnavailable as checkSequenceUnavailable } from './helpers/sequenceAvailability';
+import { SEQUENCE_ROW_FOCUS_DEFAULT_CSS, sequenceRowControlProps } from './helpers/sequenceRowControl';
 import { UNAVAILABLE_HINT_DEFAULT_CSS, sequenceRowContent, unavailableRowProps } from './helpers/unavailableRow';
 import { readUtmParams, stripUtmFromAddressBar } from './helpers/utmParams';
 import LocationRecoveryControl from './LocationRecoveryControl';
@@ -34,6 +35,7 @@ import { LocationPermission, acquireViewerLocation, clientClassFromUserAgent } f
 import {
   defaultProcessingInstructions,
   injectInlineRetryLocationToken,
+  initialNowPlayingState,
   injectRetryLocationToken,
   nextNowPlayingState,
   processingInstructions,
@@ -591,7 +593,6 @@ const ExternalViewerPage = () => {
 
     let playingNow = <>{show?.playingNow}</>;
     let playingNext = <>{show?.playingNext}</>;
-    let buildPlayingSlots = false;
     let buildJukeboxQueue = false;
 
     // #73 — a sequence the viewer can't currently request/vote on (on the
@@ -652,15 +653,15 @@ const ExternalViewerPage = () => {
               const votingListClassname = `cell-vote-playlist cell-vote-playlist-${sequence.index}`;
               const votingListArtistClassname = `cell-vote-playlist-artist cell-vote-playlist-artist-${sequence.index}`;
 
-              buildPlayingSlots = true;
-
               sequencesElement.push(
                 <>
                   <div
                     {...unavailableRowProps(votingListClassname, sequence, isSequenceUnavailable(sequence))}
-                    onClick={(e) =>
-                      show?.preferences?.viewerPageViewOnly || isSequenceUnavailable(sequence) ? _.noop() : voteForSequence(e)
-                    }
+                    {...sequenceRowControlProps({
+                      onActivate: voteForSequence,
+                      viewOnly: show?.preferences?.viewerPageViewOnly,
+                      unavailable: isSequenceUnavailable(sequence)
+                    })}
                     data-key={sequence.name}
                     data-key-2={sequence.displayName}
                   >
@@ -709,11 +710,11 @@ const ExternalViewerPage = () => {
                             categorizedSequence,
                             isSequenceUnavailable(categorizedSequence)
                           )}
-                          onClick={(e) =>
-                            show?.preferences?.viewerPageViewOnly || isSequenceUnavailable(categorizedSequence)
-                              ? _.noop()
-                              : voteForSequence(e)
-                          }
+                          {...sequenceRowControlProps({
+                            onActivate: voteForSequence,
+                            viewOnly: show?.preferences?.viewerPageViewOnly,
+                            unavailable: isSequenceUnavailable(categorizedSequence)
+                          })}
                           data-key={categorizedSequence.name}
                         >
                           {sequenceRowContent({
@@ -747,7 +748,6 @@ const ExternalViewerPage = () => {
           const jukeboxListClassname = `jukebox-list jukebox-list-${sequence.index}`;
           const jukeboxListArtistClassname = `jukebox-list-artist jukebox-list-artist-${sequence.index}`;
 
-          buildPlayingSlots = true;
           buildJukeboxQueue = true;
 
           if (sequence.category == null || sequence.category === '') {
@@ -755,9 +755,11 @@ const ExternalViewerPage = () => {
               <>
                 <div
                   {...unavailableRowProps(jukeboxListClassname, sequence, isSequenceUnavailable(sequence))}
-                  onClick={(e) =>
-                    show?.preferences?.viewerPageViewOnly || isSequenceUnavailable(sequence) ? _.noop() : addSequenceToQueue(e)
-                  }
+                  {...sequenceRowControlProps({
+                    onActivate: addSequenceToQueue,
+                    viewOnly: show?.preferences?.viewerPageViewOnly,
+                    unavailable: isSequenceUnavailable(sequence)
+                  })}
                   data-key={sequence.name}
                   data-key-2={sequence.displayName}
                 >
@@ -789,11 +791,11 @@ const ExternalViewerPage = () => {
                           categorizedSequence,
                           isSequenceUnavailable(categorizedSequence)
                         )}
-                        onClick={(e) =>
-                          show?.preferences?.viewerPageViewOnly || isSequenceUnavailable(categorizedSequence)
-                            ? _.noop()
-                            : addSequenceToQueue(e)
-                        }
+                        {...sequenceRowControlProps({
+                          onActivate: addSequenceToQueue,
+                          viewOnly: show?.preferences?.viewerPageViewOnly,
+                          unavailable: isSequenceUnavailable(categorizedSequence)
+                        })}
                         data-key={categorizedSequence.name}
                       >
                         {sequenceRowContent({
@@ -824,12 +826,10 @@ const ExternalViewerPage = () => {
     });
 
     // #188: built once, after the list loop, and keyed by each song's own
-    // index. The flags keep the old gating: the slots were only ever filled
-    // from inside the loop (voting: an uncategorized visible sequence;
-    // jukebox: any visible sequence), so an empty list still falls back to
-    // the plain playingNow / playingNext text.
+    // index. Any visible sequence, categorized or not, fills the slots; an
+    // empty list still falls back to the plain playingNow / playingNext text.
     const viewerControlMode = show?.preferences?.viewerControlMode;
-    if (buildPlayingSlots) {
+    if (hasPlayingSlots(viewerControlMode, show?.sequences)) {
       if (show?.playingNowSequence != null) {
         playingNow = playingSequenceElement(viewerControlMode, show?.playingNowSequence);
       }
@@ -1016,7 +1016,10 @@ const ExternalViewerPage = () => {
       if (showData?.playingNext === '') {
         showData.playingNext = showData?.playingNextFromSchedule;
       }
-      setNowPlaying(showData?.playingNow);
+      // #206 - seed the timer with the song, or it sits at 0:00 until the next one.
+      const initialNowPlaying = initialNowPlayingState(showData);
+      setNowPlaying(initialNowPlaying.nowPlaying);
+      setNowPlayingTimer(initialNowPlaying.nowPlayingTimer);
       if (showData?.preferences?.viewerControlMode === ViewerControlMode.VOTING) {
         orderSequencesForVoting(showData);
       }
@@ -1197,6 +1200,7 @@ const ExternalViewerPage = () => {
                 text-align: inherit;
               }
               ${UNAVAILABLE_HINT_DEFAULT_CSS}
+              ${SEQUENCE_ROW_FOCUS_DEFAULT_CSS}
             `}
           </style>
           <title>{show?.preferences?.pageTitle}</title>

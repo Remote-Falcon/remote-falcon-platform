@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import { nextNowPlayingState } from '../helpers';
+import { initialNowPlayingState, nextNowPlayingState } from '../helpers';
 
 // The viewer's {NOW_PLAYING_TIMER} is a 1Hz client-side countdown. The old
 // implementation ran two independent `if` blocks per tick (reset + decrement);
@@ -79,5 +79,39 @@ describe('nextNowPlayingState', () => {
         { playingNow: 'Blip', playingNowSequence: seq('Blip', 1) }
       ).nowPlayingTimer
     ).toBe(0);
+  });
+});
+
+// #206: a viewer who opened or refreshed the page mid-song saw 0:00 until the
+// next song. The page seeded nowPlaying from the first getShow but left the
+// timer at 0, so every later tick took the "same song" branch and decremented
+// a 0. The server sends no start time, so the best the page can do is start
+// from the song's duration, the same as on a song change.
+describe('initialNowPlayingState', () => {
+  it('seeds the timer from the playing song duration on page load', () => {
+    expect(initialNowPlayingState({ playingNow: 'Linus', playingNowSequence: seq('Linus', 169) })).toEqual({
+      nowPlaying: 'Linus',
+      nowPlayingTimer: 167,
+    });
+  });
+
+  it('falls back to the sequences list when playingNowSequence is absent', () => {
+    expect(initialNowPlayingState({ playingNow: 'Tune', sequences: [seq('Tune', 50)] })).toEqual({
+      nowPlaying: 'Tune',
+      nowPlayingTimer: 48,
+    });
+  });
+
+  it('starts empty when nothing is playing', () => {
+    expect(initialNowPlayingState({ playingNow: '' })).toEqual({ nowPlaying: '', nowPlayingTimer: 0 });
+    expect(initialNowPlayingState(undefined)).toEqual({ nowPlaying: '', nowPlayingTimer: 0 });
+  });
+
+  it('keeps counting down on the next tick instead of sticking at 0', () => {
+    const show = { playingNow: 'Linus', playingNowSequence: seq('Linus', 169) };
+    expect(nextNowPlayingState(initialNowPlayingState(show), show)).toEqual({
+      nowPlaying: 'Linus',
+      nowPlayingTimer: 166,
+    });
   });
 });

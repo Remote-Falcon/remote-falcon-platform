@@ -37,6 +37,8 @@ import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
@@ -44,6 +46,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 
@@ -1599,5 +1602,92 @@ class GraphQLMutationServiceTest {
         assertThat(show.getShowNotifications()).hasSize(1);
         assertThat(show.getShowNotifications().get(0).getNotification().getType())
                 .isEqualTo(NotificationType.FPP_HEALTH);
+    }
+
+    // ---- updatePreferences (#181: unusable IP rules are dropped, but visibly) ----
+
+    private static LinkedHashSet<String> ips(String... values) {
+        return new LinkedHashSet<>(java.util.Arrays.asList(values));
+    }
+
+    private void stubShowForIpRules() {
+        stubAuth();
+        Show show = Show.builder().showToken(SHOW_TOKEN).showSubdomain("holtzlights")
+                .preferences(Preference.builder().viewerControlEnabled(false).build())
+                .build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+    }
+
+    @Test
+    void updatePreferences_keepsUsableIpRules_andDropsUnusableOnes() {
+        stubShowForIpRules();
+        Preference prefs = Preference.builder().viewerControlEnabled(false)
+                .blockedViewerIps(ips("10.0.0.1", "192.168.1.*", "203.0.113.0/24"))
+                .votingExemptIps(ips("10.0.0.1-10.0.0.50", "my office"))
+                .statsExcludedIps(ips(" 2001:db8::1 "))
+                .build();
+
+        service.updatePreferences(prefs);
+
+        assertThat(prefs.getBlockedViewerIps()).containsExactly("10.0.0.1", "203.0.113.0/24");
+        assertThat(prefs.getVotingExemptIps()).containsExactly("10.0.0.1-10.0.0.50");
+        assertThat(prefs.getStatsExcludedIps()).containsExactly("2001:db8::1");
+    }
+
+    @Test
+    void updatePreferences_keepsNullIpListsNull_andEmptyListsEmpty() {
+        stubShowForIpRules();
+        Preference prefs = Preference.builder().viewerControlEnabled(false)
+                .blockedViewerIps(null)
+                .votingExemptIps(ips())
+                .build();
+
+        service.updatePreferences(prefs);
+
+        assertThat(prefs.getBlockedViewerIps()).isNull();
+        assertThat(prefs.getVotingExemptIps()).isEmpty();
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void updatePreferences_logsOneWarnPerList_namingShowAndRejectedEntries(CapturedOutput out) {
+        stubShowForIpRules();
+        Preference prefs = Preference.builder().viewerControlEnabled(false)
+                .blockedViewerIps(ips("10.0.0.1", "192.168.1.*", "999.1.1.1"))
+                .statsExcludedIps(ips("10.0.0.2"))
+                .build();
+
+        service.updatePreferences(prefs);
+
+        assertThat(out.getOut()).contains("ip_rules_dropped")
+                .contains("show=holtzlights")
+                .contains("field=blockedViewerIps")
+                .contains("count=2")
+                .contains("192.168.1.*")
+                .contains("999.1.1.1");
+        // Nothing dropped from the other lists, so nothing logged for them.
+        assertThat(out.getOut()).doesNotContain("field=statsExcludedIps");
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void updatePreferences_doesNotLog_whenEveryIpRuleIsUsable(CapturedOutput out) {
+        stubShowForIpRules();
+        service.updatePreferences(Preference.builder().viewerControlEnabled(false)
+                .blockedViewerIps(ips("10.0.0.1", "203.0.113.0/24")).build());
+
+        assertThat(out.getOut()).doesNotContain("ip_rules_dropped");
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void updatePreferences_neutralisesControlCharactersInLoggedEntries(CapturedOutput out) {
+        // The API is reachable directly with a bearer token, so a rejected
+        // entry is attacker-controlled text. It must not forge log lines.
+        stubShowForIpRules();
+        service.updatePreferences(Preference.builder().viewerControlEnabled(false)
+                .blockedViewerIps(ips("bad\nFAKE level=ERROR")).build());
+
+        assertThat(out.getOut()).contains("ip_rules_dropped").doesNotContain("bad\nFAKE");
     }
 }

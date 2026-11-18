@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest';
 
-import { classifyIpEntry, isValidIpEntry, partitionIpEntries } from '../ipEntry';
+import {
+  classifyIpEntry,
+  describeRejectedIpEntries,
+  isValidIpEntry,
+  partitionIpEntries,
+  stripUnusableIpRules
+} from '../ipEntry';
 
 // The reported bug (#175) was silent acceptance: an operator entered a CIDR
 // block, the field saved it without complaint, and nothing was ever excluded
@@ -154,5 +160,59 @@ describe('partitionIpEntries', () => {
   it('handles null/undefined input', () => {
     expect(partitionIpEntries(null)).toEqual({ valid: [], invalid: [] });
     expect(partitionIpEntries(undefined)).toEqual({ valid: [], invalid: [] });
+  });
+});
+
+// #181: the server drops IP-list entries its matcher can't use. These helpers
+// let the save path drop the same ones itself and say which, so a rule never
+// vanishes without the operator hearing about it.
+describe('stripUnusableIpRules', () => {
+  it('keeps usable entries in all three lists and collects the rejected ones', () => {
+    const { preferences, rejected } = stripUnusableIpRules({
+      jukeboxEnabled: true,
+      blockedViewerIps: ['10.0.0.1', '192.168.1.*'],
+      votingExemptIps: ['my office', '203.0.113.0/24'],
+      statsExcludedIps: [' 2001:db8::1 ']
+    });
+    expect(preferences).toEqual({
+      jukeboxEnabled: true,
+      blockedViewerIps: ['10.0.0.1'],
+      votingExemptIps: ['203.0.113.0/24'],
+      statsExcludedIps: ['2001:db8::1']
+    });
+    expect(rejected).toEqual(['192.168.1.*', 'my office']);
+  });
+
+  it('leaves absent and null lists alone so "not supplied" stays distinguishable', () => {
+    const { preferences, rejected } = stripUnusableIpRules({ jukeboxEnabled: true, votingExemptIps: null });
+    expect(preferences).toEqual({ jukeboxEnabled: true, votingExemptIps: null });
+    expect(preferences).not.toHaveProperty('blockedViewerIps');
+    expect(rejected).toEqual([]);
+  });
+
+  it('does not mutate the input', () => {
+    const input = { blockedViewerIps: ['bogus', '10.0.0.1'] };
+    stripUnusableIpRules(input);
+    expect(input.blockedViewerIps).toEqual(['bogus', '10.0.0.1']);
+  });
+
+  it('tolerates a missing preferences object', () => {
+    expect(stripUnusableIpRules(undefined)).toEqual({ preferences: undefined, rejected: [] });
+  });
+});
+
+describe('describeRejectedIpEntries', () => {
+  it('returns null when nothing was rejected', () => {
+    expect(describeRejectedIpEntries([])).toBeNull();
+    expect(describeRejectedIpEntries(undefined)).toBeNull();
+  });
+
+  it('counts and names the rejected entries', () => {
+    expect(describeRejectedIpEntries(['192.168.1.*'])).toMatch(/^1 IP entry was not saved: 192\.168\.1\.\*\./);
+    expect(describeRejectedIpEntries(['a', 'b'])).toMatch(/^2 IP entries were not saved: a, b\./);
+  });
+
+  it('says what a valid entry looks like', () => {
+    expect(describeRejectedIpEntries(['a'])).toMatch(/CIDR block/);
   });
 });

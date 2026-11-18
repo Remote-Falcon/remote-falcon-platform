@@ -5,7 +5,26 @@ The one ingress controller in front of every service. Installed by hand with hel
 | File | Role |
 |---|---|
 | [`values.yaml`](values.yaml) | The complete user-supplied values: 2 replicas, PDB `minAvailable: 1`, required pod anti-affinity on hostname. Everything else is the chart default. |
-| [`apply.sh`](apply.sh) | Drift check, then a read-only preview (`kubectl diff --server-side` + `helm upgrade --dry-run=server`). `./apply.sh apply` runs the real upgrade after a typed confirmation. |
+| [`apply.sh`](apply.sh) | Drift check, then a read-only preview (`kubectl diff --server-side` + `helm upgrade --dry-run=server`). `./apply.sh apply` runs the real upgrade after a typed confirmation. Both take an optional season profile name (default: the `active` line of [`ops/season/profile.conf`](../../season/profile.conf)). |
+
+## Season profiles
+
+The controller's replica count is a season knob. `apply.sh` reads the `ingress-nginx` row of the chosen profile and layers it over `values.yaml`:
+
+- MIN == MAX (off-season: 2): `controller.replicaCount`, no HPA. Identical render to `values.yaml` alone.
+- MIN < MAX (season: 2-6, peak: 3-6): `replicaCount` MIN plus the chart's HPA, CPU target 70%, memory target off (the chart's 50%-of-90Mi default would pin it at max).
+
+```bash
+./apply.sh diff season         # preview (default profile = the active line)
+./apply.sh apply season        # after R1 (turns the HPA on, 2-6)
+./apply.sh apply peak          # Mon Dec 14 morning (3-6)
+./apply.sh apply season        # after peak (back to 2-6)
+./apply.sh apply off-season    # Jan 5 (HPA off, 2 fixed)
+```
+
+Switching the HPA on: helm stops rendering `spec.replicas`, and server-side apply would reset a field dropped by its only owner to 1 pod. `apply.sh apply` first co-owns the current count under field manager `season-handoff`, so the count survives until the HPA manages it. The preview still shows `spec.replicas` removed; that is expected. Switching back off runs the upgrade with `--force-conflicts` so helm reclaims `spec.replicas` from the HPA.
+
+Anti-affinity is required per hostname, so N controllers need N nodes, plus one more for the rollout's surge pod. At the 6-replica ceiling (season and peak) that is up to 7 nodes: keep the node autoscaler max at 8.
 
 Not deployed by CI. No workflow watches this path.
 

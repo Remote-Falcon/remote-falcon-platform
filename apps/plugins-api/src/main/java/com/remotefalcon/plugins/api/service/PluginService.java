@@ -7,6 +7,7 @@ import com.remotefalcon.library.util.NightlyPlayLimitHelper;
 import com.remotefalcon.library.models.*;
 import com.remotefalcon.library.quarkus.entity.Show;
 import com.remotefalcon.library.util.PluginQueueHelper;
+import com.remotefalcon.plugins.api.cache.TtlKeySet;
 import com.remotefalcon.plugins.api.context.ShowContext;
 import com.remotefalcon.plugins.api.model.*;
 
@@ -20,6 +21,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.*;
@@ -31,6 +33,10 @@ import java.util.stream.Collectors;
 public class PluginService {
 
   private static final Logger LOG = Logger.getLogger(PluginService.class);
+
+  // Per-pod rate limit for the INFO line on no-op syncPlaylists calls.
+  private static final Duration SYNC_PLAYLISTS_NOOP_LOG_WINDOW = Duration.ofMinutes(10);
+  private static final TtlKeySet SYNC_PLAYLISTS_NOOP_LOGGED = new TtlKeySet(SYNC_PLAYLISTS_NOOP_LOG_WINDOW, 10_000);
 
   @Inject
   ShowContext showContext;
@@ -393,7 +399,7 @@ public class PluginService {
   public PluginResponse syncPlaylists(SyncPlaylistRequest request) {
     Show show = showContext.getShow();
     List<SyncPlaylistDetails> playlists = request.getPlaylists();
-    Log.infof("Received syncPlaylists request for %s. Playlist size: %s", show.getShowToken(),
+    LOG.debugf("Received syncPlaylists request for %s. Playlist size: %s", show.getShowToken(),
         playlists != null ? playlists.size() : 0);
     if (playlists.size() > this.sequenceLimit) {
       LOG.warnf("syncPlaylists rejected for showToken=%s: requestPlaylists=%d exceeds limit=%d",
@@ -428,33 +434,47 @@ public class PluginService {
               .build()
       );
     }
+    // Snapshot before the helpers below mutate the loaded sequences in place.
+    List<Sequence> sequencesBefore = SyncPlaylistsDiff.snapshot(show.getSequences());
+
     Set<Sequence> updatedSequences = new HashSet<>();
     updatedSequences.addAll(this.getSequencesToDelete(request, show));
     updatedSequences.addAll(this.addNewSequences(request, show));
+    List<Sequence> sequencesToWrite = updatedSequences.stream().sorted(SyncPlaylistsDiff.STORED_ORDER).toList();
 
     List<PsaSequence> updatedPsaSequences = this.updatePsaSequences(request, show);
 
-    // Atomic updates for sequences and PSA sequences
-    if (CollectionUtils.isEmpty(updatedPsaSequences)) {
-      Show.mongoCollection().updateOne(
-          Filters.eq("showToken", show.getShowToken()),
-          Updates.combine(
-              Updates.set("sequences", updatedSequences.stream().toList()),
-              Updates.set("psaSequences", updatedPsaSequences),
-              Updates.set("preferences.psaEnabled", false)
-          )
-      );
-    } else {
-      Show.mongoCollection().updateOne(
-          Filters.eq("showToken", show.getShowToken()),
-          Updates.combine(
-              Updates.set("sequences", updatedSequences.stream().toList()),
-              Updates.set("psaSequences", updatedPsaSequences)
-          )
-      );
+    Boolean psaEnabled = show.getPreferences() != null ? show.getPreferences().getPsaEnabled() : null;
+    if (SyncPlaylistsDiff.isNoOp(sequencesBefore, sequencesToWrite, show.getPsaSequences(), updatedPsaSequences, psaEnabled)) {
+      // The plugin can call this in a tight loop: log the first no-op per show
+      // per window at INFO, the rest at DEBUG.
+      if (!SYNC_PLAYLISTS_NOOP_LOGGED.contains(show.getShowToken())) {
+        SYNC_PLAYLISTS_NOOP_LOGGED.add(show.getShowToken());
+        LOG.infof("syncPlaylists unchanged for %s, skipped write. Playlist size: %s (repeats logged at DEBUG for %s)",
+            show.getShowToken(), playlists.size(), SYNC_PLAYLISTS_NOOP_LOG_WINDOW);
+      } else {
+        LOG.debugf("syncPlaylists unchanged for %s, skipped write", show.getShowToken());
+      }
+      return PluginResponse.builder().message("Success").build();
     }
 
+    LOG.infof("syncPlaylists writing sequences for %s. Playlist size: %s, sequences: %s, psaSequences: %s",
+        show.getShowToken(), playlists.size(), sequencesToWrite.size(), updatedPsaSequences.size());
+    SYNC_PLAYLISTS_NOOP_LOGGED.remove(show.getShowToken());
+    writeSyncedPlaylists(show.getShowToken(), sequencesToWrite, updatedPsaSequences);
     return PluginResponse.builder().message("Success").build();
+  }
+
+  // Atomic updates for sequences and PSA sequences. Package-private so unit
+  // tests can observe writes without a Mongo instance.
+  void writeSyncedPlaylists(String showToken, List<Sequence> sequences, List<PsaSequence> psaSequences) {
+    List<Bson> updates = new ArrayList<>(List.of(
+        Updates.set("sequences", sequences),
+        Updates.set("psaSequences", psaSequences)));
+    if (CollectionUtils.isEmpty(psaSequences)) {
+      updates.add(Updates.set("preferences.psaEnabled", false));
+    }
+    Show.mongoCollection().updateOne(Filters.eq("showToken", showToken), Updates.combine(updates));
   }
 
   private List<Sequence> getSequencesToDelete(SyncPlaylistRequest request, Show show) {

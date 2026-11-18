@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { render } from '@testing-library/react';
 
-import { artistClassname, jukeboxQueueElements, playingSequenceElement } from '../nowPlaying';
+import { artistClassname, hasPlayingSlots, jukeboxQueueElements, playingSequenceElement } from '../nowPlaying';
 import { ViewerControlMode } from '../../../../../utils/enum';
 
 // #188: Now Playing, Next and the jukebox queue used to reuse the artist class
@@ -80,5 +80,33 @@ describe('jukeboxQueueElements', () => {
   it('does not throw when a queued request has no sequence', () => {
     const { container } = render(<>{jukeboxQueueElements([{ position: 1 }, { position: 2 }])}</>);
     expect(container.querySelector('.jukebox-queue-artist').className).toBe('jukebox-list-artist jukebox-queue-artist');
+  });
+});
+
+describe('hasPlayingSlots', () => {
+  const visible = (category) => ({ visible: true, category });
+
+  // Voting mode used to fill the slots only from the uncategorized-song
+  // branch, so a show with every visible song in a category got the plain
+  // title with no artwork or artist.
+  it.each([ViewerControlMode.VOTING, ViewerControlMode.JUKEBOX])(
+    'fills the slots in %s mode when every visible song has a category',
+    (mode) => {
+      expect(hasPlayingSlots(mode, [visible('Classics'), visible('Kids')])).toBe(true);
+    }
+  );
+
+  it.each([ViewerControlMode.VOTING, ViewerControlMode.JUKEBOX])('fills the slots in %s mode for uncategorized songs', (mode) => {
+    expect(hasPlayingSlots(mode, [visible(null), visible('')])).toBe(true);
+  });
+
+  it('falls back to plain text when no sequence is visible', () => {
+    expect(hasPlayingSlots(ViewerControlMode.VOTING, [{ visible: false, category: 'Classics' }])).toBe(false);
+    expect(hasPlayingSlots(ViewerControlMode.JUKEBOX, [])).toBe(false);
+    expect(hasPlayingSlots(ViewerControlMode.VOTING, undefined)).toBe(false);
+  });
+
+  it('falls back to plain text outside voting and jukebox modes', () => {
+    expect(hasPlayingSlots(undefined, [visible('Classics')])).toBe(false);
   });
 });

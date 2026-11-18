@@ -143,3 +143,39 @@ export const partitionIpEntries = (entries) => {
 
 export const IP_ENTRY_FORMAT_HINT =
   'Enter a single address (192.168.1.50), a CIDR block (203.0.113.0/24), or a range (203.0.113.10-203.0.113.40).';
+
+/** The preference keys holding operator-entered IP lists. */
+export const IP_LIST_PREFERENCE_KEYS = ['blockedViewerIps', 'votingExemptIps', 'statsExcludedIps'];
+
+/**
+ * Drop the IP-list entries the server would drop on save, and say which (#181).
+ *
+ * The control-panel mutation keeps only the rules its matcher can evaluate and
+ * discards the rest without telling the client. Applying the same rule here
+ * means the client sends exactly what will persist and can name what it
+ * removed. Absent or null lists are passed through untouched so "not
+ * supplied" stays distinct from "emptied". The input is not mutated.
+ */
+export const stripUnusableIpRules = (preferences) => {
+  if (!preferences) return { preferences, rejected: [] };
+  const next = { ...preferences };
+  const rejected = [];
+  IP_LIST_PREFERENCE_KEYS.forEach((key) => {
+    if (!Array.isArray(preferences[key])) return;
+    const { valid, invalid } = partitionIpEntries(preferences[key]);
+    next[key] = valid;
+    rejected.push(...invalid);
+  });
+  return { preferences: next, rejected };
+};
+
+const countEntries = (count) => (count === 1 ? '1 IP entry was' : `${count} IP entries were`);
+
+/**
+ * Operator-facing message for entries dropped at save time, or null when
+ * nothing was dropped.
+ */
+export const describeRejectedIpEntries = (rejected) => {
+  if (!rejected?.length) return null;
+  return `${countEntries(rejected.length)} not saved: ${rejected.join(', ')}. ${IP_ENTRY_FORMAT_HINT}`;
+};

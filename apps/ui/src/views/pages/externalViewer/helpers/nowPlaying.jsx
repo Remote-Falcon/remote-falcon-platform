@@ -30,6 +30,16 @@ export const artistClassname = (mode, sequence) => {
 };
 
 /**
+ * Whether {NOW_PLAYING} / {NEXT_PLAYLIST} get the artwork + artist element
+ * rather than the plain title: true in voting or jukebox mode with at least one
+ * visible sequence, categorized or not. Voting mode used to set this only from
+ * the uncategorized branch of the list loop, so a show with every visible song
+ * in a category lost the artwork and artist.
+ */
+export const hasPlayingSlots = (mode, sequences) =>
+  (mode === ViewerControlMode.VOTING || mode === ViewerControlMode.JUKEBOX) && _.some(sequences, (sequence) => sequence?.visible);
+
+/**
  * Content for the {NOW_PLAYING} / {NEXT_PLAYLIST} slot: artwork, display name
  * and the artist label keyed by that sequence's own index.
  */

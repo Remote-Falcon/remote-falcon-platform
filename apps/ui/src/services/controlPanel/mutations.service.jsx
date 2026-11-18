@@ -2,6 +2,7 @@ import { Buffer } from 'buffer';
 
 import { StatusResponse } from '../../utils/enum';
 import { GET_SHOW } from '../../utils/graphql/controlPanel/queries';
+import { stripUnusableIpRules } from '../../utils/ipEntry';
 
 export const deleteAccountService = (deleteAccountMutation, callback) => {
   deleteAccountMutation({
@@ -211,6 +212,10 @@ export const savePagesService = (updatedPages, updatePagesMutation, callback) =>
 };
 
 export const savePreferencesService = (updatedPreferences, updatePreferencesMutation, callback) => {
+  // #181: the server silently drops IP rules its matcher can't use. Drop the
+  // same ones here so what we send is what persists, and hand both back so the
+  // caller can keep its store in step and tell the operator what was dropped.
+  const { preferences, rejected } = stripUnusableIpRules(updatedPreferences);
   updatePreferencesMutation({
     context: {
       headers: {
@@ -219,13 +224,15 @@ export const savePreferencesService = (updatedPreferences, updatePreferencesMuta
     },
     variables: {
       preferences: {
-        ...updatedPreferences
+        ...preferences
       }
     },
     onCompleted: () => {
       callback({
         success: true,
-        toast: { message: 'Viewer Settings Saved' }
+        toast: { message: 'Viewer Settings Saved' },
+        preferences,
+        rejectedIpEntries: rejected
       });
     },
     onError: () => {
