@@ -4,6 +4,7 @@ import com.mongodb.client.FindIterable;
 import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.Projections;
 import com.remotefalcon.library.quarkus.entity.Show;
+import com.remotefalcon.plugins.api.mongo.MongoGuarded;
 import io.quarkus.mongodb.panache.PanacheMongoRepository;
 import jakarta.enterprise.context.ApplicationScoped;
 import org.bson.Document;
@@ -11,6 +12,9 @@ import org.bson.Document;
 import java.util.List;
 import java.util.Optional;
 
+// Every call goes through the Mongo circuit breaker when
+// MONGO_CIRCUIT_BREAKER_ENABLED is on (MongoGuardedInterceptor).
+@MongoGuarded
 @ApplicationScoped
 public class ShowRepository implements PanacheMongoRepository<Show> {
   /**
