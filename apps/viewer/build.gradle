@@ -24,6 +24,8 @@ dependencies {
         exclude group: "org.springframework.boot", module: "spring-boot-starter-data-mongodb"
     }
     implementation 'io.quarkus:quarkus-smallrye-health'
+    implementation 'io.quarkus:quarkus-smallrye-fault-tolerance'
+    implementation 'io.quarkus:quarkus-caffeine'
     implementation "io.quarkus:quarkus-micrometer"
     implementation "io.quarkus:quarkus-micrometer-registry-prometheus"
     compileOnly 'org.projectlombok:lombok:1.18.36'

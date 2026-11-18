@@ -3,6 +3,8 @@ import React from 'react';
 
 import { LocationCheckMethod, ViewerControlMode } from '../../../../utils/enum';
 
+import { resolveArtworkUrl } from './artworkUrl';
+
 /**
  * Artwork for one sequence, or `null` when the operator hasn't set an image.
  *
@@ -42,7 +44,7 @@ export const sequenceImage = (sequence) => {
       decoding="async"
       alt={sequence?.name}
       className={`sequence-image sequence-image-${sequence?.index}`}
-      src={imageUrl}
+      src={resolveArtworkUrl(imageUrl)}
       data-key={sequence?.name}
     />
   );

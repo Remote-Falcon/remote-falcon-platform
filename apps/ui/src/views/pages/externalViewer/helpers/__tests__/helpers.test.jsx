@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
 import {
   defaultProcessingInstructions,
@@ -175,6 +175,14 @@ describe('sequenceImage', () => {
     expect(img.props['data-key']).toBe('Wizards in Winter');
     expect(img.props.alt).toBe('Wizards in Winter');
     expect(img.props.src).toBe('https://example.test/wiz.jpg');
+  });
+
+  it('resolves a root-relative viewer artwork reference against the viewer API (S2)', () => {
+    vi.stubEnv('VITE_VIEWER_API', 'http://localhost:8080/remote-falcon-viewer');
+    const ref = '/remote-falcon-viewer/artwork/show/0123456789abcdef0123456789abcdef.png';
+    const img = sequenceImage({ ...sequence, imageUrl: ref });
+    expect(img.props.src).toBe(`http://localhost:8080${ref}`);
+    vi.unstubAllEnvs();
   });
 
   // The call sites render {sequenceImage(seq)} inline, so "no artwork" has to

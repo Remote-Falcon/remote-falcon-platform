@@ -2,6 +2,7 @@ package com.remotefalcon.repository;
 
 import com.mongodb.client.model.Filters;
 import com.remotefalcon.entity.VoteEvent;
+import com.remotefalcon.mongo.MongoGuarded;
 import io.quarkus.mongodb.panache.PanacheMongoRepository;
 import jakarta.enterprise.context.ApplicationScoped;
 import org.bson.conversions.Bson;
@@ -14,6 +15,9 @@ import java.time.ZoneOffset;
  * Repository for the {@code voteEvent} audit collection (PRD-009 #165, ADR-1).
  * Indexes are created at startup by {@code VoteEventIndexInitializer}.
  */
+// Every call goes through the Mongo circuit breaker when
+// MONGO_CIRCUIT_BREAKER_ENABLED is on (MongoGuardedInterceptor).
+@MongoGuarded
 @ApplicationScoped
 public class VoteEventRepository implements PanacheMongoRepository<VoteEvent> {
 
