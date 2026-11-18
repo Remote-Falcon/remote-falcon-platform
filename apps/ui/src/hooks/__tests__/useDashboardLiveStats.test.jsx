@@ -28,6 +28,7 @@ const LIVE_STATS = {
   currentViewers: 5,
   medianDwellSecondsTonight: 60,
   lastHeartbeatMs: 1700000000000,
+  pluginConnected: false,
   heartbeatGaps: [],
   versionChanges: []
 };

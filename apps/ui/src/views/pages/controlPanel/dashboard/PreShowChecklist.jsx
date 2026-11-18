@@ -24,7 +24,7 @@ import { trackPosthogEvent } from '../../../../utils/analytics/posthog';
 import { LocationCheckMethod } from '../../../../utils/enum';
 import { UPDATE_PREFERENCES } from '../../../../utils/graphql/controlPanel/mutations';
 import { showAlert } from '../../globalPageHelpers';
-import { HEARTBEAT_FRESH_MS } from './heartbeat';
+import { pluginChecklistRow } from './heartbeat';
 
 
 // Operational readiness card for the Dashboard. "Is my show ready to run
@@ -93,7 +93,10 @@ const useChecks = () => {
   // longer the dashboard stays open, so we let the hook keep it fresh.
   const { data: liveStats } = useDashboardLiveStats();
   const hasLiveStats = !!liveStats;
+  // Primitives, not the liveStats object: the 5s poll hands back a fresh
+  // identity every tick, which would rebuild the checklist each time.
   const lastHeartbeatMs = liveStats?.lastHeartbeatMs;
+  const pluginConnected = liveStats?.pluginConnected;
 
   const [updatePreferencesMutation] = useMutation(UPDATE_PREFERENCES);
 
@@ -271,36 +274,13 @@ const useChecks = () => {
       });
     }
 
-    if (!hasLiveStats) {
-      // Live stats not loaded yet (first fetch pending, failed, or tab
-      // hidden): no heartbeat row rather than a false "never received".
-    } else if (!lastHeartbeatMs) {
-      out.push({
-        status: 'warn',
-        label: 'No FPP plugin heartbeat received yet',
-        detail: 'Install or restart the Remote Falcon FPP plugin to start syncing.'
-      });
-    } else {
-      const ageMs = Math.max(0, Date.now() - lastHeartbeatMs);
-      const minutesAgo = Math.floor(ageMs / 60000);
-      if (ageMs >= HEARTBEAT_FRESH_MS) {
-        out.push({
-          status: 'warn',
-          label: `FPP plugin offline (last heartbeat ${minutesAgo} min ago)`,
-          detail: 'Show may not be running. Check the FPP controller.'
-        });
-      } else {
-        out.push({
-          status: 'ok',
-          label: 'FPP plugin connected'
-        });
-      }
-    }
+    const pluginRow = pluginChecklistRow(hasLiveStats ? { pluginConnected, lastHeartbeatMs } : null);
+    if (pluginRow) out.push(pluginRow);
 
     const order = { blocker: 0, warn: 1, ok: 2 };
     out.sort((a, b) => order[a.status] - order[b.status]);
     return out;
-  }, [show, hasLiveStats, lastHeartbeatMs, togglePreference, goTo]);
+  }, [show, hasLiveStats, pluginConnected, lastHeartbeatMs, togglePreference, goTo]);
 };
 
 const PreShowChecklist = () => {
