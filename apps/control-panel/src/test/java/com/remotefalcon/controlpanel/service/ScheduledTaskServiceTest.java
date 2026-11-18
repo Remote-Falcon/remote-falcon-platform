@@ -4,16 +4,17 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.remotefalcon.controlpanel.configuration.MaintenanceMongo;
 import com.remotefalcon.controlpanel.repository.ShowRepository;
 import com.remotefalcon.library.documents.Show;
 import com.remotefalcon.library.enums.NotificationType;
 import com.remotefalcon.library.models.NotificationPreference;
 import com.remotefalcon.library.models.Preference;
 import com.remotefalcon.library.models.ShowNotification;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.mongodb.core.MongoTemplate;
@@ -49,8 +50,67 @@ class ScheduledTaskServiceTest {
 
     @Mock private ShowRepository showRepository;
     @Mock private MongoTemplate mongoTemplate;
+    @Mock private MongoTemplate maintenanceTemplate;
     @Mock private FppHealthOutageStore outageStore;
-    @InjectMocks private ScheduledTaskService service;
+    private ScheduledTaskService service;
+
+    @BeforeEach
+    void setUp() {
+        // Built by hand: two MongoTemplate mocks make @InjectMocks ambiguous.
+        service = new ScheduledTaskService(showRepository, mongoTemplate,
+                new MaintenanceMongo(null, maintenanceTemplate), outageStore);
+    }
+
+    // ---- S8a: scheduled maintenance runs on its own Mongo client ---------
+    // The request-path client's read timeout is 10s; these jobs run single
+    // commands of 10-35s and would fail every night on it.
+
+    @Test
+    void nightlyAndHourlySweeps_useMaintenanceTemplate_notRequestPath() {
+        when(maintenanceTemplate.updateMulti(any(Query.class), any(Update.class), eq(Show.class)))
+                .thenReturn(com.mongodb.client.result.UpdateResult.acknowledged(0, 0L, null));
+        @SuppressWarnings("unchecked")
+        com.mongodb.client.MongoCollection<org.bson.Document> collection =
+                org.mockito.Mockito.mock(com.mongodb.client.MongoCollection.class);
+        @SuppressWarnings("unchecked")
+        com.mongodb.client.AggregateIterable<org.bson.Document> aggregate =
+                org.mockito.Mockito.mock(com.mongodb.client.AggregateIterable.class);
+        @SuppressWarnings("unchecked")
+        com.mongodb.client.MongoCursor<org.bson.Document> cursor =
+                org.mockito.Mockito.mock(com.mongodb.client.MongoCursor.class);
+        when(maintenanceTemplate.getCollection("show")).thenReturn(collection);
+        when(collection.aggregate(any())).thenReturn(aggregate);
+        when(aggregate.iterator()).thenReturn(cursor);
+
+        service.purgeStaleStatsForAllShows();
+        service.alarmOnOversizedShows();
+        service.purgeOrphanedFppHealthNotifications();
+        service.reapExpiredFppHealthNotifications();
+
+        verify(maintenanceTemplate, times(3)).updateMulti(any(Query.class), any(Update.class), eq(Show.class));
+        verify(maintenanceTemplate).getCollection("show");
+        org.mockito.Mockito.verifyNoInteractions(mongoTemplate);
+    }
+
+    @Test
+    void alertThreshold_isTheDashboardConnectedThreshold() {
+        // S8b: the alert task and dashboardLiveStats.pluginConnected must never
+        // disagree about whether a plugin is offline.
+        assertThat(ScheduledTaskService.HEARTBEAT_STALE_MINUTES)
+                .isEqualTo(com.remotefalcon.controlpanel.util.PluginHeartbeat.STALE_MINUTES);
+    }
+
+    @Test
+    void minuteHeartbeatTask_staysOnRequestPathTemplate() {
+        // Index-backed and short; it does not need the long timeout.
+        when(showRepository.findFppHeartbeatAlertCandidates(
+                any(LocalDateTime.class), any(LocalDateTime.class))).thenReturn(List.of());
+
+        service.fppHeartbeatTask();
+
+        verify(mongoTemplate).updateMulti(any(Query.class), any(Update.class), eq(Show.class));
+        org.mockito.Mockito.verifyNoInteractions(maintenanceTemplate);
+    }
 
     private Show staleShow(NotificationPreference notificationPreference, Boolean viewerControlEnabled) {
         return staleShow(notificationPreference, viewerControlEnabled, 10L);
@@ -267,12 +327,12 @@ class ScheduledTaskServiceTest {
     void orphanPurge_isToggleAgnostic() {
         // The nightly sweep must NOT filter on enableFppHeartbeat — its whole
         // purpose is reaping alerts stranded by an opt-out.
-        when(mongoTemplate.updateMulti(any(Query.class), any(Update.class), eq(Show.class)))
+        when(maintenanceTemplate.updateMulti(any(Query.class), any(Update.class), eq(Show.class)))
                 .thenReturn(com.mongodb.client.result.UpdateResult.acknowledged(0, 0L, null));
         service.purgeOrphanedFppHealthNotifications();
 
         ArgumentCaptor<Query> query = ArgumentCaptor.forClass(Query.class);
-        verify(mongoTemplate).updateMulti(query.capture(), any(Update.class), eq(Show.class));
+        verify(maintenanceTemplate).updateMulti(query.capture(), any(Update.class), eq(Show.class));
         org.bson.Document q = query.getValue().getQueryObject();
         assertThat(q).doesNotContainKey("preferences.notificationPreferences.enableFppHeartbeat");
         assertThat(q.get("showNotifications", org.bson.Document.class)).containsKey("$elemMatch");
@@ -353,7 +413,7 @@ class ScheduledTaskServiceTest {
 
     @Test
     void ttlSweep_reapsFppHealthEntriesOlderThan24h() {
-        when(mongoTemplate.updateMulti(any(Query.class), any(Update.class), eq(Show.class)))
+        when(maintenanceTemplate.updateMulti(any(Query.class), any(Update.class), eq(Show.class)))
                 .thenReturn(com.mongodb.client.result.UpdateResult.acknowledged(3, 3L, null));
 
         java.util.Date before = java.util.Date.from(LocalDateTime.now()
@@ -364,7 +424,7 @@ class ScheduledTaskServiceTest {
 
         ArgumentCaptor<Query> query = ArgumentCaptor.forClass(Query.class);
         ArgumentCaptor<Update> update = ArgumentCaptor.forClass(Update.class);
-        verify(mongoTemplate, times(1)).updateMulti(query.capture(), update.capture(), eq(Show.class));
+        verify(maintenanceTemplate, times(1)).updateMulti(query.capture(), update.capture(), eq(Show.class));
 
         // The lastFppHeartbeat predicate is load-bearing: it lets the planner
         // use the partial index instead of COLLSCANing the show collection.
@@ -386,7 +446,7 @@ class ScheduledTaskServiceTest {
 
     @Test
     void ttlSweep_dbUnreachable_doesNotThrow() {
-        when(mongoTemplate.updateMulti(any(Query.class), any(Update.class), eq(Show.class)))
+        when(maintenanceTemplate.updateMulti(any(Query.class), any(Update.class), eq(Show.class)))
                 .thenThrow(new org.springframework.dao.DataAccessResourceFailureException("timeout"));
 
         org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> service.reapExpiredFppHealthNotifications());

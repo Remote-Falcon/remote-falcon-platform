@@ -1,5 +1,6 @@
 package com.remotefalcon.controlpanel.service;
 
+import com.remotefalcon.controlpanel.configuration.MaintenanceMongo;
 import com.remotefalcon.controlpanel.repository.ShowRepository;
 import com.remotefalcon.library.documents.Show;
 import com.remotefalcon.library.enums.ShowRole;
@@ -70,7 +71,7 @@ class RetentionSweepIntegrationTest {
     void setUp() {
         mongoTemplate.dropCollection(Show.class);
         scheduledTaskService = new ScheduledTaskService(showRepository, mongoTemplate,
-                new FppHealthOutageStore(mongoTemplate));
+                new MaintenanceMongo(null, mongoTemplate), new FppHealthOutageStore(mongoTemplate));
     }
 
     private static LocalDateTime stale() {

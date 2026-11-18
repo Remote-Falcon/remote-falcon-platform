@@ -6,7 +6,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.data.domain.Sort;
-import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.index.Index;
 import org.springframework.data.mongodb.core.index.PartialIndexFilter;
 import org.springframework.data.mongodb.core.query.Collation;
@@ -56,7 +55,11 @@ import org.springframework.stereotype.Component;
 @Slf4j
 public class MongoIndexInitializer {
 
-  private final MongoTemplate mongoTemplate;
+  // The long-read-timeout maintenance client (Season Prep S8a), not the
+  // request-path one: a NEW index build on the show collection blocks the
+  // createIndexes command until it finishes, which can run well past the
+  // request client's 10s read timeout during a deploy.
+  private final MaintenanceMongo maintenanceMongo;
 
   @EventListener(ApplicationReadyEvent.class)
   public void ensureShowIndexes() {
@@ -183,7 +186,7 @@ public class MongoIndexInitializer {
 
   private void ensure(String name, Index spec) {
     try {
-      mongoTemplate.indexOps(Show.class).ensureIndex(spec);
+      maintenanceMongo.template().indexOps(Show.class).ensureIndex(spec);
       log.info("Ensured Show index: {}", name);
     } catch (Exception e) {
       // Each index is independent — log loudly and let startup proceed so other

@@ -46,9 +46,25 @@ class MongoIndexInitializerTest {
     @BeforeEach
     void setup() {
         mongoTemplate.dropCollection(Show.class);
-        new MongoIndexInitializer(mongoTemplate).ensureShowIndexes();
+        new MongoIndexInitializer(new MaintenanceMongo(null, mongoTemplate)).ensureShowIndexes();
         indexes = mongoTemplate.indexOps(Show.class).getIndexInfo().stream()
                 .collect(Collectors.toMap(IndexInfo::getName, Function.identity()));
+    }
+
+    @Test
+    void buildsIndexesOnTheMaintenanceClient() {
+        // S8a: a NEW index build on the show collection can run well past the
+        // request-path client's 10s read timeout, so it must go through the
+        // long-timeout maintenance client.
+        MongoTemplate maintenanceTemplate = org.mockito.Mockito.mock(MongoTemplate.class);
+        org.springframework.data.mongodb.core.index.IndexOperations ops =
+                org.mockito.Mockito.mock(org.springframework.data.mongodb.core.index.IndexOperations.class);
+        org.mockito.Mockito.when(maintenanceTemplate.indexOps(Show.class)).thenReturn(ops);
+
+        new MongoIndexInitializer(new MaintenanceMongo(null, maintenanceTemplate)).ensureShowIndexes();
+
+        org.mockito.Mockito.verify(ops, org.mockito.Mockito.atLeast(9)).ensureIndex(
+                org.mockito.ArgumentMatchers.any());
     }
 
     @Test

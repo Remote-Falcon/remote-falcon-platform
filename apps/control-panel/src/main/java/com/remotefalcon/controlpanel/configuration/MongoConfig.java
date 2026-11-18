@@ -37,17 +37,14 @@ public class MongoConfig {
   static final int SERVER_SELECTION_TIMEOUT_MS = 3_000;
   static final int CONNECT_TIMEOUT_MS = 3_000;
   /**
-   * NOT the 10s the resilience plan proposed. The nightly 09:00 UTC jobs are
-   * single server-side commands that legitimately run far longer: prod logs
-   * (2026-09-30..10-13) show the retention {@code updateMulti} at 10-35s and
-   * the DOC_SIZE_ALARM aggregation at 12-30s. A 10s read timeout would fail
-   * both every night. Driver 5.0.x has no per-operation timeout (CSOT needs
-   * 5.2+), so the socket timeout is client-wide; 60s still bounds a wedged
-   * socket (was infinite). The bulkheads for request paths are the 3s
-   * selection and 2s pool wait below. Tighten once the nightly jobs run on
-   * their own client.
+   * Request-path read timeout: bounds a wedged socket (was infinite). This was
+   * 60s while the nightly 09:00 UTC jobs (single server-side commands that run
+   * 10-35s) shared this client; driver 5.0.x has no per-operation timeout, so
+   * the socket timeout is client-wide. Those jobs now run on
+   * {@link MaintenanceMongoConfig}'s client (Season Prep S8a), so requests get
+   * the 10s the resilience plan proposed.
    */
-  static final int SOCKET_READ_TIMEOUT_MS = 60_000;
+  static final int SOCKET_READ_TIMEOUT_MS = 10_000;
   static final int MAX_POOL_SIZE = 10;
   static final int MIN_POOL_SIZE = 2;
   static final int MAX_WAIT_TIME_MS = 2_000;

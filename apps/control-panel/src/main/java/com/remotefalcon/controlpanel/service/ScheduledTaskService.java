@@ -14,7 +14,9 @@ import java.util.UUID;
 import com.mongodb.MongoException;
 import com.mongodb.client.result.UpdateResult;
 
+import com.remotefalcon.controlpanel.configuration.MaintenanceMongo;
 import com.remotefalcon.controlpanel.repository.ShowRepository;
+import com.remotefalcon.controlpanel.util.PluginHeartbeat;
 import com.remotefalcon.library.documents.Notification;
 import com.remotefalcon.library.documents.Show;
 import com.remotefalcon.library.enums.NotificationType;
@@ -35,14 +37,18 @@ import org.springframework.stereotype.Service;
 @Slf4j
 public class ScheduledTaskService {
     private final ShowRepository showRepository;
+    // Request-path client (10s read timeout): the minute heartbeat task, which
+    // is index-backed and short.
     private final MongoTemplate mongoTemplate;
+    // Long-read-timeout client (Season Prep S8a) for the sweeps that run as
+    // single long server-side commands: nightly retention, the size alarm,
+    // the orphan purge, and the hourly TTL reap.
+    private final MaintenanceMongo maintenanceMongo;
     private final FppHealthOutageStore outageStore;
 
-    // Heartbeat considered dropped after this long without a stored check-in:
-    // 5 min of real silence plus plugins-api's 120s heartbeat write floor (the
-    // stored value trails the real last beat by up to ~150s). Matches
-    // plugins-api's HEARTBEAT_GAP_THRESHOLD_MINUTES and the dashboard tiles.
-    static final long HEARTBEAT_STALE_MINUTES = 7L;
+    // Heartbeat considered dropped after this long without a stored check-in.
+    // Same constant as dashboardLiveStats.pluginConnected; see PluginHeartbeat.
+    static final long HEARTBEAT_STALE_MINUTES = PluginHeartbeat.STALE_MINUTES;
     // Only alert on outages that BEGAN recently. Without this floor, enabling
     // the task alerts every opted-in show that's been dark for months (prod
     // audit 2026-07-19: 296 shows opted in, only 63 with a heartbeat in the
@@ -405,7 +411,7 @@ public class ScheduledTaskService {
         LocalDateTime now = LocalDateTime.now();
         Date ttlCutoff = Date.from(now.minusHours(FPP_HEALTH_TTL_HOURS).toInstant(ZoneOffset.UTC));
         try {
-            UpdateResult result = mongoTemplate.updateMulti(
+            UpdateResult result = maintenanceMongo.template().updateMulti(
                     new Query(Criteria.where("preferences.notificationPreferences.enableFppHeartbeat").is(true)
                             .and("lastFppHeartbeat").lt(now.plusMinutes(1))
                             .and("showNotifications").elemMatch(
@@ -434,7 +440,7 @@ public class ScheduledTaskService {
      */
     public void purgeOrphanedFppHealthNotifications() {
         Date cutoff = Date.from(LocalDateTime.now().minusHours(FPP_HEALTH_TTL_HOURS).toInstant(ZoneOffset.UTC));
-        var result = mongoTemplate.updateMulti(
+        var result = maintenanceMongo.template().updateMulti(
                 new Query(Criteria.where("showNotifications").elemMatch(
                         Criteria.where("notification.type").is(NotificationType.FPP_HEALTH.name())
                                 .and("notification.createdDate").lt(cutoff))),
@@ -513,7 +519,7 @@ public class ScheduledTaskService {
                         new Document("$not", new Document("$gte", votesCutoff))))
                 .pull("heartbeatGaps", new Document("endedAt", new Document("$lt", heartbeatGapCutoff)));
 
-        UpdateResult result = mongoTemplate.updateMulti(new Query(), pulls, Show.class);
+        UpdateResult result = maintenanceMongo.template().updateMulti(new Query(), pulls, Show.class);
         log.info("Stats retention sweep complete: {} of {} shows modified, {} ms",
                 result.getModifiedCount(), result.getMatchedCount(),
                 System.currentTimeMillis() - startMillis);
@@ -562,7 +568,7 @@ public class ScheduledTaskService {
                         new Document("votesCount", new Document("$gt", VOTES_COUNT_ALARM))))),
                 new Document("$sort", new Document("estBytes", -1)));
         List<Document> flagged = new ArrayList<>();
-        for (Document d : mongoTemplate.getCollection("show").aggregate(pipeline)) {
+        for (Document d : maintenanceMongo.template().getCollection("show").aggregate(pipeline)) {
             long bytes = d.get("estBytes") instanceof Number n ? n.longValue() : 0L;
             int votes = d.get("votesCount") instanceof Number n ? n.intValue() : 0;
             if (bytes > DOC_SIZE_WARN_BYTES) {

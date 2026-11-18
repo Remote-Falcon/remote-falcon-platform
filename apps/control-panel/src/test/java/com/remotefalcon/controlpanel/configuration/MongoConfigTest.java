@@ -44,7 +44,7 @@ class MongoConfigTest {
 
       assertThat(s.getClusterSettings().getServerSelectionTimeout(TimeUnit.MILLISECONDS)).isEqualTo(3_000);
       assertThat(s.getSocketSettings().getConnectTimeout(TimeUnit.MILLISECONDS)).isEqualTo(3_000);
-      assertThat(s.getSocketSettings().getReadTimeout(TimeUnit.MILLISECONDS)).isEqualTo(60_000);
+      assertThat(s.getSocketSettings().getReadTimeout(TimeUnit.MILLISECONDS)).isEqualTo(10_000);
       assertThat(s.getConnectionPoolSettings().getMaxSize()).isEqualTo(10);
       assertThat(s.getConnectionPoolSettings().getMinSize()).isEqualTo(2);
       assertThat(s.getConnectionPoolSettings().getMaxWaitTime(TimeUnit.MILLISECONDS)).isEqualTo(2_000);
@@ -53,10 +53,11 @@ class MongoConfigTest {
   }
 
   @Test
-  void socketTimeoutCoversTheObservedNightlyJobs() {
-    // Prod 2026-09-30..10-13: retention updateMulti up to 35.3s, DOC_SIZE_ALARM
-    // aggregation up to ~30s. Both are single commands on one socket read.
-    assertThat(MongoConfig.SOCKET_READ_TIMEOUT_MS).isGreaterThan(35_300);
+  void requestPathReadTimeoutIsTenSeconds() {
+    // S8a: the nightly jobs that needed 60s now run on MaintenanceMongo, so a
+    // wedged request socket is released after 10s. MaintenanceMongoConfigTest
+    // pins the long timeout on the maintenance client.
+    assertThat(MongoConfig.SOCKET_READ_TIMEOUT_MS).isEqualTo(10_000);
   }
 
   @Test
