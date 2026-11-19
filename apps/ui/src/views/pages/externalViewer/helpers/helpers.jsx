@@ -130,6 +130,17 @@ const jukeboxQueueNode = (value) => ({
   }
 });
 
+// #208 — like {JUKEBOX_QUEUE}, but lists the first request too.
+const jukeboxQueueAllNode = (value) => ({
+  replaceChildren: true,
+  shouldProcessNode(node) {
+    return node && node.children && node.children[0] && node.children[0].data && node.children[0].data.trim() === '{JUKEBOX_QUEUE_ALL}';
+  },
+  processNode() {
+    return value;
+  }
+});
+
 // #162 — operator-placed {VOTES_REMAINING} variable. Filled with "X of N votes
 // left this show" in voting mode when a daily cap is set; empty otherwise (no
 // cap, jukebox mode, or a voting-exempt IP) so the slot collapses.
@@ -296,7 +307,8 @@ export const processingInstructions = (
   votesRemaining,
   retryLocation,
   retryLocationInline,
-  voteStandingsSlots = {}
+  voteStandingsSlots = {},
+  jukeboxRequestsAll = null
 ) => {
   const blankVoteStandings = [leadingVoteNode(<></>), leadingVoteCountNode(<></>), votingResultsNode(<></>)];
   let processedNodes = [];
@@ -311,6 +323,7 @@ export const processingInstructions = (
       nextSequenceNode(<></>),
       queueSizeNode(<></>),
       jukeboxQueueNode(<></>),
+      jukeboxQueueAllNode(<></>),
       votingDynamicContainerNode(<></>),
       jukeboxDynamicContainerNode(<></>),
       votingPlaylistsDynamicContainerNode(<></>),
@@ -332,6 +345,7 @@ export const processingInstructions = (
       nextSequenceNode(<>{nextSequence}</>),
       queueSizeNode(<>{queueDepth}</>),
       jukeboxQueueNode(<>{jukeboxRequests}</>),
+      jukeboxQueueAllNode(<>{jukeboxRequestsAll}</>),
       votingDynamicContainerNode(<></>),
       votingPlaylistsDynamicContainerNode(<></>),
       locationCheckMethod === LocationCheckMethod.CODE ? blankNode(null) : locationCodeDynamicContainerNode(<></>),
@@ -356,6 +370,7 @@ export const processingInstructions = (
       nextSequenceNode(<>{nextSequence}</>),
       queueSizeNode(<></>),
       jukeboxQueueNode(<></>),
+      jukeboxQueueAllNode(<></>),
       jukeboxDynamicContainerNode(<></>),
       jukeboxPlaylistsDynamicContainerNode(<></>),
       locationCheckMethod === LocationCheckMethod.CODE ? blankNode(null) : locationCodeDynamicContainerNode(<></>),

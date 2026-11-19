@@ -584,6 +584,7 @@ const ExternalViewerPage = () => {
     const sequencesElement = [];
     const categoriesPlaced = [];
     let jukeboxRequestsElement = [];
+    let jukeboxRequestsAllElement = [];
 
     // PSA-v2 — operator-injected items (leaders, override PSAs, cadence
     // PSAs) are stripped by the viewer service in getShow before reaching
@@ -841,8 +842,10 @@ const ExternalViewerPage = () => {
     if (buildJukeboxQueue) {
       // show.requests is already filtered server-side to only the items
       // the viewer should see (no leaders, no operator PSAs). The first one
-      // is playing now / next and is left out of the list.
+      // is playing now / next and is left out of {JUKEBOX_QUEUE};
+      // {JUKEBOX_QUEUE_ALL} (#208) keeps it.
       jukeboxRequestsElement = jukeboxQueueElements(show?.requests);
+      jukeboxRequestsAllElement = jukeboxQueueElements(show?.requests, { includeFirst: true });
     }
 
     const locationCodeElement = (
@@ -913,7 +916,8 @@ const ExternalViewerPage = () => {
         leadingVote: leadingVoteElement(voteStandings),
         leadingVoteCount: leadingVoteCountElement(voteStandings),
         votingResults: votingResultsElement(voteStandings)
-      }
+      },
+      jukeboxRequestsAllElement
     );
 
     const reactHtml = htmlToReactParser.parseWithInstructions(parsedViewerPage, isValidNode, instructions);
