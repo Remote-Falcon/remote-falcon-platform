@@ -1068,7 +1068,7 @@ export const LIST_ADMIN_NOTIFICATIONS = gql`
 // #211 "Exclude this network": the caller's public IP and the IP-list rule
 // that covers their network (the address for IPv4, the /64 for IPv6).
 export const CURRENT_NETWORK_IP = gql`
-  query {
+  query @api(name: controlPanel) {
     currentNetworkIp {
       ip
       family
