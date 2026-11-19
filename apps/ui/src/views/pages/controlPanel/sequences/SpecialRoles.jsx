@@ -50,8 +50,9 @@ import { GET_SHOW } from '../../../../utils/graphql/controlPanel/queries';
 import { showAlert } from '../../globalPageHelpers';
 
 // PSA-v2 PR-5 — "Special Roles" tab on the Sequences page. Houses PSAs
-// + Leaders, relocated out of Show Settings per the PSA-v2 PRD's UI
-// relocation decision. Frequency/burst behavior stays in Show Settings.
+// + Leaders, relocated out of Remote Falcon Settings per the PSA-v2 PRD's UI
+// relocation decision. Frequency/burst behavior stays in Remote Falcon
+// Settings → Interaction Safeguards.
 //
 // Mobile is a primary surface here — Q7's "Play Next" button is
 // expected to be tapped from the operator's phone while standing
@@ -61,7 +62,7 @@ import { showAlert } from '../../globalPageHelpers';
 // TODO (ship-day, not in code): post a global admin notification via
 // the existing bell (PRD-002, shipped) — "PSA management has moved to
 // the Sequences page → Special Roles tab." See the redirect helper on
-// Show Settings → Safeguards for the user-visible breadcrumb.
+// Remote Falcon Settings → Interaction Safeguards for the user-visible breadcrumb.
 const formatLastPlayed = (raw) => {
   if (!raw) return 'Never';
   const m = moment(raw);
@@ -482,7 +483,7 @@ const SpecialRoles = () => {
               href="/control-panel/remote-falcon-settings/safeguards"
               sx={{ color: 'primary.main', textDecoration: 'underline' }}
             >
-              Show Settings <IconChevronRight size={12} style={{ verticalAlign: 'middle' }} /> Safeguards
+              Remote Falcon Settings <IconChevronRight size={12} style={{ verticalAlign: 'middle' }} /> Interaction Safeguards
             </Box>
             .
           </Typography>

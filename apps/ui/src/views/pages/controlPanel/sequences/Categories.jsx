@@ -403,7 +403,7 @@ const Categories = () => {
                                   />
                                 </TableCell>
                                 <TableCell sx={{ minWidth: 120 }}>
-                                  <Tooltip title="Max requests for this whole category within the recent window. 0 = no limit.">
+                                  <Tooltip title="Songs from this category need at least this many other requests between them in the queue. 0 = no limit.">
                                     <TextField
                                       size="small"
                                       type="number"

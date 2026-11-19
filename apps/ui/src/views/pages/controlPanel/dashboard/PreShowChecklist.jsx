@@ -146,7 +146,7 @@ const useChecks = () => {
       out.push({
         status: 'blocker',
         label: 'No active viewer page selected',
-        detail: 'Pick an active viewer page in Settings → Viewer Page.',
+        detail: 'Pick an active viewer page in Remote Falcon Settings → Viewer Page.',
         action: { label: 'Open settings', onClick: goTo('/control-panel/remote-falcon-settings/viewer-page') }
       });
     } else {
@@ -186,7 +186,7 @@ const useChecks = () => {
         out.push({
           status: 'blocker',
           label: 'Location check: GPS (no radius set)',
-          detail: 'Set a check radius in Settings → Interaction Safeguards.',
+          detail: 'Set a check radius in Remote Falcon Settings → Interaction Safeguards.',
           action: safeguards
         });
       } else if (prefs.allowedRadius > 5) {
@@ -207,7 +207,7 @@ const useChecks = () => {
         out.push({
           status: 'blocker',
           label: 'Location check: Code (no code set)',
-          detail: 'Set a location code in Settings → Interaction Safeguards.',
+          detail: 'Set a location code in Remote Falcon Settings → Interaction Safeguards.',
           action: safeguards
         });
       } else {
