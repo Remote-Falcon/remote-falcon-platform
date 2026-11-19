@@ -9,7 +9,7 @@ import useDashboardLiveStats from '../../../../hooks/useDashboardLiveStats';
 import { useSelector } from '../../../../store';
 import MainCard from '../../../../ui-component/cards/MainCard';
 import { fireMilestoneOnce } from '../../../../utils/analytics/posthog';
-import { isHeartbeatFresh } from './heartbeat';
+import { pluginStatus } from './heartbeat';
 
 // Dashboard FPP-plugin status card (V17 + V18-lite, PSA-v2 dashboard restructure).
 //
@@ -80,10 +80,7 @@ const HealthRow = () => {
     return { start: now - STRIP_DAYS * 24 * 60 * 60 * 1000, end: now };
   }, [stats]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const isConnected = useMemo(
-    () => isHeartbeatFresh(stats?.lastHeartbeatMs),
-    [stats]
-  );
+  const { isConnected, hasEverConnected } = pluginStatus(stats);
 
   // PRD-013 P0-3 — `plugin_connected` activation milestone. Fires once the
   // dashboard observes a live plugin, whenever that first happens to be.
@@ -118,7 +115,6 @@ const HealthRow = () => {
     return <Skeleton variant="rectangular" height={120} sx={{ borderRadius: 1 }} />;
   }
 
-  const hasEverConnected = !!stats?.lastHeartbeatMs;
   const gaps = stats?.heartbeatGaps || [];
   const versionChanges = stats?.versionChanges || [];
   const lastUpgrade = versionChanges[0]; // backend pre-sorts most-recent-first

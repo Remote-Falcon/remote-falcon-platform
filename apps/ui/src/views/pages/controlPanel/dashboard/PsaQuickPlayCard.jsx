@@ -12,7 +12,7 @@ import { setNextPsaOverrideService } from '../../../../services/controlPanel/mut
 import { useDispatch, useSelector } from '../../../../store';
 import { setShow } from '../../../../store/slices/show';
 import MainCard from '../../../../ui-component/cards/MainCard';
-import { isHeartbeatFresh } from './heartbeat';
+import { pluginStatus } from './heartbeat';
 import { visibleEnabledPsas } from './psaQuickPlay.helpers';
 import { SET_NEXT_PSA_OVERRIDE } from '../../../../utils/graphql/controlPanel/mutations';
 import { GET_SHOW_DASHBOARD_POLL } from '../../../../utils/graphql/controlPanel/queries';
@@ -38,10 +38,8 @@ const PsaQuickPlayCard = () => {
 
   const pendingOverride = show?.nextPsaOverride || '';
 
-  // FPP heartbeat freshness — same logic as HealthRow's Connected/Offline pill.
-  const isConnected =
-    isHeartbeatFresh(liveStats?.lastHeartbeatMs);
-  const hasEverConnected = !!liveStats?.lastHeartbeatMs;
+  // Server-computed plugin state, same as HealthRow's Connected/Offline pill.
+  const { isConnected, hasEverConnected } = pluginStatus(liveStats);
 
   // Only enabled PSAs are playable, sorted by order — see visibleEnabledPsas.
   const psas = useMemo(() => visibleEnabledPsas(show?.psaSequences), [show?.psaSequences]);

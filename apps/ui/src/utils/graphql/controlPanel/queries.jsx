@@ -587,6 +587,7 @@ export const DASHBOARD_LIVE_STATS = gql`
       currentViewers
       medianDwellSecondsTonight
       lastHeartbeatMs
+      pluginConnected
       heartbeatGaps {
         startedAtMs
         endedAtMs
