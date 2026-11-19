@@ -93,6 +93,7 @@ This is the operator's map of the Remote Falcon stack: every service, what it do
 | **Talks to** | MongoDB |
 | **GH Actions secrets** | `MONGO_URI` (build-arg, baked into native image), `DIGITALOCEAN_ACCESS_TOKEN` |
 | **In-cluster secret** | `mongodb-connection` — key: `MONGO_URI` |
+| **Plain env** | `REMOTEFALCON_VIEWER_PUBLIC_URL=https://remotefalcon.com/remote-falcon-viewer` (manifest). Base for the inline-artwork URLs getShow returns in place of `data:` URIs (`GET /remote-falcon-viewer/artwork/<show>/<hash>.<ext>`, immutable cache). Unset = root-relative, which is right for dev and self-host, where one nginx routes `/remote-falcon-viewer` on every host. |
 | **Observability** | Prometheus `ServiceMonitor` exposes `/remote-falcon-viewer/q/metrics`. Datadog log annotation present in manifest but **inert** (operator not installed — see Cluster topology). Rollover to the OTel Collector (`OTEL_URI` env + Datadog annotation removal) pending in #34. |
 | **Note** | The build bakes `MONGO_URI` into the native image — rotating Mongo creds requires a rebuild, not just a Secret update. |
 
@@ -109,6 +110,7 @@ This is the operator's map of the Remote Falcon stack: every service, what it do
 | **Talks to** | MongoDB |
 | **GH Actions secrets** | `MONGO_URI` (build-arg), `DIGITALOCEAN_ACCESS_TOKEN` |
 | **In-cluster secret** | `mongodb-connection` — key: `MONGO_URI` |
+| **Runtime env** | `PLUGINS_RATE_LIMIT_MODE` = `off` \| `log` (default) \| `enforce`: per-show-token, per-endpoint, per-pod rate limit (`RateLimitFilter`). `log` never rejects and writes one `RATE_LIMIT token=… endpoint=… rate=N/min` WARN per token and endpoint per minute while over the limit; `enforce` returns 429 + `Retry-After`. Limits: `plugins-api.rate-limit.*` in `application.properties`. Runtime config, so a rollout restart applies it. |
 | **Observability** | Prometheus `ServiceMonitor` exposes `/q/metrics`. Datadog log annotation present in manifest but **inert** (operator not installed). Rollover to the OTel Collector (`OTEL_URI` env + Datadog annotation removal) pending in #34. |
 
 ### 6. remote-falcon-external-api
@@ -410,10 +412,14 @@ cd ops/k8s/ingress-nginx && ./apply.sh && ./apply.sh apply      # ingress is not
 | ingress-nginx controller replicas | `profile.conf` -> `ops/k8s/ingress-nginx/apply.sh` (by hand) | 2 fixed, no HPA | HPA 2-6, CPU 70% | HPA 3-6, CPU 70% |
 | Node pool autoscaler min-max | `doctl kubernetes cluster node-pool update` (by hand) | 3-5 | 3-8 | 3-8 (optional min 5 with the standbys) |
 | DB standbys | DO console / `doctl` (by hand) | none | none | 2 (optional) |
-| control-panel Mongo pool / timeouts | env `RF_MONGO_*` on the Deployment (property `rf.mongo.*`), read at startup | pool 10 (min 2), wait 2s, read 60s, select 3s, connect 3s | same | same |
+| control-panel Mongo pool / timeouts | env `RF_MONGO_*` on the Deployment (property `rf.mongo.*`), read at startup | pool 10 (min 2), wait 2s, read 10s, select 3s, connect 3s | same | same |
+| control-panel scheduled-job Mongo client | env `MONGO_MAINTENANCE_SOCKET_READ_TIMEOUT_MS` (min 60000), `MONGO_MAINTENANCE_MAX_POOL_SIZE` | pool 3, read 120s | same | same |
 | external-api Mongo pool / timeouts | env `RF_MONGO_*` (property `rf.mongo.*`), read at startup | pool 10 (min 2), wait 2s, read 10s, select 3s, connect 3s | same | same |
 | viewer / plugins-api Mongo pool / timeouts | env `QUARKUS_MONGODB_MAX_POOL_SIZE`, `_MIN_POOL_SIZE`, `_READ_TIMEOUT`, `_CONNECT_TIMEOUT`, `_SERVER_SELECTION_TIMEOUT`; pool wait `REMOTEFALCON_MONGODB_WAIT_QUEUE_TIMEOUT` | pool 15 (min 2), wait 1s, read 8s, select 2s, connect 2s | same | same |
 | viewer / plugins-api worker threads | env `QUARKUS_THREAD_POOL_MAX_THREADS` | 48 | same | same |
+| plugins-api per-token rate limit | env `PLUGINS_RATE_LIMIT_MODE` (`off`/`log`/`enforce`) in `apps/plugins-api/k8s/manifest.yml`; limits `PLUGINS_API_RATE_LIMIT_{POLL,SYNC,OTHER}_{PER_MINUTE,BURST}` | `log`; poll 120/min burst 30, sync 6/min burst 3, other 60/min burst 30 | `log` (switch to `enforce` once the `RATE_LIMIT` lines look right) | same as season |
+| viewer serve-stale getShow | env `VIEWER_SERVE_STALE_ENABLED`, `_FRESH_MS`, `_MAX_AGE_MS`, `_MAX_ENTRIES` | off (fresh 2s, max age 120s, 5000 shows) | off until validated, then on | on |
+| Mongo circuit breaker (viewer, plugins-api) | env `MONGO_CIRCUIT_BREAKER_ENABLED`, `_REQUEST_VOLUME`, `_FAILURE_RATIO`, `_DELAY_MS`, `_SUCCESS_THRESHOLD` | off (20 calls, 50%, 10s open, 3 to close) | off until validated, then on | on |
 
 `RF_MONGO_*` names: `SERVER_SELECTION_TIMEOUT_MS`, `CONNECT_TIMEOUT_MS`, `SOCKET_READ_TIMEOUT_MS`, `MAX_POOL_SIZE`, `MIN_POOL_SIZE`, `MAX_WAIT_TIME_MS` (integers, ms). A bad value (non-number, max pool below 1, min above max) fails startup, so the rollout stops on the old pods.
 

@@ -1,5 +1,7 @@
 package com.remotefalcon.service;
 
+import com.remotefalcon.artwork.ArtworkReferences;
+import com.remotefalcon.cache.ServeStaleShowCache;
 import com.remotefalcon.library.enums.ViewerControlMode;
 import com.remotefalcon.library.models.Category;
 import com.remotefalcon.library.models.Preference;
@@ -39,7 +41,23 @@ public class GraphQLQueryService {
   @Inject
   RoutingContext context;
 
+  @Inject
+  ServeStaleShowCache serveStaleShowCache;
+
+  @Inject
+  ArtworkReferences artworkReferences;
+
+  /**
+   * The 5s viewer poll. With VIEWER_SERVE_STALE_ENABLED the processed show is
+   * reused for a short fresh window and, while Mongo is unavailable, served
+   * from the last good copy (ServeStaleShowCache). Off, this is a straight
+   * call to {@link #loadShowForViewer}.
+   */
   public Show getShow(String showSubdomain) {
+    return serveStaleShowCache.get(showSubdomain, () -> loadShowForViewer(showSubdomain));
+  }
+
+  private Show loadShowForViewer(String showSubdomain) {
     // Use optimized query that excludes stats and sensitive fields
     Optional<Show> show = this.showRepository.findByShowSubdomainForViewer(showSubdomain);
     if (show.isPresent()) {
@@ -58,6 +76,11 @@ public class GraphQLQueryService {
       // stays visible to them. Mirrors the isSongLike treatment already
       // applied to updatePlayingNext for the same reasons.
       existingShow.setRequests(this.stripOperatorInjectedRequests(existingShow));
+      // S2: inline data-URI artwork leaves the 5s poll as a short URL to the
+      // cacheable /artwork endpoint. Done inside the load, before the show is
+      // cached, so serve-stale never hands concurrent polls a shared object
+      // that is still being rewritten.
+      this.artworkReferences.rewrite(existingShow);
     }
     return show.orElse(null);
   }

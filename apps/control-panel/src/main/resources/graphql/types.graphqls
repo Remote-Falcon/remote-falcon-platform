@@ -324,6 +324,9 @@ type DashboardLiveStats {
     currentViewers: Int
     medianDwellSecondsTonight: Long
     lastHeartbeatMs: Long
+    # Server-computed: plugin heartbeat younger than control-panel's 7-min
+    # stale threshold. The UI reads this instead of comparing lastHeartbeatMs.
+    pluginConnected: Boolean
     heartbeatGaps: [HeartbeatGapDto]
     versionChanges: [VersionChangeDto]
 }

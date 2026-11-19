@@ -8,6 +8,7 @@ import com.remotefalcon.library.models.Stat;
 import com.remotefalcon.library.models.ViewerSession;
 import com.remotefalcon.library.quarkus.entity.Show;
 import com.remotefalcon.library.util.IpMatcher;
+import com.remotefalcon.mongo.MongoGuarded;
 import io.quarkus.mongodb.panache.PanacheMongoRepository;
 import jakarta.enterprise.context.ApplicationScoped;
 import lombok.extern.jbosslog.JBossLog;
@@ -21,6 +22,9 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 @JBossLog
+// Every call goes through the Mongo circuit breaker when
+// MONGO_CIRCUIT_BREAKER_ENABLED is on (MongoGuardedInterceptor).
+@MongoGuarded
 @ApplicationScoped
 public class ShowRepository implements PanacheMongoRepository<Show> {
   // V15 security fix — bound the rejectedRequests array so a hostile viewer
@@ -86,6 +90,21 @@ public class ShowRepository implements PanacheMongoRepository<Show> {
    */
   public Optional<Show> findSequenceNamesByShowSubdomain(String showSubdomain) {
     return findIncludingByShowSubdomain(showSubdomain, "sequences.name", "sequences.displayName");
+  }
+
+  /**
+   * S2 — only the artwork fields getShow can expose (plus {@code _id}), for the
+   * artwork endpoint to find the bytes behind a content hash. Hit once per
+   * image per browser (the response is immutable), not on the poll.
+   */
+  public Optional<Show> findArtworkByShowSubdomain(String showSubdomain) {
+    return findIncludingByShowSubdomain(showSubdomain,
+        "showSubdomain",
+        "sequences.imageUrl",
+        "playingNowSequence.imageUrl",
+        "playingNextSequence.imageUrl",
+        "requests.sequence.imageUrl",
+        "votes.sequence.imageUrl");
   }
 
   private Optional<Show> findIncludingByShowSubdomain(String showSubdomain, String... fields) {

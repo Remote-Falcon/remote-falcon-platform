@@ -65,6 +65,11 @@ spec:
             # application.properties reads ${OTEL_URI:default}.
             - name: OTEL_URI
               value: "http://otel-collector.remote-falcon.svc.cluster.local:4317"
+            # S2 — inline artwork references in getShow must be absolute:
+            # viewer pages run on <show>.remotefalcon.com, but only the apex
+            # host routes /remote-falcon-viewer to this service.
+            - name: REMOTEFALCON_VIEWER_PUBLIC_URL
+              value: "https://remotefalcon.com/remote-falcon-viewer"
           # Probes never touch Mongo (quarkus.mongodb.health.enabled=false). A slow
           # DB must not mark every pod unready or stop new pods from starting
           # (2026-10-12 incident). Request-level timeouts surface DB trouble instead.

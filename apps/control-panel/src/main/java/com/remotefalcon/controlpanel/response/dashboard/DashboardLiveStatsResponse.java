@@ -26,6 +26,10 @@ public class DashboardLiveStatsResponse {
     // heartbeatGaps: rolling 30-day log of windows where heartbeats were
     //   absent for >5 minutes (drives the uptime strip).
     private Long lastHeartbeatMs;
+    // S8b — server-computed Connected/Offline (PluginHeartbeat.STALE_MINUTES),
+    // so the threshold is not duplicated in the browser. lastHeartbeatMs stays
+    // for the "last heartbeat N min ago" copy and older clients.
+    private Boolean pluginConnected;
     private java.util.List<HeartbeatGapDto> heartbeatGaps;
     // V18 — version-change history (last 365 days). Frontend uses this
     // to render "last upgraded N days ago" + a popover timeline under

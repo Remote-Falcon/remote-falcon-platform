@@ -10,6 +10,7 @@ import com.remotefalcon.library.util.PluginQueueHelper;
 import com.remotefalcon.plugins.api.cache.TtlKeySet;
 import com.remotefalcon.plugins.api.context.ShowContext;
 import com.remotefalcon.plugins.api.model.*;
+import com.remotefalcon.plugins.api.mongo.MongoGuarded;
 
 import io.quarkus.logging.Log;
 import jakarta.enterprise.context.RequestScoped;
@@ -29,6 +30,10 @@ import org.bson.conversions.Bson;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
+// Writes go straight to Show.mongoCollection(), so the service itself is
+// guarded by the Mongo circuit breaker (MongoGuardedInterceptor). Nested
+// repository calls are recorded once, on the outer service call.
+@MongoGuarded
 @RequestScoped
 public class PluginService {
 
@@ -1541,6 +1546,7 @@ public class PluginService {
   // 5 min of real silence plus the HEARTBEAT_MIN_INTERVAL_SECONDS write floor:
   // the stored heartbeat can trail the plugin's real last beat by up to ~150s,
   // so comparing against 5 min would record 2.5-min blips as gaps.
+  // Must match control-panel's PluginHeartbeat.STALE_MINUTES.
   private static final long HEARTBEAT_GAP_THRESHOLD_MINUTES = 7L;
   private static final long HEARTBEAT_GAP_RETENTION_DAYS = 30L;
   // Write coalescing (Season Capacity Plan R3). The plugin beats every ~30s,
@@ -1553,8 +1559,10 @@ public class PluginService {
   //
   // Staleness budget: the stored value lags the plugin's real last beat by
   // 0 to ~150s (floor + one 30s beat). Every reader compares the stored value
-  // against 7 min (gap threshold here, control-panel HEARTBEAT_STALE_MINUTES,
-  // the dashboard's HEARTBEAT_FRESH_MS), so "Offline", the first alert and a
+  // against 7 min (gap threshold here, and control-panel's
+  // PluginHeartbeat.STALE_MINUTES, which drives both the FPP alert task and
+  // dashboardLiveStats.pluginConnected; the UI no longer keeps its own copy),
+  // so "Offline", the first alert and a
   // recorded gap all need between ~4.5 and 7 min of real silence (was 5 min,
   // give or take one beat). A healthy plugin can never read as offline.
   // Recovery is immediate: after any outage the stored value is older than

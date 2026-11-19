@@ -27,6 +27,7 @@ import com.remotefalcon.controlpanel.response.dashboard.WrappedSummaryResponse;
 import com.remotefalcon.controlpanel.util.AuthUtil;
 import com.remotefalcon.controlpanel.util.ClientUtil;
 import com.remotefalcon.controlpanel.util.ExcelUtil;
+import com.remotefalcon.controlpanel.util.PluginHeartbeat;
 import com.remotefalcon.library.documents.Show;
 import com.remotefalcon.library.enums.StatusResponse;
 import com.remotefalcon.library.util.PluginQueueHelper;
@@ -705,6 +706,7 @@ public class DashboardService {
             .currentViewers(currentViewers)
             .medianDwellSecondsTonight(medianDwellTonight)
             .lastHeartbeatMs(lastHeartbeatMs)
+            .pluginConnected(PluginHeartbeat.isConnected(existingShow.getLastFppHeartbeat(), LocalDateTime.now()))
             .heartbeatGaps(gapDtos)
             .versionChanges(versionChangeDtos)
             .build();

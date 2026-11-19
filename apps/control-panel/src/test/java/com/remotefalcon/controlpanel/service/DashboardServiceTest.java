@@ -678,6 +678,7 @@ class DashboardServiceTest {
         assertThat(r.getMedianDwellSecondsTonight()).isEqualTo(10 * 60L);
         // Heartbeat fields surface
         assertThat(r.getLastHeartbeatMs()).isNotNull();
+        assertThat(r.getPluginConnected()).isTrue();
         assertThat(r.getHeartbeatGaps()).hasSize(1);
         // Versions sorted desc by atMs (newest first)
         assertThat(r.getVersionChanges()).hasSize(2);
@@ -721,6 +722,49 @@ class DashboardServiceTest {
         ZonedDateTime expectedStart = ZonedDateTime.now(TZ_ID).toLocalDate().atStartOfDay(TZ_ID);
         assertThat(lower.getValue().toInstant()).isEqualTo(expectedStart.toInstant());
         assertThat(upper.getValue().toInstant()).isEqualTo(expectedStart.plusDays(1).toInstant());
+    }
+
+    // S8b: the Connected/Offline threshold is computed here, from the same
+    // constant the FPP alert task uses, instead of in the browser.
+    private DashboardLiveStatsResponse liveStatsWithHeartbeat(LocalDateTime lastFppHeartbeat) {
+        Show show = Show.builder().showToken(SHOW_TOKEN)
+                .votes(new ArrayList<>())
+                .sequences(new ArrayList<>())
+                .playingNow("").playingNext("").playingNextFromSchedule("")
+                .lastFppHeartbeat(lastFppHeartbeat)
+                .build();
+        stubAuth(SHOW_TOKEN);
+        when(showRepository.findByShowTokenForLiveStats(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(statsRepository.todaysLiveTotals(org.mockito.ArgumentMatchers.eq(SHOW_TOKEN),
+                org.mockito.ArgumentMatchers.any(java.util.Date.class),
+                org.mockito.ArgumentMatchers.any(java.util.Date.class)))
+                .thenReturn(List.of());
+        return service.dashboardLiveStats(0L, 0L, TZ);
+    }
+
+    @Test
+    void dashboardLiveStats_pluginConnected_trueInsideStaleThreshold() {
+        LocalDateTime recent = LocalDateTime.now()
+                .minusMinutes(com.remotefalcon.controlpanel.util.PluginHeartbeat.STALE_MINUTES - 1);
+        assertThat(liveStatsWithHeartbeat(recent).getPluginConnected()).isTrue();
+    }
+
+    @Test
+    void dashboardLiveStats_pluginConnected_falsePastStaleThreshold_butKeepsTimestamp() {
+        LocalDateTime stale = LocalDateTime.now()
+                .minusMinutes(com.remotefalcon.controlpanel.util.PluginHeartbeat.STALE_MINUTES + 1);
+        DashboardLiveStatsResponse r = liveStatsWithHeartbeat(stale);
+        assertThat(r.getPluginConnected()).isFalse();
+        // Backward compatibility + "last heartbeat N min ago" copy.
+        assertThat(r.getLastHeartbeatMs())
+                .isEqualTo(stale.toInstant(java.time.ZoneOffset.UTC).toEpochMilli());
+    }
+
+    @Test
+    void dashboardLiveStats_pluginConnected_falseWhenNeverConnected() {
+        DashboardLiveStatsResponse r = liveStatsWithHeartbeat(null);
+        assertThat(r.getPluginConnected()).isFalse();
+        assertThat(r.getLastHeartbeatMs()).isNull();
     }
 
     @Test

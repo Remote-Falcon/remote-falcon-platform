@@ -65,6 +65,12 @@ spec:
             # application.properties reads ${OTEL_URI:default}.
             - name: OTEL_URI
               value: "http://otel-collector.remote-falcon.svc.cluster.local:4317"
+            # Per-token rate limit: off | log | enforce. log never rejects; it
+            # writes RATE_LIMIT WARN lines to size the limits against real
+            # traffic. Switch to enforce once they look right (Season
+            # Capacity Plan R2). Runtime config, a rollout restart applies it.
+            - name: PLUGINS_RATE_LIMIT_MODE
+              value: "log"
           # Probes never touch Mongo (quarkus.mongodb.health.enabled=false). A slow
           # DB must not mark every pod unready or stop new pods from starting
           # (2026-10-12 incident). Request-level timeouts surface DB trouble instead.
