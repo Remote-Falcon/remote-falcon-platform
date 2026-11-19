@@ -47,6 +47,14 @@ public final class RejectionReason {
   /** A sequence group where at least one member hit its nightly limit. */
   public static final String SEQUENCE_UNAVAILABLE_GROUP_CAP = "SEQUENCE_UNAVAILABLE_GROUP_CAP";
 
+  // #213 — a category's requestLimit declines a request while any song from
+  // that category is among the newest N queued requests. It used to be
+  // recorded as SEQUENCE_REQUESTED, indistinguishable from a real duplicate.
+  // The client still receives SEQUENCE_REQUESTED; only the funnel narrows.
+
+  /** Declined by its category's request limit (spacing within the queue). */
+  public static final String CATEGORY_REQUEST_LIMIT = "CATEGORY_REQUEST_LIMIT";
+
   /** The one client-reported permission state meaning "a real fix was obtained". */
   private static final String GRANTED = "granted";
 
