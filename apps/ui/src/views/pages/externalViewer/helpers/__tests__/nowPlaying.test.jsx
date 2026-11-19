@@ -83,6 +83,42 @@ describe('jukeboxQueueElements', () => {
   });
 });
 
+// #208 {JUKEBOX_QUEUE_ALL}: same rows as {JUKEBOX_QUEUE}, but the first
+// request is kept, so the row count always equals {QUEUE_SIZE}.
+describe('jukeboxQueueElements with includeFirst', () => {
+  const requests = [
+    { position: 2, sequence: seq(4, 'Second', 'B') },
+    { position: 1, sequence: seq(11, 'First', 'A') }
+  ];
+
+  it.each([
+    [0, []],
+    [1, [{ position: 1, sequence: seq(1, 'Only', 'A') }]],
+    [2, requests]
+  ])('renders %i rows for %i requests', (count, input) => {
+    const { container } = render(<>{jukeboxQueueElements(input, { includeFirst: true })}</>);
+    expect(container.querySelectorAll('.jukebox-queue')).toHaveLength(count);
+  });
+
+  it('keeps position order and marks only the first row as next', () => {
+    const { container } = render(<>{jukeboxQueueElements(requests, { includeFirst: true })}</>);
+    const [first, second] = container.querySelectorAll('.jukebox-queue');
+    expect(first.className).toBe('jukebox-queue jukebox-queue-next');
+    expect(first.querySelector('.jukebox-queue-title').textContent).toBe('First (display)');
+    expect(first.querySelector('.jukebox-queue-artist').className).toBe('jukebox-list-artist jukebox-list-artist-11 jukebox-queue-artist');
+    expect(second.className).toBe('jukebox-queue');
+    expect(second.querySelector('.jukebox-queue-title').textContent).toBe('Second (display)');
+  });
+
+  it('leaves {JUKEBOX_QUEUE} rows unchanged: first request skipped, no next class', () => {
+    const { container } = render(<>{jukeboxQueueElements(requests)}</>);
+    const rows = container.querySelectorAll('.jukebox-queue');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].className).toBe('jukebox-queue');
+    expect(rows[0].querySelector('.jukebox-queue-title').textContent).toBe('Second (display)');
+  });
+});
+
 describe('hasPlayingSlots', () => {
   const visible = (category) => ({ visible: true, category });
 
