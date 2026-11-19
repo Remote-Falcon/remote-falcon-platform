@@ -20,7 +20,7 @@ import useAnalyticsFilters from './useAnalyticsFilters';
 // costing requests (lots of INVALID_LOCATION). Note INVALID_LOCATION is NOT
 // synonymous with "too far away" — see the hint below and PRD-019.
 
-const REASON_LABEL = {
+export const REASON_LABEL = {
   QUEUE_FULL: 'Queue full',
   ALREADY_REQUESTED: 'Already requested',
   INVALID_LOCATION: 'Location check failed',
@@ -30,10 +30,19 @@ const REASON_LABEL = {
   INVALID_LOCATION_PERMISSION: "Location check failed (browser didn't share location)",
   NAUGHTY: 'Blocked IP',
   SEQUENCE_REQUESTED: 'Sequence already in queue',
+  // #177 split SEQUENCE_UNAVAILABLE by cause (viewer RejectionReason); the
+  // plain code is what was recorded before the split.
+  SEQUENCE_UNAVAILABLE_COOLDOWN: 'Resting after it played',
+  SEQUENCE_UNAVAILABLE_NIGHTLY_CAP: 'Hit its nightly limit',
+  SEQUENCE_UNAVAILABLE_GROUP_CAP: 'Group hit its nightly limit',
+  SEQUENCE_UNAVAILABLE: 'Unavailable (older data)',
+  // #213 — split out of SEQUENCE_REQUESTED (the viewer still shows the same
+  // message; only the funnel tells them apart).
+  CATEGORY_REQUEST_LIMIT: 'Category request limit',
   UNKNOWN: 'Unknown'
 };
 
-const REASON_HINT = {
+export const REASON_HINT = {
   QUEUE_FULL: 'Raise Jukebox Queue Depth (Remote Falcon Settings → Jukebox) if these are frequent.',
   ALREADY_REQUESTED: 'A viewer already had a request waiting (Prevent Multiple Requests). They can request again after the next song starts. Working as designed.',
   // PRD-019 — this used to read "Loosen the radius if you expect viewers from
@@ -54,7 +63,15 @@ const REASON_HINT = {
   INVALID_LOCATION_IN_APP:
     "These viewers opened your link inside the Facebook or Instagram app, which can't share location with the page no matter what they tap. Nothing on your show settings will fix it. If this bucket is large, ask viewers to open the link in their normal browser — the page now tells them so automatically.",
   NAUGHTY: 'A blocked IP tried to request. Working as designed — no action needed.',
-  SEQUENCE_REQUESTED: 'The sequence is already playing now / next, or has hit its per-night request cap.'
+  SEQUENCE_REQUESTED: 'The sequence is already playing now / next, or has hit its per-night request cap.',
+  SEQUENCE_UNAVAILABLE_COOLDOWN:
+    'Hide Sequence After Played grayed it out ("Available again soon") for a few songs after it played. Lower it in Remote Falcon Settings → Interaction Safeguards if these are frequent.',
+  SEQUENCE_UNAVAILABLE_NIGHTLY_CAP: "It reached your Nightly Play Limit (or its category's). It's back next show night.",
+  SEQUENCE_UNAVAILABLE_GROUP_CAP:
+    'A song in this group reached its nightly limit, so the whole group waits for the next show night.',
+  SEQUENCE_UNAVAILABLE: 'Recorded before these were split out.',
+  CATEGORY_REQUEST_LIMIT:
+    "A song from the same category was already among the newest requests in the queue, so the category's Request limit declined it. Lower the limit on the Categories tab if these are frequent."
 };
 
 const FunnelStep = ({ label, value, widthPct, accent }) => (
