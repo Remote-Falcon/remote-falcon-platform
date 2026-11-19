@@ -68,10 +68,9 @@ const isIpv6 = (value) => {
   return true;
 };
 
-// Whether an address that already passed isIpv6 is IPv4-mapped
-// (::ffff:a.b.c.d, in any spelling). The server-side matcher collapses these
-// to their four IPv4 bytes, so a block on one can't be longer than /32.
-const isIpv4Mapped = (value) => {
+// The eight 16-bit words of an address that already passed isIpv6, with '::'
+// expanded and an embedded IPv4 tail split into two words.
+const toIpv6Words = (value) => {
   const withoutZone = value.split('%')[0];
   const toWords = (side) =>
     side
@@ -84,8 +83,14 @@ const isIpv4Mapped = (value) => {
   const [head, tail] = withoutZone.split('::');
   const headWords = toWords(head);
   const tailWords = toWords(tail);
-  const words =
-    tail === undefined ? headWords : [...headWords, ...Array(8 - headWords.length - tailWords.length).fill(0), ...tailWords];
+  return tail === undefined ? headWords : [...headWords, ...Array(8 - headWords.length - tailWords.length).fill(0), ...tailWords];
+};
+
+// Whether an address that already passed isIpv6 is IPv4-mapped
+// (::ffff:a.b.c.d, in any spelling). The server-side matcher collapses these
+// to their four IPv4 bytes, so a block on one can't be longer than /32.
+const isIpv4Mapped = (value) => {
+  const words = toIpv6Words(value);
   return words.slice(0, 5).every((word) => word === 0) && words[5] === 0xffff;
 };
 
@@ -141,8 +146,91 @@ export const partitionIpEntries = (entries) => {
   return { valid, invalid };
 };
 
+// #211: the example used to be 192.168.1.50, a home-network address that can
+// never match anything. Every example here is from the documentation range.
 export const IP_ENTRY_FORMAT_HINT =
-  'Enter a single address (192.168.1.50), a CIDR block (203.0.113.0/24), or a range (203.0.113.10-203.0.113.40).';
+  'Enter a single address (203.0.113.50), a CIDR block (203.0.113.0/24), or a range (203.0.113.10-203.0.113.40).';
+
+/** Shown under an IP list field when there's nothing to warn about (#211). */
+export const PUBLIC_IP_HINT =
+  'Use your public IP (search "what is my IP" from that network), not a home-network address like 192.168.x.x.';
+
+// #211: Remote Falcon only ever sees a viewer's public IP (read from the
+// proxy headers behind Cloudflare). Addresses in these ranges never leave the
+// local network, so a rule built on one can never match.
+const ipv4ToInt = (value) => value.split('.').reduce((n, part) => n * 256 + Number(part), 0);
+
+const PRIVATE_IPV4_RANGES = [
+  ['10.0.0.0', 8], // RFC 1918
+  ['172.16.0.0', 12], // RFC 1918
+  ['192.168.0.0', 16], // RFC 1918
+  ['127.0.0.0', 8], // loopback
+  ['169.254.0.0', 16] // link-local
+].map(([base, bits]) => {
+  const start = ipv4ToInt(base);
+  return [start, start + 2 ** (32 - bits) - 1];
+});
+
+const ipv6WordsToBigInt = (words) => words.reduce((n, word) => (n << 16n) | BigInt(word), 0n);
+
+const PRIVATE_IPV6_PREFIXES = [
+  ['fc00::', 7], // unique local
+  ['fe80::', 10], // link-local
+  ['::1', 128] // loopback
+].map(([base, bits]) => [ipv6WordsToBigInt(toIpv6Words(base)), bits]);
+
+const overlapsPrivateIpv4 = (low, high) => PRIVATE_IPV4_RANGES.some(([start, end]) => low <= end && high >= start);
+
+const ipv4Block = (base, bits) => {
+  const size = 2 ** (32 - bits);
+  const low = Math.floor(base / size) * size;
+  return [low, low + size - 1];
+};
+
+// Two prefixes overlap when they agree on the bits the shorter one fixes.
+const overlapsPrivateIpv6 = (value, bits) =>
+  PRIVATE_IPV6_PREFIXES.some(([prefix, prefixBits]) => {
+    const shift = BigInt(128 - Math.min(bits, prefixBits));
+    return value >> shift === prefix >> shift;
+  });
+
+// An IPv4-mapped IPv6 address is matched as its IPv4 bytes, so check those.
+const mappedIpv4Int = (words) => words[6] * 65536 + words[7];
+
+/**
+ * True when a well-formed entry is, or reaches into, a home-network or
+ * otherwise non-public range (RFC 1918, loopback, link-local, IPv6 unique
+ * local). Such an entry saves but can never match a viewer (#211).
+ */
+export const isPrivateIpEntry = (value) => {
+  const entry = String(value ?? '').trim();
+  const type = classifyIpEntry(entry);
+  if (type === 'invalid') return false;
+  if (type === 'range') {
+    const [start, end] = entry.split('-').map((part) => ipv4ToInt(part.trim()));
+    return overlapsPrivateIpv4(Math.min(start, end), Math.max(start, end));
+  }
+  // A single address is a block of one: /32 for IPv4, /128 for IPv6.
+  const [addr, prefix] = entry.split('/');
+  const bits = prefix === undefined ? null : Number(prefix);
+  if (isIpv4(addr)) return overlapsPrivateIpv4(...ipv4Block(ipv4ToInt(addr), bits ?? 32));
+  const words = toIpv6Words(addr);
+  if (isIpv4Mapped(addr)) return overlapsPrivateIpv4(...ipv4Block(mappedIpv4Int(words), bits ?? 32));
+  return overlapsPrivateIpv6(ipv6WordsToBigInt(words), bits ?? 128);
+};
+
+const joinNames = (names) => (names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
+
+/**
+ * Warning for entries that are well-formed but can never match because they
+ * are home-network addresses, or null when there are none (#211).
+ */
+export const describePrivateIpEntries = (entries) => {
+  const privateEntries = (entries ?? []).filter(isPrivateIpEntry);
+  if (!privateEntries.length) return null;
+  const one = privateEntries.length === 1;
+  return `${joinNames(privateEntries)} ${one ? 'is an address' : 'are addresses'} inside a home network. Remote Falcon only sees each viewer's public IP, so ${one ? 'it' : 'they'} won't match anyone.`;
+};
 
 /** The preference keys holding operator-entered IP lists. */
 export const IP_LIST_PREFERENCE_KEYS = ['blockedViewerIps', 'votingExemptIps', 'statsExcludedIps'];

@@ -768,8 +768,9 @@ const InteractionSettings = () => {
                 <Typography component="div" variant="caption">
                   Requests, votes, and page views from these IP addresses are kept out of your statistics — handy for excluding your own
                   test/recording devices, or a workplace whose traffic leaves from many addresses. The interaction still works; it just is
-                  not counted. Accepts a single address, a CIDR block (203.0.113.0/24), or a range (203.0.113.10-203.0.113.40). After
-                  entering an address, press enter.
+                  not counted. Remote Falcon only sees each viewer&apos;s public IP, so enter your network&apos;s public address, not one
+                  from inside your home network (192.168.x.x, 10.x.x.x). Accepts a single address, a CIDR block (203.0.113.0/24), or a
+                  range (203.0.113.10-203.0.113.40). After entering an address, press enter.
                 </Typography>
               </Grid>
               <Grid item xs={12} md={6} lg={4}>

@@ -20,8 +20,8 @@ describe('IpListField', () => {
     const onChange = vi.fn();
     render(<IpListField value={[]} onChange={onChange} />);
 
-    await type(user, '192.168.1.50');
-    expect(onChange).toHaveBeenCalledWith(['192.168.1.50']);
+    await type(user, '203.0.113.50');
+    expect(onChange).toHaveBeenCalledWith(['203.0.113.50']);
   });
 
   it('accepts a CIDR block — the case from the report', async () => {
@@ -91,5 +91,34 @@ describe('IpListField', () => {
   it('shows no error for a clean field', () => {
     render(<IpListField value={['10.0.0.1']} onChange={vi.fn()} />);
     expect(screen.queryByText(/Not added/i)).not.toBeInTheDocument();
+  });
+
+  // #211: a home-network address can never match, because Remote Falcon only
+  // sees public IPs. Self-hosters on a LAN may still want one, so it saves,
+  // but the field says plainly that it won't match.
+  it('adds a private address but warns that it will not match', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const { rerender } = render(<IpListField value={[]} onChange={onChange} />);
+
+    await type(user, '192.168.1.50');
+    expect(onChange).toHaveBeenCalledWith(['192.168.1.50']);
+
+    rerender(<IpListField value={['192.168.1.50']} onChange={onChange} />);
+    expect(screen.getByRole('alert')).toHaveTextContent(/192\.168\.1\.50 is an address inside a home network/);
+  });
+
+  it('does not warn about public addresses, and shows the public-IP hint instead', () => {
+    render(<IpListField value={['203.0.113.50']} onChange={vi.fn()} />);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByText(/Use your public IP/i)).toBeInTheDocument();
+  });
+
+  it('reports a format error ahead of the home-network warning', async () => {
+    const user = userEvent.setup();
+    render(<IpListField value={['192.168.1.50']} onChange={vi.fn()} />);
+
+    await type(user, 'my office');
+    expect(screen.getByRole('alert')).toHaveTextContent(/Not added: my office/);
   });
 });
