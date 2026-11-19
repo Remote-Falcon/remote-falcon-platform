@@ -16,6 +16,7 @@ import { setShow } from '../../../../store/slices/show';
 import Avatar from '../../../../ui-component/extended/Avatar';
 import StickyFormBar from '../../../../ui-component/StickyFormBar';
 import { UPDATE_SHOW, UPDATE_USER_PROFILE } from '../../../../utils/graphql/controlPanel/mutations';
+import { showNameError } from '../../../../utils/showName';
 
 import { showAlert } from '../../globalPageHelpers';
 import UpdateEmailModal from './UpdateEmail.modal';
@@ -118,8 +119,12 @@ const UserProfile = () => {
     setUpdateEmailOpen(false);
   };
 
+  // #217: only an unchanged name may skip the rule (legacy names predate it).
+  const showNameChanged = show?.showName !== showName;
+  const showNameValidationError = showNameChanged ? showNameError(showName) : null;
+
   const handleShowNameChange = () => {
-    if (show?.showName !== showName) setUpdateShowNameOpen(true);
+    if (showNameChanged && !showNameValidationError) setUpdateShowNameOpen(true);
   };
 
   const handleShowNameUpdate = () => {
@@ -189,7 +194,8 @@ const UserProfile = () => {
             value={showName}
             onChange={(e) => setShowName(e?.target?.value)}
             onBlur={handleShowNameChange}
-            helperText="Changing your show name signs you out and updates your show URL."
+            error={!!showNameValidationError}
+            helperText={showNameValidationError || 'Changing your show name signs you out and updates your show URL.'}
           />
         </Grid>
         <Grid item xs={12} sm={6}>

@@ -27,6 +27,7 @@ import { isHostedBuild } from '../../../../utils/analytics/posthog';
 import useAuth from '../../../../hooks/useAuth';
 import AnimateButton from '../../../../ui-component/extended/AnimateButton';
 import { strengthColor, strengthIndicatorNumFunc } from '../../../../utils/password-strength';
+import { showNameError } from '../../../../utils/showName';
 
 import { Environments } from '../../../../utils/enum';
 
@@ -75,9 +76,11 @@ const AuthRegister = () => {
         }}
         validationSchema={Yup.object().shape({
           showName: Yup.string()
-            .matches(/^[A-Za-z0-9 ]+$/, 'Letters and Numbers only')
-            .max(255)
-            .required('Show Name is required'),
+            .required('Show Name is required')
+            .test('show-name', (value, ctx) => {
+              const error = showNameError(value);
+              return error ? ctx.createError({ message: error }) : true;
+            }),
           email: Yup.string().email('Must be a valid email').max(255).required('Email is required'),
           password: Yup.string().max(255).required('Password is required')
         })}
