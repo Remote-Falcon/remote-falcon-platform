@@ -9,6 +9,7 @@ import _ from 'lodash';
 import moment from 'moment/moment';
 import { Link as RouterLink } from 'react-router-dom';
 
+import ExcludeThisNetworkButton from '../../../../ui-component/ExcludeThisNetworkButton';
 import IpListField from '../../../../ui-component/IpListField';
 import MainCard from '../../../../ui-component/cards/MainCard';
 import StickyFormBar from '../../../../ui-component/StickyFormBar';
@@ -736,7 +737,8 @@ const InteractionSettings = () => {
                 </Stack>
                 <Typography component="div" variant="caption">
                   Adding an IP address here will prevent the device from being able to request or vote on a sequence. Accepts a single
-                  address, a CIDR block (203.0.113.0/24), or a range (203.0.113.10-203.0.113.40). After entering an address, press enter.
+                  address, a CIDR block (203.0.113.0/24), or a range (203.0.113.10-203.0.113.40). After entering an address, press enter, or use Exclude this network to add the network
+                  you&apos;re on now.
                 </Typography>
               </Grid>
               <Grid item xs={12} md={6} lg={4}>
@@ -776,6 +778,10 @@ const InteractionSettings = () => {
               <Grid item xs={12} md={6} lg={4}>
                 <IpListField
                   label="Excluded IPs"
+                  value={values.statsExcludedIps}
+                  onChange={(v) => setValues((prev) => ({ ...prev, statsExcludedIps: v }))}
+                />
+                <ExcludeThisNetworkButton
                   value={values.statsExcludedIps}
                   onChange={(v) => setValues((prev) => ({ ...prev, statsExcludedIps: v }))}
                 />
