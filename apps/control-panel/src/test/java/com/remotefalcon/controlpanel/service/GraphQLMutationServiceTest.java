@@ -5,6 +5,7 @@ import com.mongodb.client.result.UpdateResult;
 import com.remotefalcon.controlpanel.dto.TokenDTO;
 import com.remotefalcon.controlpanel.repository.NotificationRepository;
 import com.remotefalcon.controlpanel.repository.ShowRepository;
+import com.remotefalcon.controlpanel.util.ShowNames;
 import com.remotefalcon.controlpanel.util.AuthUtil;
 import com.remotefalcon.controlpanel.util.ClientUtil;
 import com.remotefalcon.controlpanel.util.EmailUtil;
@@ -454,6 +455,57 @@ class GraphQLMutationServiceTest {
         assertThatThrownBy(() -> service.updateShow("same@x.com", "Taken"))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessage(StatusResponse.SHOW_EXISTS.name());
+    }
+
+    // #217: the rename path used to accept any character, so "Matty's Lights"
+    // became the unreachable subdomain matty'slights.
+    @Test
+    void updateShow_nameChange_rejectsCharactersAHostnameCannotCarry() {
+        stubAuth();
+        Show show = Show.builder().showToken(SHOW_TOKEN)
+                .email("same@x.com").showName("Old").showSubdomain("old").build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+
+        assertThatThrownBy(() -> service.updateShow("same@x.com", "Matty's Lights"))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage(ShowNames.INVALID_SHOW_NAME);
+        assertThat(show.getShowName()).isEqualTo("Old");
+        assertThat(show.getShowSubdomain()).isEqualTo("old");
+        verify(showRepository, never()).save(any(Show.class));
+    }
+
+    @Test
+    void updateShow_nameChange_allowsHyphens() {
+        stubAuth();
+        Show show = Show.builder().showToken(SHOW_TOKEN)
+                .email("same@x.com").showName("Old").showSubdomain("old").build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(showRepository.findByShowSubdomain("barrington-njlights")).thenReturn(Optional.empty());
+
+        assertThat(service.updateShow("same@x.com", "Barrington-NJ Lights")).isTrue();
+        assertThat(show.getShowSubdomain()).isEqualTo("barrington-njlights");
+    }
+
+    // A show whose name predates the rule can still change its email.
+    @Test
+    void updateShow_emailOnly_doesNotRevalidateALegacyName() {
+        stubAuth();
+        Show show = Show.builder().showToken(SHOW_TOKEN)
+                .email("old@x.com").showName("Cormier's Lights").showSubdomain("cormier'slights").build();
+        when(showRepository.findByShowToken(SHOW_TOKEN)).thenReturn(Optional.of(show));
+        when(emailUtil.sendSignUpEmail(any(Show.class))).thenReturn(mailer(202));
+
+        assertThat(service.updateShow("new@x.com", "Cormier's Lights")).isTrue();
+        assertThat(show.getEmail()).isEqualTo("new@x.com");
+    }
+
+    @Test
+    void signUp_rejectsInvalidShowName_beforeTouchingTheDatabase() {
+        assertThatThrownBy(() -> service.signUp("F", "L", "Matty's Lights", false))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage(ShowNames.INVALID_SHOW_NAME);
+        verify(showRepository, never()).save(any(Show.class));
+        verify(showRepository, never()).findByShowSubdomain(anyString());
     }
 
     // ---- updatePreferences (wrappedShareToken token-management quirks) ----

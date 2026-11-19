@@ -17,6 +17,8 @@ export const LocationCheckMethod = {
 
 export const StatusResponse = {
   SHOW_EXISTS: 'SHOW_EXISTS',
+  // #217 — show name holds a character a hostname can't carry.
+  INVALID_SHOW_NAME: 'INVALID_SHOW_NAME',
   EMAIL_NOT_VERIFIED: 'EMAIL_NOT_VERIFIED',
   EMAIL_CANNOT_BE_SENT: 'EMAIL_CANNOT_BE_SENT',
   SHOW_NOT_FOUND: 'SHOW_NOT_FOUND',

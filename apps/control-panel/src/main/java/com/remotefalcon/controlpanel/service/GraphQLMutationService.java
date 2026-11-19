@@ -9,6 +9,7 @@ import com.remotefalcon.controlpanel.util.ClientUtil;
 import com.remotefalcon.controlpanel.util.EmailUtil;
 import com.remotefalcon.controlpanel.util.PostHogUtil;
 import com.remotefalcon.controlpanel.util.RandomUtil;
+import com.remotefalcon.controlpanel.util.ShowNames;
 import com.remotefalcon.library.documents.Notification;
 import com.remotefalcon.library.documents.Show;
 import com.remotefalcon.library.enums.NotificationType;
@@ -58,7 +59,10 @@ public class GraphQLMutationService {
     Boolean autoValidateEmail;
 
     public Boolean signUp(String firstName, String lastName, String showName, Boolean marketingOptIn) {
-        String showSubdomain = showName.replaceAll("\\s", "").toLowerCase();
+        if (!ShowNames.isValid(showName)) {
+            throw new RuntimeException(ShowNames.INVALID_SHOW_NAME);
+        }
+        String showSubdomain = ShowNames.subdomainFor(showName);
         var request = this.authUtil.getCurrentRequest();
         String[] basicAuthCredentials = this.authUtil.getBasicAuthCredentials(request);
         String ipAddress = this.clientUtil.getClientIp(request);
@@ -461,7 +465,10 @@ public class GraphQLMutationService {
                 }
             }
             if(!StringUtils.equalsIgnoreCase(show.get().getShowName(), showName)) {
-                String showSubdomain = showName.replaceAll("\\s", "").toLowerCase();
+                if (!ShowNames.isValid(showName)) {
+                    throw new RuntimeException(ShowNames.INVALID_SHOW_NAME);
+                }
+                String showSubdomain = ShowNames.subdomainFor(showName);
                 Optional<Show> showCheck = this.showRepository.findByShowSubdomain(showSubdomain);
                 if(showCheck.isPresent()) {
                     throw new RuntimeException(StatusResponse.SHOW_EXISTS.name());
