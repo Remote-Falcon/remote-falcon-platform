@@ -24,6 +24,7 @@ import { ADD_SEQUENCE_TO_QUEUE, INSERT_VIEWER_PAGE_STATS, VOTE_FOR_SEQUENCE } fr
 import { GET_ACTIVE_VIEWER_PAGE, GET_SHOW_FOR_VIEWER, VOTES_REMAINING } from '../../../utils/graphql/viewer/queries';
 import { orderSequencesByCategory } from './helpers/categoryOrder';
 import { hasPlayingSlots, jukeboxQueueElements, playingSequenceElement } from './helpers/nowPlaying';
+import { computeVoteStandings, leadingVoteCountElement, leadingVoteElement, votingResultsElement } from './helpers/voteStandings';
 import { isSequenceUnavailable as checkSequenceUnavailable } from './helpers/sequenceAvailability';
 import { SEQUENCE_ROW_FOCUS_DEFAULT_CSS, sequenceRowControlProps } from './helpers/sequenceRowControl';
 import { UNAVAILABLE_HINT_DEFAULT_CSS, sequenceRowContent, unavailableRowProps } from './helpers/unavailableRow';
@@ -887,6 +888,10 @@ const ExternalViewerPage = () => {
         <></>
       );
 
+    // #218/#202 — overall standings across every category (the {PLAYLISTS}
+    // list sorts within each category, so its first row isn't the leader).
+    const voteStandings = computeVoteStandings(show?.votes, show?.sequences);
+
     instructions = processingInstructions(
       processNodeDefinitions,
       show?.preferences?.viewerControlEnabled,
@@ -902,7 +907,13 @@ const ExternalViewerPage = () => {
       formattedNowPlayingTimer,
       votesRemainingElement,
       retryLocationElement,
-      retryLocationInlineElement
+      retryLocationInlineElement,
+      // #218/#202 — only read in VOTING mode; the other branches blank the slots.
+      {
+        leadingVote: leadingVoteElement(voteStandings),
+        leadingVoteCount: leadingVoteCountElement(voteStandings),
+        votingResults: votingResultsElement(voteStandings)
+      }
     );
 
     const reactHtml = htmlToReactParser.parseWithInstructions(parsedViewerPage, isValidNode, instructions);

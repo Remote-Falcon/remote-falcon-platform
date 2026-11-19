@@ -143,6 +143,22 @@ const votesRemainingNode = (value) => ({
   }
 });
 
+// #218/#202 — vote-standings slots (see ./voteStandings). Filled only in
+// VOTING mode; each renders nothing until someone votes, so the operator's
+// wrapper is :empty and can be hidden with CSS.
+const textTokenNode = (token, value) => ({
+  replaceChildren: true,
+  shouldProcessNode(node) {
+    return node && node.children && node.children[0] && node.children[0].data && node.children[0].data.trim() === token;
+  },
+  processNode() {
+    return value;
+  }
+});
+const leadingVoteNode = (value) => textTokenNode('{LEADING_VOTE}', value);
+const leadingVoteCountNode = (value) => textTokenNode('{LEADING_VOTE_COUNT}', value);
+const votingResultsNode = (value) => textTokenNode('{VOTING_RESULTS}', value);
+
 // PRD-019 — {RETRY_LOCATION} slot for the location-recovery control. Auto-
 // injected into the page string when the operator hasn't placed it themselves,
 // so all ~2600 existing shows get it without touching their page. Empty unless
@@ -279,8 +295,10 @@ export const processingInstructions = (
   nowPlayingTimer,
   votesRemaining,
   retryLocation,
-  retryLocationInline
+  retryLocationInline,
+  voteStandingsSlots = {}
 ) => {
+  const blankVoteStandings = [leadingVoteNode(<></>), leadingVoteCountNode(<></>), votingResultsNode(<></>)];
   let processedNodes = [];
   if (!viewerControlEnabled) {
     processedNodes = [
@@ -301,6 +319,7 @@ export const processingInstructions = (
       retryLocationNode(<></>),
       retryLocationInlineNode(<></>),
       locationPermissionDynamicContainerNode(<></>),
+      ...blankVoteStandings,
       allNodes(processNodeDefinitions)
     ];
   } else if (viewerControlMode === ViewerControlMode.JUKEBOX) {
@@ -323,6 +342,7 @@ export const processingInstructions = (
       // it is how a branch says "leave this container alone".
       locationCheckMethod === LocationCheckMethod.GEO ? blankNode(null) : locationPermissionDynamicContainerNode(<></>),
       afterHoursNode(<></>),
+      ...blankVoteStandings,
       allNodes(processNodeDefinitions)
     ];
   } else {
@@ -346,6 +366,9 @@ export const processingInstructions = (
       // it is how a branch says "leave this container alone".
       locationCheckMethod === LocationCheckMethod.GEO ? blankNode(null) : locationPermissionDynamicContainerNode(<></>),
       afterHoursNode(<></>),
+      leadingVoteNode(<>{voteStandingsSlots.leadingVote}</>),
+      leadingVoteCountNode(<>{voteStandingsSlots.leadingVoteCount}</>),
+      votingResultsNode(<>{voteStandingsSlots.votingResults}</>),
       allNodes(processNodeDefinitions)
     ];
   }

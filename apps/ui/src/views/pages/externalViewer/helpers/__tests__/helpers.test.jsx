@@ -46,16 +46,17 @@ describe('defaultProcessingInstructions', () => {
 describe('processingInstructions', () => {
   const pnd = fakePnd;
 
-  // Counts include the #162 {VOTES_REMAINING} node and the PRD-019
-  // {RETRY_LOCATION} + {location-permission-dynamic-container} pair, all of
-  // which are present in every branch.
-  it('returns 18 entries (every dynamic node blanked) when viewerControlEnabled is false', () => {
+  // Counts include the #162 {VOTES_REMAINING} node, the PRD-019
+  // {RETRY_LOCATION} + {location-permission-dynamic-container} pair and the
+  // #218/#202 {LEADING_VOTE}, {LEADING_VOTE_COUNT}, {VOTING_RESULTS} trio, all
+  // of which are present in every branch.
+  it('returns 21 entries (every dynamic node blanked) when viewerControlEnabled is false', () => {
     const result = processingInstructions(pnd, false);
-    expect(result).toHaveLength(18);
+    expect(result).toHaveLength(21);
     allEntriesShaped(result);
   });
 
-  it('returns 16 entries in JUKEBOX mode with GEO location', () => {
+  it('returns 19 entries in JUKEBOX mode with GEO location', () => {
     const result = processingInstructions(
       pnd,
       true,
@@ -69,11 +70,11 @@ describe('processingInstructions', () => {
       'CODE',
       'timer'
     );
-    expect(result).toHaveLength(16);
+    expect(result).toHaveLength(19);
     allEntriesShaped(result);
   });
 
-  it('returns 16 entries in JUKEBOX mode when location check is CODE (locationCode blanked)', () => {
+  it('returns 19 entries in JUKEBOX mode when location check is CODE (locationCode blanked)', () => {
     const result = processingInstructions(
       pnd,
       true,
@@ -87,11 +88,11 @@ describe('processingInstructions', () => {
       'CODE',
       'timer'
     );
-    expect(result).toHaveLength(16);
+    expect(result).toHaveLength(19);
     allEntriesShaped(result);
   });
 
-  it('returns 17 entries in VOTING mode with GEO location', () => {
+  it('returns 20 entries in VOTING mode with GEO location', () => {
     const result = processingInstructions(
       pnd,
       true,
@@ -106,11 +107,11 @@ describe('processingInstructions', () => {
       'timer',
       '2 of 5 votes left this show'
     );
-    expect(result).toHaveLength(17);
+    expect(result).toHaveLength(20);
     allEntriesShaped(result);
   });
 
-  it('returns 17 entries in VOTING mode when location check is CODE', () => {
+  it('returns 20 entries in VOTING mode when location check is CODE', () => {
     const result = processingInstructions(
       pnd,
       true,
@@ -124,8 +125,34 @@ describe('processingInstructions', () => {
       'CODE',
       'timer'
     );
-    expect(result).toHaveLength(17);
+    expect(result).toHaveLength(20);
     allEntriesShaped(result);
+  });
+});
+
+// #218/#202 — the vote-standings slots fill only in VOTING mode; jukebox and
+// viewer-control-off blank them so a page shared between modes stays clean.
+describe('vote standings placeholders', () => {
+  const tokenNode = (token) => ({ children: [{ data: ` ${token} ` }] });
+  const slots = { leadingVote: 'LEADER', leadingVoteCount: 'COUNT', votingResults: 'RESULTS' };
+  const build = (enabled, mode) =>
+    processingInstructions(fakePnd, enabled, mode, LocationCheckMethod.GEO, 'seqs', null, 'now', 'next', 0, 'CODE', 'timer', null, null, null, slots);
+  const fill = (instructions, token) => {
+    const entry = instructions.find((i) => typeof i.processNode === 'function' && i.shouldProcessNode(tokenNode(token)));
+    return entry.processNode().props.children;
+  };
+
+  it.each([
+    ['{LEADING_VOTE}', 'LEADER'],
+    ['{LEADING_VOTE_COUNT}', 'COUNT'],
+    ['{VOTING_RESULTS}', 'RESULTS']
+  ])('VOTING mode fills %s', (token, expected) => {
+    expect(fill(build(true, ViewerControlMode.VOTING), token)).toBe(expected);
+  });
+
+  it.each(['{LEADING_VOTE}', '{LEADING_VOTE_COUNT}', '{VOTING_RESULTS}'])('JUKEBOX mode and viewer control off blank %s', (token) => {
+    expect(fill(build(true, ViewerControlMode.JUKEBOX), token)).toBeUndefined();
+    expect(fill(build(false), token)).toBeUndefined();
   });
 });
 
