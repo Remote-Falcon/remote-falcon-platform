@@ -11,6 +11,9 @@ type Query {
     verifyMfa(code: String!): Show
     verifyPasswordResetLink(passwordResetLink: String!): Show
     getShow: Show
+    # #211 "Exclude this network": the caller's public IP and the IP-list
+    # rule that covers their network (the address for IPv4, the /64 for IPv6).
+    currentNetworkIp: NetworkIp
     dashboardLiveStats(startDate: Long!, endDate: Long!, timezone: String = "America/Chicago"): DashboardLiveStats
     dashboardStats(startDate: Long!, endDate: Long!, timezone: String = "America/Chicago"): DashboardStats
     dashboardStatsByHour(startDate: Long!, endDate: Long!, timezone: String = "America/Chicago"): DashboardHourlyStats

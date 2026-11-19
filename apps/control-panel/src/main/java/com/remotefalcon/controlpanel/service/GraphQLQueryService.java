@@ -1,5 +1,7 @@
 package com.remotefalcon.controlpanel.service;
 
+import com.remotefalcon.controlpanel.response.NetworkIp;
+import com.remotefalcon.controlpanel.util.NetworkRule;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Stream;
@@ -41,6 +43,10 @@ public class GraphQLQueryService {
     private final NotificationRepository notificationRepository;
     private final ViewerPageService viewerPageService;
     private final MongoTemplate mongoTemplate;
+
+    public NetworkIp currentNetworkIp() {
+        return NetworkRule.forClientIp(this.clientUtil.getClientIp(this.authUtil.getCurrentRequest()));
+    }
 
     public Show signIn() {
         var request = this.authUtil.getCurrentRequest();
