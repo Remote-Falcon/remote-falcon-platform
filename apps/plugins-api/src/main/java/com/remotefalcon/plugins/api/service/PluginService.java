@@ -1,7 +1,9 @@
 package com.remotefalcon.plugins.api.service;
 
 import com.mongodb.client.model.Filters;
+import com.mongodb.client.model.UpdateOptions;
 import com.mongodb.client.model.Updates;
+import com.mongodb.client.result.UpdateResult;
 import com.remotefalcon.library.enums.ViewerControlMode;
 import com.remotefalcon.library.util.NightlyPlayLimitHelper;
 import com.remotefalcon.library.models.*;
@@ -26,8 +28,10 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.*;
+import org.bson.Document;
 import org.bson.conversions.Bson;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 // Writes go straight to Show.mongoCollection(), so the service itself is
@@ -96,17 +100,13 @@ public class PluginService {
     // items (PSA/leader/override/owner) keep their slot; the rule yields to the
     // head when every queued item shares the blocked category.
     Request nextRequest = this.selectNextRequest(show, orderedRequests);
-    this.updateVisibilityCounts(show, nextRequest);
+    ElementWrites writes = new ElementWrites();
+    writes.add(Updates.pull("requests", Filters.eq("position", nextRequest.getPosition())));
+    this.updateVisibilityCounts(show, nextRequest, writes);
 
-    // Atomic removal of the request by position and update visibility counts
-    Show.mongoCollection().updateOne(
-        Filters.eq("showToken", show.getShowToken()),
-        Updates.combine(
-            Updates.pull("requests", Filters.eq("position", nextRequest.getPosition())),
-            Updates.set("sequences", show.getSequences()),
-            Updates.set("sequenceGroups", show.getSequenceGroups())
-        )
-    );
+    // Atomic removal of the request by position plus the one visibility
+    // count it changed (R3: a targeted element write, not the whole arrays).
+    writes.apply(show.getShowToken());
 
     return NextPlaylistResponse.builder()
         .nextPlaylist(nextRequest.getSequence().getName())
@@ -114,19 +114,107 @@ public class PluginService {
         .build();
   }
 
-  private void updateVisibilityCounts(Show show, Request request) {
-    if (show.getPreferences().getHideSequenceCount() != 0) {
+  /**
+   * The show's hideSequenceCount, with an unset value read as 0 (no
+   * cooldown). Legacy documents can carry an explicit null; unboxing it
+   * threw, so every vote/dequeue on such a show answered 500.
+   */
+  static int hideSequenceCount(Show show) {
+    Integer hide = show.getPreferences() == null ? null : show.getPreferences().getHideSequenceCount();
+    return hide == null ? 0 : hide;
+  }
+
+  private void updateVisibilityCounts(Show show, Request request, ElementWrites writes) {
+    int hide = hideSequenceCount(show);
+    if (hide != 0) {
+      int hidden = hide + 1;
       if (!StringUtils.isEmpty(request.getSequence().getGroup())) {
         Optional<SequenceGroup> sequenceGroup = show.getSequenceGroups().stream()
             .filter((group) -> StringUtils.equalsIgnoreCase(group.getName(), request.getSequence().getGroup()))
             .findFirst();
-        sequenceGroup.ifPresent(group -> group.setVisibilityCount(show.getPreferences().getHideSequenceCount() + 1));
+        sequenceGroup.ifPresent(group -> {
+          group.setVisibilityCount(hidden);
+          writes.setOnElement("sequenceGroups", show.getSequenceGroups(), SequenceGroup::getName,
+              group.getName(), "visibilityCount", hidden);
+        });
       } else {
         Optional<Sequence> sequence = show.getSequences().stream()
             .filter((seq) -> StringUtils.equalsIgnoreCase(seq.getName(), request.getSequence().getName()))
             .findFirst();
-        sequence.ifPresent(seq -> seq.setVisibilityCount(show.getPreferences().getHideSequenceCount() + 1));
+        sequence.ifPresent(seq -> {
+          seq.setVisibilityCount(hidden);
+          writes.setOnElement("sequences", show.getSequences(), Sequence::getName,
+              seq.getName(), "visibilityCount", hidden);
+        });
       }
+    }
+  }
+
+  // ---- R3 (Season Prep S4): targeted sequence/sequenceGroup writes ----
+  //
+  // The play path used to $set the whole sequences / sequenceGroups arrays to
+  // change one counter. Shows that embed data: URI artwork carry ~1 MB in
+  // those arrays, so every dequeue/vote/play shipped and oplogged ~1 MB, and
+  // the stale in-memory copy clobbered concurrent edits to other elements.
+  // Element changes are now written with arrayFilters on the element's exact
+  // stored name: the in-memory match is case-insensitive first-match, and the
+  // stored name of that match identifies it. When the name cannot identify it
+  // uniquely (null, or an exact duplicate where the old write changed only the
+  // first), the whole array is written as before. These single-element
+  // writes log small; updateWhatsPlaying, which changes several elements at
+  // once, uses guarded index paths instead (see applyPlay).
+
+  /** True when exactly one element of {@code elements} has this exact name. */
+  private static <T> boolean isUniquelyNamed(List<T> elements, Function<T, String> nameOf, String name) {
+    if (name == null || elements == null) {
+      return false;
+    }
+    return elements.stream()
+        .filter(Objects::nonNull)
+        .filter(element -> name.equals(nameOf.apply(element)))
+        .count() == 1;
+  }
+
+  /** Update operators plus the arrayFilters they reference, sent as one updateOne. */
+  private static final class ElementWrites {
+    private final List<Bson> updates = new ArrayList<>();
+    private final List<Bson> arrayFilters = new ArrayList<>();
+    private int nextId = 0;
+
+    void add(Bson update) {
+      updates.add(update);
+    }
+
+    /**
+     * Sets {@code field} on the element of {@code arrayField} named
+     * {@code name} (already mutated in {@code elements}), or rewrites the
+     * whole array from {@code elements} when the name is not a unique key.
+     */
+    <T> void setOnElement(String arrayField, List<T> elements, Function<T, String> nameOf,
+                          String name, String field, Object value) {
+      if (isUniquelyNamed(elements, nameOf, name)) {
+        updates.add(Updates.set(arrayField + ".$[" + this.filterOnName(name) + "]." + field, value));
+      } else {
+        updates.add(Updates.set(arrayField, elements));
+      }
+    }
+
+    private String filterOnName(String name) {
+      String id = "e" + nextId++;
+      arrayFilters.add(Filters.eq(id + ".name", name));
+      return id;
+    }
+
+    UpdateOptions options() {
+      UpdateOptions options = new UpdateOptions();
+      if (!arrayFilters.isEmpty()) {
+        options.arrayFilters(arrayFilters);
+      }
+      return options;
+    }
+
+    void apply(String showToken) {
+      Show.mongoCollection().updateOne(Filters.eq("showToken", showToken), Updates.combine(updates), this.options());
     }
   }
 
@@ -355,13 +443,22 @@ public class PluginService {
   }
 
   /**
+   * What {@link #applyNightlyPlayCount} changed in memory, so the caller can
+   * persist it as targeted writes: whether every tally was reset, and which
+   * sequence was counted (null if none).
+   */
+  private record NightlyCount(boolean reset, Sequence counted) {
+    static final NightlyCount NONE = new NightlyCount(false, null);
+  }
+
+  /**
    * Maintains the #163 per-night counters on each play: lazily resets every
    * tally at the first play of a new show-night (gap-based), then counts this
    * play. Only song-like plays burn the cap — PSAs/leaders are operator-policy
    * interstitials (mirrors the isSongLike cadence rule). No-op (and no clock
    * maintained) when the cap is disabled.
    */
-  private void applyNightlyPlayCount(Show show, List<Sequence> sequences, String playlistName) {
+  private NightlyCount applyNightlyPlayCount(Show show, List<Sequence> sequences, String playlistName) {
     Preference prefs = show.getPreferences();
     Integer limit = prefs.getNightlyPlayLimit();
     // #177: this is the WRITE side of the cap, and it has to agree with the
@@ -370,26 +467,32 @@ public class PluginService {
     // while the show sets none — and if this returned early there, playsToday
     // would never increment and a category-only limit could never fire.
     if (!NightlyPlayLimitHelper.anyLimitActive(limit, show.getCategories())) {
-      return;
+      return NightlyCount.NONE;
     }
     LocalDateTime now = LocalDateTime.now();
     LocalDateTime last = prefs.getLastPlayCountedAt();
-    if (last == null || last.isBefore(now.minusHours(NIGHTLY_RESET_GAP_HOURS))) {
+    boolean reset = last == null || last.isBefore(now.minusHours(NIGHTLY_RESET_GAP_HOURS));
+    if (reset) {
       for (Sequence sequence : sequences) {
         if (sequence != null) {
           sequence.setPlaysToday(0);
         }
       }
     }
+    Sequence counted = null;
     if (PluginQueueHelper.isSongLike(show, playlistName)) {
-      sequences.stream()
+      counted = sequences.stream()
           .filter(Objects::nonNull)
           .filter(seq -> StringUtils.equalsIgnoreCase(seq.getName(), playlistName))
           .findFirst()
-          .ifPresent(seq -> seq.setPlaysToday(
-              (seq.getPlaysToday() == null ? 0 : seq.getPlaysToday()) + 1));
+          .orElse(null);
+      if (counted != null) {
+        Integer playsBefore = counted.getPlaysToday();
+        counted.setPlaysToday((playsBefore == null ? 0 : playsBefore) + 1);
+      }
     }
     prefs.setLastPlayCountedAt(now);
+    return new NightlyCount(reset, counted);
   }
 
   public PluginResponse updatePlaylistQueue() {
@@ -598,6 +701,12 @@ public class PluginService {
     return updatedPsaSequences;
   }
 
+  /**
+   * Guarded write attempts updateWhatsPlaying makes before it falls back to
+   * an unguarded arrayFilters write. Each failed attempt re-reads the show.
+   */
+  static final int PLAY_WRITE_ATTEMPTS = 3;
+
   public PluginResponse updateWhatsPlaying(UpdateWhatsPlayingRequest request) {
     if (request == null) {
       return PluginResponse.builder().build();
@@ -612,116 +721,10 @@ public class PluginService {
       );
     }
 
-    boolean hasPlaylist = StringUtils.isNotEmpty(request.getPlaylist());
-
-    if (!hasPlaylist) {
+    if (StringUtils.isEmpty(request.getPlaylist())) {
       show.setPlayingNow("");
       show.setPlayingNext("");
       show.setPlayingNextFromSchedule("");
-    } else {
-      show.setPlayingNow(request.getPlaylist());
-    }
-
-    if (hasPlaylist) {
-      int sequencesPlayed = show.getPreferences().getSequencesPlayed() != null
-          ? show.getPreferences().getSequencesPlayed()
-          : 0;
-
-      List<Sequence> sequences = show.getSequences() != null ? show.getSequences() : Collections.emptyList();
-      List<PsaSequence> psaSequences = show.getPsaSequences() != null ? show.getPsaSequences() : Collections.emptyList();
-      List<SequenceGroup> sequenceGroups = show.getSequenceGroups() != null ? show.getSequenceGroups() : Collections.emptyList();
-
-      Optional<Sequence> whatsPlayingSequence = sequences.stream()
-          .filter(sequence -> StringUtils.equalsIgnoreCase(sequence.getName(), request.getPlaylist()))
-          .findFirst();
-
-      // PSA-v2 — operator-policy items (PSAs and leader sequences) are both
-      // transparent to the cadence counter: do not increment (do not reset
-      // either). Songs increment as before. This makes psaFrequency=N
-      // honestly mean "every N audience-facing songs."
-      //
-      // Leaders are treated the same as PSAs here (PSA-v2 design symmetry):
-      // both are operator-policy interstitials, both bypass jukeboxDepth,
-      // both are filtered from viewer-facing NEXT_PLAYLIST, and both must
-      // be transparent to the cadence so leader playback doesn't
-      // accidentally shorten the PSA-frequency window.
-      //
-      // A sequence group counts as one song, on its highest-order (last)
-      // member. Every member of a requested or winning group plays once, so
-      // each group play counts exactly once, and counting on the last member
-      // keeps a PSA from landing inside a group the FPP schedule plays in
-      // order. Operators often keep PSAs in a sequence group too; those are
-      // not song-like and never touch the counter.
-      boolean countsAsSong = whatsPlayingSequence.isEmpty()
-          || StringUtils.isEmpty(whatsPlayingSequence.get().getGroup())
-          || this.isGroupCloser(show, sequences, whatsPlayingSequence.get());
-      boolean counterAdvanced = PluginQueueHelper.isSongLike(show, request.getPlaylist()) && countsAsSong;
-      if (counterAdvanced) {
-        sequencesPlayed++;
-      }
-
-      show.getPreferences().setSequencesPlayed(sequencesPlayed);
-
-      for (Sequence sequence : sequences) {
-        if (sequence != null && sequence.getVisibilityCount() > 0) {
-          sequence.setVisibilityCount(sequence.getVisibilityCount() - 1);
-        }
-      }
-
-      for (SequenceGroup sequenceGroup : sequenceGroups) {
-        if (sequenceGroup != null && sequenceGroup.getVisibilityCount() > 0) {
-          sequenceGroup.setVisibilityCount(sequenceGroup.getVisibilityCount() - 1);
-        }
-      }
-
-      // #163 per-night play cap: lazy nightly reset + count this play.
-      this.applyNightlyPlayCount(show, sequences, request.getPlaylist());
-
-      Set<String> psaNamesLowerCase = psaSequences.stream()
-          .filter(Objects::nonNull)
-          .map(PsaSequence::getName)
-          .filter(StringUtils::isNotEmpty)
-          .map(StringUtils::lowerCase)
-          .collect(Collectors.toSet());
-
-      this.handleManagedPSA(sequencesPlayed, counterAdvanced, show, psaNamesLowerCase);
-
-      // Clear viewer IPs before persisting, but PRESERVE operator-injection
-      // markers (OVERRIDE/LEADER/PSA). Nulling them on every FPP poll silently
-      // broke control-panel's "cancel pending override" (removeIf OVERRIDE)
-      // and the viewer's strip filter after a single tick (PSA-v2 review
-      // item 6) — they could no longer identify the injected rows.
-      if (show.getRequests() != null) {
-        show.getRequests().forEach(req -> {
-          String marker = req.getViewerRequested();
-          if (marker == null || !OPERATOR_INJECTION_MARKERS.contains(marker)) {
-            req.setViewerRequested(null);
-          }
-        });
-      }
-      if (show.getVotes() != null) {
-        show.getVotes().forEach(vote -> vote.setViewersVoted(new ArrayList<>()));
-      }
-
-      // Atomic update for all the modified fields. nextPsaOverride is included
-      // because handlePsaOverride clears it in memory after consuming —
-      // without persisting that null, the pill on Special Roles would never
-      // disappear after FPP fires the override (PSA-v2 PR-2 smoke-test bug).
-      Show.mongoCollection().updateOne(
-          Filters.eq("showToken", show.getShowToken()),
-          Updates.combine(
-              Updates.set("playingNow", request.getPlaylist()),
-              Updates.set("preferences.sequencesPlayed", sequencesPlayed),
-              Updates.set("preferences.lastPlayCountedAt", show.getPreferences().getLastPlayCountedAt()),
-              Updates.set("sequences", sequences),
-              Updates.set("sequenceGroups", sequenceGroups),
-              Updates.set("psaSequences", show.getPsaSequences() != null ? show.getPsaSequences() : new ArrayList<>()),
-              Updates.set("requests", show.getRequests() != null ? show.getRequests() : new ArrayList<>()),
-              Updates.set("votes", show.getVotes() != null ? show.getVotes() : new ArrayList<>()),
-              Updates.set("nextPsaOverride", show.getNextPsaOverride())
-          )
-      );
-    } else {
       // Clear playing fields
       Show.mongoCollection().updateOne(
           Filters.eq("showToken", show.getShowToken()),
@@ -731,9 +734,371 @@ public class PluginService {
               Updates.set("playingNextFromSchedule", "")
           )
       );
+      return PluginResponse.builder().currentPlaylist(request.getPlaylist()).build();
+    }
+
+    // R3 (Season Prep S4): the play is written as index-path element updates
+    // ("sequences.7.visibilityCount"), guarded in the filter by what this
+    // request read at each touched index (its name, and for a decrement that
+    // the count is still positive). Mongo logs an update that changes several
+    // elements of one array through arrayFilters as the WHOLE array (~1 MB for
+    // a show with inline artwork); index paths log one small diff per element.
+    // If the array moved under us (syncPlaylists reorder, a concurrent
+    // dequeue/vote/play), the guard matches nothing: re-read and redo the play
+    // on the fresh show, then after PLAY_WRITE_ATTEMPTS fall back to the
+    // unguarded arrayFilters write (counters evaluated at write time) with
+    // whole requests/votes arrays.
+    for (int attempt = 1; ; attempt++) {
+      boolean guarded = attempt <= PLAY_WRITE_ATTEMPTS;
+      PlayWrite write = this.applyPlay(show, request.getPlaylist(), guarded);
+      UpdateResult result = Show.mongoCollection().updateOne(write.filter(), write.update(), write.options());
+      if (!guarded || result.getMatchedCount() > 0) {
+        break;
+      }
+      Optional<Show> fresh = showRepository.findByShowToken(show.getShowToken());
+      if (fresh.isEmpty() || fresh.get().getPreferences() == null) {
+        LOG.warnf("PLAY_WRITE_ABANDONED show=%s attempt=%d: guard missed and the re-read found %s; play not recorded",
+            show.getShowSubdomain(), attempt, fresh.isEmpty() ? "no show" : "no preferences");
+        break;
+      }
+      if (attempt == PLAY_WRITE_ATTEMPTS) {
+        LOG.warnf("PLAY_WRITE_FALLBACK show=%s attempt=%d: element guard missed every attempt; writing unguarded",
+            show.getShowSubdomain(), attempt);
+      } else {
+        LOG.infof("PLAY_WRITE_RETRY show=%s attempt=%d: element guard missed; re-reading", show.getShowSubdomain(), attempt);
+      }
+      show = fresh.get();
     }
 
     return PluginResponse.builder().currentPlaylist(request.getPlaylist()).build();
+  }
+
+  private static int countPositive(Integer[] counts) {
+    int positive = 0;
+    for (Integer count : counts) {
+      if (count != null && count > 0) {
+        positive++;
+      }
+    }
+    return positive;
+  }
+
+  /** Filter: exactly {@code expected} elements of {@code arrayField} have visibilityCount > 0. */
+  private static Bson positiveVisibilityCount(String arrayField, int expected) {
+    Document positive = new Document("$filter", new Document("input", new Document("$ifNull", List.of("$" + arrayField, List.of())))
+        .append("cond", new Document("$gt", List.of("$$this.visibilityCount", 0))));
+    return Filters.expr(new Document("$eq", List.of(new Document("$size", positive), expected)));
+  }
+
+  /**
+   * Adds the per-element writes (and their guards) for {@code arrayField},
+   * plus a $push of anything appended past {@code readSize} in memory. $push
+   * and an element path on the same array can't share an update, so when
+   * both are needed the whole array is written instead.
+   */
+  private static <T> void addElementWrites(String arrayField, List<T> current, int readSize,
+                                           List<Bson> elementUpdates, List<Bson> elementGuards,
+                                           List<Bson> updates, List<Bson> filters) {
+    List<T> queued = current.subList(readSize, current.size());
+    if (!queued.isEmpty() && !elementUpdates.isEmpty()) {
+      updates.add(Updates.set(arrayField, current));
+    } else {
+      updates.addAll(elementUpdates);
+      filters.addAll(elementGuards);
+      if (!queued.isEmpty()) {
+        updates.add(Updates.pushEach(arrayField, new ArrayList<>(queued)));
+      }
+    }
+  }
+
+  /** The filter and update for one updateWhatsPlaying write attempt. */
+  private record PlayWrite(Bson filter, Bson update, UpdateOptions options) {
+    PlayWrite(Bson filter, Bson update) {
+      this(filter, update, new UpdateOptions());
+    }
+  }
+
+  /**
+   * Applies a play of {@code playlist} to {@code show} in memory (counters,
+   * nightly tally, managed PSA, viewer-IP scrub) and returns the write that
+   * persists it: guarded index-path updates, or with {@code guarded} false an
+   * unguarded arrayFilters write.
+   */
+  private PlayWrite applyPlay(Show show, String playlist, boolean guarded) {
+    show.setPlayingNow(playlist);
+
+    int sequencesPlayed = show.getPreferences().getSequencesPlayed() != null
+        ? show.getPreferences().getSequencesPlayed()
+        : 0;
+
+    List<Sequence> sequences = show.getSequences() != null ? show.getSequences() : Collections.emptyList();
+    List<PsaSequence> psaSequences = show.getPsaSequences() != null ? show.getPsaSequences() : Collections.emptyList();
+    List<SequenceGroup> sequenceGroups = show.getSequenceGroups() != null ? show.getSequenceGroups() : Collections.emptyList();
+
+    // What this request read, per array index, so the write can carry only
+    // what changed and guard on what it read.
+    Integer[] visibilityBefore = new Integer[sequences.size()];
+    Integer[] playsBefore = new Integer[sequences.size()];
+    for (int i = 0; i < sequences.size(); i++) {
+      Sequence sequence = sequences.get(i);
+      if (sequence != null) {
+        visibilityBefore[i] = sequence.getVisibilityCount();
+        playsBefore[i] = sequence.getPlaysToday();
+      }
+    }
+    Integer[] groupVisibilityBefore = new Integer[sequenceGroups.size()];
+    for (int i = 0; i < sequenceGroups.size(); i++) {
+      SequenceGroup group = sequenceGroups.get(i);
+      groupVisibilityBefore[i] = group == null ? null : group.getVisibilityCount();
+    }
+    List<Request> requestsRead = show.getRequests();
+    int requestsReadSize = requestsRead == null ? 0 : requestsRead.size();
+    String[] viewerRequestedBefore = new String[requestsReadSize];
+    for (int i = 0; i < requestsReadSize; i++) {
+      Request req = requestsRead.get(i);
+      viewerRequestedBefore[i] = req == null ? null : req.getViewerRequested();
+    }
+    List<Vote> votesRead = show.getVotes();
+    int votesReadSize = votesRead == null ? 0 : votesRead.size();
+    boolean[] viewersVotedWasEmpty = new boolean[votesReadSize];
+    for (int i = 0; i < votesReadSize; i++) {
+      Vote vote = votesRead.get(i);
+      viewersVotedWasEmpty[i] = vote != null && vote.getViewersVoted() != null && vote.getViewersVoted().isEmpty();
+    }
+
+    Optional<Sequence> whatsPlayingSequence = sequences.stream()
+        .filter(sequence -> StringUtils.equalsIgnoreCase(sequence.getName(), playlist))
+        .findFirst();
+
+    // PSA-v2 — operator-policy items (PSAs and leader sequences) are both
+    // transparent to the cadence counter: do not increment (do not reset
+    // either). Songs increment as before. This makes psaFrequency=N
+    // honestly mean "every N audience-facing songs."
+    //
+    // Leaders are treated the same as PSAs here (PSA-v2 design symmetry):
+    // both are operator-policy interstitials, both bypass jukeboxDepth,
+    // both are filtered from viewer-facing NEXT_PLAYLIST, and both must
+    // be transparent to the cadence so leader playback doesn't
+    // accidentally shorten the PSA-frequency window.
+    //
+    // A sequence group counts as one song, on its highest-order (last)
+    // member. Every member of a requested or winning group plays once, so
+    // each group play counts exactly once, and counting on the last member
+    // keeps a PSA from landing inside a group the FPP schedule plays in
+    // order. Operators often keep PSAs in a sequence group too; those are
+    // not song-like and never touch the counter.
+    boolean countsAsSong = whatsPlayingSequence.isEmpty()
+        || StringUtils.isEmpty(whatsPlayingSequence.get().getGroup())
+        || this.isGroupCloser(show, sequences, whatsPlayingSequence.get());
+    boolean counterAdvanced = PluginQueueHelper.isSongLike(show, playlist) && countsAsSong;
+    if (counterAdvanced) {
+      sequencesPlayed++;
+    }
+
+    show.getPreferences().setSequencesPlayed(sequencesPlayed);
+
+    for (Sequence sequence : sequences) {
+      if (sequence != null && sequence.getVisibilityCount() > 0) {
+        sequence.setVisibilityCount(sequence.getVisibilityCount() - 1);
+      }
+    }
+
+    for (SequenceGroup sequenceGroup : sequenceGroups) {
+      if (sequenceGroup != null && sequenceGroup.getVisibilityCount() > 0) {
+        sequenceGroup.setVisibilityCount(sequenceGroup.getVisibilityCount() - 1);
+      }
+    }
+
+    // #163 per-night play cap: lazy nightly reset + count this play.
+    NightlyCount nightlyCount = this.applyNightlyPlayCount(show, sequences, playlist);
+
+    Set<String> psaNamesLowerCase = psaSequences.stream()
+        .filter(Objects::nonNull)
+        .map(PsaSequence::getName)
+        .filter(StringUtils::isNotEmpty)
+        .map(StringUtils::lowerCase)
+        .collect(Collectors.toSet());
+
+    this.handleManagedPSA(sequencesPlayed, counterAdvanced, show, psaNamesLowerCase);
+
+    // Clear viewer IPs before persisting, but PRESERVE operator-injection
+    // markers (OVERRIDE/LEADER/PSA). Nulling them on every FPP poll silently
+    // broke control-panel's "cancel pending override" (removeIf OVERRIDE)
+    // and the viewer's strip filter after a single tick (PSA-v2 review
+    // item 6) — they could no longer identify the injected rows.
+    if (show.getRequests() != null) {
+      show.getRequests().forEach(req -> {
+        String marker = req.getViewerRequested();
+        if (marker == null || !OPERATOR_INJECTION_MARKERS.contains(marker)) {
+          req.setViewerRequested(null);
+        }
+      });
+    }
+    if (show.getVotes() != null) {
+      show.getVotes().forEach(vote -> vote.setViewersVoted(new ArrayList<>()));
+    }
+
+    // One atomic update for all the modified fields. nextPsaOverride is
+    // included because handlePsaOverride clears it in memory after consuming
+    // — without persisting that null, the pill on Special Roles would never
+    // disappear after FPP fires the override (PSA-v2 PR-2 smoke-test bug).
+    List<Bson> filters = new ArrayList<>();
+    filters.add(Filters.eq("showToken", show.getShowToken()));
+    List<Bson> updates = new ArrayList<>();
+    updates.add(Updates.set("playingNow", playlist));
+    updates.add(Updates.set("preferences.sequencesPlayed", sequencesPlayed));
+    updates.add(Updates.set("preferences.lastPlayCountedAt", show.getPreferences().getLastPlayCountedAt()));
+    updates.add(Updates.set("psaSequences", show.getPsaSequences() != null ? show.getPsaSequences() : new ArrayList<>()));
+    updates.add(Updates.set("nextPsaOverride", show.getNextPsaOverride()));
+
+    if (!guarded) {
+      // Unguarded fallback: the counters as arrayFilters evaluated at write
+      // time (correct under contention, but Mongo logs the whole array when
+      // several elements change), requests/votes as whole arrays.
+      List<Bson> arrayFilters = new ArrayList<>();
+      Sequence counted = nightlyCount.counted();
+      if (show.getSequences() == null || nightlyCount.reset()
+          || (counted != null && !isUniquelyNamed(sequences, Sequence::getName, counted.getName()))) {
+        updates.add(Updates.set("sequences", sequences));
+      } else {
+        updates.add(Updates.inc("sequences.$[p].visibilityCount", -1));
+        arrayFilters.add(Filters.gt("p.visibilityCount", 0));
+        if (counted != null) {
+          int countedAt = 0;
+          while (sequences.get(countedAt) != counted) {
+            countedAt++;
+          }
+          if (playsBefore[countedAt] == null) {
+            arrayFilters.add(Filters.eq("c.name", counted.getName()));
+            updates.add(Updates.set("sequences.$[c].playsToday", 1));
+          } else {
+            // Only $inc a numeric tally: $inc on an explicit null is a Mongo
+            // error. A tally nulled since the read is left alone, not a 500.
+            arrayFilters.add(Filters.and(Filters.eq("c.name", counted.getName()),
+                Filters.type("c.playsToday", "number")));
+            updates.add(Updates.inc("sequences.$[c].playsToday", 1));
+          }
+        }
+      }
+      if (show.getSequenceGroups() == null) {
+        updates.add(Updates.set("sequenceGroups", sequenceGroups));
+      } else {
+        updates.add(Updates.inc("sequenceGroups.$[g].visibilityCount", -1));
+        arrayFilters.add(Filters.gt("g.visibilityCount", 0));
+      }
+      updates.add(Updates.set("requests", show.getRequests() != null ? show.getRequests() : new ArrayList<>()));
+      updates.add(Updates.set("votes", show.getVotes() != null ? show.getVotes() : new ArrayList<>()));
+      return new PlayWrite(Filters.and(filters), Updates.combine(updates), new UpdateOptions().arrayFilters(arrayFilters));
+    }
+
+    // sequences: the decrement and the nightly tally, per element. The
+    // decrement applies to every element positive at write time, so besides
+    // guarding each decremented index the filter pins how many elements are
+    // positive: one that turned positive since the read (a concurrent
+    // dequeue or vote win) makes the attempt miss and get redone.
+    if (show.getSequences() == null) {
+      updates.add(Updates.set("sequences", sequences));
+    } else {
+      filters.add(positiveVisibilityCount("sequences", countPositive(visibilityBefore)));
+      for (int i = 0; i < sequences.size(); i++) {
+        Sequence sequence = sequences.get(i);
+        if (sequence == null) {
+          continue;
+        }
+        String at = "sequences." + i + ".";
+        boolean touched = false;
+        if (visibilityBefore[i] != null && visibilityBefore[i] > 0) {
+          updates.add(Updates.inc(at + "visibilityCount", -1));
+          filters.add(Filters.gt(at + "visibilityCount", 0));
+          touched = true;
+        }
+        Integer plays = sequence.getPlaysToday();
+        if (!Objects.equals(playsBefore[i], plays)) {
+          // $inc on the counted song so concurrent plays each count; a reset
+          // or a first tally (explicit null, which $inc rejects) is a $set.
+          if (sequence == nightlyCount.counted() && !nightlyCount.reset() && playsBefore[i] != null) {
+            // $inc rejects an explicit null: if the stored tally isn't a
+            // number any more the guard misses and the re-read takes the
+            // $set path.
+            updates.add(Updates.inc(at + "playsToday", 1));
+            filters.add(Filters.type(at + "playsToday", "number"));
+          } else {
+            updates.add(Updates.set(at + "playsToday", plays));
+          }
+          touched = true;
+        }
+        if (touched) {
+          filters.add(Filters.eq(at + "name", sequence.getName()));
+        }
+      }
+    }
+
+    // sequenceGroups: the decrement, per element.
+    if (show.getSequenceGroups() == null) {
+      updates.add(Updates.set("sequenceGroups", sequenceGroups));
+    } else {
+      filters.add(positiveVisibilityCount("sequenceGroups", countPositive(groupVisibilityBefore)));
+      for (int i = 0; i < sequenceGroups.size(); i++) {
+        SequenceGroup group = sequenceGroups.get(i);
+        if (group != null && groupVisibilityBefore[i] != null && groupVisibilityBefore[i] > 0) {
+          String at = "sequenceGroups." + i + ".";
+          updates.add(Updates.inc(at + "visibilityCount", -1));
+          filters.add(Filters.gt(at + "visibilityCount", 0));
+          filters.add(Filters.eq(at + "name", group.getName()));
+        }
+      }
+    }
+
+    // requests: the viewer-IP scrub as $unset per scrubbed element (the codec
+    // omits the nulled field, so the old whole-array write dropped the key),
+    // plus any PSA the managed path queued.
+    List<Request> requests = show.getRequests();
+    if (requestsRead == null) {
+      updates.add(Updates.set("requests", requests != null ? requests : new ArrayList<>()));
+    } else {
+      List<Bson> scrubs = new ArrayList<>();
+      List<Bson> scrubGuards = new ArrayList<>();
+      for (int i = 0; i < requestsReadSize; i++) {
+        Request req = requests.get(i);
+        if (viewerRequestedBefore[i] != null && req.getViewerRequested() == null) {
+          String at = "requests." + i + ".";
+          scrubs.add(Updates.unset(at + "viewerRequested"));
+          scrubGuards.add(Filters.eq(at + "position", req.getPosition()));
+          scrubGuards.add(Filters.eq(at + "sequence.name", req.getSequence() == null ? null : req.getSequence().getName()));
+        }
+      }
+      addElementWrites("requests", requests, requestsReadSize, scrubs, scrubGuards, updates, filters);
+    }
+
+    // votes: viewersVoted -> [] on every vote not already stored empty, plus
+    // any PSA vote the managed path queued.
+    List<Vote> votes = show.getVotes();
+    if (votesRead == null) {
+      updates.add(Updates.set("votes", votes != null ? votes : new ArrayList<>()));
+    } else {
+      List<Bson> clears = new ArrayList<>();
+      List<Bson> clearGuards = new ArrayList<>();
+      for (int i = 0; i < votesReadSize; i++) {
+        Vote vote = votes.get(i);
+        if (!viewersVotedWasEmpty[i]) {
+          String at = "votes." + i + ".";
+          clears.add(Updates.set(at + "viewersVoted", new ArrayList<>()));
+          // Guard on the name only: the viewer keys votes by name and stamps
+          // lastVoteTime on every vote, so guarding on it would miss on any
+          // concurrent vote. Clearing voters on a same-named vote is harmless.
+          if (vote.getSequence() != null) {
+            clearGuards.add(Filters.eq(at + "sequence.name", vote.getSequence().getName()));
+          } else if (vote.getSequenceGroup() != null) {
+            clearGuards.add(Filters.eq(at + "sequenceGroup.name", vote.getSequenceGroup().getName()));
+          } else {
+            clearGuards.add(Filters.exists("votes." + i));
+          }
+        }
+      }
+      addElementWrites("votes", votes, votesReadSize, clears, clearGuards, updates, filters);
+    }
+
+    return new PlayWrite(Filters.and(filters), Updates.combine(updates));
   }
 
   /**
@@ -822,8 +1187,8 @@ public class PluginService {
     // The window only opens on the play that moved the counter onto a
     // multiple: a non-advancing play (grouped song) leaves the counter on
     // the multiple and would otherwise fire again on every such play.
-    if (!show.getPreferences().getPsaEnabled()
-        || !show.getPreferences().getManagePsa()
+    if (!Boolean.TRUE.equals(show.getPreferences().getPsaEnabled())
+        || !Boolean.TRUE.equals(show.getPreferences().getManagePsa())
         || show.getPreferences().getPsaFrequency() == null
         || show.getPreferences().getPsaFrequency() <= 0
         || !counterAdvanced
@@ -1179,7 +1544,7 @@ public class PluginService {
 
         // Added to the in-memory list (voteWinsToday counts it downstream)
         // AND to newWins (the only part that gets written — see the $push
-        // note at the updateOne).
+        // note in writeVotingResult).
         Stat.VotingWin groupWin = Stat.VotingWin.builder()
             .name(actualSequenceGroup.get().getName())
             .dateTime(LocalDateTime.now())
@@ -1188,8 +1553,9 @@ public class PluginService {
         newWins.add(groupWin);
 
         //Set visibility counts
-        if (show.getPreferences().getHideSequenceCount() != 0) {
-          actualSequenceGroup.get().setVisibilityCount(show.getPreferences().getHideSequenceCount() + 1);
+        int hide = hideSequenceCount(show);
+        if (hide != 0) {
+          actualSequenceGroup.get().setVisibilityCount(hide + 1);
         }
 
         int voteCount = 2099;
@@ -1246,14 +1612,23 @@ public class PluginService {
         //Vote resets should only happen if there are no grouped sequences with active votes AND the winning sequence is not a PSA
         if (noGroupedSequencesHaveVotes && !winningSequenceIsPSA) {
           //Reset votes
-          if (show.getPreferences().getResetVotes()) {
+          if (Boolean.TRUE.equals(show.getPreferences().getResetVotes())) {
             show.getVotes().clear();
           }
         }
 
-        //Set visibility counts
-        if (show.getPreferences().getHideSequenceCount() != 0 && StringUtils.isEmpty(actualSequence.get().getGroup())) {
-          actualSequence.get().setVisibilityCount(show.getPreferences().getHideSequenceCount() + 1);
+        //Set visibility counts. R3: only this element is written (see
+        //ElementWrites). Nothing else in show.getSequences() changes on this
+        //path, so no other sequence write is needed. A group winner's
+        //visibilityCount (set in processWinningGroup) was never part of this
+        //write and still isn't.
+        ElementWrites sequenceWrites = new ElementWrites();
+        int hide = hideSequenceCount(show);
+        if (hide != 0 && StringUtils.isEmpty(actualSequence.get().getGroup())) {
+          int hidden = hide + 1;
+          actualSequence.get().setVisibilityCount(hidden);
+          sequenceWrites.setOnElement("sequences", show.getSequences(), Sequence::getName,
+              actualSequence.get().getName(), "visibilityCount", hidden);
         }
 
         //Only save stats for non-grouped sequences. A policy-injected winner
@@ -1267,7 +1642,8 @@ public class PluginService {
           newWins.add(win);
         }
 
-        if (show.getPreferences().getPsaEnabled() && !show.getPreferences().getManagePsa()
+        if (Boolean.TRUE.equals(show.getPreferences().getPsaEnabled())
+            && !Boolean.TRUE.equals(show.getPreferences().getManagePsa())
             && CollectionUtils.isNotEmpty(show.getPsaSequences()) && StringUtils.isEmpty(actualSequence.get().getGroup()) && !winningSequenceIsPSA) {
           Integer voteWinsToday = show.getStats().getVotingWin().stream()
               .filter(stat -> stat.getDateTime().isAfter(LocalDateTime.now().withHour(0).withMinute(0).withSecond(0)))
@@ -1275,7 +1651,9 @@ public class PluginService {
               .size();
           boolean isPSAPlayingNow = show.getPsaSequences().stream()
               .anyMatch(psaSequence -> StringUtils.equalsIgnoreCase(show.getPlayingNow(), psaSequence.getName()));
-          if (voteWinsToday % show.getPreferences().getPsaFrequency() == 0 && !isPSAPlayingNow) {
+          Integer psaFrequency = show.getPreferences().getPsaFrequency();
+          if (psaFrequency != null && psaFrequency > 0
+              && voteWinsToday % psaFrequency == 0 && !isPSAPlayingNow) {
             // Honor the Q1 enabled toggle (review item 7) and treat a
             // never-played PSA (null lastPlayed) as highest priority via
             // nullsFirst rather than excluding it (review item 12) — a
@@ -1342,20 +1720,7 @@ public class PluginService {
               .build());
 
           // Atomic update for all changes
-          Show.mongoCollection().updateOne(
-              Filters.eq("showToken", show.getShowToken()),
-              Updates.combine(
-                  Updates.set("votes", show.getVotes()),
-                  // $push only this cycle's new wins. The old whole-array $set raced the
-                  // nightly retention sweep (#154): a sweep landing between this method's read
-                  // and write got its prune undone by the stale in-memory copy. Wins are
-                  // append-only here, so pushing the delta can't resurrect pruned entries. An
-                  // empty $each is a Mongo no-op (PSA/override winners add no win).
-                  Updates.pushEach("stats.votingWin", newWins),
-                  Updates.set("sequences", show.getSequences()),
-                  Updates.set("psaSequences", show.getPsaSequences())
-              )
-          );
+          this.writeVotingResult(show, newWins, sequenceWrites);
 
           // Return the leader as this cycle's winner. The actual winner is
           // queued above and will be returned by the next call.
@@ -1366,20 +1731,7 @@ public class PluginService {
         }
 
         // Atomic update for all changes
-        Show.mongoCollection().updateOne(
-            Filters.eq("showToken", show.getShowToken()),
-            Updates.combine(
-                Updates.set("votes", show.getVotes()),
-                // $push only this cycle's new wins. The old whole-array $set raced the
-                // nightly retention sweep (#154): a sweep landing between this method's read
-                // and write got its prune undone by the stale in-memory copy. Wins are
-                // append-only here, so pushing the delta can't resurrect pruned entries. An
-                // empty $each is a Mongo no-op (PSA/override winners add no win).
-                Updates.pushEach("stats.votingWin", newWins),
-                Updates.set("sequences", show.getSequences()),
-                Updates.set("psaSequences", show.getPsaSequences())
-            )
-        );
+        this.writeVotingResult(show, newWins, sequenceWrites);
 
         //Return winning sequence
         return HighestVotedPlaylistResponse.builder()
@@ -1389,6 +1741,22 @@ public class PluginService {
       }
     }
     return null;
+  }
+
+  /**
+   * One atomic write for a voting cycle: the votes, this cycle's new wins,
+   * the PSA list, and the winner's visibility count ({@code sequenceWrites}).
+   */
+  private void writeVotingResult(Show show, List<Stat.VotingWin> newWins, ElementWrites sequenceWrites) {
+    sequenceWrites.add(Updates.set("votes", show.getVotes()));
+    // $push only this cycle's new wins. The old whole-array $set raced the
+    // nightly retention sweep (#154): a sweep landing between this method's read
+    // and write got its prune undone by the stale in-memory copy. Wins are
+    // append-only here, so pushing the delta can't resurrect pruned entries. An
+    // empty $each is a Mongo no-op (PSA/override winners add no win).
+    sequenceWrites.add(Updates.pushEach("stats.votingWin", newWins));
+    sequenceWrites.add(Updates.set("psaSequences", show.getPsaSequences()));
+    sequenceWrites.apply(show.getShowToken());
   }
 
   /**
