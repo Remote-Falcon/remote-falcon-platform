@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { Autocomplete, TextField } from '@mui/material';
 import PropTypes from 'prop-types';
 
-import { IP_ENTRY_FORMAT_HINT, partitionIpEntries } from '../utils/ipEntry';
+import { describePrivateIpEntries, IP_ENTRY_FORMAT_HINT, partitionIpEntries, PUBLIC_IP_HINT } from '../utils/ipEntry';
 
 // Shared entry field for the operator's IP lists (blocked viewers, voting
 // exempt, stats excluded).
@@ -44,6 +44,14 @@ const IpListField = ({ value, onChange, label }) => {
   const hasRejected = rejected.length > 0;
   const hasError = message !== null;
 
+  // #211: a home-network address saves (a self-hoster on a LAN may want one)
+  // but can never match on the hosted service, so say so in warning color.
+  // Format errors take precedence; otherwise the field shows the public-IP hint.
+  const privateWarning = hasError ? null : describePrivateIpEntries(value);
+  let helperTextProps;
+  if (hasError) helperTextProps = { role: 'alert' };
+  else if (privateWarning) helperTextProps = { role: 'alert', sx: { color: 'warning.dark' } };
+
   return (
     <Autocomplete
       freeSolo
@@ -60,8 +68,8 @@ const IpListField = ({ value, onChange, label }) => {
           error={hasError}
           // The message replaces itself under existing focus, so without a live
           // role a screen reader never hears why the entry vanished.
-          FormHelperTextProps={hasError ? { role: 'alert' } : undefined}
-          helperText={message ?? ' '}
+          FormHelperTextProps={helperTextProps}
+          helperText={message ?? privateWarning ?? PUBLIC_IP_HINT}
           // Clear a stale rejection as soon as the operator edits again —
           // otherwise the red error outlives the mistake, surviving blur, a
           // successful add in the next field, and a save.
