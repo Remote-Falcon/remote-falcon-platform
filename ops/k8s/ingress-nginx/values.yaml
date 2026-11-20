@@ -22,6 +22,20 @@ controller:
   # upgrade of that node was a full outage until it rescheduled.
   replicaCount: 2
 
+  # Stopgap for the Nov 2026 nginx CVEs. The bundled nginx is 1.27.1, the fix
+  # is 1.30.7+, and ingress-nginx is retired upstream, so no patched v1.15.x
+  # release will ever ship. Remove both keys once the controller is replaced.
+  #   use-http2 false:      CVE-2026-123007, CVE-2026-123633 (pre-auth RCE,
+  #                         both need HTTP/2).
+  #   ssl-protocols 1.2:    CVE-2026-118899 (TLS 1.3 request-body loop, a
+  #                         worker-wedging DoS). HTTP/2 off does not stop it.
+  # Clients still get HTTP/2, HTTP/3 and TLS 1.3 from Cloudflare. Only the
+  # Cloudflare-to-origin hop changes, and Cloudflare speaks HTTP/1.1 over
+  # TLS 1.2 to origins without complaint.
+  config:
+    use-http2: "false"
+    ssl-protocols: "TLSv1.2"
+
   # The chart renders a PDB only when replicaCount > 1. minAvailable 1 means a
   # drain can take at most one controller at a time.
   minAvailable: 1
