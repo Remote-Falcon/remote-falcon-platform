@@ -1516,7 +1516,7 @@ public class PluginService {
         if (winningSequenceGroup != null) {
           return this.processWinningGroup(winningVote.get(), show);
         } else {
-          return this.processWinningVote(winningVote.get(), show, new ArrayList<>());
+          return this.processWinningVote(winningVote.get(), show, new ArrayList<>(), new ElementWrites());
         }
       }
     }
@@ -1528,6 +1528,7 @@ public class PluginService {
     SequenceGroup winningSequenceGroup = winningVote.getSequenceGroup();
     show.getVotes().remove(winningVote);
     List<Stat.VotingWin> newWins = new ArrayList<>();
+    ElementWrites sequenceWrites = new ElementWrites();
 
     if (winningSequenceGroup != null) {
       Optional<SequenceGroup> actualSequenceGroup = show.getSequenceGroups().stream()
@@ -1552,10 +1553,15 @@ public class PluginService {
         show.getStats().getVotingWin().add(groupWin);
         newWins.add(groupWin);
 
-        //Set visibility counts
+        //Set visibility counts. #210: written with the rest of the voting
+        //result; it used to be set in memory only, so a winning group was
+        //never hidden or grayed out.
         int hide = hideSequenceCount(show);
         if (hide != 0) {
-          actualSequenceGroup.get().setVisibilityCount(hide + 1);
+          int hidden = hide + 1;
+          actualSequenceGroup.get().setVisibilityCount(hidden);
+          sequenceWrites.setOnElement("sequenceGroups", show.getSequenceGroups(), SequenceGroup::getName,
+              actualSequenceGroup.get().getName(), "visibilityCount", hidden);
         }
 
         int voteCount = 2099;
@@ -1583,13 +1589,14 @@ public class PluginService {
           voteCount--;
         }
         show.getVotes().addAll(sequencesInGroupVotes);
-        return this.processWinningVote(updatedWinningVote, show, newWins);
+        return this.processWinningVote(updatedWinningVote, show, newWins, sequenceWrites);
       }
     }
     return null;
   }
 
-  private HighestVotedPlaylistResponse processWinningVote(Vote winningVote, Show show, List<Stat.VotingWin> newWins) {
+  private HighestVotedPlaylistResponse processWinningVote(Vote winningVote, Show show, List<Stat.VotingWin> newWins,
+                                                          ElementWrites sequenceWrites) {
     Sequence winningSequence = winningVote.getSequence();
     show.getVotes().remove(winningVote);
 
@@ -1620,9 +1627,8 @@ public class PluginService {
         //Set visibility counts. R3: only this element is written (see
         //ElementWrites). Nothing else in show.getSequences() changes on this
         //path, so no other sequence write is needed. A group winner's
-        //visibilityCount (set in processWinningGroup) was never part of this
-        //write and still isn't.
-        ElementWrites sequenceWrites = new ElementWrites();
+        //visibilityCount arrives already in sequenceWrites from
+        //processWinningGroup.
         int hide = hideSequenceCount(show);
         if (hide != 0 && StringUtils.isEmpty(actualSequence.get().getGroup())) {
           int hidden = hide + 1;
