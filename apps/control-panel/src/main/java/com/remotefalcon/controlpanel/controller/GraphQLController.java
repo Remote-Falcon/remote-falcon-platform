@@ -5,6 +5,7 @@ import com.remotefalcon.controlpanel.aop.RequiresAdminAccess;
 import com.remotefalcon.controlpanel.response.MfaEnrollment;
 import com.remotefalcon.controlpanel.response.MfaKeyRotationResult;
 import com.remotefalcon.controlpanel.response.MfaRecoveryCodes;
+import com.remotefalcon.controlpanel.response.NetworkIp;
 import com.remotefalcon.controlpanel.response.RotateShowTokenResponse;
 import com.remotefalcon.controlpanel.response.ShowsOnAMapResult;
 import com.remotefalcon.library.documents.Notification;
@@ -364,6 +365,14 @@ public class GraphQLController {
     @RequiresAccess()
     public Show getShow() {
         return graphQLQueryService.getShow();
+    }
+
+    // #211 "Exclude this network": the caller's public IP and the rule that
+    // covers their network. Read-only.
+    @QueryMapping
+    @RequiresAccess()
+    public NetworkIp currentNetworkIp() {
+        return graphQLQueryService.currentNetworkIp();
     }
 
     @QueryMapping

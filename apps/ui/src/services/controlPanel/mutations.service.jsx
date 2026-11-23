@@ -519,6 +519,13 @@ export const saveShowService = (updatedShow, updateShowMutation, callback) => {
           success: false,
           toast: { message: 'That email or show name already exists', alert: 'error' }
         });
+      } else if (error?.message === StatusResponse.INVALID_SHOW_NAME) {
+        callback({
+          success: false,
+          toast: { message: 'Show name can only use letters, numbers, spaces and hyphens', alert: 'error' }
+        });
+      } else {
+        callback({ success: false, toast: { alert: 'error' } });
       }
     }
     // refetchQueries: [{ query: GET_SHOW, awaitRefetchQueries: true }]

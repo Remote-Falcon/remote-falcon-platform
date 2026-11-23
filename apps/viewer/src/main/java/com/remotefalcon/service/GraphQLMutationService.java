@@ -597,7 +597,7 @@ public class GraphQLMutationService {
       throw new CustomGraphQLExceptionResolver(StatusResponse.SEQUENCE_REQUESTED.name());
     }
     if (this.isRequestedCategoryWithinRequestLimit(show, requestedSequence)) {
-      this.logRejectedRequest(show.getShowSubdomain(), requestedSequence.getName(), null, StatusResponse.SEQUENCE_REQUESTED.name());
+      this.logRejectedRequest(show.getShowSubdomain(), requestedSequence.getName(), null, RejectionReason.CATEGORY_REQUEST_LIMIT);
       throw new CustomGraphQLExceptionResolver(StatusResponse.SEQUENCE_REQUESTED.name());
     }
   }

@@ -130,6 +130,17 @@ const jukeboxQueueNode = (value) => ({
   }
 });
 
+// #208 — like {JUKEBOX_QUEUE}, but lists the first request too.
+const jukeboxQueueAllNode = (value) => ({
+  replaceChildren: true,
+  shouldProcessNode(node) {
+    return node && node.children && node.children[0] && node.children[0].data && node.children[0].data.trim() === '{JUKEBOX_QUEUE_ALL}';
+  },
+  processNode() {
+    return value;
+  }
+});
+
 // #162 — operator-placed {VOTES_REMAINING} variable. Filled with "X of N votes
 // left this show" in voting mode when a daily cap is set; empty otherwise (no
 // cap, jukebox mode, or a voting-exempt IP) so the slot collapses.
@@ -142,6 +153,22 @@ const votesRemainingNode = (value) => ({
     return value;
   }
 });
+
+// #218/#202 — vote-standings slots (see ./voteStandings). Filled only in
+// VOTING mode; each renders nothing until someone votes, so the operator's
+// wrapper is :empty and can be hidden with CSS.
+const textTokenNode = (token, value) => ({
+  replaceChildren: true,
+  shouldProcessNode(node) {
+    return node && node.children && node.children[0] && node.children[0].data && node.children[0].data.trim() === token;
+  },
+  processNode() {
+    return value;
+  }
+});
+const leadingVoteNode = (value) => textTokenNode('{LEADING_VOTE}', value);
+const leadingVoteCountNode = (value) => textTokenNode('{LEADING_VOTE_COUNT}', value);
+const votingResultsNode = (value) => textTokenNode('{VOTING_RESULTS}', value);
 
 // PRD-019 — {RETRY_LOCATION} slot for the location-recovery control. Auto-
 // injected into the page string when the operator hasn't placed it themselves,
@@ -279,8 +306,11 @@ export const processingInstructions = (
   nowPlayingTimer,
   votesRemaining,
   retryLocation,
-  retryLocationInline
+  retryLocationInline,
+  voteStandingsSlots = {},
+  jukeboxRequestsAll = null
 ) => {
+  const blankVoteStandings = [leadingVoteNode(<></>), leadingVoteCountNode(<></>), votingResultsNode(<></>)];
   let processedNodes = [];
   if (!viewerControlEnabled) {
     processedNodes = [
@@ -293,6 +323,7 @@ export const processingInstructions = (
       nextSequenceNode(<></>),
       queueSizeNode(<></>),
       jukeboxQueueNode(<></>),
+      jukeboxQueueAllNode(<></>),
       votingDynamicContainerNode(<></>),
       jukeboxDynamicContainerNode(<></>),
       votingPlaylistsDynamicContainerNode(<></>),
@@ -301,6 +332,7 @@ export const processingInstructions = (
       retryLocationNode(<></>),
       retryLocationInlineNode(<></>),
       locationPermissionDynamicContainerNode(<></>),
+      ...blankVoteStandings,
       allNodes(processNodeDefinitions)
     ];
   } else if (viewerControlMode === ViewerControlMode.JUKEBOX) {
@@ -313,6 +345,7 @@ export const processingInstructions = (
       nextSequenceNode(<>{nextSequence}</>),
       queueSizeNode(<>{queueDepth}</>),
       jukeboxQueueNode(<>{jukeboxRequests}</>),
+      jukeboxQueueAllNode(<>{jukeboxRequestsAll}</>),
       votingDynamicContainerNode(<></>),
       votingPlaylistsDynamicContainerNode(<></>),
       locationCheckMethod === LocationCheckMethod.CODE ? blankNode(null) : locationCodeDynamicContainerNode(<></>),
@@ -323,6 +356,7 @@ export const processingInstructions = (
       // it is how a branch says "leave this container alone".
       locationCheckMethod === LocationCheckMethod.GEO ? blankNode(null) : locationPermissionDynamicContainerNode(<></>),
       afterHoursNode(<></>),
+      ...blankVoteStandings,
       allNodes(processNodeDefinitions)
     ];
   } else {
@@ -336,6 +370,7 @@ export const processingInstructions = (
       nextSequenceNode(<>{nextSequence}</>),
       queueSizeNode(<></>),
       jukeboxQueueNode(<></>),
+      jukeboxQueueAllNode(<></>),
       jukeboxDynamicContainerNode(<></>),
       jukeboxPlaylistsDynamicContainerNode(<></>),
       locationCheckMethod === LocationCheckMethod.CODE ? blankNode(null) : locationCodeDynamicContainerNode(<></>),
@@ -346,6 +381,9 @@ export const processingInstructions = (
       // it is how a branch says "leave this container alone".
       locationCheckMethod === LocationCheckMethod.GEO ? blankNode(null) : locationPermissionDynamicContainerNode(<></>),
       afterHoursNode(<></>),
+      leadingVoteNode(<>{voteStandingsSlots.leadingVote}</>),
+      leadingVoteCountNode(<>{voteStandingsSlots.leadingVoteCount}</>),
+      votingResultsNode(<>{voteStandingsSlots.votingResults}</>),
       allNodes(processNodeDefinitions)
     ];
   }

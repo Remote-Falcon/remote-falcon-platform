@@ -384,3 +384,11 @@ type ShowNotification {
     deleted: Boolean
 }
 
+# #211 — see the currentNetworkIp query.
+type NetworkIp {
+    ip: String
+    # IPV4 or IPV6; null when the address can't be read.
+    family: String
+    # Null when the address can't be read.
+    suggestedRule: String
+}

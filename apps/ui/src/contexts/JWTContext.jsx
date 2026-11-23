@@ -306,6 +306,12 @@ export const JWTProvider = ({ children }) => {
       onError: (error) => {
         if (error?.message === StatusResponse.SHOW_EXISTS) {
           showAlert(dispatch, { id: 'snackbar-sign-up', message: 'That email or show name already exists', alert: 'error' });
+        } else if (error?.message === StatusResponse.INVALID_SHOW_NAME) {
+          showAlert(dispatch, {
+            id: 'snackbar-sign-up',
+            message: 'Show name can only use letters, numbers, spaces and hyphens',
+            alert: 'error'
+          });
         } else if (error?.message === StatusResponse.EMAIL_CANNOT_BE_SENT) {
           showAlert(dispatch, { id: 'snackbar-sign-up', message: 'Unable to send verification email', alert: 'error' });
         } else {

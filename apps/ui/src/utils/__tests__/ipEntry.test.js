@@ -3,6 +3,9 @@ import { describe, it, expect } from 'vitest';
 import {
   classifyIpEntry,
   describeRejectedIpEntries,
+  describePrivateIpEntries,
+  IP_ENTRY_FORMAT_HINT,
+  isPrivateIpEntry,
   isValidIpEntry,
   partitionIpEntries,
   stripUnusableIpRules
@@ -214,5 +217,77 @@ describe('describeRejectedIpEntries', () => {
 
   it('says what a valid entry looks like', () => {
     expect(describeRejectedIpEntries(['a'])).toMatch(/CIDR block/);
+  });
+});
+
+// #211: Remote Falcon only ever sees a viewer's public IP, so a home-network
+// address in any of the lists can never match. The hint used to suggest one.
+describe('IP_ENTRY_FORMAT_HINT', () => {
+  it('does not use a private address as its example', () => {
+    expect(IP_ENTRY_FORMAT_HINT).not.toMatch(/192\.168|(^|\D)10\.\d|172\.(1[6-9]|2\d|3[01])\./);
+    expect(IP_ENTRY_FORMAT_HINT).toMatch(/203\.0\.113\.50/);
+  });
+});
+
+describe('isPrivateIpEntry', () => {
+  it.each([
+    '10.0.0.1',
+    '172.16.0.1',
+    '172.31.255.254',
+    '192.168.1.50',
+    '127.0.0.1',
+    '169.254.10.20',
+    '192.168.1.0/24',
+    '10.0.0.0/8',
+    '192.168.1.10-192.168.1.40',
+    '::1',
+    'fc00::1',
+    'fd12:3456:789a::1',
+    'fe80::1',
+    'fe80::1%eth0',
+    'fd00::/8',
+    '::ffff:192.168.1.50'
+  ])('flags %s', (entry) => {
+    expect(isPrivateIpEntry(entry)).toBe(true);
+  });
+
+  it.each([
+    '203.0.113.50',
+    '8.8.8.8',
+    '172.15.255.255',
+    '172.32.0.1',
+    '11.0.0.1',
+    '203.0.113.0/24',
+    '203.0.113.10-203.0.113.40',
+    '2001:db8::1',
+    '2001:db8::/64',
+    '::ffff:203.0.113.50',
+    'not an ip',
+    ''
+  ])('does not flag %s', (entry) => {
+    expect(isPrivateIpEntry(entry)).toBe(false);
+  });
+
+  it('flags a block or range that only partly overlaps a private range', () => {
+    expect(isPrivateIpEntry('0.0.0.0/0')).toBe(true);
+    expect(isPrivateIpEntry('9.255.255.250-10.0.0.5')).toBe(true);
+  });
+});
+
+describe('describePrivateIpEntries', () => {
+  it('returns null when nothing is private', () => {
+    expect(describePrivateIpEntries([])).toBeNull();
+    expect(describePrivateIpEntries(['203.0.113.50'])).toBeNull();
+  });
+
+  it('names the home-network entries and says they will not match', () => {
+    const message = describePrivateIpEntries(['203.0.113.50', '192.168.1.50']);
+    expect(message).toMatch(/192\.168\.1\.50 is an address inside a home network/);
+    expect(message).toMatch(/public IP/);
+    expect(message).not.toMatch(/203\.0\.113\.50/);
+  });
+
+  it('uses the plural for several entries', () => {
+    expect(describePrivateIpEntries(['10.0.0.1', '192.168.1.50'])).toMatch(/^10\.0\.0\.1 and 192\.168\.1\.50 are addresses inside a home network/);
   });
 });

@@ -5,6 +5,7 @@ import com.remotefalcon.library.enums.ViewerControlMode;
 import com.remotefalcon.library.models.*;
 import com.remotefalcon.library.quarkus.entity.Show;
 import com.remotefalcon.repository.ShowRepository;
+import com.remotefalcon.util.RejectionReason;
 import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.QuarkusTest;
 import io.restassured.RestAssured;
@@ -65,6 +66,15 @@ class CategoryRequestLimitIntegrationTest {
         .statusCode(200)
         .body("errors", notNullValue())
         .body("errors[0].extensions.message", containsString("SEQUENCE_REQUESTED"));
+
+    // #213 — the client contract stays SEQUENCE_REQUESTED, but the conversion
+    // funnel records the category limit as its own reason.
+    List<Stat.RejectedRequest> rejected = showRepository.findByShowSubdomain(TEST_SUBDOMAIN)
+        .orElseThrow().getStats().getRejectedRequests();
+    Assertions.assertNotNull(rejected);
+    Assertions.assertEquals(1, rejected.size());
+    Assertions.assertEquals("Baby Shark", rejected.get(0).getName());
+    Assertions.assertEquals(RejectionReason.CATEGORY_REQUEST_LIMIT, rejected.get(0).getReason());
   }
 
   private io.restassured.response.Response request(String name) {

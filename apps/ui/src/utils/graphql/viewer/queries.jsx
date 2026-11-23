@@ -121,6 +121,8 @@ export const GET_SHOW_FOR_VIEWER = gql`
         }
         votes
         lastVoteTime
+        systemInjected
+        ownerOverride
       }
     }
   }
