@@ -594,15 +594,15 @@ class TargetedSequenceWriteIntegrationTest {
   }
 
   @Test
-  void highestVoted_groupWin_doesNotPersistGroupVisibility_asBefore() {
-    // Pre-existing behavior pinned, not endorsed: processWinningGroup sets the
-    // group's visibilityCount in memory but the write never included
-    // sequenceGroups, so it was never stored. Keep it that way here; fixing
-    // it is a behavior change for a separate PR.
+  void highestVoted_groupWin_persistsOnlyTheGroupsVisibility() {
+    // #210: a winning group's visibilityCount used to be set in memory only,
+    // so a group that won a vote was never hidden or grayed out.
     Show show = baseShow(
         new ArrayList<>(List.of(grouped("M1", "Medley", 1), grouped("M2", "Medley", 2), seq("Solo", 0))),
-        new ArrayList<>(List.of(SequenceGroup.builder().name("Medley").visibilityCount(0).build())));
-    show.getVotes().add(Vote.builder().sequenceGroup(SequenceGroup.builder().name("Medley").build())
+        new ArrayList<>(List.of(
+            SequenceGroup.builder().name("Other").visibilityCount(1).build(),
+            SequenceGroup.builder().name("Medley").visibilityCount(0).build())));
+    show.getVotes().add(Vote.builder().sequenceGroup(SequenceGroup.builder().name("medley").build())
         .votes(9).lastVoteTime(LocalDateTime.now()).ownerVoted(false).viewersVoted(new ArrayList<>()).build());
     persist(show);
     Document expected = raw();
@@ -613,6 +613,9 @@ class TargetedSequenceWriteIntegrationTest {
 
     assertEquals("M1", resp.getWinningPlaylist());
     Document actual = raw();
+    // hideSequenceCount + 1 on the stored "Medley" element only; the grouped
+    // songs themselves and the other group are untouched.
+    list(expected, "sequenceGroups").get(1).put("visibilityCount", 3);
     assertEquals(list(expected, "sequences"), list(actual, "sequences"));
     assertEquals(list(expected, "sequenceGroups"), list(actual, "sequenceGroups"));
     assertNoWholeArrayWrites(sentUpdates());
