@@ -1,6 +1,6 @@
 name: Deploy mongo-backup-watchdog
 
-# Deploys the cluster-resident CronJob that pings Discord when the
+# Deploys the cluster-resident CronJob that pings Slack #rf-alerts when the
 # daily MongoDB backup goes stale. Triggered on push to main when
 # anything under ops/k8s/mongo-backup-watchdog/** changes, or manually
 # via workflow_dispatch.
@@ -55,16 +55,16 @@ jobs:
 
       # Everything below mutates the cluster. Skipped on pull_request
       # and on workflow_dispatch with dry_run=true.
-      - name: Create/update Discord webhook Secret
+      - name: Create/update alerts-webhook Secret
         if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.dry_run != true) }}
         env:
-          WEBHOOK: ${{ secrets.DISCORD_ALERTS_WEBHOOK }}
+          WEBHOOK: ${{ secrets.SLACK_ALERTS_WEBHOOK }}
         run: |
           if [ -z "$WEBHOOK" ]; then
-            echo "::error::DISCORD_ALERTS_WEBHOOK repo secret is not set. Add it under Settings → Secrets and variables → Actions, then re-run."
+            echo "::error::SLACK_ALERTS_WEBHOOK repo secret is not set. Add it under Settings → Secrets and variables → Actions, then re-run."
             exit 1
           fi
-          kubectl create secret generic discord-alerts-webhook \
+          kubectl create secret generic alerts-webhook \
             --namespace="${{ env.NAMESPACE }}" \
             --from-literal=WEBHOOK="$WEBHOOK" \
             --dry-run=client -o yaml | kubectl apply -f -

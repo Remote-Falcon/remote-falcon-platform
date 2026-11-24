@@ -669,7 +669,7 @@ jobs:
       - name: Watch error rate and roll back regressions
         env:
           POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
-          DISCORD_ALERTS_WEBHOOK: ${{ secrets.DISCORD_ALERTS_WEBHOOK }}
+          SLACK_ALERTS_WEBHOOK: ${{ secrets.SLACK_ALERTS_WEBHOOK }}
           NS: ${{ env.NAMESPACE }}
           SERVICES: ${{ needs.detect.outputs.services }}
         run: |

@@ -1,7 +1,7 @@
 name: Deploy posthog-daily-digest
 
 # Deploys the cluster-resident CronJob that posts a daily health digest
-# to Discord. Triggers on push to main when ops/k8s/posthog-daily-digest/**
+# to Slack #rf-alerts. Triggers on push to main when ops/k8s/posthog-daily-digest/**
 # changes, or via workflow_dispatch.
 #
 # Mirrors deploy-mongo-backup-watchdog.yml in shape.
@@ -65,18 +65,18 @@ jobs:
             --from-literal=POSTHOG_API_KEY="$POSTHOG_KEY" \
             --dry-run=client -o yaml | kubectl apply -f -
 
-      - name: Create/update discord-alerts-webhook Secret
+      - name: Create/update alerts-webhook Secret
         # Idempotent: also created by deploy-mongo-backup-watchdog.yml. Whichever
         # workflow runs first wins; subsequent runs reconcile to the same value.
         if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.dry_run != true) }}
         env:
-          WEBHOOK: ${{ secrets.DISCORD_ALERTS_WEBHOOK }}
+          WEBHOOK: ${{ secrets.SLACK_ALERTS_WEBHOOK }}
         run: |
           if [ -z "$WEBHOOK" ]; then
-            echo "::error::DISCORD_ALERTS_WEBHOOK repo secret is not set."
+            echo "::error::SLACK_ALERTS_WEBHOOK repo secret is not set."
             exit 1
           fi
-          kubectl create secret generic discord-alerts-webhook \
+          kubectl create secret generic alerts-webhook \
             --namespace="${{ env.NAMESPACE }}" \
             --from-literal=WEBHOOK="$WEBHOOK" \
             --dry-run=client -o yaml | kubectl apply -f -

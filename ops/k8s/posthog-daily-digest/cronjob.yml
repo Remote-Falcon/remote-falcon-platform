@@ -1,10 +1,10 @@
 ---
-# Daily Remote Falcon health digest, posted to Discord #alerts.
+# Daily Remote Falcon health digest, posted to Slack #rf-alerts.
 #
 # Runs daily at 14:00 UTC (~09:00 America/Chicago). Queries PostHog for
 # yesterday's metrics, compares to the same-day-of-week prior week, and
-# posts a Discord embed with the deltas. The CronJob lives in the
-# cluster (not GH Actions) so it shares the same Discord webhook Secret
+# posts a Slack message with the deltas. The CronJob lives in the
+# cluster (not GH Actions) so it shares the same Slack webhook Secret
 # as mongo-backup-watchdog and stays cheap to run.
 #
 # Why not a PostHog Subscription (the obvious alternative): subscriptions
@@ -57,10 +57,10 @@ spec:
                     secretKeyRef:
                       name: posthog-api-key
                       key: POSTHOG_API_KEY
-                - name: DISCORD_WEBHOOK
+                - name: ALERTS_WEBHOOK
                   valueFrom:
                     secretKeyRef:
-                      name: discord-alerts-webhook
+                      name: alerts-webhook
                       key: WEBHOOK
               command: ["/bin/sh", "-uec"]
               args:
@@ -76,7 +76,7 @@ spec:
                   HOST = os.environ["POSTHOG_HOST"].rstrip("/")
                   PROJECT_ID = int(os.environ["POSTHOG_PROJECT_ID"])
                   API_KEY = os.environ["POSTHOG_API_KEY"]
-                  WEBHOOK = os.environ["DISCORD_WEBHOOK"]
+                  WEBHOOK = os.environ["ALERTS_WEBHOOK"]
 
 
                   def ph_request(path, body):
@@ -135,13 +135,23 @@ spec:
                       return f"({sign}{pct:.0f}% vs last week)"
 
 
-                  def post_discord(title, color, fields):
+                  def post_slack(title, color, fields):
+                      # Slack incoming webhook, legacy attachment format: keeps the
+                      # green/amber/red color bar. Markdown-style
+                      # **bold** is converted to Slack mrkdwn *bold*.
+                      def md(v):
+                          return v.replace("**", "*")
                       payload = json.dumps({
-                          "embeds": [{
+                          "attachments": [{
+                              "fallback": title,
+                              "color": f"#{color:06x}",
                               "title": title,
-                              "color": color,
-                              "fields": fields,
-                              "footer": {"text": "rf-posthog-daily-digest"},
+                              "fields": [
+                                  {"title": fl["name"], "value": md(fl["value"]), "short": bool(fl.get("inline"))}
+                                  for fl in fields
+                              ],
+                              "footer": "rf-posthog-daily-digest",
+                              "mrkdwn_in": ["text", "fields"],
                           }]
                       }).encode()
                       req = urllib.request.Request(
@@ -155,7 +165,7 @@ spec:
                       try:
                           urllib.request.urlopen(req, timeout=10).read()
                       except Exception as e:
-                          print(f"WARN: Discord POST failed: {e}", file=sys.stderr)
+                          print(f"WARN: Slack POST failed: {e}", file=sys.stderr)
 
 
                   # Date ranges: yesterday (UTC midnight) + same day prior week.
@@ -254,7 +264,7 @@ spec:
                       },
                   ]
 
-                  post_discord(
+                  post_slack(
                       f"Remote Falcon — Daily Health Digest ({yesterday_label})",
                       color,
                       fields,

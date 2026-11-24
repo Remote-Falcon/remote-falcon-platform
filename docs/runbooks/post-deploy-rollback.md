@@ -2,7 +2,7 @@
 
 **Triggered by:** [`ops/release-validation/check.py`](../../ops/release-validation/check.py) called from `.github/workflows/deploy.yml` — the "Post-deploy error-rate check" step.
 **What happened:** A deploy completed (image pushed, replicas ready), but in the 10-minute window after rollout the service's error rate exceeded 3× its 24h baseline. `kubectl rollout undo` ran automatically.
-**Where to look:** Discord `#alerts` — the bot posts the breach detail (post-deploy count, baseline, threshold) before the rollback step fires.
+**Where to look:** Slack `#rf-alerts` — the bot posts the breach detail (post-deploy count, baseline, threshold) before the rollback step fires.
 
 ## Triage (first 5 minutes)
 
@@ -61,7 +61,7 @@ Once you've identified + fixed the root cause:
 gh workflow run deploy.yml -f service=<svc>
 ```
 
-The post-deploy error-rate check runs again automatically. If the fix worked, expect a green `[deploy-check]` ping in Discord.
+The post-deploy error-rate check runs again automatically. If the fix worked, expect a green `[deploy-check]` ping in Slack `#rf-alerts`.
 
 ## Tuning the check
 

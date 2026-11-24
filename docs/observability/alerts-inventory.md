@@ -8,16 +8,19 @@ validation), see [`dashboards-inventory.md`](./dashboards-inventory.md).
 
 ## Routing
 
-All alerts route to **Discord `#alerts`** via the
-`DISCORD_ALERTS_WEBHOOK` env var (stored in `ops/.env.dev` locally;
-present as repo secret `DISCORD_ALERTS_WEBHOOK` for CI; mirrored into
-the cluster as the `discord-alerts-webhook` k8s Secret for the
-mongo-backup-watchdog CronJob).
+All alerts route to **Slack `#rf-alerts`** via a Slack incoming webhook
+in the `SLACK_ALERTS_WEBHOOK` env var (stored in `ops/.env.dev` locally;
+present as repo secret `SLACK_ALERTS_WEBHOOK` for CI; mirrored into the
+cluster as the `alerts-webhook` k8s Secret for the digest and watchdog
+CronJobs).
 
-Discord exposes a Slack-compatible endpoint at `<webhook_url>/slack`,
-which lets DO Monitoring's Slack-format payloads route to the same
-channel without a relay function. PostHog hits the webhook URL
-directly.
+DO Monitoring posts Slack-format payloads to the webhook natively. The
+in-cluster CronJobs and `ops/release-validation/check.py` post Slack
+attachments. PostHog log alerts and Error Tracking destinations are
+attached in the PostHog UI (see `ops/posthog-alerts/README.md`).
+
+Moved from Discord `#alerts` in Nov 2026 so alerts land where the
+`@Claude` Slack app can investigate them in-thread.
 
 ## Alert table
 
@@ -41,7 +44,7 @@ The `rf-mongo-*` rows replace the three older email-only DB alerts
 ("CPU is running high", "Memory Utilization is running high", "Disk
 Utilization is running high", all 90% / 5m). Those are not managed by
 `ops/do-monitoring/apply.sh`; keep them as an email backstop until the
-Discord ones have fired once, then delete them (commands in
+Slack ones have fired once, then delete them (commands in
 [`ops/do-monitoring/README.md`](../../ops/do-monitoring/README.md)).
 
 The `rf-mongo-*` alerts and `rf-mongo-unreachable` often fire together.
@@ -104,7 +107,7 @@ PostHog UI directly.
 3. Write a runbook stub under `docs/runbooks/` referenced from the
    `runbook:` field.
 4. Apply via the appropriate `apply.sh --apply`.
-5. (PostHog only) Attach the Discord destination in the UI.
+5. (PostHog only) Attach the Slack destination in the UI.
 6. Add a row to the table above in this file.
 
 ### Before you filter on `severity_levels`, verify the severity exists
@@ -166,5 +169,5 @@ These are known gaps; file an issue if any becomes a blocker:
   ingress-nginx lives in its own namespace). That would also restore real
   client IPs, which is what a `.env`-scanner rate-limit would need
   (~134k `/.env` probes/week measured 2026-08-10).
-- **CI deploy failures** — GH Actions can post to Discord directly via
+- **CI deploy failures** — GH Actions can post to Slack directly via
   workflow steps; not centralized through this inventory yet.

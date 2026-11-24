@@ -894,7 +894,7 @@ insights:
       Daily $exception count, control panel vs viewer pages, last 30 days.
       A CP spike right after a deploy is the regression signal; viewer volume
       tracks fan traffic and grows with the season. Issue-level spike alerts
-      already go to Discord via Error Tracking destinations.
+      already go to Slack via Error Tracking destinations.
     display: ActionsLineGraph
     chart_x: day
     chart_y: [cp_exceptions, viewer_exceptions]

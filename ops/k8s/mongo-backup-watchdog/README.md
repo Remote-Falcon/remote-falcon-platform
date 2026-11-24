@@ -1,7 +1,7 @@
 # mongo-backup-watchdog
 
-Cluster-resident watchdog for the daily MongoDB backup. Pings Discord
-`#alerts` when the newest backup object in DO Spaces is older than the
+Cluster-resident watchdog for the daily MongoDB backup. Pings Slack
+`#rf-alerts` when the newest backup object in DO Spaces is older than the
 threshold.
 
 This replaces the earlier GH Actions cron approach so the alert lives
@@ -16,7 +16,7 @@ already pulls from.
    12:00 CT │ mongo-backup (Deployment, @Scheduled)│──→ s3://rf-mongo-backup/mongo-backups/*.gz
             └──────────────────────────────────────┘
    20:00 UTC ┌─────────────────────────────────────┐
-   (~14CT)  │ mongo-backup-watchdog (CronJob)      │──→ Discord webhook (#alerts)
+   (~14CT)  │ mongo-backup-watchdog (CronJob)      │──→ Slack webhook (#rf-alerts)
             │  - lists newest object               │     (only when stale)
             │  - alerts if LastModified > 36h ago  │
             └─────────────────────────────────────┘
@@ -32,10 +32,10 @@ missed-check + missed-backup combination stays inside the alert window.
 | Resource | Source of truth | Notes |
 |---|---|---|
 | `CronJob/mongo-backup-watchdog` | `cronjob.yml` in this dir | Reconciled by the deploy workflow |
-| `Secret/discord-alerts-webhook` (key: `WEBHOOK`) | GH repo secret `DISCORD_ALERTS_WEBHOOK` | Created + updated by the deploy workflow on every run |
+| `Secret/alerts-webhook` (key: `WEBHOOK`) | GH repo secret `SLACK_ALERTS_WEBHOOK` | Created + updated by the deploy workflow on every run |
 | `Secret/do-s3` | Pre-existing (also used by `mongo-backup`) | Provides `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` |
 
-Rotate the Discord webhook by updating the GH repo secret and re-running
+Rotate the Slack webhook by updating the GH repo secret and re-running
 the deploy workflow — do not edit the in-cluster Secret directly.
 
 ## Operating
@@ -49,7 +49,7 @@ kubectl create job --from=cronjob/mongo-backup-watchdog \
 kubectl logs -n remote-falcon -l app=mongo-backup-watchdog --tail=50
 ```
 
-**Verify the Discord webhook is wired correctly** (one-time after first
+**Verify the Slack webhook is wired correctly** (one-time after first
 deploy, or after rotating the webhook):
 
 ```sh
@@ -79,14 +79,14 @@ kubectl get jobs -n remote-falcon -l app=mongo-backup-watchdog \
 
 `run-local.sh` extracts the inline shell script from `cronjob.yml` and
 runs it in a local docker container against the real prod bucket and
-Discord webhook. Useful for validating changes to the script without
+Slack webhook. Useful for validating changes to the script without
 shipping a deploy.
 
 ```sh
 # Smoke check (will not alert if the backup is fresh)
 ./ops/k8s/mongo-backup-watchdog/run-local.sh
 
-# Force the alert path to verify Discord wiring end-to-end
+# Force the alert path to verify Slack wiring end-to-end
 THRESHOLD_HOURS=0 ./ops/k8s/mongo-backup-watchdog/run-local.sh
 
 # Send a synthetic ping without touching S3 (useful for verifying
@@ -95,7 +95,7 @@ THRESHOLD_HOURS=0 ./ops/k8s/mongo-backup-watchdog/run-local.sh
 ```
 
 Requires `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and
-`DISCORD_ALERTS_WEBHOOK` in `ops/.env.dev`. The script extracts the
+`SLACK_ALERTS_WEBHOOK` in `ops/.env.dev`. The script extracts the
 watchdog logic from `cronjob.yml` so the two stay in sync.
 
 ## Tuning
@@ -114,7 +114,7 @@ the watchdog schedule and threshold to match.
 
 ```sh
 kubectl delete -f ops/k8s/mongo-backup-watchdog/cronjob.yml
-kubectl delete secret discord-alerts-webhook -n remote-falcon
+kubectl delete secret alerts-webhook -n remote-falcon
 ```
 
 Disable the `Deploy mongo-backup-watchdog` GH workflow if you don't

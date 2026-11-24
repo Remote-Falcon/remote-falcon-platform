@@ -5,10 +5,9 @@ Uses the DO REST API directly. Auth via DIGITALOCEAN_ACCESS_TOKEN env var
 (same token doctl uses). Idempotent: GET existing, diff against the YAML,
 POST/PUT to converge. Use --apply to mutate; default is dry-run.
 
-Discord routing: the URL named by `discord_webhook_env:` in alerts.yml is
-appended with `/slack` and passed as the slack URL. Discord exposes a
-Slack-compatible endpoint at that path, so DO's slack-format payload
-lands as a Discord message without any relay.
+Slack routing: the URL named by `webhook_env:` in alerts.yml (default
+SLACK_ALERTS_WEBHOOK) is a Slack incoming webhook for #rf-alerts. DO's
+slack destinations POST to it directly.
 
 Source env from ops/.env.dev before running:
     set -a; source ops/.env.dev; set +a
@@ -111,7 +110,7 @@ def _yaml_to_payload(alert: dict, slack_url: str, config: dict) -> dict:
     return {
         "alerts": {
             "email": [],
-            "slack": [{"channel": "alerts", "url": slack_url}],
+            "slack": [{"channel": "rf-alerts", "url": slack_url}],
         },
         "compare": alert["compare"],
         "description": alert["description"],
@@ -149,7 +148,7 @@ def main() -> int:
     args = parser.parse_args()
 
     config = yaml.safe_load(args.alerts_file.read_text())
-    webhook_env = config.get("discord_webhook_env", "DISCORD_ALERTS_WEBHOOK")
+    webhook_env = config.get("webhook_env", "SLACK_ALERTS_WEBHOOK")
 
     token = os.environ.get("DIGITALOCEAN_ACCESS_TOKEN")
     if not token:
@@ -159,9 +158,9 @@ def main() -> int:
     if not webhook_url:
         sys.exit(f"ERROR: {webhook_env} env var missing.")
 
-    # /slack suffix turns the Discord webhook into a Slack-format endpoint
-    # that DO Monitoring's slack destinations can POST to.
-    slack_url = webhook_url.rstrip("/") + "/slack"
+    # Slack incoming webhook (#rf-alerts). DO Monitoring's slack
+    # destinations POST Slack-format payloads to it directly.
+    slack_url = webhook_url
 
     mode = "APPLY" if args.apply else "DRY-RUN"
     print(f"=== DO Monitoring reconcile ({mode}) ===")

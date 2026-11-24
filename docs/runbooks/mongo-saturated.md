@@ -11,7 +11,7 @@
 
 ## Recognize (first 2 minutes)
 
-1. **CPU or memory?** DO's own alert email says only "Metric 99.5". The `rf-mongo-*` Discord message names the metric. Confirm in the DO console: Databases → `remote-falcon-mongo` → Insights.
+1. **CPU or memory?** DO's own alert email says only "Metric 99.5". The `rf-mongo-*` Slack message names the metric. Confirm in the DO console: Databases → `remote-falcon-mongo` → Insights.
 2. **What is the cluster doing?**
 
    ```sh

@@ -1,7 +1,7 @@
 # posthog-daily-digest
 
-Cluster-resident CronJob that posts a daily health digest to Discord
-`#alerts` at 14:00 UTC (~09:00 America/Chicago). Compares yesterday's
+Cluster-resident CronJob that posts a daily health digest to Slack
+`#rf-alerts` at 14:00 UTC (~09:00 America/Chicago). Compares yesterday's
 metrics to the same day of the prior week.
 
 This replaces what would naturally be a PostHog Subscription, since
@@ -10,7 +10,7 @@ subscriptions require a paid PostHog plan (free tier returns
 
 ## What's in the digest
 
-Each embed has two sections:
+Each message has two sections:
 
 **Backend** (from PostHog Logs)
 - Total error/fatal log count + delta vs last week
@@ -32,7 +32,7 @@ Color coding:
 |---|---|---|
 | `CronJob/posthog-daily-digest` | `cronjob.yml` | Reconciled by deploy workflow |
 | `Secret/posthog-api-key` (key: `POSTHOG_API_KEY`) | GH repo secret `POSTHOG_API_KEY` | Created by `deploy-daily-digest.yml`; same secret used by `ops/release-validation/` |
-| `Secret/discord-alerts-webhook` (key: `WEBHOOK`) | GH repo secret `DISCORD_ALERTS_WEBHOOK` | Shared with `mongo-backup-watchdog` — created by either workflow that runs first |
+| `Secret/alerts-webhook` (key: `WEBHOOK`) | GH repo secret `SLACK_ALERTS_WEBHOOK` | Shared with `mongo-backup-watchdog` — created by either workflow that runs first |
 
 Rotate by updating the GH repo secret + re-running the deploy workflow.
 
@@ -55,16 +55,16 @@ set -a; source ops/.env.dev; set +a
 
 `run-local.sh` extracts the inline Python script from `cronjob.yml` and
 runs it in a local docker container — same image, same code path that
-runs in cluster, against real PostHog data + Discord. Useful for
-iterating on the embed format.
+runs in cluster, against real PostHog data + Slack. Useful for
+iterating on the message format.
 
-For development without spamming Discord:
+For development without spamming Slack:
 
 ```sh
 ./ops/k8s/posthog-daily-digest/run-local.sh --dry-print
 ```
 
-(Sends the embed to a bogus URL; useful when you only care about the
+(Sends the message to a bogus URL; useful when you only care about the
 script logs.)
 
 **Suspend** (during a planned outage window):
@@ -78,8 +78,8 @@ kubectl patch cronjob posthog-daily-digest -n remote-falcon \
 
 - **Schedule:** `spec.schedule` in `cronjob.yml` — currently `0 14 * * *` UTC.
 - **Date math:** the script computes "yesterday" and "same day last week" in UTC. If you'd rather align to local time, edit the script's `datetime.now(timezone.utc)` and `today_midnight` logic.
-- **Color thresholds:** "errors > 50% above baseline = amber" is hard-coded in the embed-color logic. Edit `errors_up` / `exceptions_up` in the script if you want a different threshold.
-- **What gets reported:** Backend/Frontend sections are the v1 set. To add (e.g., DOKS node CPU averages), append to the script's query + embed `fields` list.
+- **Color thresholds:** "errors > 50% above baseline = amber" is hard-coded in the attachment-color logic. Edit `errors_up` / `exceptions_up` in the script if you want a different threshold.
+- **What gets reported:** Backend/Frontend sections are the v1 set. To add (e.g., DOKS node CPU averages), append to the script's query + attachment `fields` list.
 
 ## Rollback
 

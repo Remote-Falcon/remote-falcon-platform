@@ -1,6 +1,6 @@
 name: Deploy account-archive-watchdog
 
-# Deploys the cluster-resident CronJob that pings Discord when either
+# Deploys the cluster-resident CronJob that pings Slack #rf-alerts when either
 # of account-archive's two @Scheduled jobs stops firing. Triggered on
 # push to main when anything under ops/k8s/account-archive-watchdog/**
 # changes, or manually via workflow_dispatch.
@@ -72,19 +72,19 @@ jobs:
             --from-literal=POSTHOG_API_KEY="$POSTHOG_KEY" \
             --dry-run=client -o yaml | kubectl apply -f -
 
-      - name: Create/update discord-alerts-webhook Secret
+      - name: Create/update alerts-webhook Secret
         # Idempotent: also created by deploy-mongo-backup-watchdog.yml +
         # deploy-daily-digest.yml. Whichever workflow runs first wins;
         # subsequent runs reconcile to the same value.
         if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.dry_run != true) }}
         env:
-          WEBHOOK: ${{ secrets.DISCORD_ALERTS_WEBHOOK }}
+          WEBHOOK: ${{ secrets.SLACK_ALERTS_WEBHOOK }}
         run: |
           if [ -z "$WEBHOOK" ]; then
-            echo "::error::DISCORD_ALERTS_WEBHOOK repo secret is not set."
+            echo "::error::SLACK_ALERTS_WEBHOOK repo secret is not set."
             exit 1
           fi
-          kubectl create secret generic discord-alerts-webhook \
+          kubectl create secret generic alerts-webhook \
             --namespace="${{ env.NAMESPACE }}" \
             --from-literal=WEBHOOK="$WEBHOOK" \
             --dry-run=client -o yaml | kubectl apply -f -

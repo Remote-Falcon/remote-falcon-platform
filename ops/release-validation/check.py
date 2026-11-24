@@ -22,7 +22,7 @@ Env vars:
     POSTHOG_API_KEY            Personal API Key with logs:read scope
     POSTHOG_PROJECT_ID         (optional) override the default project
     POSTHOG_HOST               (optional, default https://us.posthog.com)
-    DISCORD_ALERTS_WEBHOOK     (optional) post outcome to Discord
+    SLACK_ALERTS_WEBHOOK       (optional) post outcome to Slack #rf-alerts
 """
 from __future__ import annotations
 
@@ -106,9 +106,20 @@ def logs_count(host: str, project_id: int, token: str, service: str, date_from: 
     return int(resp.get("count", 0))
 
 
-def post_discord(webhook: str, title: str, desc: str, color: int) -> None:
+def post_slack(webhook: str, title: str, desc: str, color: int) -> None:
+    """Post to a Slack incoming webhook (legacy attachment, keeps color bar)."""
     payload = json.dumps(
-        {"embeds": [{"title": title, "description": desc, "color": color}]}
+        {
+            "attachments": [
+                {
+                    "fallback": title,
+                    "color": f"#{color:06x}",
+                    "title": title,
+                    "text": desc.replace("**", "*"),
+                    "mrkdwn_in": ["text"],
+                }
+            ]
+        }
     ).encode()
     req = urllib.request.Request(
         webhook,
@@ -121,7 +132,7 @@ def post_discord(webhook: str, title: str, desc: str, color: int) -> None:
     try:
         urllib.request.urlopen(req, timeout=10).read()
     except Exception as e:
-        print(f"WARN: Discord POST failed: {e}", file=sys.stderr)
+        print(f"WARN: Slack POST failed: {e}", file=sys.stderr)
 
 
 def main() -> int:
@@ -147,7 +158,7 @@ def main() -> int:
 
     host = os.environ.get("POSTHOG_HOST", DEFAULT_HOST).rstrip("/")
     project_id = int(os.environ.get("POSTHOG_PROJECT_ID", DEFAULT_PROJECT_ID))
-    webhook = os.environ.get("DISCORD_ALERTS_WEBHOOK", "")
+    webhook = os.environ.get("SLACK_ALERTS_WEBHOOK", "")
 
     service = args.service
     watch_m = args.watch_minutes
@@ -166,7 +177,7 @@ def main() -> int:
         print(f"::warning::{service}: could not query PostHog ({e}); "
               f"error-rate check inconclusive, skipping rollback decision", file=sys.stderr)
         if webhook:
-            post_discord(
+            post_slack(
                 webhook,
                 f"[deploy-check] {service} — check inconclusive (PostHog unreachable)",
                 f"Could not measure post-deploy error rate: `{e}`\n"
@@ -190,7 +201,7 @@ def main() -> int:
         )
         print(f"::notice::{msg}")
         if webhook:
-            post_discord(
+            post_slack(
                 webhook,
                 f"[deploy-check] {service} — insufficient baseline",
                 f"Post-deploy {watch_m}m window: **{post_count}** errors\n"
@@ -208,7 +219,7 @@ def main() -> int:
         )
         print(f"::error::{msg}")
         if webhook:
-            post_discord(
+            post_slack(
                 webhook,
                 f"[deploy-check] {service} — ERROR RATE BREACH, rollback triggered",
                 f"Post-deploy {watch_m}m window: **{post_count}** errors\n"
@@ -225,7 +236,7 @@ def main() -> int:
     )
     print(f"::notice::{msg}")
     if webhook:
-        post_discord(
+        post_slack(
             webhook,
             f"[deploy-check] {service} — post-deploy OK",
             f"Post-deploy {watch_m}m window: **{post_count}** errors\n"

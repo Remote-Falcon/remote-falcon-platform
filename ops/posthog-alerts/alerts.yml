@@ -8,8 +8,8 @@
 # state against it: creates missing alerts, patches mismatched ones, and
 # (with --prune) removes ones that no longer appear here.
 #
-# Each alert wires a Discord webhook destination (the URL is sourced from
-# DISCORD_ALERTS_WEBHOOK in ops/.env.dev — never inlined here).
+# Each alert wires a webhook destination (the URL is sourced from
+# SLACK_ALERTS_WEBHOOK in ops/.env.dev — never inlined here).
 #
 # Field reference:
 #   filters.service_names    — match resource attribute service.name (set by the
@@ -25,9 +25,9 @@
 project_id: 425428
 posthog_host: https://us.posthog.com
 
-# Name of the env var holding the Discord webhook URL. apply.py reads
+# Name of the env var holding the Slack webhook URL. apply.py reads
 # this and passes it as the webhook destination for every alert.
-discord_webhook_env: DISCORD_ALERTS_WEBHOOK
+webhook_env: SLACK_ALERTS_WEBHOOK
 
 alerts:
   - name: rf-mongo-backup-failure

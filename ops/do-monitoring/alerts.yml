@@ -4,10 +4,8 @@
 # Dry-run:     ./ops/do-monitoring/apply.sh            (default)
 # Mutate:      ./ops/do-monitoring/apply.sh --apply
 #
-# DO Monitoring routes alerts via email and Slack-format webhooks. Discord
-# exposes a Slack-compatible endpoint at <webhook>/slack, so the same
-# DISCORD_ALERTS_WEBHOOK can serve both PostHog (native webhook) and DO
-# (Slack-format) without a relay.
+# DO Monitoring routes alerts via email and Slack-format webhooks. Alerts
+# go to the Slack #rf-alerts incoming webhook in SLACK_ALERTS_WEBHOOK.
 #
 # Identity: DO alerts have no stable name field — `description` is the
 # closest thing. The reconciler matches by description, so don't rename
@@ -32,9 +30,8 @@ doks_node_tag: "k8s:4f1406fe-1179-4a9c-9d2e-835c3da34984"
 # `target: dbaas` alerts attach to this UUID via `entities`, not tags.
 database_id: 17b9ed48-501c-491d-94da-0892d942c368
 
-# Env var holding the Discord webhook URL. apply.sh appends "/slack" to
-# get the Slack-compatible endpoint that DO Monitoring will POST to.
-discord_webhook_env: DISCORD_ALERTS_WEBHOOK
+# Env var holding the Slack incoming webhook URL (#rf-alerts).
+webhook_env: SLACK_ALERTS_WEBHOOK
 
 alerts:
   - description: "rf-doks-node-cpu-high — worker CPU > 85% for 10m"
@@ -66,7 +63,7 @@ alerts:
 
   # --- DO Managed MongoDB (remote-falcon-mongo) ---------------------------
   # Single node, no standby (2026-10-12 incident). The description is the
-  # only label DO's Slack/Discord payload carries, so each one names the
+  # only label DO's Slack payload carries, so each one names the
   # metric, threshold and window. DO's shortest window is 5m (API enum:
   # 5m/10m/30m/1h), so the page tier is 95% for 5m, not 2m.
   # The three pre-existing email-only dbaas alerts ("CPU is running high",
