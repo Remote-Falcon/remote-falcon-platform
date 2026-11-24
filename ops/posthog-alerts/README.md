@@ -4,7 +4,7 @@ Source of truth: [`alerts.yml`](./alerts.yml).
 Reconciler: [`apply.py`](./apply.py).
 
 `alerts.yml` defines every PostHog log-based alert for Remote Falcon plus
-the Discord destination wiring. `apply.py` reads it, compares against
+the Slack destination wiring. `apply.py` reads it, compares against
 PostHog's current state, and converges them. The intent is no drift: if
 an alert exists in the UI but not in this file, the reconciler tells you;
 if a threshold differs, the reconciler tells you and fixes it.
@@ -22,8 +22,8 @@ if a threshold differs, the reconciler tells you and fixes it.
    POSTHOG_API_KEY=phx_...
    ```
 
-   `DISCORD_ALERTS_WEBHOOK` should already be there from the
-   mongo-backup-watchdog work.
+   `SLACK_ALERTS_WEBHOOK` (Slack incoming webhook for `#rf-alerts`)
+   should already be there from the watchdog work.
 
 3. **Python deps:** handled automatically by `apply.sh`, which creates a
    one-time venv at `~/.cache/rf-posthog-alerts-venv` and installs PyYAML
@@ -57,7 +57,7 @@ The script prints one line per alert:
   `alerts.yml`. No automatic delete — operator decides whether to add
   the entry or remove the alert manually
 
-## Discord destinations — one-time UI attach
+## Slack destinations — one-time UI attach
 
 **Platform limitation:** PostHog rejects Personal API Key auth on the
 log-alert destinations endpoint:
@@ -76,9 +76,12 @@ To complete setup for a new alert:
 1. After `apply.sh --apply` reports the new alert was created, click
    into it in PostHog:
    [Log alerts](https://us.posthog.com/logs/alerts).
-2. In the alert's detail view, add a new destination → type `Webhook`
-   → paste the same URL stored in `DISCORD_ALERTS_WEBHOOK`.
-3. Save. From then on the alert fires to `#alerts` directly.
+2. In the alert's detail view, add a new destination. Prefer PostHog's
+   native Slack destination (channel `#rf-alerts`) if offered. Otherwise
+   use type `Webhook` with the URL in `SLACK_ALERTS_WEBHOOK`, then fire a
+   test from the alert's three-dot menu: Slack rejects payloads without a
+   `text`/`blocks` field, so if nothing lands, a relay is needed.
+3. Save. From then on the alert fires to `#rf-alerts` directly.
 
 `apply.sh` will not re-prompt about the destination on subsequent runs
 (it gracefully ignores the read-side 403 too). If you rotate the
@@ -97,12 +100,12 @@ file an issue with PostHog if you want this scripted.
    if `apply.py` grows a `--simulate <name>` flag later, that's the path.
    For now, simulate via the alert's three-dot menu in the PostHog UI.
 
-## Rotating the Discord webhook
+## Rotating the Slack webhook
 
-Webhook URL lives in the env var named by `discord_webhook_env:` in
-`alerts.yml` (default `DISCORD_ALERTS_WEBHOOK`). Rotation flow:
+Webhook URL lives in the env var named by `webhook_env:` in
+`alerts.yml` (default `SLACK_ALERTS_WEBHOOK`). Rotation flow:
 
-1. Generate the new webhook URL in Discord.
+1. Generate a new incoming webhook for `#rf-alerts` in Slack.
 2. Update `ops/.env.dev`.
 3. Re-run `apply.py --apply`. The reconciler detects that each alert's
    destination doesn't match the new URL and re-creates it.

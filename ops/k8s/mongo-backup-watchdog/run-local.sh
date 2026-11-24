@@ -3,11 +3,11 @@
 #
 # Extracts the inline script from cronjob.yml and runs it in a local
 # docker container (same image: python:3.12-alpine) against the real
-# prod bucket and Discord webhook. Validates the alert logic + Discord
+# prod bucket and Slack webhook. Validates the alert logic + Slack
 # wiring without going through the cluster.
 #
 # Required vars in ops/.env.dev (or whatever ENV_FILE points at):
-#   AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, DISCORD_ALERTS_WEBHOOK
+#   AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, SLACK_ALERTS_WEBHOOK
 #
 # Usage:
 #   ./ops/k8s/mongo-backup-watchdog/run-local.sh             # real check (no alert if fresh)
@@ -33,7 +33,7 @@ set +a
 
 : "${AWS_ACCESS_KEY_ID:?missing in $ENV_FILE}"
 : "${AWS_SECRET_ACCESS_KEY:?missing in $ENV_FILE}"
-: "${DISCORD_ALERTS_WEBHOOK:?missing in $ENV_FILE}"
+: "${SLACK_ALERTS_WEBHOOK:?missing in $ENV_FILE}"
 
 mode="${1:-check}"
 
@@ -122,19 +122,20 @@ if [ "$mode" = "list" ]; then
 fi
 
 if [ "$mode" = "test-ping" ]; then
-  echo "-> Sending synthetic test ping to Discord webhook (no S3 query)..."
+  echo "-> Sending synthetic test ping to Slack webhook (no S3 query)..."
   docker run --rm \
-    -e DISCORD_WEBHOOK="$DISCORD_ALERTS_WEBHOOK" \
+    -e ALERTS_WEBHOOK="$SLACK_ALERTS_WEBHOOK" \
     alpine:3.20 \
     /bin/sh -uc '
       apk add --no-cache curl jq >/dev/null
       jq -n "{
-        embeds: [{
+        attachments: [{
+          fallback: \"[TEST] mongo-backup alert pipeline (local)\",
           title: \"[TEST] mongo-backup alert pipeline (local)\",
-          description: \"Synthetic ping from run-local.sh on your laptop. Confirms the Discord webhook URL is valid.\",
-          color: 3447003
+          text: \"Synthetic ping from run-local.sh on your laptop. Confirms the Slack webhook URL is valid.\",
+          color: \"#3498db\"
         }]
-      }" | curl -sS -X POST -H "Content-Type: application/json" -d @- "$DISCORD_WEBHOOK"
+      }" | curl -sS -X POST -H "Content-Type: application/json" -d @- "$ALERTS_WEBHOOK"
       echo "Test ping sent."
     '
   exit 0
@@ -161,6 +162,6 @@ docker run --rm \
   -e BUCKET="rf-mongo-backup" \
   -e PREFIX="mongo-backups/" \
   -e THRESHOLD_HOURS="$THRESHOLD_HOURS" \
-  -e DISCORD_WEBHOOK="$DISCORD_ALERTS_WEBHOOK" \
+  -e ALERTS_WEBHOOK="$SLACK_ALERTS_WEBHOOK" \
   python:3.12-alpine \
   /bin/sh -uec "$SCRIPT"

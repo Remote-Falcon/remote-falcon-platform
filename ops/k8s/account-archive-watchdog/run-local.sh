@@ -3,17 +3,17 @@
 #
 # Extracts the inline Python script from cronjob.yml and runs it in a
 # local docker container (same image: python:3.12-alpine) against the
-# real PostHog + Discord. Same pattern as
+# real PostHog + Slack. Same pattern as
 # ops/k8s/posthog-daily-digest/run-local.sh and
 # ops/k8s/mongo-backup-watchdog/run-local.sh.
 #
 # Required vars in ops/.env.dev:
-#   POSTHOG_API_KEY, DISCORD_ALERTS_WEBHOOK
+#   POSTHOG_API_KEY, SLACK_ALERTS_WEBHOOK
 #
 # Usage:
-#   ./ops/k8s/account-archive-watchdog/run-local.sh             # run the watchdog, post to Discord
-#   ./ops/k8s/account-archive-watchdog/run-local.sh --dry-print  # neuter Discord webhook; print only
-#   ./ops/k8s/account-archive-watchdog/run-local.sh test-ping    # synthetic Discord ping; skip PostHog
+#   ./ops/k8s/account-archive-watchdog/run-local.sh             # run the watchdog, post to Slack
+#   ./ops/k8s/account-archive-watchdog/run-local.sh --dry-print  # neuter Slack webhook; print only
+#   ./ops/k8s/account-archive-watchdog/run-local.sh test-ping    # synthetic Slack ping; skip PostHog
 #   WINDOW_HOURS=0 ./ops/k8s/account-archive-watchdog/run-local.sh   # force the alert path (will alert)
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
@@ -33,34 +33,35 @@ set +a
 mode="${1:-check}"
 
 if [ "$mode" = "test-ping" ]; then
-  : "${DISCORD_ALERTS_WEBHOOK:?missing in $ENV_FILE}"
-  echo "-> Sending synthetic test ping to Discord webhook (no PostHog query)..."
+  : "${SLACK_ALERTS_WEBHOOK:?missing in $ENV_FILE}"
+  echo "-> Sending synthetic test ping to Slack webhook (no PostHog query)..."
   docker run --rm \
-    -e DISCORD_WEBHOOK="$DISCORD_ALERTS_WEBHOOK" \
+    -e ALERTS_WEBHOOK="$SLACK_ALERTS_WEBHOOK" \
     alpine:3.20 \
     /bin/sh -uc '
       apk add --no-cache curl jq >/dev/null
       jq -n "{
-        embeds: [{
+        attachments: [{
+          fallback: \"[TEST] account-archive-watchdog alert pipeline (local)\",
           title: \"[TEST] account-archive-watchdog alert pipeline (local)\",
-          description: \"Synthetic ping from run-local.sh on your laptop. Confirms the Discord webhook URL is valid.\",
-          color: 3447003
+          text: \"Synthetic ping from run-local.sh on your laptop. Confirms the Slack webhook URL is valid.\",
+          color: \"#3498db\"
         }]
-      }" | curl -sS -X POST -H "Content-Type: application/json" -d @- "$DISCORD_WEBHOOK"
+      }" | curl -sS -X POST -H "Content-Type: application/json" -d @- "$ALERTS_WEBHOOK"
       echo "Test ping sent."
     '
   exit 0
 fi
 
 : "${POSTHOG_API_KEY:?missing in $ENV_FILE}"
-: "${DISCORD_ALERTS_WEBHOOK:?missing in $ENV_FILE}"
+: "${SLACK_ALERTS_WEBHOOK:?missing in $ENV_FILE}"
 
-# If --dry-print is passed, neuter the Discord webhook so the script
+# If --dry-print is passed, neuter the Slack webhook so the script
 # logs the embed it would have posted but the POST fails silently.
-WEBHOOK="$DISCORD_ALERTS_WEBHOOK"
+WEBHOOK="$SLACK_ALERTS_WEBHOOK"
 if [ "$mode" = "--dry-print" ]; then
   WEBHOOK="https://example.invalid/dry-print"
-  echo "-> Dry-print mode: Discord POST will fail silently; no embed posted."
+  echo "-> Dry-print mode: Slack POST will fail silently; nothing posted."
 fi
 
 WINDOW_HOURS="${WINDOW_HOURS:-25}"
@@ -80,7 +81,7 @@ docker run --rm \
   -e POSTHOG_HOST="${POSTHOG_HOST:-https://us.posthog.com}" \
   -e POSTHOG_PROJECT_ID="${POSTHOG_PROJECT_ID:-425428}" \
   -e POSTHOG_API_KEY="$POSTHOG_API_KEY" \
-  -e DISCORD_WEBHOOK="$WEBHOOK" \
+  -e ALERTS_WEBHOOK="$WEBHOOK" \
   -e SERVICE_NAME="remote-falcon-account-archive" \
   -e WINDOW_HOURS="$WINDOW_HOURS" \
   python:3.12-alpine \

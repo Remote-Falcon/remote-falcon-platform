@@ -97,14 +97,14 @@ dashboards:
   #   users. (4) Viewer queries exclude the known kiosk / reload-loop IPs
   #   except the reload-loop detector, which exists to find new ones. (5)
   #   Traffic is seasonal and ramps Oct to Dec. Issue-level alerting is the
-  #   Error Tracking to Discord destinations, not this dashboard.
+  #   Error Tracking destinations (Slack #rf-alerts), not this dashboard.
   - name: Platform Health
     description: >-
       Frontend health for the control panel and viewer pages, split by
       surface: errors with blast radius, traffic, reload loops, script
       failures, web vitals, CP paths. CP pageviews jump ~15x on 2026-08-23
       (SPA route pageviews), so don't compare across it. Viewer counts are
-      shows or page loads. Alerting is Error Tracking to Discord.
+      shows or page loads. Alerting is Error Tracking to Slack.
     insights:
       - platform-viewer-active-shows-7d
       - platform-cp-pageviews-7d

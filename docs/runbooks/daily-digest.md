@@ -2,7 +2,7 @@
 
 **Source:** [`ops/k8s/posthog-daily-digest/`](../../ops/k8s/posthog-daily-digest/)
 **Schedule:** daily at 14:00 UTC (~09:00 America/Chicago)
-**Posts to:** Discord `#alerts`
+**Posts to:** Slack `#rf-alerts`
 
 This runbook covers two flavors of issue:
 1. The digest **didn't post** at all.
@@ -32,7 +32,7 @@ This runbook covers two flavors of issue:
    | `POSTHOG_API_KEY env var missing` | Secret didn't get created/applied | Re-run `Deploy posthog-daily-digest` workflow; confirm `POSTHOG_API_KEY` repo secret is set |
    | `403: API key missing required scope 'query:read'` | API key scopes changed/insufficient | Refresh the key with `insight:read`, `insight:write`, `dashboard:read`, `dashboard:write`, `query:read` scopes |
    | `500: ClickHouse error` | Bad HogQL query (likely from a recent change) | Test the failing query via PostHog SQL editor + iterate |
-   | `Discord POST failed: HTTP Error 403` | Discord webhook revoked/rotated | Update `DISCORD_ALERTS_WEBHOOK` repo secret; re-deploy |
+   | `Slack POST failed: HTTP Error 403/404` | Slack webhook revoked/rotated | Update `SLACK_ALERTS_WEBHOOK` repo secret; re-deploy |
    | Nothing — Job never created | CronJob suspended or schedule wrong | `kubectl get cronjob posthog-daily-digest -n remote-falcon -o yaml \| grep -E "suspend\|schedule"` |
 
 3. **Force a manual run** to recover and confirm fix:

@@ -5,7 +5,7 @@ Reconciler: [`apply.py`](./apply.py) (run via [`apply.sh`](./apply.sh)).
 
 Manages DO Monitoring alert policies declaratively: cluster node CPU,
 memory, and disk thresholds, plus the DO Managed Mongo cluster's CPU,
-memory, and disk, all wired to Discord via the `/slack`-suffix webhook
+memory, and disk, all wired to Slack `#rf-alerts` via the Slack incoming webhook
 trick.
 
 ## Why these alerts (and not others)
@@ -32,9 +32,8 @@ each description spells out the metric, threshold, and window.
 1. **DigitalOcean API token** — already in `ops/.env.dev` as
    `DIGITALOCEAN_ACCESS_TOKEN` (same token doctl and the deploy
    workflows use). Scope must include `read` + `write` on monitoring.
-2. **Discord webhook** — already in `ops/.env.dev` as
-   `DISCORD_ALERTS_WEBHOOK`. apply.py appends `/slack` to it to hit
-   Discord's Slack-compatible endpoint.
+2. **Slack webhook** — in `ops/.env.dev` as `SLACK_ALERTS_WEBHOOK`
+   (incoming webhook for `#rf-alerts`).
 
 `apply.sh` handles Python dependencies via a one-time venv at
 `~/.cache/rf-do-monitoring-venv`.
@@ -61,26 +60,17 @@ old one in DO first (otherwise it'll create a duplicate).
 `[REMOTE-ONLY]` output flags rf-* alerts that exist in DO but aren't in
 this file. The reconciler never deletes — operator decides.
 
-## Discord routing — the /slack trick
+## Slack routing
 
-DO Monitoring supports email and Slack-format webhooks; no native
-Discord. Discord exposes a Slack-compatible endpoint at
-`<webhook_url>/slack` that accepts Slack's JSON shape and reformats it
-into a Discord embed.
+DO Monitoring supports email and Slack-format webhooks natively.
+`apply.py` reads `SLACK_ALERTS_WEBHOOK` and passes it as the Slack URL
+on every policy. (Before Nov 2026 this used Discord's `/slack`
+compatibility endpoint; that trick is no longer needed.)
 
-`apply.py` reads `DISCORD_ALERTS_WEBHOOK`, appends `/slack`, and passes
-that as the Slack URL. No relay function, no separate destination
-config — same webhook serves both PostHog alerts (native webhook) and
-DO Monitoring (Slack format).
+## Rotating the Slack webhook
 
-If this stops working (Discord deprecates the endpoint, DO tightens
-allowlist), fallback is a one-page DO Function that polls the
-Monitoring API and POSTs to Discord. Not built yet — file an issue if
-it breaks.
-
-## Rotating the Discord webhook
-
-1. Generate the new webhook in Discord.
+1. Generate a new incoming webhook for `#rf-alerts` in the Slack app
+   settings (Incoming Webhooks).
 2. Update `ops/.env.dev`.
 3. Re-run `apply.sh --apply`. The reconciler detects the slack URL
    drift on every policy and updates each in place.
@@ -120,7 +110,7 @@ Three older dbaas policies predate this file: "CPU is running high",
 (90% / 5m, email-only, no metric-naming beyond that). They don't start
 with `rf-`, so the reconciler neither manages nor reports them. Keep them
 as an email backstop until the `rf-mongo-*` alerts have fired into
-Discord at least once, then delete them:
+Slack at least once, then delete them:
 
 ```sh
 doctl monitoring alert list --format UUID,Type,Description | grep dbaas

@@ -6,13 +6,13 @@
 # >=7d). PostHog error-spike alerts catch loud failures, but a silent
 # scheduler stoppage produces no logs and therefore no signal. This
 # watchdog closes that gap by checking PostHog Logs for the two
-# completion log lines daily and alerting Discord if either is missing.
+# completion log lines daily and alerting Slack #rf-alerts if either is missing.
 #
 # Runs at 14:05 UTC (just after the posthog-daily-digest at 14:00 UTC,
-# so the two land back-to-back in the same Discord scroll).
+# so the two land back-to-back in the same Slack channel).
 #
 # Mirrors ops/k8s/mongo-backup-watchdog (S3 -> PostHog Logs is the only
-# substantive difference; same image, same Secrets, same Discord shape).
+# substantive difference; same image, same Secrets, same Slack shape).
 #
 # Closes Remote-Falcon/remote-falcon-issue-tracker#148.
 # Deploy: .github/workflows/deploy-account-archive-watchdog.yml
@@ -44,7 +44,7 @@ spec:
             - name: check
               # python:3.12-alpine matches mongo-backup-watchdog +
               # posthog-daily-digest. No extra pip installs needed —
-              # stdlib urllib is enough for the PostHog + Discord HTTP.
+              # stdlib urllib is enough for the PostHog + Slack HTTP.
               image: python:3.12-alpine
               imagePullPolicy: IfNotPresent
               resources:
@@ -64,10 +64,10 @@ spec:
                     secretKeyRef:
                       name: posthog-api-key
                       key: POSTHOG_API_KEY
-                - name: DISCORD_WEBHOOK
+                - name: ALERTS_WEBHOOK
                   valueFrom:
                     secretKeyRef:
-                      name: discord-alerts-webhook
+                      name: alerts-webhook
                       key: WEBHOOK
                 - name: SERVICE_NAME
                   value: remote-falcon-account-archive
@@ -91,11 +91,11 @@ spec:
                   HOST = os.environ["POSTHOG_HOST"].rstrip("/")
                   PROJECT_ID = int(os.environ["POSTHOG_PROJECT_ID"])
                   API_KEY = os.environ["POSTHOG_API_KEY"]
-                  WEBHOOK = os.environ["DISCORD_WEBHOOK"]
+                  WEBHOOK = os.environ["ALERTS_WEBHOOK"]
                   SERVICE = os.environ["SERVICE_NAME"]
                   WINDOW_HOURS = int(os.environ["WINDOW_HOURS"])
 
-                  # Discord embed colors
+                  # Attachment colors (ints, rendered as hex)
                   RED = 15158332
                   GREEN = 5763719
 
@@ -206,30 +206,36 @@ spec:
                       return None
 
 
-                  def post_discord(title, color, fields, description=None):
-                      embed = {
+                  def post_slack(title, color, fields, description=None):
+                      # Slack incoming webhook, legacy attachment format (keeps the color bar).
+                      def md(v):
+                          return v.replace("**", "*")
+                      att = {
+                          "fallback": title,
+                          "color": f"#{color:06x}",
                           "title": title,
-                          "color": color,
-                          "fields": fields,
-                          "footer": {"text": "rf-account-archive-watchdog"},
+                          "fields": [
+                              {"title": fl["name"], "value": md(fl["value"]), "short": bool(fl.get("inline"))}
+                              for fl in fields
+                          ],
+                          "footer": "rf-account-archive-watchdog",
+                          "mrkdwn_in": ["text", "fields"],
                       }
                       if description:
-                          embed["description"] = description
-                      payload = json.dumps({"embeds": [embed]}).encode()
+                          att["text"] = md(description)
+                      payload = json.dumps({"attachments": [att]}).encode()
                       req = urllib.request.Request(
                           WEBHOOK,
                           data=payload,
                           headers={
                               "Content-Type": "application/json",
-                              # Discord rejects the default Python urllib UA
-                              # ("Python-urllib/3.12") with 403 Forbidden.
                               "User-Agent": "remote-falcon-account-archive-watchdog/1.0 (k8s CronJob)",
                           },
                       )
                       try:
                           urllib.request.urlopen(req, timeout=10).read()
                       except Exception as e:
-                          print(f"WARN: Discord POST failed: {e}", file=sys.stderr)
+                          print(f"WARN: Slack POST failed: {e}", file=sys.stderr)
 
 
                   # Time window: last WINDOW_HOURS, in ISO 8601 UTC (the format
@@ -281,7 +287,7 @@ spec:
                               "value": "\n".join(f"- {m}" for m in ok),
                               "inline": False,
                           })
-                      post_discord(
+                      post_slack(
                           "[ALERT] account-archive scheduler may have stopped",
                           RED,
                           fields,
@@ -295,7 +301,7 @@ spec:
                       sys.exit(1)
 
                   # All present — post a quiet success embed with the latest tallies
-                  # so the daily Discord scroll captures what was processed.
+                  # so the daily Slack scroll captures what was processed.
                   def fmt_tally(t):
                       return "n/a" if t is None else f"{t:,}"
 
@@ -315,7 +321,7 @@ spec:
                       "value": "k8s CronJob `account-archive-watchdog` (ns: remote-falcon)",
                       "inline": False,
                   })
-                  post_discord(
+                  post_slack(
                       "account-archive watchdog — OK",
                       GREEN,
                       fields,

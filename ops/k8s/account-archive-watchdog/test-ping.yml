@@ -1,14 +1,14 @@
 ---
-# One-shot Job to verify the Discord alerts webhook is wired correctly
+# One-shot Job to verify the Slack alerts webhook is wired correctly
 # for the account-archive-watchdog. Mirrors
 # ops/k8s/mongo-backup-watchdog/test-ping.yml.
 #
 # Apply manually after the CronJob is deployed (and after the
-# discord-alerts-webhook Secret exists in the cluster):
+# alerts-webhook Secret exists in the cluster):
 #
 #   kubectl apply -f ops/k8s/account-archive-watchdog/test-ping.yml
 #
-# If a test message appears in the #alerts Discord channel, the pipe
+# If a test message appears in the #rf-alerts Slack channel, the pipe
 # works. Then delete:
 #
 #   kubectl delete -f ops/k8s/account-archive-watchdog/test-ping.yml
@@ -47,23 +47,25 @@ spec:
               memory: 64Mi
               cpu: 100m
           env:
-            - name: DISCORD_WEBHOOK
+            - name: ALERTS_WEBHOOK
               valueFrom:
                 secretKeyRef:
-                  name: discord-alerts-webhook
+                  name: alerts-webhook
                   key: WEBHOOK
           command: ["/bin/sh", "-uc"]
           args:
             - |
               apk add --no-cache curl jq >/dev/null
               jq -n '{
-                embeds: [{
+                attachments: [{
+                  fallback: "[TEST] account-archive-watchdog alert pipeline",
                   title: "[TEST] account-archive-watchdog alert pipeline",
-                  description: "Synthetic ping from the `account-archive-watchdog-test-ping` Job. If you see this in Discord, the webhook + Secret + Job pipeline works.\n\nDelete this Job to clean up:\n```\nkubectl delete job account-archive-watchdog-test-ping -n remote-falcon\n```",
-                  color: 3447003,
+                  text: "Synthetic ping from the `account-archive-watchdog-test-ping` Job. If you see this in Slack, the webhook + Secret + Job pipeline works.\n\nDelete this Job to clean up:\n```\nkubectl delete job account-archive-watchdog-test-ping -n remote-falcon\n```",
+                  color: "#3498db",
                   fields: [
-                    {name: "Source", value: "manual test (k8s Job)"}
-                  ]
+                    {title: "Source", value: "manual test (k8s Job)"}
+                  ],
+                  mrkdwn_in: ["text", "fields"]
                 }]
-              }' | curl -sS -X POST -H "Content-Type: application/json" -d @- "$DISCORD_WEBHOOK"
+              }' | curl -sS -X POST -H "Content-Type: application/json" -d @- "$ALERTS_WEBHOOK"
               echo "Test ping sent."

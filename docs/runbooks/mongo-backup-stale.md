@@ -1,7 +1,7 @@
 # Runbook: mongo-backup is stale
 
 **Alert source:** `CronJob/mongo-backup-watchdog` in the `remote-falcon` namespace ([ops/k8s/mongo-backup-watchdog/](../../ops/k8s/mongo-backup-watchdog/))
-**Where it fires:** Discord `#alerts` (via in-cluster `discord-alerts-webhook` Secret, sourced from the `DISCORD_ALERTS_WEBHOOK` GH repo secret)
+**Where it fires:** Slack `#rf-alerts` (via in-cluster `alerts-webhook` Secret, sourced from the `SLACK_ALERTS_WEBHOOK` GH repo secret)
 **Severity:** P2 (data-loss risk; not customer-facing immediately)
 **Backup schedule:** daily at 12:00 America/Chicago
 **Watchdog schedule:** daily at 20:00 UTC (~2h after the backup window)
@@ -94,7 +94,7 @@ kubectl create job --from=cronjob/mongo-backup-watchdog \
 
 ## Testing the alert pipe
 
-To verify the Discord webhook + Secret + Job pipeline (without waiting for a real stale backup), apply the one-shot test Job:
+To verify the Slack webhook + Secret + Job pipeline (without waiting for a real stale backup), apply the one-shot test Job:
 
 ```sh
 kubectl apply -f ops/k8s/mongo-backup-watchdog/test-ping.yml

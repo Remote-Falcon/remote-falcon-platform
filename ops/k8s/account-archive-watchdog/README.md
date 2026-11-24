@@ -1,7 +1,7 @@
 # account-archive-watchdog
 
 Cluster-resident watchdog for the two `@Scheduled` jobs inside
-`apps/account-archive/`. Pings Discord `#alerts` if either
+`apps/account-archive/`. Pings Slack `#rf-alerts` if either
 `Finished archive process` or `Finished delete unverified shows process`
 log line is absent from PostHog Logs over the last 25 hours.
 
@@ -32,14 +32,14 @@ search for account-archive.
    14:05 UTC ┌──────────────────────────────────────────────┐         │
    (~09 CT)  │ account-archive-watchdog (CronJob)            │ ────────┘
              │  - /logs/count/ for both "Finished ..." lines │
-             │    over last 25h                              │──→ Discord webhook (#alerts)
+             │    over last 25h                              │──→ Slack webhook (#rf-alerts)
              │  - /logs/query/ for latest "Found N ..." tally│     - alert if missing
              │  - posts OK embed with tallies, or ALERT      │     - OK embed every day
              └──────────────────────────────────────────────┘
 ```
 
 Schedule rationale: `5 14 * * *` (14:05 UTC) lands right after
-`posthog-daily-digest` at 14:00 UTC so the daily Discord scroll has
+`posthog-daily-digest` at 14:00 UTC so the daily Slack scroll has
 both digest + watchdog side-by-side. The 25h window is the 24h
 `@Scheduled` cadence plus a 1h buffer for tick drift.
 
@@ -49,7 +49,7 @@ both digest + watchdog side-by-side. The 25h window is the 24h
 |---|---|---|
 | `CronJob/account-archive-watchdog` | `cronjob.yml` in this dir | Reconciled by the deploy workflow |
 | `Secret/posthog-api-key` (key: `POSTHOG_API_KEY`) | GH repo secret `POSTHOG_API_KEY` | Shared with `posthog-daily-digest` — created by whichever workflow runs first |
-| `Secret/discord-alerts-webhook` (key: `WEBHOOK`) | GH repo secret `DISCORD_ALERTS_WEBHOOK` | Shared with `mongo-backup-watchdog` + `posthog-daily-digest` |
+| `Secret/alerts-webhook` (key: `WEBHOOK`) | GH repo secret `SLACK_ALERTS_WEBHOOK` | Shared with `mongo-backup-watchdog` + `posthog-daily-digest` |
 
 Rotate either by updating the GH repo secret and re-running the deploy
 workflow — do not edit the in-cluster Secret directly.
@@ -65,7 +65,7 @@ kubectl create job --from=cronjob/account-archive-watchdog \
 kubectl logs -n remote-falcon -l app=account-archive-watchdog --tail=80
 ```
 
-**Verify the Discord webhook is wired correctly** (one-time after first
+**Verify the Slack webhook is wired correctly** (one-time after first
 deploy, or after rotating the webhook):
 
 ```sh
@@ -95,24 +95,24 @@ kubectl get jobs -n remote-falcon -l app=account-archive-watchdog \
 
 `run-local.sh` extracts the inline Python script from `cronjob.yml`
 and runs it in a local docker container against real PostHog data and
-the real Discord webhook. Useful for iterating on the embed shape or
+the real Slack webhook. Useful for iterating on the message shape or
 the search terms without shipping a deploy.
 
 ```sh
-# Smoke check (will post the OK embed if both jobs completed in last 25h)
+# Smoke check (will post the OK message if both jobs completed in last 25h)
 ./ops/k8s/account-archive-watchdog/run-local.sh
 
-# Force the alert path to verify Discord wiring end-to-end
+# Force the alert path to verify Slack wiring end-to-end
 WINDOW_HOURS=0 ./ops/k8s/account-archive-watchdog/run-local.sh
 
-# Print embed payload without POSTing to Discord
+# Print payload without POSTing to Slack
 ./ops/k8s/account-archive-watchdog/run-local.sh --dry-print
 
 # Send a synthetic ping without touching PostHog (useful after a webhook rotation)
 ./ops/k8s/account-archive-watchdog/run-local.sh test-ping
 ```
 
-Requires `POSTHOG_API_KEY` and `DISCORD_ALERTS_WEBHOOK` in
+Requires `POSTHOG_API_KEY` and `SLACK_ALERTS_WEBHOOK` in
 `ops/.env.dev`. The script extracts the watchdog logic from
 `cronjob.yml` so the two stay in sync.
 
@@ -137,12 +137,12 @@ kubectl delete -f ops/k8s/account-archive-watchdog/cronjob.yml
 
 Disable the `Deploy account-archive-watchdog` GH workflow if you don't
 want it recreating things on next push to the manifest path. Do **not**
-delete the shared `posthog-api-key` or `discord-alerts-webhook`
+delete the shared `posthog-api-key` or `alerts-webhook`
 Secrets — both are used by other watchdogs.
 
 ## Runbook
 
-When the watchdog fires, the embed names which process(es) missed.
+When the watchdog fires, the message names which process(es) missed.
 Check, in order:
 
 1. **Is account-archive running?**

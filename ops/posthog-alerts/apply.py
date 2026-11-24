@@ -7,8 +7,8 @@ each one to converge. Use --apply to actually mutate; default is dry-run.
 Auth: POSTHOG_API_KEY env var (Personal API Key with the `log_alert:read`,
 `log_alert:write` scopes — create at /settings/user-api-keys).
 
-Destination: Discord webhook URL read from the env var named by
-`discord_webhook_env:` in alerts.yml (default DISCORD_ALERTS_WEBHOOK).
+Destination: Slack webhook URL read from the env var named by
+`webhook_env:` in alerts.yml (default SLACK_ALERTS_WEBHOOK).
 
 Source the env from ops/.env.dev before running:
     set -a; source ops/.env.dev; set +a
@@ -248,7 +248,7 @@ def main() -> int:
     config = yaml.safe_load(args.alerts_file.read_text())
     project_id = config["project_id"]
     host = config.get("posthog_host", "https://us.posthog.com").rstrip("/")
-    webhook_env = config.get("discord_webhook_env", "DISCORD_ALERTS_WEBHOOK")
+    webhook_env = config.get("webhook_env", "SLACK_ALERTS_WEBHOOK")
 
     token = os.environ.get("POSTHOG_API_KEY") or os.environ.get("POSTHOG_API_TOKEN")
     if not token:
@@ -269,7 +269,7 @@ def main() -> int:
     remote_alerts = list_alerts(host, project_id, token)
     remote_by_name = {a["name"]: a for a in remote_alerts}
     desired_names: set[str] = set()
-    # (alert_name, alert_id) pairs that need manual Discord webhook attach
+    # (alert_name, alert_id) pairs that need manual webhook attach
     # because PostHog blocks destination creation via Personal API Key.
     pending_destinations: list[tuple[str, str]] = []
     # Alerts whose destination wiring we could not read back (PostHog 405s
@@ -309,7 +309,7 @@ def main() -> int:
                 #
                 # PostHog 405s this endpoint unconditionally, so in practice
                 # this branch is ALWAYS taken and destination drift is never
-                # detected: if someone deletes the Discord webhook in the UI,
+                # detected: if someone deletes the webhook in the UI,
                 # every future run still prints [OK]. Say so out loud rather
                 # than let a clean [OK] imply the routing was verified.
                 needs_dest = False
@@ -357,7 +357,7 @@ def main() -> int:
     if pending_destinations:
         print()
         print(
-            "!! The following alerts were created/updated but their Discord webhook"
+            "!! The following alerts were created/updated but their webhook"
         )
         print(
             "   destination could NOT be attached via REST (PostHog blocks Personal"

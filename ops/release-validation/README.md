@@ -25,7 +25,7 @@ them back automatically before customers feel the full impact.
 - `POSTHOG_API_KEY` — Personal API Key with `logs:read` scope. **Add as GitHub repo secret** so `deploy.yml` can use it.
 - `POSTHOG_HOST` (optional, default `https://us.posthog.com`)
 - `POSTHOG_PROJECT_ID` (optional, default 425428)
-- `DISCORD_ALERTS_WEBHOOK` (optional but recommended) — posts the result (OK / breach / insufficient baseline) to Discord either way, so on-call always sees deploy outcomes.
+- `SLACK_ALERTS_WEBHOOK` (optional but recommended) — posts the result (OK / breach / insufficient baseline) to Slack `#rf-alerts` either way, so on-call always sees deploy outcomes.
 
 ## Exit codes
 
@@ -59,5 +59,5 @@ python3 ops/release-validation/check.py --service viewer --watch-minutes 10
 ```
 
 Outputs the comparison numbers and the decision; safe to run against
-prod since it's all read queries (Discord ping included unless you
-unset `DISCORD_ALERTS_WEBHOOK`).
+prod since it's all read queries (Slack ping included unless you
+unset `SLACK_ALERTS_WEBHOOK`).

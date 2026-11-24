@@ -116,8 +116,8 @@ new ones must too.
 
 | Report | Schedule | Source of truth | Destination |
 |---|---|---|---|
-| Daily PostHog digest | Daily at 14:00 UTC | [`ops/k8s/posthog-daily-digest/cronjob.yml`](../../ops/k8s/posthog-daily-digest/cronjob.yml) | Discord `#alerts` |
-| Post-deploy error-rate check | Per deploy (10min after rollout) | [`ops/release-validation/check.py`](../../ops/release-validation/check.py) | Discord `#alerts` (verdict ping) + GH Actions logs |
+| Daily PostHog digest | Daily at 14:00 UTC | [`ops/k8s/posthog-daily-digest/cronjob.yml`](../../ops/k8s/posthog-daily-digest/cronjob.yml) | Slack `#rf-alerts` |
+| Post-deploy error-rate check | Per deploy (10min after rollout) | [`ops/release-validation/check.py`](../../ops/release-validation/check.py) | Slack `#rf-alerts` (verdict ping) + GH Actions logs |
 
 ## Why no backend dashboard
 
