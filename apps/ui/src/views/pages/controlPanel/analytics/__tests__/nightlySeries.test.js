@@ -4,70 +4,61 @@ import moment from 'moment-timezone';
 import { buildNightlySeries } from '../nightlySeries';
 
 // Feeds the "Requests per night" line chart on the Overview tab. The
-// server returns only days that have stats, so this helper fills the
-// gaps with zeros. Without that, ApexCharts draws a straight line across
-// dark nights and the chart overstates the trend.
+// server zero-fills the whole requested range, future days included, so
+// the helper's job is to stop the line at tonight: otherwise a season
+// range picked mid-season ends in a run of zeros that reads as demand
+// collapsing.
 
 const TZ = 'America/New_York';
 const dayMs = (ymd, tz = TZ) => moment.tz(ymd, tz).startOf('day').valueOf();
-const range = (start, end, tz = TZ) => ({
-  start: moment.tz(start, tz).startOf('day').toISOString(),
-  end: moment.tz(end, tz).endOf('day').toISOString()
-});
+// 9pm Dec 2 in New York (02:00Z Dec 3): still "tonight" = Dec 2.
+const NOW = moment.tz('2026-12-02 21:00', TZ).valueOf();
 
 describe('buildNightlySeries', () => {
-  it('emits one point per night in range, zero-filling nights with no stats', () => {
+  it('maps server rows to [date, total] points, keeping zero nights', () => {
     const days = [
       { date: dayMs('2026-12-01'), total: 40 },
-      { date: dayMs('2026-12-03'), total: 55 }
+      { date: dayMs('2026-12-02'), total: 0 }
     ];
-    const series = buildNightlySeries(days, range('2026-12-01', '2026-12-04'), TZ);
-    expect(series).toEqual([
+    expect(buildNightlySeries(days, TZ, NOW)).toEqual([
       [dayMs('2026-12-01'), 40],
-      [dayMs('2026-12-02'), 0],
-      [dayMs('2026-12-03'), 55],
-      [dayMs('2026-12-04'), 0]
-    ]);
-  });
-
-  it('buckets a late-evening UTC timestamp onto the show-local night', () => {
-    // 2026-12-02T03:30Z is 10:30pm on Dec 1 in New York.
-    const days = [{ date: '2026-12-02T03:30:00Z', total: 12 }];
-    const series = buildNightlySeries(days, range('2026-12-01', '2026-12-02'), TZ);
-    expect(series).toEqual([
-      [dayMs('2026-12-01'), 12],
       [dayMs('2026-12-02'), 0]
     ]);
   });
 
-  it('sums duplicate entries that land on the same show-local night', () => {
+  it('drops nights after tonight in the show timezone', () => {
     const days = [
-      { date: dayMs('2026-12-01'), total: 3 },
-      { date: dayMs('2026-12-01') + 60_000, total: 4 }
+      { date: dayMs('2026-12-01'), total: 40 },
+      { date: dayMs('2026-12-02'), total: 55 },
+      { date: dayMs('2026-12-03'), total: 0 },
+      { date: dayMs('2026-12-04'), total: 0 }
     ];
-    expect(buildNightlySeries(days, range('2026-12-01', '2026-12-01'), TZ)).toEqual([[dayMs('2026-12-01'), 7]]);
+    expect(buildNightlySeries(days, TZ, NOW)).toEqual([
+      [dayMs('2026-12-01'), 40],
+      [dayMs('2026-12-02'), 55]
+    ]);
   });
 
-  it('drops stats outside the selected range', () => {
-    const days = [
-      { date: dayMs('2026-11-30'), total: 99 },
-      { date: dayMs('2026-12-01'), total: 5 }
-    ];
-    expect(buildNightlySeries(days, range('2026-12-01', '2026-12-01'), TZ)).toEqual([[dayMs('2026-12-01'), 5]]);
+  it('uses the show timezone, not UTC, to decide what tonight is', () => {
+    // At NOW it is already Dec 3 in UTC, but Dec 3 has not started in New York.
+    const days = [{ date: dayMs('2026-12-03'), total: 0 }];
+    expect(buildNightlySeries(days, TZ, NOW)).toEqual([]);
+    expect(buildNightlySeries([{ date: dayMs('2026-12-03', 'UTC'), total: 1 }], 'UTC', NOW)).toEqual([
+      [dayMs('2026-12-03', 'UTC'), 1]
+    ]);
   });
 
-  it('treats a missing total as zero', () => {
-    const days = [{ date: dayMs('2026-12-01') }];
-    expect(buildNightlySeries(days, range('2026-12-01', '2026-12-01'), TZ)).toEqual([[dayMs('2026-12-01'), 0]]);
+  it('accepts Long dates serialized as strings', () => {
+    expect(buildNightlySeries([{ date: String(dayMs('2026-12-01')), total: 3 }], TZ, NOW)).toEqual([[dayMs('2026-12-01'), 3]]);
   });
 
-  it('returns an empty series without a usable range or timezone', () => {
-    expect(buildNightlySeries([], null, TZ)).toEqual([]);
-    expect(buildNightlySeries([], { start: null, end: null }, TZ)).toEqual([]);
-    expect(buildNightlySeries([], range('2026-12-01', '2026-12-02'), undefined)).toEqual([]);
+  it('treats a missing total as zero and skips rows without a date', () => {
+    const days = [{ date: dayMs('2026-12-01') }, { total: 9 }, null];
+    expect(buildNightlySeries(days, TZ, NOW)).toEqual([[dayMs('2026-12-01'), 0]]);
   });
 
-  it('handles undefined days', () => {
-    expect(buildNightlySeries(undefined, range('2026-12-01', '2026-12-01'), TZ)).toEqual([[dayMs('2026-12-01'), 0]]);
+  it('returns an empty series without days or a timezone', () => {
+    expect(buildNightlySeries(undefined, TZ, NOW)).toEqual([]);
+    expect(buildNightlySeries([{ date: dayMs('2026-12-01'), total: 1 }], undefined, NOW)).toEqual([]);
   });
 });

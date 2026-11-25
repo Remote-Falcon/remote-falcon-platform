@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import moment from 'moment-timezone';
 
@@ -7,7 +7,6 @@ const day = (ymd) => moment.tz(ymd, TZ).startOf('day').valueOf();
 
 const mocks = vi.hoisted(() => ({
   state: { show: { show: { preferences: { viewerControlMode: 'JUKEBOX' } } } },
-  stats: { data: undefined, loading: false },
   chartProps: null
 }));
 
@@ -16,16 +15,8 @@ vi.mock('../../../../../store', () => ({
 }));
 
 vi.mock('../useAnalyticsFilters', () => ({
-  default: () => ({
-    range: {
-      start: moment.tz('2026-12-01', 'America/New_York').startOf('day').toISOString(),
-      end: moment.tz('2026-12-03', 'America/New_York').endOf('day').toISOString()
-    },
-    timezone: 'America/New_York'
-  })
+  default: () => ({ timezone: 'America/New_York' })
 }));
-
-vi.mock('../useDashboardStats', () => ({ default: () => mocks.stats }));
 
 // ApexCharts needs a real layout engine; capture what the card hands it.
 vi.mock('../../dashboard/ApexLineChart', () => ({
@@ -43,23 +34,32 @@ const setMode = (viewerControlMode) => {
 
 describe('RequestsPerNight', () => {
   beforeEach(() => {
+    // "Tonight" is Dec 3; the server zero-fills the range past it.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(moment.tz('2026-12-03 20:00', TZ).toDate());
     setMode('JUKEBOX');
-    mocks.stats = { data: undefined, loading: false };
     mocks.chartProps = null;
   });
 
-  it('charts jukebox requests per night, zero-filling dark nights', () => {
-    mocks.stats = {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('charts jukebox requests per night through tonight, not the future zero-fill', () => {
+    const stats = {
       loading: false,
       data: {
         jukeboxByDate: [
           { date: day('2026-12-01'), total: 40 },
-          { date: day('2026-12-03'), total: 1200 }
+          { date: day('2026-12-02'), total: 0 },
+          { date: day('2026-12-03'), total: 1200 },
+          { date: day('2026-12-04'), total: 0 },
+          { date: day('2026-12-05'), total: 0 }
         ],
         votingByDate: [{ date: day('2026-12-02'), total: 999 }]
       }
     };
-    render(<RequestsPerNight />);
+    render(<RequestsPerNight stats={stats} />);
 
     expect(screen.getByText('Requests per night')).toBeTruthy();
     expect(screen.getByText('1,240 requests across 3 nights')).toBeTruthy();
@@ -77,28 +77,40 @@ describe('RequestsPerNight', () => {
 
   it('charts votes in voting mode', () => {
     setMode('VOTING');
-    mocks.stats = {
+    const stats = {
       loading: false,
-      data: { jukeboxByDate: [{ date: day('2026-12-01'), total: 5 }], votingByDate: [{ date: day('2026-12-02'), total: 7 }] }
+      data: {
+        jukeboxByDate: [{ date: day('2026-12-01'), total: 5 }],
+        votingByDate: [
+          { date: day('2026-12-01'), total: 0 },
+          { date: day('2026-12-02'), total: 7 }
+        ]
+      }
     };
-    render(<RequestsPerNight />);
+    render(<RequestsPerNight stats={stats} />);
 
     expect(screen.getByText('Votes per night')).toBeTruthy();
     expect(mocks.chartProps.chartData.name).toBe('Votes');
-    expect(mocks.chartProps.chartData.data.map(([, v]) => v)).toEqual([0, 7, 0]);
+    expect(mocks.chartProps.chartData.data.map(([, v]) => v)).toEqual([0, 7]);
   });
 
   it('shows an empty state instead of a flat line when the range has none', () => {
-    mocks.stats = { loading: false, data: { jukeboxByDate: [] } };
-    render(<RequestsPerNight />);
+    render(<RequestsPerNight stats={{ loading: false, data: { jukeboxByDate: [{ date: day('2026-12-01'), total: 0 }] } }} />);
 
     expect(screen.getByText('No requests in this range yet')).toBeTruthy();
     expect(screen.queryByTestId('line-chart')).toBeNull();
   });
 
+  it('reports a failed fetch instead of claiming there were no requests', () => {
+    render(<RequestsPerNight stats={{ loading: false, data: undefined, error: new Error('timeout') }} />);
+
+    expect(screen.getByText("Couldn't load requests")).toBeTruthy();
+    expect(screen.queryByText(/No requests/)).toBeNull();
+    expect(screen.queryByTestId('line-chart')).toBeNull();
+  });
+
   it('shows a skeleton while loading', () => {
-    mocks.stats = { loading: true, data: undefined };
-    render(<RequestsPerNight />);
+    render(<RequestsPerNight stats={{ loading: true, data: undefined }} />);
 
     expect(screen.getByText('Requests per night')).toBeTruthy();
     expect(screen.queryByTestId('line-chart')).toBeNull();

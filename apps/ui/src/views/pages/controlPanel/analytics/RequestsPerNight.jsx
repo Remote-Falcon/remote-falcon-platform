@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
 
 import { Skeleton, Typography } from '@mui/material';
-import { IconChartLine } from '@tabler/icons-react';
+import { IconAlertTriangle, IconChartLine } from '@tabler/icons-react';
+import PropTypes from 'prop-types';
 
 import EmptyState from '../../../../ui-component/EmptyState';
 import MainCard from '../../../../ui-component/cards/MainCard';
@@ -11,24 +12,23 @@ import ApexLineChart from '../dashboard/ApexLineChart';
 
 import { buildNightlySeries } from './nightlySeries';
 import useAnalyticsFilters from './useAnalyticsFilters';
-import useDashboardStats from './useDashboardStats';
 
 // Show-total requests (jukebox) or votes (voting) per night across the
 // selected range. Restores the "Sequence Requests by Date" line chart the
 // old dashboard had before the May 2026 rebuild; operators asked for the
-// simple trend line back.
-const RequestsPerNight = () => {
-  const { range, timezone } = useAnalyticsFilters();
+// simple trend line back. stats is the useDashboardStats result,
+// fetched once by OverviewTab.
+const RequestsPerNight = ({ stats }) => {
+  const { timezone } = useAnalyticsFilters();
   const { show } = useSelector((state) => state.show);
-  const stats = useDashboardStats(range);
 
   const isJukebox = show?.preferences?.viewerControlMode === ViewerControlMode.JUKEBOX;
   const noun = isJukebox ? 'Requests' : 'Votes';
   const title = `${noun} per night`;
 
   const series = useMemo(
-    () => buildNightlySeries(stats.data?.[isJukebox ? 'jukeboxByDate' : 'votingByDate'], range, timezone),
-    [stats.data, isJukebox, range, timezone]
+    () => buildNightlySeries(stats.data?.[isJukebox ? 'jukeboxByDate' : 'votingByDate'], timezone),
+    [stats.data, isJukebox, timezone]
   );
   const total = useMemo(() => series.reduce((acc, [, value]) => acc + value, 0), [series]);
   const chartData = useMemo(() => ({ name: noun, yValue: `${noun}: `, data: series }), [noun, series]);
@@ -37,6 +37,20 @@ const RequestsPerNight = () => {
     return (
       <MainCard title={title}>
         <Skeleton variant="rectangular" height={350} sx={{ borderRadius: 1 }} />
+      </MainCard>
+    );
+  }
+
+  // Without this the failed fetch falls through to the empty state and a
+  // busy night reads as "no requests".
+  if (stats.error) {
+    return (
+      <MainCard title={title}>
+        <EmptyState
+          icon={<IconAlertTriangle size={32} stroke={1.5} />}
+          title={`Couldn't load ${noun.toLowerCase()}`}
+          description="Something went wrong fetching your stats. Refresh the page to try again."
+        />
       </MainCard>
     );
   }
@@ -65,6 +79,10 @@ const RequestsPerNight = () => {
       <ApexLineChart chartData={chartData} timezone={timezone} />
     </MainCard>
   );
+};
+
+RequestsPerNight.propTypes = {
+  stats: PropTypes.shape({ data: PropTypes.object, loading: PropTypes.bool, error: PropTypes.object }).isRequired
 };
 
 export default RequestsPerNight;

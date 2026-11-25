@@ -1,24 +1,15 @@
 import moment from 'moment-timezone';
 
 // Turns a DASHBOARD_STATS per-day block (jukeboxByDate / votingByDate /
-// page) into [startOfNightMs, total] points, one per show-local night in
-// the selected range. The server only returns days that have stats, so
-// nights without any are filled with 0: otherwise the line chart would
-// draw straight across dark nights and overstate the trend.
-export const buildNightlySeries = (days, range, timezone) => {
-  if (!range?.start || !range?.end || !timezone) return [];
-
-  const totals = new Map();
-  (days || []).forEach((day) => {
-    if (day?.date == null) return;
-    const key = moment.tz(day.date, timezone).format('YYYY-MM-DD');
-    totals.set(key, (totals.get(key) || 0) + (day.total || 0));
-  });
-
-  const end = moment.tz(range.end, timezone);
-  const series = [];
-  for (let cursor = moment.tz(range.start, timezone).startOf('day'); cursor.isSameOrBefore(end, 'day'); cursor.add(1, 'day')) {
-    series.push([cursor.valueOf(), totals.get(cursor.format('YYYY-MM-DD')) || 0]);
-  }
-  return series;
+// page) into [startOfNightMs, total] chart points. The server already
+// zero-fills every day of the requested range, including days that have
+// not happened yet: a "This Christmas" range picked on Nov 25 runs to
+// Jan 7. Those future zeros would read as demand collapsing, so the
+// series stops at tonight in the show's timezone.
+export const buildNightlySeries = (days, timezone, now = Date.now()) => {
+  if (!timezone) return [];
+  const endOfTonight = moment.tz(now, timezone).endOf('day').valueOf();
+  return (days || [])
+    .filter((day) => day?.date != null && Number(day.date) <= endOfTonight)
+    .map((day) => [Number(day.date), day.total || 0]);
 };
