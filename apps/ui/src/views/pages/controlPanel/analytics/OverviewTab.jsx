@@ -9,6 +9,7 @@ import { ViewerControlMode } from '../../../../utils/enum';
 import CalendarHeatmap from './CalendarHeatmap';
 import HourlyHeatmap from './HourlyHeatmap';
 import QrVisitsTile from './QrVisitsTile';
+import RequestsPerNight from './RequestsPerNight';
 import useAnalyticsFilters from './useAnalyticsFilters';
 import useDashboardStats from './useDashboardStats';
 
@@ -141,6 +142,7 @@ const HeroStatsRow = () => {
 const OverviewTab = () => (
   <Stack spacing={2}>
     <HeroStatsRow />
+    <RequestsPerNight />
     <CalendarHeatmap />
     <HourlyHeatmap />
   </Stack>
