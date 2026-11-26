@@ -4,12 +4,12 @@ import * as React from 'react';
 import { Box, Skeleton, Stack, Typography } from '@mui/material';
 import { IconCalendar } from '@tabler/icons-react';
 import moment from 'moment-timezone';
+import PropTypes from 'prop-types';
 
 import EmptyState from '../../../../ui-component/EmptyState';
 import MainCard from '../../../../ui-component/cards/MainCard';
 
 import useAnalyticsFilters from './useAnalyticsFilters';
-import useDashboardStats from './useDashboardStats';
 
 // V3 — Calendar heatmap.
 //
@@ -41,9 +41,9 @@ const colorFor = (intensity) => {
 
 const DOW_LABELS = ['Sun', '', 'Tue', '', 'Thu', '', 'Sat'];
 
-const CalendarHeatmap = () => {
+// stats: the useDashboardStats result, fetched once by OverviewTab.
+const CalendarHeatmap = ({ stats }) => {
   const { range, timezone } = useAnalyticsFilters();
-  const stats = useDashboardStats(range);
 
   const grid = useMemo(() => {
     if (!range?.start || !range?.end) return null;
@@ -210,6 +210,10 @@ const CalendarHeatmap = () => {
       </Box>
     </MainCard>
   );
+};
+
+CalendarHeatmap.propTypes = {
+  stats: PropTypes.shape({ data: PropTypes.object, loading: PropTypes.bool }).isRequired
 };
 
 export default CalendarHeatmap;

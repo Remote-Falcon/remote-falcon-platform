@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 
 import { Grid, Skeleton, Stack } from '@mui/material';
+import PropTypes from 'prop-types';
 
 import StatTile from '../../../../ui-component/StatTile';
 import { useSelector } from '../../../../store';
@@ -9,6 +10,7 @@ import { ViewerControlMode } from '../../../../utils/enum';
 import CalendarHeatmap from './CalendarHeatmap';
 import HourlyHeatmap from './HourlyHeatmap';
 import QrVisitsTile from './QrVisitsTile';
+import RequestsPerNight from './RequestsPerNight';
 import useAnalyticsFilters from './useAnalyticsFilters';
 import useDashboardStats from './useDashboardStats';
 
@@ -31,10 +33,9 @@ const formatPctDelta = (current, prior) => {
   };
 };
 
-const HeroStatsRow = () => {
-  const { range, priorRange, compareToPrior } = useAnalyticsFilters();
+const HeroStatsRow = ({ current }) => {
+  const { priorRange, compareToPrior } = useAnalyticsFilters();
   const { show } = useSelector((state) => state.show);
-  const current = useDashboardStats(range);
   const prior = useDashboardStats(compareToPrior ? priorRange : null);
 
   const isJukebox = show?.preferences?.viewerControlMode === ViewerControlMode.JUKEBOX;
@@ -138,12 +139,24 @@ const HeroStatsRow = () => {
 // V1 NarrativeSummary was removed at user request — its templated paragraph
 // took up real estate without earning the read. The hero stats row now
 // leads the page directly.
-const OverviewTab = () => (
-  <Stack spacing={2}>
-    <HeroStatsRow />
-    <CalendarHeatmap />
-    <HourlyHeatmap />
-  </Stack>
-);
+// One DASHBOARD_STATS fetch for the range, shared by every card below:
+// the query's cost scales with the show's whole stats history, so each
+// card fetching its own copy multiplied Mongo load on large shows.
+const statsShape = PropTypes.shape({ data: PropTypes.object, loading: PropTypes.bool, error: PropTypes.object });
+
+HeroStatsRow.propTypes = { current: statsShape.isRequired };
+
+const OverviewTab = () => {
+  const { range } = useAnalyticsFilters();
+  const stats = useDashboardStats(range);
+  return (
+    <Stack spacing={2}>
+      <HeroStatsRow current={stats} />
+      <RequestsPerNight stats={stats} />
+      <CalendarHeatmap stats={stats} />
+      <HourlyHeatmap />
+    </Stack>
+  );
+};
 
 export default OverviewTab;
